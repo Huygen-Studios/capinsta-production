@@ -1,0 +1,223 @@
+import { describe, expect, test } from "bun:test"
+import {
+  normalizeCapinstaJobStatus,
+  pollCapinstaJobUntilDone,
+} from "./jobPolling"
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  })
+}
+
+describe("Capinsta job polling", () => {
+  test("normalizes backend job statuses", () => {
+    expect(normalizeCapinstaJobStatus("queued")).toBe("running")
+    expect(normalizeCapinstaJobStatus("uploaded")).toBe("running")
+    expect(normalizeCapinstaJobStatus("extracting")).toBe("running")
+    expect(normalizeCapinstaJobStatus("extracting_audio")).toBe("running")
+    expect(normalizeCapinstaJobStatus("aligning")).toBe("running")
+    expect(normalizeCapinstaJobStatus("normalizing")).toBe("running")
+    expect(normalizeCapinstaJobStatus("romanizing")).toBe("running")
+    expect(normalizeCapinstaJobStatus("chunking")).toBe("running")
+    expect(normalizeCapinstaJobStatus("rendering")).toBe("running")
+    expect(normalizeCapinstaJobStatus("rendering_captions")).toBe("running")
+    expect(normalizeCapinstaJobStatus("finalizing")).toBe("running")
+    expect(normalizeCapinstaJobStatus("saving")).toBe("running")
+    expect(normalizeCapinstaJobStatus("started")).toBe("running")
+    expect(normalizeCapinstaJobStatus("done")).toBe("completed")
+    expect(normalizeCapinstaJobStatus("complete")).toBe("completed")
+    expect(normalizeCapinstaJobStatus("succeeded")).toBe("completed")
+    expect(normalizeCapinstaJobStatus("failure")).toBe("failed")
+    expect(normalizeCapinstaJobStatus("error")).toBe("failed")
+    expect(normalizeCapinstaJobStatus("canceled")).toBe("failed")
+    expect(normalizeCapinstaJobStatus("mystery")).toBe("unknown")
+  })
+
+  test.each(["rendering", "finalizing"])(
+    "continues polling while the backend is %s",
+    async (processingStatus) => {
+      const statuses = [processingStatus, "completed"]
+      const result = await pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        intervalMs: 1,
+        sleep: async () => undefined,
+        fetchImpl: async () =>
+          jsonResponse({
+            job_id: "job-001",
+            status: statuses.shift() ?? "completed",
+            progress: statuses.length === 0 ? 100 : 95,
+            filename: "sample.mp4",
+            languageMode: "english",
+            segments: [{ start: 0, end: 1, text: "Done", words: [] }],
+          }),
+      })
+
+      expect(result.status).toBe("completed")
+    },
+  )
+
+  test("polls until a job completes", async () => {
+    const statuses = ["queued", "processing", "completed"]
+    const seenProgress: number[] = []
+    const result = await pollCapinstaJobUntilDone({
+      baseUrl: "http://127.0.0.1:8000",
+      jobId: "job-001",
+      intervalMs: 1,
+      sleep: async () => undefined,
+      onProgress: (job) => seenProgress.push(job.progress),
+      fetchImpl: async () =>
+        jsonResponse({
+          job_id: "job-001",
+          status: statuses.shift() ?? "completed",
+          progress: statuses.length === 0 ? 100 : 20,
+          filename: "sample.mp4",
+          languageMode: "english",
+          segments: [
+            { start: 0, end: 1, text: "Done", words: [] },
+          ],
+        }),
+    })
+
+    expect(result.status).toBe("completed")
+    expect(seenProgress).toEqual([20, 20, 100])
+  })
+
+  test("continues polling while the backend is normalizing", async () => {
+    const statuses = ["queued", "normalizing", "completed"]
+    const seenStatuses: string[] = []
+    const result = await pollCapinstaJobUntilDone({
+      baseUrl: "http://127.0.0.1:8000",
+      jobId: "job-001",
+      intervalMs: 1,
+      sleep: async () => undefined,
+      onProgress: (job) => seenStatuses.push(job.status),
+      fetchImpl: async () =>
+        jsonResponse({
+          job_id: "job-001",
+          status: statuses.shift() ?? "completed",
+          progress: statuses.length === 0 ? 100 : 65,
+          filename: "sample.mp4",
+          languageMode: "english",
+          segments: [
+            { start: 0, end: 1, text: "Done", words: [] },
+          ],
+        }),
+    })
+
+    expect(result.status).toBe("completed")
+    expect(seenStatuses).toEqual(["queued", "normalizing", "completed"])
+  })
+
+  test("throws when a job fails", async () => {
+    await expect(
+      pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        sleep: async () => undefined,
+        fetchImpl: async () =>
+          jsonResponse({
+            job_id: "job-001",
+            status: "failed",
+            progress: -1,
+            filename: "sample.mp4",
+            languageMode: "english",
+            error: "provider unavailable",
+          }),
+      }),
+    ).rejects.toThrow(/provider unavailable/)
+  })
+
+  test("throws when a job times out by elapsed time", async () => {
+    await expect(
+      pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        intervalMs: 0,
+        maxAttempts: 10,
+        maxElapsedMs: 0,
+        sleep: async () => undefined,
+        fetchImpl: async () =>
+          jsonResponse({
+            job_id: "job-001",
+            status: "queued",
+            progress: 0,
+            filename: "sample.mp4",
+            languageMode: "english",
+          }),
+      }),
+    ).rejects.toThrow(/Timed out waiting/)
+  })
+
+  test("continues polling after an unknown status", async () => {
+    const statuses = ["future_backend_stage", "completed"]
+    const result = await pollCapinstaJobUntilDone({
+      baseUrl: "http://127.0.0.1:8000",
+      jobId: "job-001",
+      intervalMs: 1,
+      sleep: async () => undefined,
+      fetchImpl: async () =>
+        jsonResponse({
+          job_id: "job-001",
+          status: statuses.shift() ?? "completed",
+          progress: statuses.length === 0 ? 100 : 50,
+          filename: "sample.mp4",
+          languageMode: "english",
+          segments: [{ start: 0, end: 1, text: "Done", words: [] }],
+        }),
+    })
+
+    expect(result.status).toBe("completed")
+  })
+
+  test("unknown status times out with status history", async () => {
+    const historySnapshots: string[][] = []
+    await expect(
+      pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        intervalMs: 0,
+        maxAttempts: 2,
+        maxElapsedMs: 60_000,
+        sleep: async () => undefined,
+        onStatusHistory: (history) =>
+          historySnapshots.push(history.map((entry) => entry.rawStatus)),
+        fetchImpl: async () =>
+          jsonResponse({
+            job_id: "job-001",
+            status: "future_backend_stage",
+            progress: 55,
+            filename: "sample.mp4",
+            languageMode: "english",
+            details: "A future processing step",
+          }),
+      }),
+    ).rejects.toThrow(
+      /Status history: future_backend_stage\(unknown\) 55% -> future_backend_stage\(unknown\) 55%/,
+    )
+
+    expect(historySnapshots).toEqual([
+      ["future_backend_stage"],
+      ["future_backend_stage", "future_backend_stage"],
+    ])
+  })
+
+  test("supports cancellation through AbortSignal", async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        signal: controller.signal,
+        sleep: async () => undefined,
+        fetchImpl: async () => {
+          throw new Error("fetch should not run")
+        },
+      }),
+    ).rejects.toThrow(/cancelled/)
+  })
+})

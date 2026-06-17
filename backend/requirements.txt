@@ -1,0 +1,20 @@
+# === Production AI/API pipeline ===
+groq
+openai
+pydub
+audioop-lts; python_version >= "3.13"
+requests
+indic-transliteration
+pyspellchecker
+soundfile
+numpy
+langdetect
+
+# === Backend (Full Stack - NEW) ===
+fastapi
+uvicorn[standard]
+aiosqlite
+python-multipart
+aiofiles
+python-dotenv
+playwright

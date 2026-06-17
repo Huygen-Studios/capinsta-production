@@ -1,0 +1,170 @@
+import type { CapinstaCaptionStyleV1 } from "./styles/styleTypes"
+
+export type CapinstaTranscriptVersion = "capinsta.transcript.v1"
+
+export type CapinstaLanguageMode =
+  | "english"
+  | "hinglish"
+  | "telgish"
+  | "auto_mixed_indian"
+
+export type CapinstaTimingSource =
+  | "provider"
+  | "whisperx"
+  | "stable_ts"
+  | "vad_adjusted"
+  | "manual"
+  | "estimated"
+
+export interface CapinstaSourceAssetV1 {
+  assetId: string
+  assetName: string
+  durationSeconds: number
+  mimeType?: string
+}
+
+export interface CapinstaProviderMetadataV1 {
+  name: "sarvam" | "openai_whisper" | "groq_whisper" | "unknown" | string
+  model?: string
+  requestId?: string
+}
+
+export interface CapinstaTranscriptClipV1 {
+  id: string
+  start: number
+  end: number
+  text: string
+  wordIds: string[]
+  trackId?: string
+  manuallyEdited?: boolean
+  timingNeedsReview?: boolean
+}
+
+export interface CapinstaTranscriptWordV1 {
+  id: string
+  text: string
+  displayedText: string
+  start: number
+  end: number
+  timingSource: CapinstaTimingSource
+  originalText?: string
+  spokenText?: string
+  confidence?: number
+  score?: number
+  provider?: string
+  languageHint?: "english" | "hindi" | "telugu" | "unknown"
+  timingSourceDetail?: string
+  timingNeedsReview?: boolean
+  timingRepair?: string
+  captionClipId?: string
+}
+
+export interface CapinstaStylePresetMetadataV1 {
+  id: string
+  name?: string
+  renderer?: string
+  styleConfig?: Record<string, unknown>
+  chunkingConfig?: Record<string, unknown>
+}
+
+export interface CapinstaManualEditMetadataV1 {
+  editedAt?: string
+  editedBy?: string
+  changedClipIds?: string[]
+  changedWordIds?: string[]
+  globalOffsetSeconds?: number
+  notes?: string[]
+}
+
+export interface CapinstaTimingMetadataV1 {
+  sourceOfTruth: "words" | "clips"
+  generatedAt: string
+  audioDurationSeconds?: number
+  silenceGaps?: Array<{ start: number; end: number; duration: number }>
+  speechSegments?: Array<{ start: number; end: number; confidence?: number }>
+  report?: Record<string, unknown>
+  sync?: Record<string, unknown>
+}
+
+export interface CapinstaTranscriptV1 {
+  version: CapinstaTranscriptVersion
+  source: CapinstaSourceAssetV1
+  languageMode: CapinstaLanguageMode
+  provider: CapinstaProviderMetadataV1
+  clips: CapinstaTranscriptClipV1[]
+  words: CapinstaTranscriptWordV1[]
+  stylePreset: CapinstaStylePresetMetadataV1
+  manualEdits: CapinstaManualEditMetadataV1
+  timing: CapinstaTimingMetadataV1
+}
+
+export interface NeutralCaptionWord {
+  id: string
+  text: string
+  displayedText: string
+  start: number
+  end: number
+  timingSource: CapinstaTimingSource
+  originalText?: string
+  spokenText?: string
+  confidence?: number
+  score?: number
+  provider?: string
+  languageHint?: "english" | "hindi" | "telugu" | "unknown"
+  timingSourceDetail?: string
+  timingNeedsReview?: boolean
+  timingRepair?: string
+  sourceWordId: string
+  manualOriginalStart?: number
+  manualOriginalEnd?: number
+}
+
+export interface NeutralCaptionClip {
+  id: string
+  trackId: string
+  start: number
+  end: number
+  text: string
+  wordIds: string[]
+  stylePresetId: string
+  selected: boolean
+  editable: boolean
+  manuallyEdited: boolean
+  timingNeedsReview: boolean
+  timingSource: CapinstaTimingSource
+  style?: CapinstaCaptionStyleV1
+  manualEdit?: {
+    textEditedAt?: string
+    timingEditedAt?: string
+    originalText?: string
+    originalStart?: number
+    originalEnd?: number
+    timingReviewReason?: "text_word_count_changed" | "clip_duration_changed"
+  }
+  sourceClipId: string
+}
+
+export interface NeutralCaptionDocument {
+  id: string
+  trackId: string
+  sourceTranscriptRef: {
+    version: CapinstaTranscriptVersion
+    sourceAssetId: string
+    sourceAssetName: string
+    provider: string
+  }
+  durationSeconds: number
+  languageMode: CapinstaLanguageMode
+  stylePresetId: string
+  style?: CapinstaCaptionStyleV1
+  clips: NeutralCaptionClip[]
+  words: NeutralCaptionWord[]
+  manualEdits: CapinstaManualEditMetadataV1
+  timing: CapinstaTimingMetadataV1
+}
+
+export interface CapinstaCaptionDocumentRecord {
+  document: NeutralCaptionDocument
+  openCutTrackId: string
+  importedAt: string
+}

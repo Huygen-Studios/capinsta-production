@@ -1,0 +1,13 @@
+# Optional heavy local AI dependencies.
+# Install these only on machines with enough disk/GPU/CPU budget:
+#   pip install -r requirements-optional-ai.txt
+#
+# Render/Docker production intentionally does not install this file by default.
+torch
+torchaudio
+whisperx
+stable-ts>=2.15.0
+silero-vad>=5.1.0
+sentence-transformers
+faster-whisper
+librosa
