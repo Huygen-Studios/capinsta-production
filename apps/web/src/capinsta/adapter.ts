@@ -24,6 +24,7 @@ import type {
   CaptionChunkingConfig,
   CaptionStylePresetId as OriginalCaptionStylePresetId,
 } from "./original/types"
+import { normalizeCapinstaCaptionStyle } from "./styles/styleValidation"
 
 const TRANSCRIPT_VERSION = "capinsta.transcript.v1"
 const LANGUAGE_MODES = new Set<CapinstaLanguageMode>([
@@ -196,9 +197,36 @@ function wordToNeutral(word: CapinstaTranscriptV1["words"][number]): NeutralCapt
     provider: word.provider,
     languageHint: word.languageHint,
     timingSourceDetail: word.timingSourceDetail,
+    timingWarning: word.timingWarning,
     timingNeedsReview: word.timingNeedsReview,
     timingRepair: word.timingRepair,
     sourceWordId: word.id,
+  }
+}
+
+export function buildCapinstaCaptionTimingDiagnostics(
+  document: NeutralCaptionDocument,
+) {
+  const silenceGaps = document.timing.silenceGaps ?? []
+  const chunksCrossingSilence = document.clips.flatMap((clip) =>
+    silenceGaps
+      .filter((gap) => clip.start < gap.end && clip.end > gap.start)
+      .map((gap) => ({
+        clipId: clip.id,
+        text: clip.text,
+        start: clip.start,
+        end: clip.end,
+        silenceStart: gap.start,
+        silenceEnd: gap.end,
+      })),
+  )
+  return {
+    generatedCaptionChunks: document.clips.map((clip) => ({
+      start: clip.start,
+      end: clip.end,
+      text: clip.text,
+    })),
+    chunksCrossingSilence,
   }
 }
 
@@ -305,10 +333,25 @@ function buildNeutralClipsWithOriginalChunking({
     const holdWindow = Number.isFinite(nextStart)
       ? Math.max(0, (nextStart as number) - 0.001 - lastWord.end)
       : maxHoldAfterWord;
-    const end = Math.max(
+    const heldEnd = Math.max(
       firstWord.start + 0.04,
       lastWord.end + Math.min(maxHoldAfterWord, holdWindow),
     );
+    const nextSilenceStart = transcript.timing.silenceGaps
+      ?.filter(
+        (gap) =>
+          gap.start >= lastWord.end - 0.001 &&
+          (!Number.isFinite(nextStart) || gap.start < (nextStart as number)),
+      )
+      .reduce<number | undefined>(
+        (nearest, gap) =>
+          nearest === undefined || gap.start < nearest ? gap.start : nearest,
+        undefined,
+      );
+    const end =
+      nextSilenceStart === undefined
+        ? heldEnd
+        : Math.max(firstWord.start + 0.04, Math.min(heldEnd, nextSilenceStart));
 
     return {
       id: `${sourceAssetId}-capinsta-chunk-${index + 1}`,
@@ -380,6 +423,64 @@ export function rechunkNeutralCaptionDocumentForPreset({
     ...document,
     stylePresetId,
     style: structuredClone(defaultStyle),
+    clips,
+    words: document.words.map((word) => ({ ...word })),
+  };
+}
+
+export function rechunkNeutralCaptionDocumentWithConfig({
+  document,
+  chunkingConfig,
+}: {
+  document: NeutralCaptionDocument;
+  chunkingConfig: CaptionChunkingConfig;
+}): NeutralCaptionDocument {
+  const stylePresetId = document.stylePresetId;
+  const defaultStyle = document.style ? document.style : getCapinstaPresetStyle(stylePresetId);
+  const sourceAssetId =
+    document.sourceTranscriptRef.sourceAssetId || document.id.replace(/^capinsta-doc-/, "");
+
+  const clips = buildNeutralClipsWithOriginalChunking({
+    transcript: {
+      version: TRANSCRIPT_VERSION,
+      source: {
+        assetId: sourceAssetId,
+        assetName: document.sourceTranscriptRef.sourceAssetName,
+        durationSeconds: document.durationSeconds,
+      },
+      languageMode: document.languageMode,
+      provider: { name: document.sourceTranscriptRef.provider },
+      clips: [],
+      words: [],
+      stylePreset: {
+        id: stylePresetId,
+        name: stylePresetId,
+        renderer: stylePresetId,
+        styleConfig: {},
+      },
+      manualEdits: document.manualEdits,
+      timing: document.timing,
+    },
+    words: document.words.map((word) => ({ ...word })),
+    trackId: document.trackId,
+    stylePresetId,
+    defaultStyle,
+    languageMode: document.languageMode,
+    sourceAssetId,
+    chunkingConfig,
+  });
+
+  const nextStyle = {
+    ...defaultStyle,
+    chunking: {
+      ...(defaultStyle.chunking ?? {}),
+      ...chunkingConfig,
+    },
+  };
+
+  return {
+    ...document,
+    style: normalizeCapinstaCaptionStyle(nextStyle),
     clips,
     words: document.words.map((word) => ({ ...word })),
   };

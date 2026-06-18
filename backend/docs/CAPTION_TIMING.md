@@ -62,7 +62,7 @@ Defaults:
 - Max characters: `34`
 - Min duration: `0.8s`
 - Max duration: `3.0s`
-- Pause split threshold: `0.45s`
+- Pause split threshold: `0.30s`
 - Merge gap: `0.12s`
 - Phrase hold: `0.12s`
 
@@ -126,7 +126,7 @@ ALIGNMENT_PROVIDER=auto
 ENABLE_WHISPERX=false
 ENABLE_STABLE_TS=false
 ENABLE_SILERO_VAD=false
-PAUSE_SPLIT_THRESHOLD=0.45
+PAUSE_SPLIT_THRESHOLD=0.30
 DEFAULT_GLOBAL_CAPTION_OFFSET=0
 ENABLE_SPEECH_SPAN_RETIMER=true
 ```

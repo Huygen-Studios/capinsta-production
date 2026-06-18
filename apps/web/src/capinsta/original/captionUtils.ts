@@ -27,7 +27,7 @@ export const DEFAULT_CAPTION_CHUNKING_CONFIG: CaptionChunkingConfig = {
   maxCharsPerCaption: 36,
   minCaptionDuration: 0.8,
   maxCaptionDuration: 3.0,
-  pauseSplitThreshold: 0.45,
+  pauseSplitThreshold: 0.30,
   mergeSmallGapThreshold: 0.12,
   targetReadingSpeedCps: 17,
   wordTimingSensitivity: 1,
@@ -275,28 +275,31 @@ function canMergeCaptionPages(left: AlignedWord[], right: AlignedWord[], options
   if (left.length === 0 || right.length === 0) return false;
 
   const gapSeconds = right[0].start - left[left.length - 1].end;
-  const maxGap = Math.max(0, options.mergeSmallGapThreshold ?? DEFAULT_CAPTION_CHUNKING_CONFIG.mergeSmallGapThreshold);
-  if (gapSeconds > maxGap) return false;
+  const pauseSplitThreshold = Math.max(0, options.pauseSplitThreshold ?? DEFAULT_CAPTION_CHUNKING_CONFIG.pauseSplitThreshold);
+  if (gapSeconds >= pauseSplitThreshold) return false;
+  const mergeSmallGapThreshold = Math.max(0, options.mergeSmallGapThreshold ?? DEFAULT_CAPTION_CHUNKING_CONFIG.mergeSmallGapThreshold);
+  if (gapSeconds > mergeSmallGapThreshold) return false;
 
   const merged = [...left, ...right];
   const mergedText = getCaptionPageText(merged);
+  const maxChars = Math.max(4, options.maxCharsPerCaption);
+
+  if (mergedText.length > maxChars) return false;
+
   const minWords = Math.max(1, options.minWordsPerCaption);
   const maxWords = Math.max(minWords, options.maxWordsPerCaption);
   const maxDuration = Math.max(MIN_CAPTION_DURATION, options.maxCaptionDuration);
 
   return (
     merged.length <= maxWords &&
-    mergedText.length <= options.maxCharsPerCaption &&
     getCaptionPageDuration(merged) <= maxDuration
   );
 }
 
 function shouldMergeCaptionPage(words: AlignedWord[], options: CaptionChunkingConfig) {
   if (words.length === 0) return false;
-
   const minWords = Math.max(1, options.minWordsPerCaption);
   const minDuration = Math.max(MIN_CAPTION_DURATION, options.minCaptionDuration);
-
   return (
     (options.avoidSingleWordCaptions && words.length === 1) ||
     words.length < minWords ||
@@ -306,7 +309,6 @@ function shouldMergeCaptionPage(words: AlignedWord[], options: CaptionChunkingCo
 
 function finalizeCaptionPages(pages: AlignedWord[][], options: CaptionChunkingConfig) {
   const merged = pages.map((page) => [...page]);
-
   for (let index = 0; index < merged.length; index += 1) {
     const page = merged[index];
     if (!shouldMergeCaptionPage(page, options)) continue;
@@ -326,7 +328,6 @@ function finalizeCaptionPages(pages: AlignedWord[][], options: CaptionChunkingCo
       index -= 1;
     }
   }
-
   return merged;
 }
 
@@ -427,9 +428,12 @@ export function buildCaptionPages(
   const pages: AlignedWord[][] = [];
   let current: AlignedWord[] = [];
   const minWords = Math.max(1, options.minWordsPerCaption);
-  const maxWords = Math.max(minWords, options.maxWordsPerCaption);
-  const targetWords = Math.max(minWords, Math.min(maxWords, options.targetWordsPerCaption ?? DEFAULT_CAPTION_CHUNKING_CONFIG.targetWordsPerCaption));
   const maxChars = Math.max(4, options.maxCharsPerCaption);
+  const maxWords = Math.max(minWords, options.maxWordsPerCaption);
+  const targetWords = Math.max(
+    minWords,
+    Math.min(maxWords, options.targetWordsPerCaption ?? DEFAULT_CAPTION_CHUNKING_CONFIG.targetWordsPerCaption),
+  );
   const maxDuration = Math.max(MIN_CAPTION_DURATION, options.maxCaptionDuration);
   const pauseSplitThreshold = Math.max(0, options.pauseSplitThreshold);
   const internalGapThreshold = Math.min(
@@ -468,24 +472,24 @@ export function buildCaptionPages(
     const candidateText = getCaptionPageText(candidate);
     const pauseSeconds = Math.max(0, normalizedWord.start - lastWord.end);
     const candidateDuration = getCaptionPageDuration(candidate);
-    const readingSpeed = candidateDuration > 0 ? candidateText.length / candidateDuration : 0;
+
     const splitForPause = pauseSeconds >= pauseSplitThreshold || pauseSeconds > internalGapThreshold;
-    const splitForBalance =
-      options.balanceLineLength &&
-      current.length >= minWords &&
-      current.length >= targetWords &&
-      candidateText.length > maxChars * 0.92;
-    const splitForReadingSpeed =
-      current.length >= targetWords &&
-      candidateText.length > maxChars &&
-      readingSpeed > options.targetReadingSpeedCps * 1.35;
+    const lastWordText = getWordDisplayText(lastWord).trim();
+    const splitForPunctuation = /[.,!?;:]$/.test(lastWordText);
+    const splitForOverflow = candidateText.length > maxChars;
+    const firstWordText = getWordDisplayText(current[0]).trim();
+    const targetForCurrentPhrase = /^[₹$€£]?\d/.test(firstWordText)
+      ? Math.max(targetWords, 3)
+      : targetWords;
+    const splitForTargetLength = current.length >= targetForCurrentPhrase;
+
     const shouldSplit =
       current.length >= maxWords ||
-      candidateText.length > maxChars ||
+      splitForTargetLength ||
+      splitForOverflow ||
       candidateDuration > maxDuration ||
       splitForPause ||
-      splitForBalance ||
-      splitForReadingSpeed;
+      splitForPunctuation;
 
     if (shouldSplit) {
       flush();

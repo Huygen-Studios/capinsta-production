@@ -12,3 +12,6 @@
 next-env.d.ts
 
 *.tsbuildinfo
+
+# Windows reserved device name accidentally created by shell redirects
+nul

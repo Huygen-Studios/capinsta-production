@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
 	reactStrictMode: true,
 	productionBrowserSourceMaps: true,
 	output: "standalone",
+	// Prevent Turbopack from scanning Windows reserved device names
+	turbopack: {
+		resolveAlias: {},
+	},
 	images: {
 		remotePatterns: [
 			{

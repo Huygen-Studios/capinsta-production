@@ -26,7 +26,7 @@ declare global {
 	}
 }
 
-const PLAYING_OVERLAY_MIN_UPDATE_MS = 90;
+const PLAYING_OVERLAY_MIN_UPDATE_MS = 0;
 
 export function CapinstaActiveCaptionOverlay({
 	sceneLeft,

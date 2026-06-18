@@ -11,7 +11,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PAUSE_SPLIT_THRESHOLD = float(os.getenv("PAUSE_SPLIT_THRESHOLD", "0.45") or 0.45)
+DEFAULT_PAUSE_SPLIT_THRESHOLD = float(os.getenv("PAUSE_SPLIT_THRESHOLD", "0.30") or 0.30)
 
 
 def _round_time(value: float) -> float:
@@ -71,11 +71,86 @@ def _ffprobe_duration(audio_path: str) -> float | None:
         return None
 
 
-def detect_silence_gaps(audio_path: str, min_silence: float | None = None, threshold_db: str = "-35dB") -> dict[str, Any]:
-    """Detect pauses with FFmpeg silencedetect. Silero is optional and intentionally not required."""
+def detect_silence_gaps(audio_path: str, min_silence: float | None = None, threshold_db: str | None = None) -> dict[str, Any]:
+    """Detect pauses using Silero VAD (if enabled) or FFmpeg silencedetect."""
     min_silence = DEFAULT_PAUSE_SPLIT_THRESHOLD if min_silence is None else max(0.1, float(min_silence))
-    ffmpeg = shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg")
     duration = _ffprobe_duration(audio_path)
+
+    # 1. Try Silero VAD if enabled
+    enable_silero = os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true"
+    if enable_silero:
+        try:
+            from .aligner import TranscriptAligner
+            aligner = TranscriptAligner()
+            speech_map = aligner._compute_vad_speech_map(audio_path)
+            duration_val = speech_map.get("duration") or duration or 0.0
+            speech_ranges = speech_map.get("speechRanges") or []
+
+            silence_gaps = []
+            cursor = 0.0
+            for r in speech_ranges:
+                r_start = float(r["start"])
+                r_end = float(r["end"])
+                if r_start > cursor + min_silence:
+                    silence_gaps.append({
+                        "start": _round_time(cursor),
+                        "end": _round_time(r_start),
+                        "duration": _round_time(r_start - cursor)
+                    })
+                cursor = max(cursor, r_end)
+            if duration_val > cursor + min_silence:
+                silence_gaps.append({
+                    "start": _round_time(cursor),
+                    "end": _round_time(duration_val),
+                    "duration": _round_time(duration_val - cursor)
+                })
+
+            speech_segments = [
+                {"start": _round_time(r["start"]), "end": _round_time(r["end"]), "confidence": 0.85}
+                for r in speech_ranges
+            ]
+
+            logger.info(
+                "timing_silence_detected provider=silero_vad duration=%s speech_segments=%s silence_gaps=%s",
+                duration_val,
+                len(speech_segments),
+                len(silence_gaps),
+            )
+            return {
+                "provider": "silero_vad",
+                "audioDuration": _round_time(duration_val),
+                "speechSegments": speech_segments,
+                "silenceGaps": silence_gaps,
+                "thresholdSeconds": min_silence,
+            }
+        except Exception as exc:
+            logger.warning("Silero VAD silence detection failed: %s. Falling back to FFmpeg.", exc)
+
+    # 2. Fall back to FFmpeg silencedetect
+    if threshold_db is None:
+        env_threshold = os.getenv("SILENCE_THRESHOLD_DB")
+        if env_threshold:
+            threshold_db = env_threshold
+        else:
+            try:
+                import soundfile as sf
+                import numpy as np
+                y, sr = sf.read(audio_path, dtype="float32", always_2d=False)
+                if getattr(y, "ndim", 1) > 1:
+                    y = np.mean(y, axis=1)
+                if len(y) > 0:
+                    volume_rms = np.sqrt(np.mean(np.square(y)))
+                    volume_rms_db = 20 * np.log10(volume_rms + 1e-8)
+                    adaptive_db = int(round(max(-35.0, min(-20.0, volume_rms_db + 2.5))))
+                    threshold_db = f"{adaptive_db}dB"
+                    logger.info("Computed adaptive silence threshold: %s (RMS volume: %.2f dB)", threshold_db, volume_rms_db)
+                else:
+                    threshold_db = "-30dB"
+            except Exception as exc:
+                logger.warning("Failed to compute adaptive silence threshold: %s. Using -30dB default.", exc)
+                threshold_db = "-30dB"
+
+    ffmpeg = shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg")
     if not ffmpeg:
         return {"provider": "none", "audioDuration": duration, "speechSegments": [], "silenceGaps": [], "error": "ffmpeg unavailable"}
 
@@ -157,7 +232,7 @@ def normalize_timing_source(raw_source: Any, provider: str | None = None) -> str
         return "whisperx"
     if "stable" in combined:
         return "stable_ts"
-    if "vad" in combined:
+    if "vad" in combined or "pause_preserved" in combined:
         return "vad_adjusted"
     if "provider" in combined or provider_text:
         return "provider"

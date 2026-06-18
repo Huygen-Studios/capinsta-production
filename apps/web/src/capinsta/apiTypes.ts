@@ -69,6 +69,8 @@ export interface CapinstaApiWord {
   timingSource?: string
   timing_source?: string
   timingSourceDetail?: string
+  timingWarning?: string
+  timing_warning?: string
   languageHint?: string
   timingNeedsReview?: boolean
   timingReviewRequired?: boolean
@@ -99,7 +101,14 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
     alignedWords?: CapinstaApiWord[]
     metadata?: {
       audio?: { duration?: number }
-      timing?: Record<string, unknown>
+      timing?: {
+        vad?: {
+          silenceGaps?: Array<{ start: number; end: number; duration: number }>
+          speechSegments?: Array<{ start: number; end: number; confidence?: number }>
+        }
+        report?: Record<string, unknown>
+        [key: string]: unknown
+      }
       sync?: Record<string, unknown>
       stylePreset?: Record<string, unknown>
     }

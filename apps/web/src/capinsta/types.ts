@@ -54,6 +54,7 @@ export interface CapinstaTranscriptWordV1 {
   provider?: string
   languageHint?: "english" | "hindi" | "telugu" | "unknown"
   timingSourceDetail?: string
+  timingWarning?: string
   timingNeedsReview?: boolean
   timingRepair?: string
   captionClipId?: string
@@ -112,6 +113,7 @@ export interface NeutralCaptionWord {
   provider?: string
   languageHint?: "english" | "hindi" | "telugu" | "unknown"
   timingSourceDetail?: string
+  timingWarning?: string
   timingNeedsReview?: boolean
   timingRepair?: string
   sourceWordId: string

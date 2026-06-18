@@ -128,7 +128,7 @@ export default function ViralWordHighlightCaption({
           flexWrap: "wrap",
           justifyContent: "center",
           alignItems: "baseline",
-          columnGap: "0.35em",
+          columnGap: 0,
           rowGap: "0.08em",
           padding: `${paddingY}px ${paddingX}px`,
           borderRadius: config.borderRadius * scale,
@@ -149,6 +149,7 @@ export default function ViralWordHighlightCaption({
               key={`${caption.id}-${index}-${word.start}`}
               style={{
                 display: "inline-block",
+                marginInlineEnd: index < words.length - 1 ? "0.35em" : 0,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontSize,
                 fontWeight: config.fontWeight,

@@ -1,5 +1,7 @@
 /* eslint-disable opencut/prefer-object-params, @typescript-eslint/no-unsafe-type-assertion -- Fetch response boundaries and Error constructors require narrow adapter casts. */
 import type {
+  CapinstaApiSegment,
+  CapinstaApiWord,
   CapinstaHealthResponse,
   CapinstaJobCreateResponse,
   CapinstaJobDetailResponse,
@@ -161,6 +163,68 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
+function wordText(word: CapinstaApiWord): string {
+  return (
+    word.word ||
+    word.text ||
+    word.displayedWord ||
+    word.displayWord ||
+    word.originalWord ||
+    ""
+  ).trim()
+}
+
+function validTimedWords(words: CapinstaApiWord[] | undefined): CapinstaApiWord[] {
+  return (words ?? []).filter((word) => {
+    const start = finiteNumber(word.start)
+    const end = finiteNumber(word.end)
+    return Boolean(wordText(word)) && start !== undefined && end !== undefined && end > start
+  })
+}
+
+function segmentWords(segments: CapinstaApiSegment[]): CapinstaApiWord[] {
+  return segments.flatMap((segment) =>
+    (segment.words ?? []).map((word) => ({
+      ...word,
+      start: finiteNumber(word.start) ?? segment.start,
+      end: finiteNumber(word.end) ?? segment.end,
+    })),
+  )
+}
+
+function segmentIndexForWord({
+  segments,
+  start,
+  end,
+}: {
+  segments: CapinstaApiSegment[]
+  start: number
+  end: number
+}): number {
+  if (segments.length === 0) return 0
+  const midpoint = start + (end - start) / 2
+  const containingIndex = segments.findIndex(
+    (segment) => midpoint >= segment.start && midpoint < segment.end,
+  )
+  if (containingIndex >= 0) return containingIndex
+
+  let nearestIndex = 0
+  let nearestDistance = Number.POSITIVE_INFINITY
+  segments.forEach((segment, index) => {
+    const distance =
+      midpoint < segment.start
+        ? segment.start - midpoint
+        : midpoint > segment.end
+          ? midpoint - segment.end
+          : 0
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearestIndex = index
+    }
+  })
+  return nearestIndex
+}
+
 function normalizePresetId(value: string | undefined): CapinstaCaptionPresetId {
   return CAPINSTA_PRESET_IDS.includes(value as CapinstaCaptionPresetId)
     ? (value as CapinstaCaptionPresetId)
@@ -172,58 +236,96 @@ export function normalizeCapinstaJobToTranscript({
   sourceAsset,
 }: CapinstaTranscriptNormalizeInput): CapinstaTranscriptV1 {
   const segments = job.transcript?.segments ?? job.segments ?? []
-  if (segments.length === 0) {
-    throw new CapinstaApiError("Capinsta job completed without caption segments")
+  const canonicalAlignedWords = validTimedWords(job.transcript?.alignedWords)
+  const fallbackSegmentWords = validTimedWords(segmentWords(segments))
+  const usesCanonicalAlignedWords = canonicalAlignedWords.length > 0
+  const sourceWords = usesCanonicalAlignedWords
+    ? canonicalAlignedWords
+    : fallbackSegmentWords
+  if (sourceWords.length === 0) {
+    throw new CapinstaApiError("Capinsta job completed without timed caption words")
   }
 
-  const words: CapinstaTranscriptV1["words"] = []
-  const clips: CapinstaTranscriptV1["clips"] = segments.map((segment, clipIndex) => {
-    const clipId = segment.id || `capinsta-clip-${clipIndex + 1}`
-    const wordIds: string[] = []
-    for (const [wordIndex, word] of (segment.words ?? []).entries()) {
-      const text =
-        word.word ||
-        word.text ||
-        word.displayedWord ||
-        word.displayWord ||
-        word.originalWord ||
-        ""
-      const start = finiteNumber(word.start) ?? segment.start
-      const end = finiteNumber(word.end) ?? start + 0.01
-      const wordId = `${clipId}-word-${wordIndex + 1}`
-      wordIds.push(wordId)
-      words.push({
+  const clipShells =
+    segments.length > 0
+      ? segments.map((segment, index) => ({
+          id: segment.id || `capinsta-source-clip-${index + 1}`,
+          start: segment.start,
+          end: segment.end,
+          text: segment.text,
+        }))
+      : [
+          {
+            id: "capinsta-source-clip-1",
+            start: finiteNumber(sourceWords[0]?.start) ?? 0,
+            end: finiteNumber(sourceWords[sourceWords.length - 1]?.end) ?? 0.01,
+            text: sourceWords.map(wordText).join(" "),
+          },
+        ]
+  const clipWordIds = clipShells.map(() => [] as string[])
+  const words: CapinstaTranscriptV1["words"] = sourceWords
+    .map((word, wordIndex) => {
+      const text = wordText(word)
+      const start = finiteNumber(word.start)
+      const end = finiteNumber(word.end)
+      if (!text || start === undefined || end === undefined || end <= start) return null
+      const clipIndex = segmentIndexForWord({ segments, start, end })
+      const clipId = clipShells[clipIndex]?.id ?? clipShells[0]!.id
+      const wordId = `capinsta-aligned-word-${wordIndex + 1}`
+      clipWordIds[clipIndex]?.push(wordId)
+      const timingWarning = word.timingWarning || word.timing_warning
+      return {
         id: wordId,
         text,
         displayedText: word.displayedWord || word.displayWord || text,
         start,
-        end: end > start ? end : start + 0.01,
+        end,
         confidence: finiteNumber(word.confidence),
         score: finiteNumber(word.score),
         provider: word.provider,
         timingSource: normalizeTimingSource(word.timingSource || word.timing_source),
         originalText: word.originalWord,
         spokenText: word.spokenWord,
-        timingSourceDetail: word.timingSourceDetail,
+        timingSourceDetail:
+          word.timingSourceDetail ||
+          word.timing_source ||
+          word.timingSource ||
+          timingWarning,
+        timingWarning,
         timingNeedsReview: Boolean(
           word.timingNeedsReview || word.timingReviewRequired,
         ),
         timingRepair: word.timingRepair || word.timing_repair,
         captionClipId: clipId,
-      })
-    }
-
+      }
+    })
+    .filter((word): word is NonNullable<typeof word> => word !== null)
+  const wordById = new Map(words.map((word) => [word.id, word]))
+  const clips: CapinstaTranscriptV1["clips"] = clipShells.map((clip, clipIndex) => {
+    const wordIds = clipWordIds[clipIndex] ?? []
     return {
-      id: clipId,
-      start: segment.start,
-      end: segment.end,
-      text: segment.text,
+      ...clip,
       wordIds,
-      timingNeedsReview: wordIds.some((wordId) =>
-        words.find((word) => word.id === wordId)?.timingNeedsReview,
+      timingNeedsReview: wordIds.some(
+        (wordId) => wordById.get(wordId)?.timingNeedsReview,
       ),
     }
   })
+
+  if (process.env.NODE_ENV === "development") {
+    console.debug("[Capinsta captions] Canonical timing source", {
+      source: usesCanonicalAlignedWords ? "transcript.alignedWords" : "segments",
+      alignedWordsCount: canonicalAlignedWords.length,
+      segmentWordCount: fallbackSegmentWords.length,
+      first30AlignedWords: sourceWords.slice(0, 30).map((word) => ({
+        word: wordText(word),
+        start: word.start,
+        end: word.end,
+        timing_source:
+          word.timingSourceDetail || word.timing_source || word.timingSource,
+      })),
+    })
+  }
 
   const providerValue = job.transcript?.provider
   const provider =
@@ -238,6 +340,20 @@ export function normalizeCapinstaJobToTranscript({
     sourceAsset.durationSeconds ||
     finiteNumber(job.transcript?.metadata?.audio?.duration) ||
     maxEnd
+  const silenceGaps =
+    job.transcript?.metadata?.timing?.vad?.silenceGaps?.filter(
+      (gap) =>
+        Number.isFinite(gap.start) &&
+        Number.isFinite(gap.end) &&
+        gap.end > gap.start,
+    ) ?? []
+  const speechSegments =
+    job.transcript?.metadata?.timing?.vad?.speechSegments?.filter(
+      (segment) =>
+        Number.isFinite(segment.start) &&
+        Number.isFinite(segment.end) &&
+        segment.end > segment.start,
+    ) ?? []
 
   return validateCapinstaTranscriptV1({
     version: "capinsta.transcript.v1",
@@ -256,6 +372,14 @@ export function normalizeCapinstaJobToTranscript({
       name: "Word Highlight Box",
       renderer: "word_highlight_box",
       styleConfig: job.transcript?.metadata?.stylePreset,
+      chunkingConfig: {
+        targetWordsPerCaption: 2,
+        maxWordsPerCaption: 5,
+        minWordsPerCaption: 1,
+        maxCharsPerCaption: 30,
+        minCaptionDuration: 0.18,
+        avoidSingleWordCaptions: false,
+      },
     },
     manualEdits: {
       notes: [`Generated from Capinsta job ${job.job_id}.`],
@@ -264,7 +388,9 @@ export function normalizeCapinstaJobToTranscript({
       sourceOfTruth: words.length > 0 ? "words" : "clips",
       generatedAt: job.completed_at || new Date().toISOString(),
       audioDurationSeconds: durationSeconds,
-      report: job.transcript?.metadata?.timing,
+      silenceGaps,
+      speechSegments,
+      report: job.transcript?.metadata?.timing?.report,
       sync: job.transcript?.metadata?.sync,
     },
   })

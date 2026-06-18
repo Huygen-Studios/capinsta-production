@@ -6,6 +6,7 @@ import {
   startCapinstaCaptionJob,
 } from "./apiClient"
 import type { CapinstaJobDetailResponse } from "./apiTypes"
+import { capinstaTranscriptToCaptionDocument } from "./adapter"
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -116,5 +117,114 @@ describe("Capinsta API client", () => {
     expect(transcript.words).toHaveLength(2)
     expect(transcript.words[1]?.timingSource).toBe("stable_ts")
     expect(transcript.clips[0]?.timingNeedsReview).toBe(true)
+  })
+
+  test("prefers canonical alignedWords without redistributing pause timing", () => {
+    const job: CapinstaJobDetailResponse = {
+      job_id: "job-pause",
+      status: "completed",
+      progress: 100,
+      filename: "pause.mp4",
+      languageMode: "english",
+      transcript: {
+        languageMode: "english",
+        provider: "sarvam",
+        alignedWords: [
+          {
+            word: "spends",
+            displayedWord: "spends",
+            originalWord: "spends",
+            spokenWord: "spends",
+            start: 0.5,
+            end: 0.9,
+            timing_source: "provider_word",
+          },
+          {
+            word: "around",
+            displayedWord: "around",
+            start: 0.9,
+            end: 1.2,
+            timingSource: "vad_adjusted",
+            timingSourceDetail: "provider_word | pause_preserved",
+          },
+          {
+            word: "22",
+            displayedWord: "22",
+            start: 2.4,
+            end: 2.65,
+            timing_source: "pause_preserved",
+            timingWarning: "Adjusted to detected speech after silence.",
+          },
+          { word: "lakh", displayedWord: "lakh", start: 2.66, end: 2.9 },
+          { word: "crore", displayedWord: "crore", start: 2.91, end: 3.2 },
+        ],
+        segments: [
+          {
+            id: "compressed-segment",
+            start: 0.5,
+            end: 3.2,
+            text: "spends around 22 lakh crore",
+            words: [
+              { word: "spends", start: 0.5, end: 1.0 },
+              { word: "around", start: 1.0, end: 1.5 },
+              { word: "22", start: 1.5, end: 1.8 },
+              { word: "lakh", start: 1.8, end: 2.1 },
+              { word: "crore", start: 2.1, end: 2.4 },
+            ],
+          },
+        ],
+        metadata: {
+          audio: { duration: 3.5 },
+          timing: {
+            vad: {
+              silenceGaps: [{ start: 1.2, end: 2.4, duration: 1.2 }],
+            },
+          },
+          sync: {
+            pausePreservation: {
+              pauseGapsApplied: 1,
+              wordsShiftedForPause: 3,
+              wordsClampedForPause: 0,
+            },
+          },
+        },
+      },
+    }
+
+    const transcript = normalizeCapinstaJobToTranscript({
+      job,
+      sourceAsset: {
+        assetId: "asset-pause",
+        assetName: "pause.mp4",
+        mimeType: "video/mp4",
+      },
+    })
+
+    expect(transcript.words.map((word) => word.start)).toEqual([
+      0.5,
+      0.9,
+      2.4,
+      2.66,
+      2.91,
+    ])
+    expect(transcript.words[1]?.timingSourceDetail).toBe(
+      "provider_word | pause_preserved",
+    )
+    expect(transcript.words[2]?.timingWarning).toBe(
+      "Adjusted to detected speech after silence.",
+    )
+    expect(transcript.timing.silenceGaps).toEqual([
+      { start: 1.2, end: 2.4, duration: 1.2 },
+    ])
+    expect(transcript.timing.sync?.pausePreservation).toEqual({
+      pauseGapsApplied: 1,
+      wordsShiftedForPause: 3,
+      wordsClampedForPause: 0,
+    })
+    const document = capinstaTranscriptToCaptionDocument(transcript)
+    expect(document.clips.map((clip) => clip.text)).toEqual([
+      "spends around",
+      "22 lakh crore",
+    ])
   })
 })

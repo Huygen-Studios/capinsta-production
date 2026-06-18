@@ -269,7 +269,7 @@ function buildRechunkedTextElement({
 	};
 }
 
-function replaceDocumentTextElements({
+export function replaceDocumentTextElements({
 	tracks,
 	record,
 	templateRefs,

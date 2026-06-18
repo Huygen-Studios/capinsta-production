@@ -33,9 +33,13 @@ import {
 	applyStylePatchToCapinstaSelection,
 	getCommonStyleValue,
 	resetStyleForCapinstaSelection,
+	replaceDocumentTextElements,
 	type CapinstaCaptionSelectionRef,
 	type CapinstaBulkStyleUpdateResult,
 } from "../bulkStyleSync";
+import { rechunkNeutralCaptionDocumentWithConfig } from "../adapter";
+import { getCaptionPresetChunkingConfig } from "../original/captionStylePresets";
+import type { CaptionChunkingConfig } from "../original/types";
 
 function Section({
 	title,
@@ -214,6 +218,86 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 		});
 		replaceRecord(nextRecord);
 		updateTimelineTextElement(patch);
+	}
+
+	function updateChunkingConfig(patch: Partial<CaptionChunkingConfig>) {
+		if (isBulkMode) {
+			const activeDocs = new Map<string, CapinstaCaptionSelectionRef[]>();
+			for (const ref of selectedRefs) {
+				const refs = activeDocs.get(ref.documentId) ?? [];
+				refs.push(ref);
+				activeDocs.set(ref.documentId, refs);
+			}
+
+			let nextRecords = editor.project.getActive()?.capinstaCaptionDocuments ?? [];
+			let nextTracks = editor.scenes.getActiveScene().tracks;
+
+			for (const [docId, refs] of activeDocs.entries()) {
+				const record = nextRecords.find((r) => r.document.id === docId);
+				if (!record) continue;
+
+				const defaultChunking = getCaptionPresetChunkingConfig(style.presetId);
+				const currentChunking = {
+					...defaultChunking,
+					...(record.document.style?.chunking ?? {}),
+					...patch,
+				};
+
+				const updatedDoc = rechunkNeutralCaptionDocumentWithConfig({
+					document: record.document,
+					chunkingConfig: currentChunking,
+				});
+
+				const nextRecord = { ...record, document: updatedDoc };
+				nextRecords = nextRecords.map((r) => r.document.id === docId ? nextRecord : r);
+
+				nextTracks = replaceDocumentTextElements({
+					tracks: nextTracks,
+					record: nextRecord,
+					templateRefs: refs,
+				});
+			}
+
+			editor.project.replaceCapinstaCaptionDocuments({ records: nextRecords });
+			editor.timeline.updateTracks(nextTracks);
+			return;
+		}
+
+		if (!binding || !singleTrackId) return;
+
+		const defaultChunking = getCaptionPresetChunkingConfig(style.presetId);
+		const currentChunking = {
+			...defaultChunking,
+			...(style.chunking ?? {}),
+			...patch,
+		};
+
+		const updatedDocument = rechunkNeutralCaptionDocumentWithConfig({
+			document: binding.record.document,
+			chunkingConfig: currentChunking,
+		});
+
+		const nextRecord = { ...binding.record, document: updatedDocument };
+		replaceRecord(nextRecord);
+
+		const currentTracks = editor.scenes.getActiveScene().tracks;
+		const updatedTracks = replaceDocumentTextElements({
+			tracks: currentTracks,
+			record: nextRecord,
+			templateRefs: [
+				{
+					elementId: binding.element.id,
+					trackId: singleTrackId,
+					documentId: binding.record.document.id,
+					clipId: binding.clip.id,
+					record: binding.record,
+					clip: binding.clip,
+					element: binding.element,
+					style,
+				}
+			],
+		});
+		editor.timeline.updateTracks(updatedTracks);
 	}
 
 	function applyPreset(presetId: CapinstaCaptionPresetId) {
@@ -902,6 +986,39 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 					mixed={hasMixedValue("layout.safeAreaEnabled")}
 					onChange={(safeAreaEnabled) =>
 						updateStyle({ layout: { safeAreaEnabled } })
+					}
+				/>
+			</Section>
+			<Section title="Subtitle Splits">
+				<CapinstaSliderControl
+					label="Characters per subtitle"
+					value={commonValue(
+						"chunking.maxCharsPerCaption",
+						style.chunking?.maxCharsPerCaption ?? 34,
+					)}
+					mixed={hasMixedValue("chunking.maxCharsPerCaption")}
+					min={10}
+					max={100}
+					step={1}
+					onChange={(maxCharsPerCaption) =>
+						updateChunkingConfig({ maxCharsPerCaption })
+					}
+				/>
+				<CapinstaSliderControl
+					label="Words per subtitle"
+					value={commonValue(
+						"chunking.maxWordsPerCaption",
+						style.chunking?.maxWordsPerCaption ?? 5,
+					)}
+					mixed={hasMixedValue("chunking.maxWordsPerCaption")}
+					min={1}
+					max={20}
+					step={1}
+					onChange={(maxWordsPerCaption) =>
+						updateChunkingConfig({
+							maxWordsPerCaption,
+							targetWordsPerCaption: Math.max(1, maxWordsPerCaption - 1),
+						})
 					}
 				/>
 			</Section>

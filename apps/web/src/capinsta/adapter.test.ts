@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  buildCapinstaCaptionTimingDiagnostics,
   capinstaTranscriptToCaptionDocument,
   getActiveCaptionAtTime,
   getActiveWordIdsAtTime,
@@ -136,5 +137,49 @@ describe("CapinstaTranscriptV1 adapter", () => {
     expect(editedWord?.start).toBeCloseTo(1)
     expect(editedWord?.end).toBeCloseTo(1.44)
     expect(editedWord?.timingSource).toBe("manual")
+  })
+
+  test("builds pause-aware runtime chunks from canonical words", () => {
+    const document = capinstaTranscriptToCaptionDocument({
+      ...sampleCapinstaTranscriptV1,
+      source: {
+        ...sampleCapinstaTranscriptV1.source,
+        assetId: "pause-runtime",
+      },
+      clips: [
+        {
+          id: "source",
+          start: 0.5,
+          end: 3.2,
+          text: "spends around 22 lakh crore",
+          wordIds: ["spends", "around", "22", "lakh", "crore"],
+        },
+      ],
+      words: [
+        { id: "spends", text: "spends", displayedText: "spends", start: 0.5, end: 0.9, timingSource: "provider" },
+        { id: "around", text: "around", displayedText: "around", start: 0.9, end: 1.2, timingSource: "vad_adjusted" },
+        { id: "22", text: "22", displayedText: "22", start: 2.4, end: 2.65, timingSource: "vad_adjusted" },
+        { id: "lakh", text: "lakh", displayedText: "lakh", start: 2.66, end: 2.9, timingSource: "provider" },
+        { id: "crore", text: "crore", displayedText: "crore", start: 2.91, end: 3.2, timingSource: "provider" },
+      ],
+      timing: {
+        ...sampleCapinstaTranscriptV1.timing,
+        silenceGaps: [{ start: 1.2, end: 2.4, duration: 1.2 }],
+      },
+    })
+    const diagnostics = buildCapinstaCaptionTimingDiagnostics(document)
+
+    expect(document.clips.map((clip) => clip.text)).toEqual([
+      "spends around",
+      "22 lakh crore",
+    ])
+    expect(document.clips[0]?.end).toBeLessThanOrEqual(1.2)
+    expect(document.clips[1]?.start).toBe(2.4)
+    expect(getActiveWordIdsAtTime(document, 1.8)).toEqual([])
+    expect(diagnostics.chunksCrossingSilence).toEqual([])
+    expect(diagnostics.generatedCaptionChunks.map((chunk) => chunk.text)).toEqual([
+      "spends around",
+      "22 lakh crore",
+    ])
   })
 })

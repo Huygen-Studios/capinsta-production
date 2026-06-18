@@ -36,7 +36,7 @@ DEFAULT_CAPTION_RULES: dict[str, Any] = {
     "max_chars": 36,
     "min_duration": 0.8,
     "max_duration": 3.0,
-    "pause_split_threshold": 0.45,
+    "pause_split_threshold": 0.3,
     "merge_gap": 0.12,
     "phrase_hold": 0.12,
 }
@@ -205,6 +205,8 @@ def chunk_words_into_captions(
     if not words:
         return []
     cfg = {**DEFAULT_CAPTION_RULES, **(rules or {})}
+    max_chars = cfg["max_chars"]
+    max_words = cfg["max_words"]
     captions: list[dict[str, Any]] = []
     current: list[dict[str, Any]] = []
 
@@ -227,6 +229,7 @@ def chunk_words_into_captions(
         )
         current.clear()
 
+    # Pass 1: Build initial partitions (splitting at punctuation, char limits, word limits, pauses)
     for w in words:
         text = _word_text(w)
         if not text:
@@ -237,31 +240,71 @@ def chunk_words_into_captions(
             continue
 
         if current:
-            gap = start - current[-1]["end"]
+            gap = _round_time(start - current[-1]["end"])
             prospective_text = " ".join(_word_text(c) for c in current + [w])
             prospective_words = len(current) + 1
             prospective_dur = (end or 0.0) - current[0]["start"]
+
             pause_break = gap >= cfg["pause_split_threshold"]
-            too_many_words = prospective_words > cfg["max_words"]
-            too_many_chars = len(prospective_text) > cfg["max_chars"]
+            last_word_text = _word_text(current[-1]).strip()
+            punctuation_break = bool(last_word_text and last_word_text[-1] in ".,!?;:")
+            overflow_break = len(prospective_text) > max_chars
             too_long = prospective_dur > cfg["max_duration"]
-            min_ok = len(current) >= cfg["min_words"]
-            if pause_break or (min_ok and (too_many_words or too_many_chars or too_long)):
+            too_many_words = prospective_words > max_words
+
+            if pause_break or punctuation_break or overflow_break or too_long or too_many_words:
                 flush()
         current.append(w)
     flush()
 
-    # Merge trailing too-short caption into the previous one so we never
-    # leave a single-word tail hanging at the end of the file.
+    # Pass 2: Greedy Merge adjacent captions if they fit within max_words and max_chars,
+    # and they aren't separated by silence (gap >= pause_split_threshold).
+    def _can_merge(left: dict[str, Any], right: dict[str, Any]) -> bool:
+        gap = _round_time(right["start"] - left["words"][-1]["end"])
+        if gap >= cfg["pause_split_threshold"]:
+            return False
+
+        combined_words = len(left["words"]) + len(right["words"])
+        if combined_words > cfg["max_words"]:
+            return False
+
+        combined_text = (left["text"] + " " + right["text"]).strip()
+        if len(combined_text) > cfg["max_chars"]:
+            return False
+
+        combined_dur = right["words"][-1]["end"] - left["words"][0]["start"]
+        if combined_dur > cfg["max_duration"]:
+            return False
+
+        return True
+
+    if captions:
+        merged_captions = [captions[0]]
+        for right in captions[1:]:
+            left = merged_captions[-1]
+            if _can_merge(left, right):
+                left["end"] = right["end"]
+                left["text"] = (left["text"] + " " + right["text"]).strip()
+                left["words"].extend(right["words"])
+            else:
+                merged_captions.append(right)
+        captions = merged_captions
+
+    # Pass 3: Clean up single-word or short captions if they are under min_words
     while len(captions) >= 2 and len(captions[-1]["words"]) < cfg["min_words"]:
         last = captions.pop()
         prev = captions[-1]
-        gap = last["start"] - prev["end"]
-        if gap >= cfg["pause_split_threshold"]:
+        gap = last["start"] - prev["words"][-1]["end"]
+
+        merged_text = (prev["text"] + " " + last["text"]).strip()
+        would_overflow = len(merged_text) > max_chars
+        combined_words = len(prev["words"]) + len(last["words"])
+
+        if gap >= cfg["pause_split_threshold"] or would_overflow or combined_words > max_words:
             captions.append(last)
             break
         prev["end"] = last["end"]
-        prev["text"] = (prev["text"] + " " + last["text"]).strip()
+        prev["text"] = merged_text
         prev["words"].extend(last["words"])
 
     # Clamp ends so each caption finishes just before the next one starts.

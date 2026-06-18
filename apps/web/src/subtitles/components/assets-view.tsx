@@ -31,6 +31,7 @@ import {
 	isCapinstaSampleImportEnabled,
 } from "@/capinsta/featureFlags";
 import { capinstaTranscriptToOpenCutSubtitleImport } from "@/capinsta/opencutClassicAdapter";
+import { buildCapinstaCaptionTimingDiagnostics } from "@/capinsta/adapter";
 import { rememberCapinstaCaptionDocument } from "@/capinsta/captionDocumentRegistry";
 import {
 	cancelCapinstaJob,
@@ -452,6 +453,12 @@ export function Captions() {
 				},
 			});
 			const result = capinstaTranscriptToOpenCutSubtitleImport(transcript);
+			if (process.env.NODE_ENV === "development") {
+				console.debug(
+					"[Capinsta captions] Generated caption timing",
+					buildCapinstaCaptionTimingDiagnostics(result.document),
+				);
+			}
 			dispatchCaptionJob({
 				type: "progress",
 				status: "importing_captions",

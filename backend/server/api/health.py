@@ -107,7 +107,7 @@ def timing_health_payload() -> dict[str, object]:
     payload["captionWorkerImport"] = bool(worker_import.get("ok"))
     payload["captionWorkerImportError"] = worker_import.get("error")
     payload["status"] = "ok" if payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and worker_import.get("ok") else "degraded"
-    payload["pauseSplitThreshold"] = float(os.getenv("PAUSE_SPLIT_THRESHOLD", "0.45") or 0.45)
+    payload["pauseSplitThreshold"] = float(os.getenv("PAUSE_SPLIT_THRESHOLD", "0.30") or 0.30)
     payload["defaultGlobalCaptionOffset"] = float(os.getenv("DEFAULT_GLOBAL_CAPTION_OFFSET", "0") or 0)
     return payload
 

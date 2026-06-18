@@ -584,8 +584,14 @@ function hasFlatEditorialTiming(words: TimedCaptionWord[]) {
   return compressedSpan || repeatedStart;
 }
 
-function buildEditorialRevealWords(words: TimedCaptionWord[], captionStart: number, captionEnd: number) {
+function buildEditorialRevealWords(
+  words: TimedCaptionWord[],
+  captionStart: number,
+  captionEnd: number,
+  preserveExactWordTiming: boolean
+) {
   if (words.length <= 1) return words;
+  if (preserveExactWordTiming) return words;
 
   const flatTiming = hasFlatEditorialTiming(words);
   const safeCaptionStart = Math.max(0, captionStart);
@@ -1010,7 +1016,8 @@ function renderModernMinimalistLockup(
   const allWords = buildEditorialRevealWords(
     normalizeLockupWords(buildTimedWords(activeCaption)),
     activeCaption.start,
-    activeCaption.end
+    activeCaption.end,
+    Boolean(activeCaption.words?.length)
   );
   const wordGroup = selectEditorialWordGroup(allWords, activeCaption, currentTime);
   if (!wordGroup) return null;

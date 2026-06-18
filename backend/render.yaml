@@ -47,7 +47,7 @@ services:
       - key: ENABLE_SILERO_VAD
         value: "false"
       - key: PAUSE_SPLIT_THRESHOLD
-        value: "0.45"
+        value: "0.30"
       - key: DEFAULT_GLOBAL_CAPTION_OFFSET
         value: "0"
       - key: SARVAM_API_KEY

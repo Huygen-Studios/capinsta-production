@@ -25,6 +25,7 @@ from .sync.aligned_words import build_segments_from_aligned_words, canonical_ali
 from .sync.auto_sync import apply_auto_sync_if_confident
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement
+from .sync.pause_preserver import preserve_detected_pauses
 from .timing import (
     alignment_provider_status,
     annotate_word_timing_sources,
@@ -54,6 +55,91 @@ def _has_enough_words(source_text: str, candidate_text: str) -> bool:
 def _stage_log(stage: str, **fields: Any) -> None:
     details = " ".join(f"{key}={value!r}" for key, value in fields.items())
     logger.info("pipeline_stage stage=%s %s", stage, details)
+
+
+def _log_caption_timing_debug(
+    aligned_words: list[dict[str, Any]],
+    silence_gaps: list[dict[str, Any]],
+    caption_chunks: list[dict[str, Any]],
+    pause_threshold: float,
+) -> None:
+    qualifying_gaps = [
+        gap
+        for gap in silence_gaps
+        if float(gap.get("end") or 0) - float(gap.get("start") or 0) >= pause_threshold
+    ]
+    crossing_chunks: list[dict[str, Any]] = []
+    for chunk in caption_chunks:
+        chunk_start = float(chunk.get("start") or 0)
+        chunk_end = float(chunk.get("end") or 0)
+        for gap in qualifying_gaps:
+            gap_start = float(gap.get("start") or 0)
+            gap_end = float(gap.get("end") or 0)
+            if chunk_start < gap_start and chunk_end > gap_end:
+                crossing_chunks.append(
+                    {
+                        "text": chunk.get("text"),
+                        "start": chunk_start,
+                        "end": chunk_end,
+                        "silenceStart": gap_start,
+                        "silenceEnd": gap_end,
+                    }
+                )
+
+    estimated_words = [
+        word
+        for word in aligned_words
+        if any(
+            marker in str(
+                word.get("timingSourceDetail")
+                or word.get("timing_source")
+                or word.get("timingSource")
+                or ""
+            ).lower()
+            for marker in ("estimated", "interpolated", "synthetic", "fallback")
+        )
+    ]
+    logger.info(
+        "caption_timing_debug alignedWordsFirst50=%r",
+        [
+            {
+                "word": word.get("displayedWord") or word.get("word"),
+                "start": word.get("start"),
+                "end": word.get("end"),
+                "timing_source": word.get("timingSourceDetail")
+                or word.get("timing_source")
+                or word.get("timingSource"),
+            }
+            for word in aligned_words[:50]
+        ],
+    )
+    logger.info("caption_timing_debug silenceGaps=%r", qualifying_gaps[:80])
+    logger.info(
+        "caption_timing_debug captionChunks=%r",
+        [
+            {
+                "start": chunk.get("start"),
+                "end": chunk.get("end"),
+                "text": chunk.get("text"),
+            }
+            for chunk in caption_chunks[:80]
+        ],
+    )
+    logger.info(
+        "caption_timing_debug crossingSilenceChunks=%r estimatedOrSyntheticWords=%r",
+        crossing_chunks[:80],
+        [
+            {
+                "word": word.get("displayedWord") or word.get("word"),
+                "start": word.get("start"),
+                "end": word.get("end"),
+                "timing_source": word.get("timingSourceDetail")
+                or word.get("timing_source")
+                or word.get("timingSource"),
+            }
+            for word in estimated_words[:80]
+        ],
+    )
 
 
 def run_pipeline(
@@ -296,6 +382,14 @@ def run_pipeline(
             auto_global_sync=auto_sync_result.report,
             manual_sync={"applied": False, "reason": "no manual sync applied during pipeline"},
         )
+        pause_preservation_report: dict[str, int] = {}
+        clamped_segments = preserve_detected_pauses(
+            clamped_segments,
+            vad_report.get("silenceGaps") or [],
+            pause_threshold=transcript_aligner.pause_threshold,
+            diagnostics=pause_preservation_report,
+        )
+        sync_report["pausePreservation"] = pause_preservation_report
         aligned_words = canonical_aligned_words_from_segments(clamped_segments)
         rebuilt_from_aligned_words = build_segments_from_aligned_words(aligned_words)
         if rebuilt_from_aligned_words:
@@ -308,6 +402,12 @@ def run_pipeline(
             }
         clamped_segments = annotate_word_timing_sources(clamped_segments)
         aligned_words = canonical_aligned_words_from_segments(clamped_segments)
+        _log_caption_timing_debug(
+            aligned_words,
+            vad_report.get("silenceGaps") or [],
+            clamped_segments,
+            transcript_aligner.pause_threshold,
+        )
         timing_report = build_timing_report(clamped_segments, vad_report.get("silenceGaps") or [], sync_report)
 
         _stage_log("caption chunks generated", segment_count=len(clamped_segments))

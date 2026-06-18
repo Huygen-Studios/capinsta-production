@@ -153,7 +153,7 @@ export default function WordHighlightBoxCaption({
           alignItems: "center",
           maxWidth: "100%",
           maxHeight: `${Math.ceil(fontSize * config.lineHeight * maxLines + Math.max(0, config.paddingY * scale) * 2)}px`,
-          columnGap: "0.32em",
+          columnGap: 0,
           rowGap: "0.08em",
           padding: `${Math.max(0, config.paddingY * scale)}px ${Math.max(0, config.paddingX * scale)}px`,
           borderRadius: Math.max(0, config.borderRadius * scale),
@@ -205,6 +205,7 @@ export default function WordHighlightBoxCaption({
               data-active-word={isActive ? "true" : "false"}
               style={{
                 display: "inline-block",
+                marginInlineEnd: index < words.length - 1 ? "0.32em" : 0,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontSize,
                   fontWeight: config.fontWeight,

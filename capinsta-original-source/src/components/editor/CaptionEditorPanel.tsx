@@ -615,7 +615,9 @@ export default function CaptionEditorPanel({ initialFlow }: CaptionEditorPanelPr
             const sourceSegments = job.transcript?.segments?.length ? job.transcript.segments : job.segments || [];
             if (sourceSegments.length) {
               setTranscriptSegments(sourceSegments);
-              const originalAlignedWords = getAlignedWordsFromSegments(sourceSegments);
+              const originalAlignedWords = job.transcript?.alignedWords?.length
+                ? job.transcript.alignedWords
+                : getAlignedWordsFromSegments(sourceSegments);
               const config = {
                 ...useEditorStore.getState().captionChunkingConfig,
                 ...chunkingForChars(charsPerSubtitle, useEditorStore.getState().captionStyleConfig.maxLines),
