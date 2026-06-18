@@ -35,6 +35,7 @@ RESOLUTION_MAP = {
     "480p": (854, 480),
 }
 QUALITY_CRF = {
+    "fast": "28",
     "draft": "28",
     "standard": "23",
     "high": "18",
@@ -300,6 +301,7 @@ async def export_headless(
     duration_source: str | None = None,
     hardware_acceleration: bool = False,
     composition_json: str | None = None,
+    source_job_id: str | None = None,
 ) -> str:
     """
     Export video with pixel-perfect burned captions using headless browser.
@@ -310,6 +312,7 @@ async def export_headless(
         return await run_on_proactor_loop(
             lambda: export_headless(
                 job_id=job_id,
+                source_job_id=source_job_id,
                 video_path=video_path,
                 captions_json=captions_json,
                 theme=theme,
@@ -349,11 +352,16 @@ async def export_headless(
         video_bitrate = f"{custom_bitrate_mbps}M"
     elif bitrate in BITRATE_PRESETS:
         video_bitrate = BITRATE_PRESETS[bitrate]
-    is_captions_only = export_mode in {"captions_only", "captions_only_solid_background"}
+    is_captions_only = export_mode in {
+        "captions_only",
+        "captions_only_solid_background",
+        "captions_solid_background",
+    }
     ensure_runtime_dirs()
     output_dir = str(EXPORT_DIR)
     output_suffix = "captions_only" if is_captions_only else "exported"
     export_job_id = f"{job_id}-{int(time.time())}"
+    render_started_at = time.perf_counter()
 
     try:
         parsed_captions = json.loads(captions_json or "[]")
@@ -361,11 +369,21 @@ async def export_headless(
         raise ExportStageError("render_input", "Invalid captions JSON sent to export.", exc) from exc
     if not isinstance(parsed_captions, list):
         raise ExportStageError("render_input", "Captions JSON must be a list of caption chunks.")
+    if not parsed_captions:
+        raise ExportStageError("render_input", "No captions found to export.")
     captions_duration = max(
         (
-            float(caption.get("end") or 0)
+            timing_end
             for caption in parsed_captions
             if isinstance(caption, dict)
+            for timing_end in [
+                float(caption.get("end") or 0),
+                *[
+                    float(word.get("end") or 0)
+                    for word in caption.get("words", [])
+                    if isinstance(word, dict)
+                ],
+            ]
         ),
         default=0.0,
     )
@@ -520,6 +538,31 @@ async def export_headless(
         backgroundColor=_normalize_hex_color(background_color, "#00ff00" if is_captions_only else "#101010"),
         renderUrl=bundled_render_page_url() if frontend_dist_available() else default_render_page_url(),
     )
+    if is_captions_only:
+        first_caption = parsed_captions[0].get("text") if isinstance(parsed_captions[0], dict) else None
+        last_caption = parsed_captions[-1].get("text") if isinstance(parsed_captions[-1], dict) else None
+        logger.info(
+            "[captions-only duration] durationSec=%.3f durationFrames=%s fps=%s captionsCount=%s firstCaption=%r lastCaption=%r",
+            captions_duration,
+            math.ceil(captions_duration * export_fps),
+            export_fps,
+            len(parsed_captions),
+            first_caption,
+            last_caption,
+        )
+        logger.info("[render] captions-only mode detected")
+        logger.info("[render] using synthetic composition")
+        logger.info(
+            "[render] width/height/fps/duration/backgroundColor %sx%s %s %.3f %s",
+            width,
+            height,
+            export_fps,
+            duration,
+            _normalize_hex_color(background_color, "#00ff00"),
+        )
+        logger.info("[render] active project skipped for captions-only mode")
+        logger.info("[render] caption count %s", len(parsed_captions))
+        logger.info("[render] audio included %s", bool(include_audio and media_exists))
 
     browser = None
     page = None
@@ -647,7 +690,29 @@ async def export_headless(
             raise ExportStageError("composition_load", "Render page loaded flag was set, but no page instance remained available.")
 
         async def capture_render_frame() -> bytes:
+            """Capture a single transparent caption overlay frame.
+
+            Targets the export overlay root (#render-frame with
+            data-capinsta-export-overlay-root) which is position:fixed at exact
+            export pixel dimensions. Uses omit_background=True for a transparent
+            PNG that FFmpeg composites onto the original video.
+            """
             try:
+                # Primary: screenshot the export overlay root element directly.
+                # It is position:fixed at {0,0} sized to export dimensions, so an
+                # element screenshot captures exactly the caption overlay region.
+                try:
+                    overlay_root = page.locator('[data-capinsta-export-overlay-root="true"]')
+                    if await overlay_root.count() > 0:
+                        return await overlay_root.screenshot(
+                            type="png",
+                            omit_background=True,
+                            timeout=5000,
+                        )
+                except Exception:
+                    pass  # Fall through to viewport screenshot
+
+                # Fallback: viewport screenshot clipped to export dimensions.
                 return await page.screenshot(
                     type="png",
                     omit_background=True,
@@ -670,6 +735,10 @@ async def export_headless(
                                 loaded: window.__RENDER_PAGE_LOADED__ === true,
                                 ready: typeof window.isReady === "function" ? window.isReady() : false,
                                 hasFrame: Boolean(document.querySelector("#render-frame")),
+                                hasExportRoot: Boolean(document.querySelector('[data-capinsta-export-overlay-root="true"]')),
+                                overlayOnly: Boolean(window.__OVERLAY_ONLY_MODE__),
+                                overlayRect: window.__EXPORT_OVERLAY_RECT__ || null,
+                                debugOverlaysFound: window.__EXPORT_DEBUG_OVERLAYS_FOUND__ ?? null,
                                 bodyText: (document.body?.innerText || "").slice(0, 600)
                             })"""
                         )
@@ -688,9 +757,13 @@ async def export_headless(
         async def inject_caption_data() -> None:
             if page is None:
                 raise ExportStageError("composition_load", "Render page is not available for caption injection.")
+            # The render page fetches the original video via
+            # /api/jobs/${jobId}/video, which resolves by the SOURCE caption job
+            # id (not the export job id). Pass source_job_id when available.
+            video_fetch_job_id = source_job_id or job_id
             try:
                 inject_result = await page.evaluate(
-                    "([json, t, w, h, styleJson, fps, bg, compositionJson, renderMode]) => window.setCaptionData(json, t, w, h, styleJson, fps, bg, compositionJson, renderMode)",
+                    "([json, t, w, h, styleJson, fps, bg, compositionJson, renderMode, jobId, duration, audioIncluded]) => window.setCaptionData(json, t, w, h, styleJson, fps, bg, compositionJson, renderMode, jobId, duration, audioIncluded)",
                     [
                         captions_json,
                         theme,
@@ -698,19 +771,52 @@ async def export_headless(
                         height,
                         style_config_json or "",
                         export_fps,
-                        "transparent",
+                        background_color or ("#00FF00" if is_captions_only else "transparent"),
                         "" if is_captions_only else (composition_json or ""),
                         "captions_only" if is_captions_only else "full_video",
+                        video_fetch_job_id,
+                        duration,
+                        bool(include_audio and media_exists),
                     ]
                 )
             except Exception as exc:
                 logs = _tail("\n".join(page_logs), 1400)
                 detail = f" Render logs: {logs}" if logs else ""
                 raise ExportStageError("composition_load", f"Failed to inject captions into render page.{detail}", exc) from exc
-            if not inject_result:
-                raise ExportStageError("composition_load", "Render page rejected the caption data.")
 
-        async def recreate_render_page(current_time: float, reason: Exception) -> None:
+            # setCaptionData now returns { ok: boolean, error?: string, detail?: string }
+            # instead of a bare boolean, so we can surface the real failure reason.
+            if isinstance(inject_result, dict):
+                if not inject_result.get("ok"):
+                    err_msg = inject_result.get("error") or "Render page rejected the caption data (unknown reason)."
+                    err_detail = inject_result.get("detail") or ""
+                    logs = _tail("\n".join(page_logs), 1400)
+                    log_suffix = f" Render logs: {logs}" if logs else ""
+                    full_detail = f"{err_detail}{log_suffix}".strip()
+                    raise ExportStageError(
+                        "composition_load",
+                        f"{err_msg}. {full_detail}".strip(),
+                    )
+            elif inject_result is False or inject_result is None:
+                # Backwards-compat: older render pages return bare false.
+                logs = _tail("\n".join(page_logs), 1400)
+                last_err = await page.evaluate("() => window.__RENDER_PAGE_LAST_ERROR__ || ''")
+                detail_parts = []
+                if last_err:
+                    detail_parts.append(f"Render page error: {last_err}")
+                if logs:
+                    detail_parts.append(f"Render logs: {logs}")
+                detail = f" {' | '.join(detail_parts)}" if detail_parts else ""
+                raise ExportStageError(
+                    "composition_load",
+                    f"Render page rejected the caption data.{detail}",
+                )
+
+        async def recreate_render_page(
+            current_time: float,
+            reason: Exception,
+            current_frame: int | None = None,
+        ) -> None:
             nonlocal page
             logger.warning(
                 "recovering_render_page export_job_id=%s time=%.3f reason=%s: %s",
@@ -740,7 +846,10 @@ async def export_headless(
                 raise ExportStageError("composition_load", f"Render page reload failed during export recovery: {status} {render_page_url}")
             await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=10000)
             await inject_caption_data()
-            await page.evaluate("(time) => window.setCaptionTime(time)", current_time)
+            if is_captions_only and current_frame is not None:
+                await page.evaluate("(frame) => window.setCaptionFrame(frame)", current_frame)
+            else:
+                await page.evaluate("(time) => window.setCaptionTime(time)", current_time)
 
         # Inject caption data via proper serialization (avoids string escaping issues)
         try:
@@ -748,6 +857,56 @@ async def export_headless(
         except Exception as exc:
             await close_browser_safely()
             raise
+
+        # --- Validation: verify overlay element + no debug overlays ---
+        await progress_callback("exporting", 3, "Validating render state...")
+        try:
+            overlay_root_count = await page.locator('[data-capinsta-export-overlay-root="true"]').count() if page else 0
+            render_mode_info = await page.evaluate("() => ({ overlayOnly: Boolean(window.__OVERLAY_ONLY_MODE__), mode: window.HUYGEN_RENDER_MODE })") if page else {}
+            overlay_rect = await page.evaluate("() => window.__EXPORT_OVERLAY_RECT__ || null") if page else None
+            style_hash = await page.evaluate("() => window.__EXPORT_STYLE_HASH__ || null") if page else None
+            style_info = await page.evaluate("() => window.__EXPORT_STYLE_INFO__ || null") if page else None
+            layout_info = await page.evaluate("() => window.__EXPORT_LAYOUT_INFO__ || null") if page else None
+            layout_hash = await page.evaluate("() => window.__EXPORT_LAYOUT_HASH__ || null") if page else None
+            logger.info(
+                "post_inject_validation job_id=%s overlayRoot=%s overlayOnly=%s mode=%s overlayRect=%s styleHash=%s styleInfo=%s layoutHash=%s layoutInfo=%s",
+                job_id,
+                overlay_root_count,
+                render_mode_info.get("overlayOnly") if isinstance(render_mode_info, dict) else None,
+                render_mode_info.get("mode") if isinstance(render_mode_info, dict) else None,
+                json.dumps(overlay_rect) if overlay_rect else None,
+                style_hash,
+                json.dumps(style_info) if style_info else None,
+                layout_hash,
+                json.dumps(layout_info) if layout_info else None,
+            )
+            if overlay_root_count == 0:
+                logger.warning("post_inject_validation NO export overlay root found on render page — captions may not render")
+
+            # The overlay root is now sized to the PROJECT CANVAS (not the export
+            # resolution), so validate against the canvas dimensions reported by
+            # __EXPORT_LAYOUT_INFO__. FFmpeg scales the overlay to the output
+            # resolution during compositing.
+            canvas_w = None
+            canvas_h = None
+            if isinstance(layout_info, dict):
+                canvas_w = layout_info.get("canvasWidth")
+                canvas_h = layout_info.get("canvasHeight")
+            if isinstance(overlay_rect, dict):
+                rect_w = overlay_rect.get("width")
+                rect_h = overlay_rect.get("height")
+                # Compare against the canvas dims (from layout info) if available,
+                # otherwise fall back to the export dims.
+                expected_w = canvas_w if canvas_w else width
+                expected_h = canvas_h if canvas_h else height
+                if rect_w != expected_w or rect_h != expected_h:
+                    logger.warning(
+                        "post_inject_validation overlay root rect mismatch: got %sx%s expected %sx%s (canvas=%sx%s export=%sx%s)",
+                        rect_w, rect_h, expected_w, expected_h,
+                        canvas_w, canvas_h, width, height,
+                    )
+        except Exception as val_exc:
+            logger.warning("post_inject_validation check failed (non-fatal): %s", val_exc)
 
         await progress_callback("exporting", 5, "Starting frame capture...")
 
@@ -777,12 +936,31 @@ async def export_headless(
                     await recreate_render_page(
                         start_time,
                         ExportStageError("render_frames", f"Starting captions-only chunk {start_frame}-{end_frame - 1}."),
+                        start_frame,
                     )
                 for current_frame in range(start_frame, end_frame):
-                    current_time = current_frame / export_fps
                     if page is None:
                         raise ExportStageError("render_frames", "Render page is not available.")
-                    await page.evaluate("(time) => window.setCaptionTime(time)", current_time)
+                    advanced = await page.evaluate(
+                        "(frame) => window.setCaptionFrame(frame)",
+                        current_frame,
+                    )
+                    if advanced is not True:
+                        raise ExportStageError(
+                            "render_frames",
+                            f"Caption renderer rejected frame {current_frame}.",
+                        )
+                    if current_frame % 30 == 0:
+                        frame_info = await page.evaluate(
+                            "() => window.__CAPSTA_ACTIVE_FRAME_INFO__ || null"
+                        )
+                        logger.info(
+                            "[captions-only frame] frame=%s timeSec=%.3f activeCaptionText=%r activeWordText=%r",
+                            current_frame,
+                            current_frame / export_fps,
+                            frame_info.get("activeCaptionText") if isinstance(frame_info, dict) else None,
+                            frame_info.get("activeWordText") if isinstance(frame_info, dict) else None,
+                        )
                     await write_frame(current_frame, await capture_render_frame())
 
             try:
@@ -852,7 +1030,15 @@ async def export_headless(
                     ffmpeg_cmd.extend(["-map", "2:a?", "-c:a", "aac", "-b:a", "192k"])
                 else:
                     ffmpeg_cmd.append("-an")
-                ffmpeg_cmd.extend(["-t", f"{duration:.6f}", "-pix_fmt", "yuv420p", output_path])
+                ffmpeg_cmd.extend([
+                    "-t",
+                    f"{duration:.6f}",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    output_path,
+                ])
 
                 _log_export_event(
                     "captions_only_ffmpeg_encode_started",
@@ -885,6 +1071,7 @@ async def export_headless(
                     exportJobId=export_job_id,
                     outputPath=output_path,
                     bytes=output_size,
+                    elapsedSeconds=round(time.perf_counter() - render_started_at, 3),
                 )
                 return output_path
             finally:
@@ -925,19 +1112,32 @@ async def export_headless(
                 ffmpeg_cmd.append("-an")
             ffmpeg_cmd.extend(["-t", f"{duration:.6f}", "-pix_fmt", "yuv420p", output_path])
         else:
-            # Input 0: full-duration canvas. Input 1: original video.
-            # Input 2: piped PNG caption/composition frames.
+            # OVERLAY PIPELINE: original video + transparent caption frames.
+            # Input 0: original source video (preserves quality, has audio track).
+            # Input 1: piped transparent PNG caption overlay frames from browser.
+            # FFmpeg composites: video at base, captions overlaid at (0,0).
             ffmpeg_cmd.extend([
-                "-f", "lavfi", "-r", str(export_fps), "-i", f"color=c={safe_bg}:s={width}x{height}:d={duration:.6f}",
-                "-i", video_path,
-                "-f", "image2pipe", "-framerate", str(export_fps), "-c:v", "png", "-i", "pipe:0",
+                "-i", video_path,                                          # Input 0: original video
+                "-f", "image2pipe", "-framerate", str(export_fps), "-c:v", "png",
+                "-i", "pipe:0",                                             # Input 1: transparent caption PNGs
+            ])
+            # Scale BOTH the original video (input 0) AND the caption overlay
+            # (input 1, which is rendered at the project canvas size by /render)
+            # to the target export resolution before compositing. This guarantees
+            # the overlay matches the video frame pixel-for-pixel regardless of
+            # whether the source video, the project canvas, and the export
+            # resolution all differ. Both are scaled to exactly (width, height).
+            overlay_filter = (
+                f"[0:v]scale={width}:{height}:force_original_aspect_ratio=disable[base];"
+                f"[1:v]scale={width}:{height}:force_original_aspect_ratio=disable,format=rgba[ov];"
+                f"[base][ov]overlay=0:0:format=auto:eof_action=pass:shortest=0[out]"
+            )
+            ffmpeg_cmd.extend([
                 "-filter_complex",
-                f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color={safe_bg}[src];"
-                f"[0:v][src]overlay=0:0:eof_action=pass:shortest=0[base];"
-                f"[2:v]format=rgba[ov];"
-                f"[base][ov]overlay=0:0:eof_action=pass:shortest=0[out]",
+                overlay_filter,
                 "-map", "[out]",
-                "-c:v", encoder, "-preset", "ultrafast",
+                "-c:v", encoder,
+                "-preset", "veryfast",
             ])
             if ffmpeg_threads:
                 ffmpeg_cmd.extend(["-threads", str(ffmpeg_threads)])
@@ -945,11 +1145,17 @@ async def export_headless(
                 ffmpeg_cmd.extend(["-b:v", video_bitrate])
             else:
                 ffmpeg_cmd.extend(["-cq" if hardware_acceleration else "-crf", crf])
-            if include_audio:
-                ffmpeg_cmd.extend(["-map", "1:a?", "-c:a", "copy", "-shortest"])
+            # Audio comes from input 0 (original video) — copy without re-encode.
+            if include_audio and media_exists:
+                ffmpeg_cmd.extend(["-map", "0:a?", "-c:a", "copy"])
             else:
                 ffmpeg_cmd.append("-an")
-            ffmpeg_cmd.extend(["-t", f"{duration:.6f}", "-pix_fmt", "yuv420p", output_path])
+            ffmpeg_cmd.extend([
+                "-t", f"{duration:.6f}",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                output_path,
+            ])
 
         _log_export_event(
             "ffmpeg_encode_started",
@@ -989,7 +1195,9 @@ async def export_headless(
             for frame_idx in range(total_frames):
                 current_time = frame_idx / export_fps
 
-                if render_page_recycle_frames and frame_idx > 0 and frame_idx % render_page_recycle_frames == 0:
+                # Page recycling is needed for WebGL stability (legacy mode) but
+                # unnecessary for overlay-only mode (pure React DOM, no GPU state).
+                if not is_captions_only and render_page_recycle_frames and frame_idx > 0 and frame_idx % render_page_recycle_frames == 0:
                     await progress_callback(
                         "exporting",
                         last_pct,
@@ -1010,7 +1218,47 @@ async def export_headless(
                         # Set the caption time in the render page. The page resolves
                         # after React has committed the frame.
                         await page.evaluate("(time) => window.setCaptionTime(time)", current_time)
+
+                        # Assert no debug/instrumentation overlays are visible before
+                        # capturing. This catches React Scan badges, Next.js dev
+                        # portals, FPS widgets, etc. before they leak into frames.
+                        try:
+                            clean_check = await page.evaluate("() => (typeof window.assertExportClean === 'function' ? window.assertExportClean() : { ok: true, debugOverlaysFound: 0 })")
+                            if isinstance(clean_check, dict) and not clean_check.get("ok", True):
+                                reason = clean_check.get("reason") or "debug overlay visible"
+                                found = clean_check.get("debugOverlaysFound", 0)
+                                if frame_idx == 0:
+                                    logger.error("export_blocked_debug_overlay frame=0 reason=%s found=%d — aborting export", reason, found)
+                                    raise ExportStageError("render_frames", f"Export blocked: debug/inspector overlay visible ({found} found). Reason: {reason}")
+                                else:
+                                    logger.warning("export_debug_overlay_visible frame=%d found=%d reason=%s — scrubber will retry removal", frame_idx, found, reason)
+                        except ExportStageError:
+                            raise
+                        except Exception as clean_exc:
+                            logger.debug("assertExportClean check failed (non-fatal): %s", clean_exc)
+
                         screenshot_bytes = await capture_render_frame()
+
+                        # Log frame diagnostics at key checkpoints.
+                        if frame_idx in {0, 30, 60, 90}:
+                            frame_size = len(screenshot_bytes) if screenshot_bytes else 0
+                            try:
+                                info = await page.evaluate("() => window.__CAPSTA_ACTIVE_FRAME_INFO__")
+                                if info:
+                                    logger.info(
+                                        "export_frame_sync frame=%d frameTime=%.3f size=%dB activeCaptionId=%s activeWordId=%s captionText=%s",
+                                        frame_idx,
+                                        current_time,
+                                        frame_size,
+                                        info.get("activeCaptionId"),
+                                        info.get("activeWordId"),
+                                        info.get("captionText"),
+                                    )
+                                else:
+                                    logger.info("export_frame_sync frame=%d frameTime=%.3f size=%dB activeCaptionId=none", frame_idx, current_time, frame_size)
+                            except Exception as eval_exc:
+                                logger.warning("Failed to evaluate active frame info at frame %s: %s", frame_idx, eval_exc)
+
                         break
                     except Exception as frame_exc:
                         last_frame_error = frame_exc
@@ -1085,6 +1333,7 @@ async def export_headless(
             exportJobId=export_job_id,
             outputPath=output_path,
             bytes=output_size,
+            elapsedSeconds=round(time.perf_counter() - render_started_at, 3),
         )
 
     return output_path

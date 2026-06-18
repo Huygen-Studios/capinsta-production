@@ -708,7 +708,11 @@ async def export_video(
 
     original_video_name = f"{job_id}_{r['filename']}"
     original_video_path = str(UPLOAD_DIR / original_video_name)
-    is_captions_only_export = export_mode in {"captions_only", "captions_only_solid_background"}
+    is_captions_only_export = export_mode in {
+        "captions_only",
+        "captions_only_solid_background",
+        "captions_solid_background",
+    }
     if not os.path.exists(original_video_path) and not is_captions_only_export:
         return _export_failure("resolve_media", "Original video file not found. Re-upload the source media before full-video export.", response_format, 404)
     if not os.path.exists(original_video_path) and is_captions_only_export:
@@ -755,6 +759,7 @@ async def export_video(
                     return _export_failure("validate_request", "Invalid captions JSON.", response_format, 400)
             output_path = await export_headless(
                 job_id=job_id,
+                source_job_id=job_id,
                 video_path=original_video_path,
                 captions_json=captions_json,
                 theme=theme,

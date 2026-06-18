@@ -23,10 +23,14 @@ import {
 	PreviewViewportProvider,
 	usePreviewViewportState,
 } from "./preview-viewport";
-import {
-	buildCapinstaPreviewTracks,
-} from "@/capinsta/captionTimelineSync";
+import { buildCapinstaPreviewTracks } from "@/capinsta/captionTimelineSync";
 import { CapinstaActiveCaptionOverlay } from "./capinsta-active-caption-overlay";
+import {
+	usePreviewStore,
+	PREVIEW_QUALITY_SCALE,
+	computePreviewDimensions,
+} from "@/preview/preview-store";
+import { useAutoPreviewQuality } from "@/preview/hooks/use-auto-preview-quality";
 
 function usePreviewSize() {
 	const canvasSize = useEditor(
@@ -211,22 +215,61 @@ function PreviewCanvas({
 	});
 	const { canPan, panByScreenDelta, scaleZoom } = viewport;
 
+	// Preview quality: read the resolved quality and compute scaled dimensions.
+	// The visible size stays the same — only the internal render resolution changes.
+	const resolvedQuality = usePreviewStore((s) => s.resolvedQuality);
+	const previewScale = PREVIEW_QUALITY_SCALE[resolvedQuality];
+	const isPlaying = useEditor((e) => e.playback.getIsPlaying());
+	const { recordFrameRender } = useAutoPreviewQuality({ isPlaying });
+
+	const { width: previewWidth, height: previewHeight } =
+		computePreviewDimensions({
+			projectWidth: nativeWidth,
+			projectHeight: nativeHeight,
+			scale: previewScale,
+		});
+
+	// Debug logging for preview quality
+	useEffect(() => {
+		if (process.env.NEXT_PUBLIC_CAPINSTA_DEBUG !== "true") return;
+		console.debug("[preview-quality] dimensions computed", {
+			projectResolution: { width: nativeWidth, height: nativeHeight },
+			internalRenderResolution: { width: previewWidth, height: previewHeight },
+			previewQualityScale: previewScale,
+			resolvedQuality,
+			visibleSceneSize: {
+				width: viewport.sceneWidth,
+				height: viewport.sceneHeight,
+			},
+		});
+	}, [
+		nativeWidth,
+		nativeHeight,
+		previewWidth,
+		previewHeight,
+		previewScale,
+		resolvedQuality,
+		viewport.sceneWidth,
+		viewport.sceneHeight,
+	]);
+
 	const renderer = useMemo(() => {
 		return new CanvasRenderer({
-			width: nativeWidth,
-			height: nativeHeight,
+			width: previewWidth,
+			height: previewHeight,
 			fps: activeProject.settings.fps,
+			renderScale: previewScale,
 		});
-	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
+	}, [previewWidth, previewHeight, previewScale, activeProject.settings.fps]);
 
-	// Mount the compositor's output canvas directly into the preview. wgpu
-	// renders straight into this element, so there is no intermediate copy —
-	// the container div owns positioning/styling, the canvas itself fills it.
+	// Mount the compositor's output canvas directly into the preview.
+	// CSS upscales the lower-resolution canvas to fill the same visible area.
 	useEffect(() => {
 		const mount = canvasMountRef.current;
 		if (!mount) return;
 		const outputCanvas = renderer.getOutputCanvas();
 		outputCanvas.style.display = "block";
+		outputCanvas.style.imageRendering = "auto";
 		outputCanvas.style.width = "100%";
 		outputCanvas.style.height = "100%";
 		mount.appendChild(outputCanvas);
@@ -235,7 +278,7 @@ function PreviewCanvas({
 				mount.removeChild(outputCanvas);
 			}
 		};
-	}, [renderer]);
+	}, [renderer, previewScale]);
 
 	const render = useCallback(() => {
 		if (!renderTree || renderingRef.current) return;
@@ -249,16 +292,14 @@ function PreviewCanvas({
 		);
 		const frame = Math.floor(renderTime / ticksPerFrame);
 
-		if (
-			frame === lastFrameRef.current &&
-			renderTree === lastSceneRef.current
-		) {
+		if (frame === lastFrameRef.current && renderTree === lastSceneRef.current) {
 			return;
 		}
 
 		const sceneChanged = renderTree !== lastSceneRef.current;
 		renderingRef.current = true;
 		lastSceneRef.current = renderTree;
+		const renderStart = performance.now();
 		renderer
 			.render({ node: renderTree, time: renderTime })
 			.then(async () => {
@@ -266,6 +307,7 @@ function PreviewCanvas({
 					await kickWebGpuPresentation();
 				}
 				lastFrameRef.current = frame;
+				recordFrameRender(performance.now() - renderStart);
 			})
 			.catch((error) => {
 				lastFrameRef.current = -1;
@@ -281,7 +323,13 @@ function PreviewCanvas({
 			.finally(() => {
 				renderingRef.current = false;
 			});
-	}, [renderer, renderTree, editor.playback, editor.timeline]);
+	}, [
+		renderer,
+		renderTree,
+		editor.playback,
+		editor.timeline,
+		recordFrameRender,
+	]);
 
 	useRafLoop(render);
 
@@ -380,20 +428,20 @@ function PreviewCanvas({
 								ref={viewportRef}
 								className="relative flex size-full min-h-0 min-w-0 items-center justify-center overflow-hidden"
 							>
-							<div
-								ref={canvasMountRef}
-								className="absolute block border"
-								style={{
-									left: viewport.sceneLeft,
-									top: viewport.sceneTop,
-									width: viewport.sceneWidth,
-									height: viewport.sceneHeight,
-									background:
-										activeProject.settings.background.type === "blur"
-											? "transparent"
-											: activeProject?.settings.background.color,
-								}}
-							/>
+								<div
+									ref={canvasMountRef}
+									className="absolute block border"
+									style={{
+										left: viewport.sceneLeft,
+										top: viewport.sceneTop,
+										width: viewport.sceneWidth,
+										height: viewport.sceneHeight,
+										background:
+											activeProject.settings.background.type === "blur"
+												? "transparent"
+												: activeProject?.settings.background.color,
+									}}
+								/>
 								<CapinstaActiveCaptionOverlay
 									sceneLeft={viewport.sceneLeft}
 									sceneTop={viewport.sceneTop}
@@ -427,9 +475,9 @@ function PreviewCanvas({
 	);
 }
 
-let previewPresentationKick:
-	| ReturnType<typeof createPreviewPresentationKick>
-	| null = null;
+let previewPresentationKick: ReturnType<
+	typeof createPreviewPresentationKick
+> | null = null;
 
 async function kickWebGpuPresentation(): Promise<void> {
 	if (!navigator.gpu) return;

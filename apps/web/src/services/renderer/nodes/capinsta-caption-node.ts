@@ -1,5 +1,4 @@
 import type { CapinstaTextRenderData } from "@/capinsta/exportRender";
-import { renderCapinstaWysiwygExportCaption } from "@/capinsta/export/capinstaWysiwygExportRenderer";
 import type { CapinstaCaptionDocumentRecord } from "@/capinsta/types";
 import type { EffectPass } from "@/effects/types";
 import type { BlendMode, Transform } from "@/rendering";
@@ -31,36 +30,45 @@ export interface ResolvedCapinstaCaptionNodeState {
 	timeSeconds: number;
 }
 
+/**
+ * CapinstaCaptionNode is RETAINED FOR INTERNAL TYPE COMPATIBILITY ONLY.
+ *
+ * It MUST NOT draw visible caption text. CapInsta captions have a single visual
+ * renderer: `CapinstaActiveCaptionOverlay` (React DOM). During export the React
+ * overlay DOM is rasterized per-frame via SVG foreignObject and composited on top
+ * of the export canvas (see `capinsta-overlay-capture.ts`), so preview and export
+ * are guaranteed pixel-identical.
+ *
+ * The canvas/WYSIWYG renderer (`capinstaWysiwygExportRenderer`) is intentionally
+ * NOT called from here. If you ever re-enable it you will reintroduce the
+ * preview/export styling divergence this guard exists to prevent.
+ */
 export class CapinstaCaptionNode extends BaseNode<
 	CapinstaCaptionNodeParams,
 	ResolvedCapinstaCaptionNodeState
 > {}
 
+/**
+ * INTENTIONAL NO-OP. CapinstaCaptionNode is never instantiated by scene-builder
+ * (see scene-builder.ts). This render function exists only as a defensive guard:
+ * if some other code path were to push a CapinstaCaptionNode into the render tree,
+ * it will still draw zero visible caption pixels.
+ */
 export function renderCapinstaCaptionToContext({
 	node,
-	ctx,
+	ctx: _ctx,
 }: {
 	node: CapinstaCaptionNode;
 	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 }): void {
-	const resolved = node.resolved;
-	if (!resolved) {
-		return;
-	}
-
-	const result = renderCapinstaWysiwygExportCaption({
-		ctx,
-		renderData: resolved.renderData,
-		activeWordIds: resolved.activeWordIds,
-		timeSeconds: resolved.timeSeconds,
-		canvasSize: node.params.canvasSize,
-	});
-
 	if (
 		typeof window !== "undefined" &&
 		process.env.NEXT_PUBLIC_CAPINSTA_DEBUG === "true"
 	) {
-		window.__CAPINSTA_LAST_EXPORT_MANIFEST = result.debug.manifest;
-		console.info("rendered_capinsta_wysiwyg", result.debug.manifest);
+		console.warn(
+			"[capinsta] renderCapinstaCaptionToContext called — this is a defensive no-op. " +
+				"Captions are rendered by CapinstaActiveCaptionOverlay (React DOM) only.",
+		);
 	}
+	return;
 }

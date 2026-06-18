@@ -8,6 +8,7 @@ import { baseMetaData } from "./metadata";
 import { BotIdClient } from "botid/client";
 import { webEnv } from "@/env/web";
 import { Inter } from "next/font/google";
+import { DevToolsLoader } from "./dev-tools-loader";
 
 const siteFont = Inter({ subsets: ["latin"] });
 
@@ -29,15 +30,6 @@ export default function RootLayout({
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				<BotIdClient protect={protectedRoutes} />
-				{process.env.NODE_ENV === "development" && (
-					<>
-						<Script
-							src="//unpkg.com/react-scan/dist/auto.global.js"
-							crossOrigin="anonymous"
-							strategy="beforeInteractive"
-						/>
-					</>
-				)}
 			</head>
 			<body className={`${siteFont.className} font-sans antialiased`}>
 				<ThemeProvider
@@ -46,6 +38,11 @@ export default function RootLayout({
 					disableTransitionOnChange={true}
 				>
 					<TooltipProvider>
+						{/* Dev-only tools (React Scan) — client-gated to NEVER load on /render.
+						    Previously this was a beforeInteractive <Script> in <head> that
+						    always loaded in dev, including for the headless export page,
+						    injecting purple overlay boxes into export screenshots. */}
+						<DevToolsLoader />
 						<Toaster />
 						<Script
 							src="https://cdn.databuddy.cc/databuddy.js"

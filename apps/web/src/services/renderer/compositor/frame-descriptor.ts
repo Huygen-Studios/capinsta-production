@@ -324,7 +324,10 @@ function collectTextNode({
 		width,
 		height,
 		draw: (ctx) => {
+			ctx.save();
+			ctx.scale(renderer.renderScale, renderer.renderScale);
 			renderTextToContext({ node, ctx });
+			ctx.restore();
 		},
 	});
 	items.push({
@@ -368,7 +371,10 @@ function collectCapinstaCaptionNode({
 		width,
 		height,
 		draw: (ctx) => {
+			ctx.save();
+			ctx.scale(renderer.renderScale, renderer.renderScale);
 			renderCapinstaCaptionToContext({ node, ctx });
+			ctx.restore();
 		},
 	});
 	items.push({
@@ -403,8 +409,11 @@ function computeVisualTransform({
 	const absHeight = Math.abs(scaledHeight);
 
 	return {
-		centerX: renderer.width / 2 + resolved.transform.position.x,
-		centerY: renderer.height / 2 + resolved.transform.position.y,
+		centerX:
+			renderer.width / 2 + resolved.transform.position.x * renderer.renderScale,
+		centerY:
+			renderer.height / 2 +
+			resolved.transform.position.y * renderer.renderScale,
 		width: absWidth,
 		height: absHeight,
 		rotationDegrees: resolved.transform.rotate,

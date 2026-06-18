@@ -427,7 +427,8 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 "export_job_request export_job_id=%s export_mode=%s captions_only=%s width=%s height=%s fps=%s duration=%s include_audio=%s background_color=%s render_url=%s total_frames=%s",
                 export_job_id,
                 request.export_mode,
-                request.export_mode == "captions_only" or request.captions_only,
+                request.export_mode in {"captions_only", "captions_only_solid_background", "captions_solid_background"}
+                or request.captions_only,
                 request.export_width,
                 request.export_height,
                 request.export_fps,
@@ -440,6 +441,7 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
 
             output_path = await export_headless(
                 job_id=export_job_id,
+                source_job_id=request.source_job_id,
                 video_path=request.original_video_path,
                 captions_json=request.captions_json,
                 theme=request.theme,
@@ -588,7 +590,12 @@ async def start_export_job(
 
     export_fps = max(1, min(120, int(export_fps or 30)))
     export_mode = "captions_only" if captions_only else export_mode
-    if export_mode not in {"full_video", "captions_only", "captions_only_solid_background"}:
+    if export_mode not in {
+        "full_video",
+        "captions_only",
+        "captions_only_solid_background",
+        "captions_solid_background",
+    }:
         return JSONResponse(
             {"success": False, "stage": "validate_request", "error": f"Unsupported export mode: {export_mode}"},
             status_code=400,
@@ -603,7 +610,11 @@ async def start_export_job(
         )
 
     original_video_path = str(UPLOAD_DIR / f"{source_job_id}_{row['filename']}")
-    is_captions_only = export_mode in {"captions_only", "captions_only_solid_background"}
+    is_captions_only = export_mode in {
+        "captions_only",
+        "captions_only_solid_background",
+        "captions_solid_background",
+    }
     if not os.path.exists(original_video_path) and not is_captions_only:
         return JSONResponse(
             {

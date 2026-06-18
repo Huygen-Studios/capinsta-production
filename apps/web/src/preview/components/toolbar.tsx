@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { formatTimecode } from "opencut-wasm";
 import { invokeAction } from "@/actions";
@@ -23,8 +23,11 @@ import {
 } from "@/components/ui/select";
 import { PREVIEW_ZOOM_PRESETS } from "@/preview/zoom";
 import { usePreviewViewport } from "./preview-viewport";
-import { GridPopover } from "./guide-popover";
-import { usePreviewStore } from "@/preview/preview-store";
+import {
+	usePreviewStore,
+	PREVIEW_QUALITY_LABELS,
+	isPreviewQuality,
+} from "@/preview/preview-store";
 import type { MediaTime } from "@/wasm";
 
 export function PreviewToolbar({
@@ -37,6 +40,7 @@ export function PreviewToolbar({
 			<TimecodeDisplay />
 			<PlayPauseButton />
 			<div className="justify-self-end flex items-center gap-2.5">
+				<PreviewQualitySelect />
 				<PreviewZoomControls />
 				<ZoomSelect />
 				<Separator orientation="vertical" className="h-4" />
@@ -97,12 +101,7 @@ function PreviewZoomControls() {
 			>
 				<Maximize2 className="size-4" />
 			</Button>
-			<Button
-				variant="text"
-				size="icon"
-				aria-label="Zoom in"
-				onClick={zoomIn}
-			>
+			<Button variant="text" size="icon" aria-label="Zoom in" onClick={zoomIn}>
 				<ZoomIn className="size-4" />
 			</Button>
 		</div>
@@ -116,11 +115,39 @@ function TimecodeDisplay() {
 	const [currentTime, setCurrentTime] = useState<MediaTime>(() =>
 		editor.playback.getCurrentTime(),
 	);
+	const pendingTimeRef = useRef(currentTime);
+	const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const lastUpdateAtRef = useRef(0);
 
 	useEffect(() => {
-		const unsubscribeUpdate = editor.playback.onUpdate(setCurrentTime);
-		const unsubscribeSeek = editor.playback.onSeek(setCurrentTime);
+		const commitPendingTime = () => {
+			updateTimerRef.current = null;
+			lastUpdateAtRef.current = performance.now();
+			setCurrentTime(pendingTimeRef.current);
+		};
+		const onUpdate = (time: MediaTime) => {
+			pendingTimeRef.current = time;
+			if (updateTimerRef.current) return;
+			const elapsed = performance.now() - lastUpdateAtRef.current;
+			updateTimerRef.current = setTimeout(
+				commitPendingTime,
+				Math.max(0, 100 - elapsed),
+			);
+		};
+		const onSeek = (time: MediaTime) => {
+			pendingTimeRef.current = time;
+			if (updateTimerRef.current) {
+				clearTimeout(updateTimerRef.current);
+				updateTimerRef.current = null;
+			}
+			commitPendingTime();
+		};
+		const unsubscribeUpdate = editor.playback.onUpdate(onUpdate);
+		const unsubscribeSeek = editor.playback.onSeek(onSeek);
 		return () => {
+			if (updateTimerRef.current) {
+				clearTimeout(updateTimerRef.current);
+			}
 			unsubscribeUpdate();
 			unsubscribeSeek();
 		};
@@ -178,6 +205,45 @@ function ZoomSelect() {
 				))}
 			</SelectContent>
 		</Select>
+	);
+}
+
+function PreviewQualitySelect() {
+	const previewQuality = usePreviewStore((state) => state.previewQuality);
+	const resolvedQuality = usePreviewStore((state) => state.resolvedQuality);
+	const setPreviewQuality = usePreviewStore((state) => state.setPreviewQuality);
+
+	// In auto mode, show the resolved quality level in parentheses
+	const displayLabel =
+		previewQuality === "auto"
+			? `Auto (${PREVIEW_QUALITY_LABELS[resolvedQuality]})`
+			: PREVIEW_QUALITY_LABELS[previewQuality];
+
+	const onValueChange = (value: string) => {
+		if (isPreviewQuality(value)) {
+			setPreviewQuality(value);
+		}
+	};
+
+	return (
+		<div className="flex items-center gap-1.5">
+			<span className="text-muted-foreground text-xs">Preview</span>
+			<Select value={previewQuality} onValueChange={onValueChange}>
+				<SelectTrigger
+					className="h-7 w-[92px] tabular-nums text-xs"
+					aria-label="Preview resolution"
+				>
+					{displayLabel}
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="full">Full</SelectItem>
+					<SelectItem value="half">1/2</SelectItem>
+					<SelectItem value="quarter">1/4</SelectItem>
+					<SelectSeparator />
+					<SelectItem value="auto">Auto</SelectItem>
+				</SelectContent>
+			</Select>
+		</div>
 	);
 }
 

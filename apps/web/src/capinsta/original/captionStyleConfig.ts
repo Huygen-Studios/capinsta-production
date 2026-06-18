@@ -374,7 +374,7 @@ export function normalizeCaptionStyleConfig(
       merged.alignment === "left" || merged.alignment === "right" || merged.alignment === "center"
         ? merged.alignment
         : defaults.alignment,
-    maxWidth: clamp(merged.maxWidth, 45, 96, defaults.maxWidth),
+    maxWidth: clamp(merged.maxWidth, 20, 96, defaults.maxWidth),
     maxLines: safeMaxLines(merged.maxLines),
     asymmetricScaleEnabled: Boolean(merged.asymmetricScaleEnabled),
     asymmetricScaleStrength: clamp(merged.asymmetricScaleStrength, 0, 1, defaults.asymmetricScaleStrength || 0),

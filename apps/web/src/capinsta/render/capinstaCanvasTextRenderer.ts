@@ -1,3 +1,10 @@
+/**
+ * @deprecated This module is completely unused. Zero imports exist anywhere in the
+ * codebase. Caption rendering for export is handled by `capinstaWysiwygExportRenderer.ts`
+ * via `CapinstaCaptionNode`; preview rendering is handled by `CapinstaCaptionRenderer.tsx`
+ * (React DOM) via `CapinstaActiveCaptionOverlay`. This file should NOT be imported.
+ * Planned for removal in a future cleanup pass.
+ */
 import type { CapinstaCaptionStyleV1 } from "../styles/styleTypes";
 
 export interface CapinstaCanvasTextRenderOptions {

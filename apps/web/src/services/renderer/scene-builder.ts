@@ -18,7 +18,19 @@ import {
 	readOpacityFromParams,
 } from "@/rendering";
 import type { CapinstaCaptionDocumentRecord } from "@/capinsta/types";
-import { getCapinstaTextRenderDataForElement } from "@/capinsta/exportRender";
+import {
+	isCapinstaExportCarrierTextElement,
+	getCapinstaTextRenderDataForElement,
+} from "@/capinsta/exportRender";
+import {
+	getCapinstaCaptionTrackIds,
+} from "@/capinsta/captionTimelineSync";
+
+// NOTE: CapinstaCaptionNode is intentionally NOT imported here.
+// CapInsta captions have a single visual renderer: CapinstaActiveCaptionOverlay
+// (React DOM). Canvas/WebGL/WASM/TextNode never draw capinsta caption text.
+// During export the React overlay is rasterized per-frame (see CapinstaOverlayCapture)
+// and composited on top of the export canvas — so preview and export are pixel-identical.
 
 const PREVIEW_MAX_IMAGE_SIZE = 2048;
 
@@ -112,29 +124,51 @@ function buildTrackNodes({
 			}
 
 			if (element.type === "text") {
-				const renderElement = element;
-				const capinstaExport = capinstaCaptionDocuments?.length
-					? getCapinstaTextRenderDataForElement({
-							records: capinstaCaptionDocuments,
-							element: renderElement as any,
-							canvasSize,
-						})
-					: undefined;
+					const renderElement = element;
+					const records = capinstaCaptionDocuments ?? [];
+					const capinstaTrackIds =
+						records.length > 0
+							? getCapinstaCaptionTrackIds({ records })
+							: undefined;
 
-				nodes.push(
-					new TextNode({
-						...renderElement,
-						capinstaExport: capinstaExport ?? undefined,
-						transform: buildTransformFromParams({ params: renderElement.params }),
-						opacity: readOpacityFromParams({ params: renderElement.params }),
-						blendMode: readBlendModeFromParams({ params: renderElement.params }),
-						canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
-						canvasHeight: canvasSize.height,
-						textBaseline: "middle",
-						effects: renderElement.effects ?? [],
-					}),
-				);
-			}
+					// CapInsta captions are rendered ONLY by CapinstaActiveCaptionOverlay
+					// (React DOM) — never by canvas/TextNode/CapinstaCaptionNode.
+					// scene-builder pushes a TextNode with capinstaExport metadata so the
+					// render tree has a node for the element, but renderTextToContext()
+					// early-returns for any capinstaExport element (no visible pixels).
+					// The actual caption pixels for both preview AND export come from the
+					// same React overlay DOM (see capinsta-overlay-capture.ts).
+					const isCapinstaCarrier =
+						records.length > 0 &&
+						isCapinstaExportCarrierTextElement({
+							element: renderElement,
+							trackId: track.id,
+							capinstaTrackIds,
+						});
+
+					const capinstaExport =
+						isCapinstaCarrier || records.length > 0
+							? getCapinstaTextRenderDataForElement({
+									records,
+									element: renderElement as any,
+									canvasSize,
+								})
+							: undefined;
+
+					nodes.push(
+						new TextNode({
+							...renderElement,
+							capinstaExport: capinstaExport ?? undefined,
+							transform: buildTransformFromParams({ params: renderElement.params }),
+							opacity: readOpacityFromParams({ params: renderElement.params }),
+							blendMode: readBlendModeFromParams({ params: renderElement.params }),
+							canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+							canvasHeight: canvasSize.height,
+							textBaseline: "middle",
+							effects: renderElement.effects ?? [],
+						}),
+					);
+				}
 
 			if (element.type === "sticker") {
 				nodes.push(

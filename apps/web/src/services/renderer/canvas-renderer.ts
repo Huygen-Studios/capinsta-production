@@ -14,6 +14,7 @@ export type CanvasRendererParams = {
 	width: number;
 	height: number;
 	fps: FrameRate;
+	renderScale?: number;
 };
 
 export class CanvasRenderer {
@@ -22,11 +23,13 @@ export class CanvasRenderer {
 	width: number;
 	height: number;
 	fps: FrameRate;
+	renderScale: number;
 
-	constructor({ width, height, fps }: CanvasRendererParams) {
+	constructor({ width, height, fps, renderScale = 1 }: CanvasRendererParams) {
 		this.width = width;
 		this.height = height;
 		this.fps = fps;
+		this.renderScale = renderScale;
 
 		const surface = createCanvasSurface({ width, height });
 		this.canvas = surface.canvas;

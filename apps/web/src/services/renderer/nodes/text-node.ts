@@ -2,10 +2,7 @@ import { BaseNode } from "./base-node";
 import type { TextElement } from "@/timeline";
 import type { EffectPass } from "@/effects/types";
 import type { BlendMode, Transform } from "@/rendering";
-import {
-	drawMeasuredTextLayout,
-	drawMeasuredTextLayoutWithWordHighlight,
-} from "@/text/primitives";
+import { drawMeasuredTextLayout } from "@/text/primitives";
 import type { MeasuredTextElement } from "@/text/measure-element";
 import type { CapinstaTextRenderData } from "@/capinsta/exportRender";
 
@@ -55,39 +52,21 @@ export function renderTextToContext({
 	}
 
 	if (node.params.capinstaExport) {
-		// Suppress legacy text rendering for Capinsta captions
-		// They are rendered either by CapinstaCaptionOverlay (React) or CapinstaCaptionNode (Canvas)
+		// Suppress all canvas rendering for CapInsta captions. They are rendered
+		// exclusively by CapinstaActiveCaptionOverlay (React DOM). During export the
+		// React overlay is rasterized per-frame and composited on top of the canvas
+		// (see capinsta-overlay-capture.ts), so this TextNode must emit ZERO pixels.
 		return;
 	}
 
-	if (node.params.capinstaExport && resolved.activeCapinstaWordIds?.length) {
-		const activeWordIndexes = new Set(
-			node.params.capinstaExport.wordIds
-				.map((wordId, index) =>
-					resolved.activeCapinstaWordIds?.includes(wordId) ? index : -1,
-				)
-				.filter((index) => index >= 0),
-		);
-		drawMeasuredTextLayoutWithWordHighlight({
-			ctx,
-			layout: resolved.measuredText,
-			textColor: resolved.textColor,
-			activeWordColor: node.params.capinstaExport.activeWordColor,
-			activeWordIndexes,
-			background: resolved.measuredText.resolvedBackground,
-			backgroundColor: resolved.backgroundColor,
-			textBaseline: baseline,
-		});
-	} else {
-		drawMeasuredTextLayout({
-			ctx,
-			layout: resolved.measuredText,
-			textColor: resolved.textColor,
-			background: resolved.measuredText.resolvedBackground,
-			backgroundColor: resolved.backgroundColor,
-			textBaseline: baseline,
-		});
-	}
+	drawMeasuredTextLayout({
+		ctx,
+		layout: resolved.measuredText,
+		textColor: resolved.textColor,
+		background: resolved.measuredText.resolvedBackground,
+		backgroundColor: resolved.backgroundColor,
+		textBaseline: baseline,
+	});
 
 	ctx.restore();
 }
