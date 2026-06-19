@@ -216,6 +216,10 @@ function ExportDialog({
 				<DialogDescription>
 					Create an animated caption layer ready for your editing workflow.
 				</DialogDescription>
+				<p className="text-xs text-muted-foreground">
+					Free storage notice: Projects are deleted after 15 minutes of
+					inactivity. Download your export before leaving.
+				</p>
 			</DialogHeader>
 
 			{exportResult && !exportResult.success ? (

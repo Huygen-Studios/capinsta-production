@@ -144,7 +144,13 @@ export class ProjectManager {
 				throw new Error(`Project with id ${id} not found`);
 			}
 
-			const project = result.project;
+			const project: TProject = {
+				...result.project,
+				capinstaLeftAt: undefined,
+			};
+			if (result.project.capinstaLeftAt) {
+				await storageService.saveProject({ project });
+			}
 
 			this.active = project;
 			this.notify();
@@ -209,6 +215,19 @@ export class ProjectManager {
 		} catch (error) {
 			console.error("Failed to save project:", error);
 		}
+	}
+
+	async setCapinstaServerJobId({ jobId }: { jobId: string }): Promise<void> {
+		if (!this.active) return;
+		const updatedProject: TProject = {
+			...this.active,
+			capinstaServerJobId: jobId,
+			metadata: { ...this.active.metadata, updatedAt: new Date() },
+		};
+		await storageService.saveProject({ project: updatedProject });
+		this.active = updatedProject;
+		this.updateMetadata(updatedProject);
+		this.notify();
 	}
 
 	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
@@ -578,6 +597,14 @@ export class ProjectManager {
 		} catch (error) {
 			console.error("Failed to generate project thumbnail on exit:", error);
 		}
+
+		this.active = {
+			...this.active,
+			capinstaLeftAt: new Date().toISOString(),
+		};
+		await storageService.saveProject({ project: this.active });
+		this.updateMetadata(this.active);
+		this.notify();
 	}
 
 	getFilteredAndSortedProjects({

@@ -388,6 +388,9 @@ export function Captions() {
 				languageMode: "auto_mixed_indian",
 				signal: abortController.signal,
 			});
+			await editor.project.setCapinstaServerJobId({
+				jobId: startedJob.job_id,
+			});
 			dispatchCaptionJob({
 				type: "progress",
 				status: "transcribing",

@@ -33,6 +33,7 @@ import shutil
 
 # These imports will trigger ai_pipeline logic
 from .database import init_db
+from .project_cleanup import project_cleanup_loop, stop_cleanup_task
 from .api import captions, health, jobs, export_jobs
 from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR
 
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
     removed = cleanup_old_runtime_files()
     if removed:
         logger.info("runtime_cleanup removed_files=%s", removed)
+    cleanup_task = asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
     
     # Check for crucial runtime dependencies and API keys.
     stt_provider = os.getenv("STT_PROVIDER", "auto").strip() or "auto"
@@ -70,10 +72,11 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("frontend_static_missing path=%s local_dev_expected=true", FRONTEND_DIST_DIR)
         
-    yield
-    
-    # Shutdown
-    print("Shutting down the server...")
+    try:
+        yield
+    finally:
+        await stop_cleanup_task(cleanup_task)
+        print("Shutting down the server...")
 
 
 app = FastAPI(
@@ -129,9 +132,6 @@ async def root_timing_health_check():
 
 
 ensure_runtime_dirs()
-app.mount("/exports", StaticFiles(directory=str(EXPORT_DIR)), name="exports")
-
-
 if frontend_dist_available():
     next_static_dir = FRONTEND_DIST_DIR / "_next" / "static"
     brand_static_dir = FRONTEND_DIST_DIR / "brand"

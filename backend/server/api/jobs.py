@@ -4,6 +4,7 @@ import uuid
 import logging
 import re
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, List
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from ..database import get_db, DB_PATH
 from ..models import JobResponse, JobDetailResponse
 from ..progress import manager
 from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, UPLOAD_DIR, ensure_runtime_dirs
+from ..project_cleanup import ensure_project_available, heartbeat_project, iso_utc, project_expiry
 from ..worker_startup import start_pipeline_worker
 from ai_pipeline.renderer import generate_srt, generate_vtt
 from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_aligned_words_from_segments
@@ -323,9 +325,16 @@ async def create_job(
 
     # Insert initial job state
     async with aiosqlite.connect(str(DB_PATH)) as db:
+        now = datetime.now(timezone.utc)
+        now_text = iso_utc(now)
+        expires_text = iso_utc(project_expiry(now, now_text))
         await db.execute(
-            "INSERT INTO jobs (id, status, filename, target_lang) VALUES (?, ?, ?, ?)",
-            (job_id, "queued", filename, normalized_mode)
+            """
+            INSERT INTO jobs
+                (id, status, filename, target_lang, created_at, last_seen_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (job_id, "queued", filename, normalized_mode, now_text, now_text, expires_text),
         )
         await db.commit()
 
@@ -379,6 +388,7 @@ async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     
     if not r:
         raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_project_available(r, db)
         
     # Parse segments from JSON
     segments = None
@@ -415,6 +425,12 @@ async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
         created_at=r['created_at'],
         completed_at=r['completed_at']
     )
+
+
+@router.post("/{job_id}/heartbeat")
+async def heartbeat_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    """Refresh the backend-enforced inactivity lease for an open editor."""
+    return await heartbeat_project(job_id, db)
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
@@ -641,10 +657,11 @@ async def get_video(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     """Stream the uploaded video file for browser playback."""
     from fastapi.responses import FileResponse
     
-    cursor = await db.execute("SELECT filename FROM jobs WHERE id = ?", (job_id,))
+    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
     r = await cursor.fetchone()
     if not r:
         raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_project_available(r, db)
     
     file_path = str(UPLOAD_DIR / f"{job_id}_{r['filename']}")
     if not os.path.exists(file_path):
@@ -701,10 +718,11 @@ async def export_video(
     if duration_source is None and duration_mode is not None:
         duration_source = duration_mode
     
-    cursor = await db.execute("SELECT filename FROM jobs WHERE id = ?", (job_id,))
+    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
     r = await cursor.fetchone()
     if not r:
         return _export_failure("validate_project", "Job not found.", response_format, 404)
+    await ensure_project_available(r, db)
 
     original_video_name = f"{job_id}_{r['filename']}"
     original_video_path = str(UPLOAD_DIR / original_video_name)

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useMemo } from "react";
 import {
 	Section,
 	SectionContent,
@@ -18,13 +18,7 @@ import { patternCraftGradients } from "@/data/colors/pattern-craft";
 import { colors } from "@/data/colors/solid";
 import { syntaxUIGradients } from "@/data/colors/syntax-ui";
 import { useEditor } from "@/editor/use-editor";
-import { effectPreviewService } from "@/services/renderer/effect-preview";
 import { cn } from "@/utils/ui";
-
-const BLUR_PREVIEW_UNIFORM_DIMENSIONS = {
-	width: 1920,
-	height: 1080,
-} as const;
 
 const CUSTOM_COLOR_SWATCH_BACKGROUND =
 	"conic-gradient(from 180deg at 50% 50%, #ff5e5e 0deg, #ffb35e 55deg, #fff26b 110deg, #6bff8f 165deg, #5ee7ff 220deg, #6f7cff 275deg, #d76bff 330deg, #ff5e9b 360deg)";
@@ -39,26 +33,6 @@ const BlurPreview = memo(
 		isSelected: boolean;
 		onSelect: () => void;
 	}) => {
-		const canvasRef = useRef<HTMLCanvasElement>(null);
-
-		useEffect(() => {
-			const renderPreview = () => {
-				if (!canvasRef.current) return;
-
-				effectPreviewService.renderPreview({
-					effectType: "blur",
-					params: { intensity: blur.value },
-					targetCanvas: canvasRef.current,
-					uniformDimensions: BLUR_PREVIEW_UNIFORM_DIMENSIONS,
-				});
-			};
-
-			renderPreview();
-			return effectPreviewService.onPreviewImageReady({
-				callback: renderPreview,
-			});
-		}, [blur.value]);
-
 		return (
 			<button
 				className={cn(
@@ -69,9 +43,9 @@ const BlurPreview = memo(
 				type="button"
 				aria-label={`Select ${blur.label} blur`}
 			>
-				<canvas
-					ref={canvasRef}
-					className="absolute inset-0 h-full w-full object-cover"
+				<div
+					className="absolute -inset-3 bg-[linear-gradient(135deg,#2563eb,#a855f7_50%,#f97316)]"
+					style={{ filter: `blur(${Math.max(blur.value / 5, 0)}px)` }}
 				/>
 				<div className="absolute right-1 bottom-1 left-1 text-center">
 					<span className="rounded bg-black/50 px-1 text-xs text-white">
@@ -180,9 +154,25 @@ function CustomColorPreview({
 }
 
 const COLOR_SECTIONS = [
-	{ id: "colors", title: "Colors", backgrounds: colors, useBackgroundColor: true, showCustomPicker: true },
-	{ id: "pattern-craft", title: "Pattern craft", backgrounds: patternCraftGradients, showCustomPicker: false },
-	{ id: "syntax-ui", title: "Syntax UI", backgrounds: syntaxUIGradients, showCustomPicker: false },
+	{
+		id: "colors",
+		title: "Colors",
+		backgrounds: colors,
+		useBackgroundColor: true,
+		showCustomPicker: true,
+	},
+	{
+		id: "pattern-craft",
+		title: "Pattern craft",
+		backgrounds: patternCraftGradients,
+		showCustomPicker: false,
+	},
+	{
+		id: "syntax-ui",
+		title: "Syntax UI",
+		backgrounds: syntaxUIGradients,
+		showCustomPicker: false,
+	},
 ] as const;
 
 export function BackgroundContent() {

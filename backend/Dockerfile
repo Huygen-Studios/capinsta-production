@@ -1,3 +1,5 @@
+# REVIEW(stale-deployment): this legacy image still expects frontend/ rather than
+# apps/web/. Do not use for the launch deployment until its build context is migrated.
 FROM node:20-bookworm-slim AS frontend-builder
 
 WORKDIR /app/frontend

@@ -21,6 +21,10 @@ async def init_db():
                 srt_content TEXT,
                 segments_json TEXT,
                 transcript_json TEXT
+                ,last_seen_at TEXT
+                ,expires_at TEXT
+                ,deleted_at TEXT
+                ,delete_reason TEXT
             )
         ''')
         await db.commit()
@@ -37,6 +41,13 @@ async def init_db():
             await db.commit()
         except Exception:
             pass  # Column already exists
+
+        for column in ("last_seen_at TEXT", "expires_at TEXT", "deleted_at TEXT", "delete_reason TEXT"):
+            try:
+                await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
+                await db.commit()
+            except Exception:
+                pass
 
         await db.execute('''
             CREATE TABLE IF NOT EXISTS export_jobs (
@@ -57,9 +68,19 @@ async def init_db():
                 fps INTEGER,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+                ,expires_at TEXT
+                ,deleted_at TEXT
+                ,delete_reason TEXT
             )
         ''')
         await db.commit()
+
+        for column in ("expires_at TEXT", "deleted_at TEXT", "delete_reason TEXT"):
+            try:
+                await db.execute(f"ALTER TABLE export_jobs ADD COLUMN {column}")
+                await db.commit()
+            except Exception:
+                pass
 
 async def get_db():
     db = await aiosqlite.connect(str(DB_PATH))

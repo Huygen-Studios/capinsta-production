@@ -50,6 +50,8 @@ export interface TProject {
 	version: number;
 	timelineViewState?: TTimelineViewState;
 	capinstaCaptionDocuments?: CapinstaCaptionDocumentRecord[];
+	capinstaServerJobId?: string;
+	capinstaLeftAt?: string;
 }
 
 export type TProjectSortKey = "createdAt" | "updatedAt" | "name" | "duration";

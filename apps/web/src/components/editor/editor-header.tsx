@@ -26,6 +26,16 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "@/actions/components/shortcuts-dialog";
 import Image from "next/image";
 import { cn } from "@/utils/ui";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "../ui/alert-dialog";
 
 export function EditorHeader() {
 	return (
@@ -45,7 +55,7 @@ export function EditorHeader() {
 
 function ProjectDropdown() {
 	const [openDialog, setOpenDialog] = useState<
-		"delete" | "rename" | "shortcuts" | null
+		"delete" | "rename" | "shortcuts" | "leave" | null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
 	const router = useRouter();
@@ -123,7 +133,7 @@ function ProjectDropdown() {
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="z-100 w-44">
 					<DropdownMenuItem
-						onClick={handleExit}
+						onClick={() => setOpenDialog("leave")}
 						disabled={isExiting}
 						icon={<HugeiconsIcon icon={Logout05Icon} />}
 					>
@@ -166,6 +176,29 @@ function ProjectDropdown() {
 				isOpen={openDialog === "shortcuts"}
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "shortcuts" : null)}
 			/>
+			<AlertDialog
+				open={openDialog === "leave"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "leave" : null)}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Leave project?</AlertDialogTitle>
+						<AlertDialogDescription>
+							Your project will remain active for 15 minutes after you leave. If
+							you do not return within 15 minutes, Capinsta will automatically
+							delete the uploaded video, captions, and generated export files
+							because this service is currently free and storage is limited.
+							Download your export before leaving.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Stay in editor</AlertDialogCancel>
+						<AlertDialogAction onClick={() => void handleExit()}>
+							Leave project
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</>
 	);
 }

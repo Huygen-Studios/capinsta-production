@@ -67,6 +67,7 @@ import { ProjectInfoDialog } from "@/project/components/project-info-dialog";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
+import { useExpiredProjectCleanup } from "@/capinsta/useExpiredProjectCleanup";
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -96,6 +97,7 @@ export default function ProjectsPage() {
 	const projectsToDisplay = useEditor((e) =>
 		e.project.getFilteredAndSortedProjects({ searchQuery, sortOption }),
 	);
+	useExpiredProjectCleanup({ enabled: isInitialized });
 
 	useEffect(() => {
 		if (!editor.project.getIsInitialized()) {

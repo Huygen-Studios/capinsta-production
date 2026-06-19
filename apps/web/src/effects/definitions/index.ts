@@ -1,16 +1,4 @@
-import { effectsRegistry } from "../registry";
-import { blurEffectDefinition } from "./blur";
-
-const defaultEffects = [blurEffectDefinition];
-
+/** Future extension hook. Launch ships with no bundled effect definitions. */
 export function registerDefaultEffects(): void {
-	for (const definition of defaultEffects) {
-		if (effectsRegistry.has(definition.type)) {
-			continue;
-		}
-		effectsRegistry.register({
-			key: definition.type,
-			definition,
-		});
-	}
+	// Intentionally empty.
 }

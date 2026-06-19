@@ -56,7 +56,6 @@ export type SerializedProject = Omit<TProject, "metadata" | "scenes"> & {
 export interface StorageConfig {
 	projectsDb: string;
 	mediaDb: string;
-	savedSoundsDb: string;
 	version: number;
 }
 

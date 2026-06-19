@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import {
   checkCapinstaHealth,
   normalizeCapinstaJobToTranscript,
+  sendCapinstaProjectHeartbeat,
   startCapinstaCaptionJob,
 } from "./apiClient"
 import type { CapinstaJobDetailResponse } from "./apiTypes"
@@ -117,6 +118,24 @@ describe("Capinsta API client", () => {
     expect(transcript.words).toHaveLength(2)
     expect(transcript.words[1]?.timingSource).toBe("stable_ts")
     expect(transcript.clips[0]?.timingNeedsReview).toBe(true)
+  })
+
+  test("renews the backend project lease", async () => {
+    const lease = await sendCapinstaProjectHeartbeat({
+      baseUrl: "http://127.0.0.1:8000",
+      jobId: "job-001",
+      fetchImpl: async (url, init) => {
+        expect(url).toBe("http://127.0.0.1:8000/api/jobs/job-001/heartbeat")
+        expect(init?.method).toBe("POST")
+        return jsonResponse({
+          job_id: "job-001",
+          last_seen_at: "2026-06-19T10:00:00+00:00",
+          expires_at: "2026-06-19T10:15:00+00:00",
+        })
+      },
+    })
+
+    expect(lease.expires_at).toBe("2026-06-19T10:15:00+00:00")
   })
 
   test("prefers canonical alignedWords without redistributing pause timing", () => {

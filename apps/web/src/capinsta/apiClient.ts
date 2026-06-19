@@ -163,6 +163,25 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
+export async function sendCapinstaProjectHeartbeat({
+  baseUrl,
+  jobId,
+  fetchImpl = fetch,
+  signal,
+}: {
+  baseUrl: string
+  jobId: string
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+}): Promise<{ job_id: string; last_seen_at: string; expires_at: string }> {
+  if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing")
+  const response = await fetchImpl(joinUrl(baseUrl, `/api/jobs/${jobId}/heartbeat`), {
+    method: "POST",
+    signal,
+  })
+  return readJsonResponse(response)
+}
+
 function wordText(word: CapinstaApiWord): string {
   return (
     word.word ||
