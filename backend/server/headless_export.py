@@ -690,13 +690,21 @@ async def export_headless(
             raise ExportStageError("composition_load", "Render page loaded flag was set, but no page instance remained available.")
 
         async def capture_render_frame() -> bytes:
-            """Capture a single transparent caption overlay frame.
+            """Capture a single caption frame for the export.
 
-            Targets the export overlay root (#render-frame with
-            data-capinsta-export-overlay-root) which is position:fixed at exact
-            export pixel dimensions. Uses omit_background=True for a transparent
-            PNG that FFmpeg composites onto the original video.
+            Captions-only mode: the render composition root has the user-selected
+            background color painted directly (via inline styles on html/body/#
+            render-frame). We capture with omit_background=False so the solid
+            background is included in the PNG. The FFmpeg pipeline still creates
+            a matching-color canvas, but the overlay is opaque where there are no
+            captions — which is visually identical.
+
+            Full-video mode: the overlay must be transparent so the source video
+            shows through. We use omit_background=True for transparent PNGs.
             """
+            # For captions-only, we want the background painted INTO the frame.
+            # For full-video, we want transparent overlay on source video.
+            omit_bg = not is_captions_only
             try:
                 # Primary: screenshot the export overlay root element directly.
                 # It is position:fixed at {0,0} sized to export dimensions, so an
@@ -706,7 +714,7 @@ async def export_headless(
                     if await overlay_root.count() > 0:
                         return await overlay_root.screenshot(
                             type="png",
-                            omit_background=True,
+                            omit_background=omit_bg,
                             timeout=5000,
                         )
                 except Exception:
@@ -715,7 +723,7 @@ async def export_headless(
                 # Fallback: viewport screenshot clipped to export dimensions.
                 return await page.screenshot(
                     type="png",
-                    omit_background=True,
+                    omit_background=omit_bg,
                     clip={"x": 0, "y": 0, "width": width, "height": height},
                     timeout=10000,
                 )
@@ -724,7 +732,7 @@ async def export_headless(
                     element = page.locator("#render-frame")
                     return await element.screenshot(
                         type="png",
-                        omit_background=True,
+                        omit_background=omit_bg,
                         timeout=5000,
                     )
                 except Exception as locator_exc:
@@ -846,6 +854,18 @@ async def export_headless(
                 raise ExportStageError("composition_load", f"Render page reload failed during export recovery: {status} {render_page_url}")
             await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=10000)
             await inject_caption_data()
+            # Wait for readiness and assert clean on recreated pages too.
+            try:
+                await page.wait_for_function(
+                    "() => document.documentElement.dataset.renderReady === 'true'",
+                    timeout=15000,
+                )
+            except Exception:
+                logger.warning("render_ready_timeout during page recovery export_job_id=%s", export_job_id)
+            try:
+                await page.evaluate("() => typeof window.stripProhibitedRenderUI === 'function' && window.stripProhibitedRenderUI()")
+            except Exception:
+                pass
             if is_captions_only and current_frame is not None:
                 await page.evaluate("(frame) => window.setCaptionFrame(frame)", current_frame)
             else:
@@ -857,6 +877,91 @@ async def export_headless(
         except Exception as exc:
             await close_browser_safely()
             raise
+
+        # --- Wait for explicit render readiness (not an arbitrary timeout) ---
+        # The render page signals readiness after: caption data loaded, fonts
+        # ready, background color applied, output dimensions applied, prohibited
+        # UI stripped, and first caption frame committed.
+        await progress_callback("exporting", 3, "Waiting for render readiness...")
+        try:
+            await page.wait_for_function(
+                "() => document.documentElement.dataset.renderReady === 'true'",
+                timeout=15000,
+            )
+            readiness = await page.evaluate(
+                """() => {
+                    const r = typeof window.getRenderReadiness === 'function'
+                        ? window.getRenderReadiness() : null;
+                    return {
+                        renderMode: window.__EXPORT_APPLIED_RENDER_MODE__ || null,
+                        backgroundColor: window.__EXPORT_APPLIED_BACKGROUND_COLOR__ || null,
+                        outputSize: window.__EXPORT_OUTPUT_SIZE__ || null,
+                        readiness: r,
+                    };
+                }"""
+            )
+            logger.info(
+                "render_ready job_id=%s mode=%s bg=%s size=%s readiness=%s",
+                job_id,
+                readiness.get("renderMode"),
+                readiness.get("backgroundColor"),
+                readiness.get("outputSize"),
+                json.dumps(readiness.get("readiness"), default=str) if readiness.get("readiness") else "null",
+            )
+        except Exception as exc:
+            # Fallback: if readiness never fires (e.g. older render page), log a
+            # warning but do not block the export. Extract diagnostics.
+            logger.warning(
+                "render_ready_timeout job_id=%s reason=%s — proceeding with fallback timeout",
+                job_id, exc,
+            )
+            try:
+                diag = await page.evaluate("() => ({ loaded: window.__RENDER_PAGE_LOADED__, ready: document.documentElement.dataset.renderReady })")
+                logger.info("render_ready_fallback_diag job_id=%s diag=%s", job_id, json.dumps(diag, default=str))
+            except Exception:
+                pass
+
+        # --- Assert the render route is clean: no cookie banner, toasts, or
+        #     fixed application UI. The render page's assertExportClean()
+        #     first defensively strips known prohibited elements. ---
+        try:
+            clean_result = await page.evaluate(
+                "() => (typeof window.assertExportClean === 'function' ? window.assertExportClean() : { ok: true, debugOverlaysFound: 0 })"
+            )
+            if isinstance(clean_result, dict):
+                if not clean_result.get("ok", True):
+                    reason = clean_result.get("reason") or "prohibited application UI present"
+                    found = clean_result.get("debugOverlaysFound", 0)
+                    raise ExportStageError(
+                        "render_clean",
+                        f"Export blocked: {reason} ({found} elements found). "
+                        "The render route must not contain cookie banners, toasts, "
+                        "navigation, or fixed application controls.",
+                    )
+                logger.info(
+                    "render_clean_assertion job_id=%s ok=%s debugOverlays=%s",
+                    job_id,
+                    clean_result.get("ok"),
+                    clean_result.get("debugOverlaysFound"),
+                )
+        except ExportStageError:
+            raise
+        except Exception as clean_exc:
+            logger.warning("assertExportClean evaluation failed (non-fatal): %s", clean_exc)
+
+        # --- Defensive: explicitly strip any prohibited UI elements that may
+        #     have mounted despite the route exclusion (belt + suspenders). ---
+        try:
+            stripped_count = await page.evaluate(
+                "() => (typeof window.stripProhibitedRenderUI === 'function' ? window.stripProhibitedRenderUI() : 0)"
+            )
+            if stripped_count and stripped_count > 0:
+                logger.warning(
+                    "render_defensive_strip job_id=%s stripped=%d prohibited UI elements before capture",
+                    job_id, stripped_count,
+                )
+        except Exception as strip_exc:
+            logger.debug("stripProhibitedRenderUI failed (non-fatal): %s", strip_exc)
 
         # --- Validation: verify overlay element + no debug overlays ---
         await progress_callback("exporting", 3, "Validating render state...")

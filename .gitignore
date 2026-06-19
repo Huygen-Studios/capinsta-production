@@ -39,6 +39,7 @@ backend/uploads/
 backend/storage/temp/
 backend/storage/exports/
 backend/storage/uploads/
+storage/
 
 # Logs and test output
 *.log

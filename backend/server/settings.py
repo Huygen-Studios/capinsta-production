@@ -90,7 +90,9 @@ def cleanup_old_runtime_files(max_age_hours: int | None = None) -> int:
 
 
 def frontend_dist_available() -> bool:
-    return (FRONTEND_DIST_DIR / "index.html").exists()
+    # The backend image bundles only the dedicated headless renderer and its
+    # matching Next.js static chunks, not the public frontend application.
+    return (FRONTEND_DIST_DIR / "render.html").exists()
 
 
 def bundled_render_page_url() -> str:

@@ -1,10 +1,12 @@
-from pathlib import Path
+import hashlib
+import json
+from datetime import datetime, timezone
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 import os
 from pathlib import Path
 
-from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, TEMP_DIR, default_render_page_url, dependency_status
+from ..settings import EXPORT_DIR, FRONTEND_DIST_DIR, MAX_UPLOAD_SIZE_MB, TEMP_DIR, default_render_page_url, dependency_status
 from ..headless_export import check_export_runtime, check_export_runtime_async
 from ..worker_startup import check_pipeline_worker_import
 from .export_jobs import export_job_metrics
@@ -21,11 +23,42 @@ class HealthResponse(BaseModel):
     dependencies: dict[str, bool | str] = Field(default_factory=dict)
     max_upload_mb: int
     render_page_url: str
+    render_artifact: dict[str, object] | None = None
     message: str | None = None
 
 def _has_key(name: str) -> bool:
     value = os.getenv(name, "").strip()
     return bool(value and not value.startswith("your_") and "placeholder" not in value.lower())
+
+
+def _render_artifact_metadata() -> dict[str, object] | None:
+    artifact_path = FRONTEND_DIST_DIR / "render.html"
+    manifest_path = FRONTEND_DIST_DIR / "render-artifact.json"
+    if not artifact_path.exists():
+        return None
+
+    metadata: dict[str, object] = {}
+    if manifest_path.exists():
+        try:
+            parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                metadata.update(parsed)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    artifact_bytes = artifact_path.read_bytes()
+    artifact_stat = artifact_path.stat()
+    actual_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
+    metadata.update({
+        "containerPath": str(artifact_path),
+        "modifiedTimeUtc": datetime.fromtimestamp(
+            artifact_stat.st_mtime,
+            tz=timezone.utc,
+        ).isoformat(),
+        "sha256": actual_sha256,
+        "manifestChecksumMatches": metadata.get("sha256", actual_sha256) == actual_sha256,
+    })
+    return metadata
 
 
 def health_payload() -> HealthResponse:
@@ -56,6 +89,7 @@ def health_payload() -> HealthResponse:
         dependencies=deps,
         max_upload_mb=MAX_UPLOAD_SIZE_MB,
         render_page_url=default_render_page_url(),
+        render_artifact=_render_artifact_metadata(),
         message=" ".join(warnings) if warnings else None,
     )
 
