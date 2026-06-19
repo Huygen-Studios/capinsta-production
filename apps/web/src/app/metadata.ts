@@ -1,15 +1,38 @@
-import type { Metadata } from "next";
-import { SITE_INFO, SITE_URL } from "@/site/brand";
+import type { Metadata, Viewport } from "next";
+import { BRAND, SITE_INFO, SITE_URL } from "@/site/brand";
 
 export const baseMetaData: Metadata = {
 	metadataBase: new URL(SITE_URL),
-	title: SITE_INFO.title,
+	title: {
+		default: `${BRAND.productName} — Animated captions in your browser`,
+		template: `%s — ${BRAND.productName}`,
+	},
 	description: SITE_INFO.description,
+	applicationName: BRAND.productName,
+	authors: [{ name: BRAND.parentCompany, url: BRAND.companyWebsite }],
+	creator: BRAND.parentCompany,
+	publisher: BRAND.parentCompany,
+	keywords: [
+		"Capinsta",
+		"captions",
+		"subtitles",
+		"automatic captions",
+		"AI captions",
+		"active word captions",
+		"captioned video",
+		"Hinglish captions",
+		"Telgish captions",
+		"caption editor",
+		"video subtitles",
+		"SRT export",
+		"VTT export",
+		"Huygen Studios",
+	],
 	openGraph: {
-		title: SITE_INFO.title,
+		title: `${BRAND.productName} — Animated captions in your browser`,
 		description: SITE_INFO.description,
 		url: SITE_URL,
-		siteName: SITE_INFO.title,
+		siteName: BRAND.productName,
 		locale: "en_US",
 		type: "website",
 		images: [
@@ -17,15 +40,14 @@ export const baseMetaData: Metadata = {
 				url: SITE_INFO.openGraphImage,
 				width: 1200,
 				height: 630,
-				alt: "Capinsta Editor",
+				alt: `${BRAND.productName} — ${BRAND.productByLine}`,
 			},
 		],
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: SITE_INFO.title,
+		title: `${BRAND.productName} — Animated captions in your browser`,
 		description: SITE_INFO.description,
-		creator: "@capinsta",
 		images: [SITE_INFO.twitterImage],
 	},
 	pinterest: {
@@ -77,10 +99,21 @@ export const baseMetaData: Metadata = {
 	},
 	appleWebApp: {
 		capable: true,
-		title: SITE_INFO.title,
+		statusBarStyle: "black-translucent",
+		title: BRAND.productName,
 	},
 	manifest: "/manifest.json",
 	other: {
 		"msapplication-config": "/browserconfig.xml",
+		"msapplication-TileColor": "#7c3aed",
 	},
+};
+
+/** Theme color + viewport. Exported separately (Next 16 viewport API). */
+export const viewportTheme: Viewport = {
+	themeColor: [
+		{ media: "(prefers-color-scheme: light)", color: "#ffffff" },
+		{ media: "(prefers-color-scheme: dark)", color: "#0b0b0f" },
+	],
+	colorScheme: "light dark",
 };

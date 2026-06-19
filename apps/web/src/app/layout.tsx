@@ -1,18 +1,22 @@
 import { ThemeProvider } from "next-themes";
 import Script from "next/script";
+import type { Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { TooltipProvider } from "../components/ui/tooltip";
-import { baseMetaData } from "./metadata";
+import { baseMetaData, viewportTheme } from "./metadata";
 import { BotIdClient } from "botid/client";
 import { webEnv } from "@/env/web";
 import { Inter } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
+import { CookieConsentBanner } from "@/components/cookie-consent";
+import { StructuredData } from "@/components/structured-data";
 
 const siteFont = Inter({ subsets: ["latin"] });
 
 export const metadata = baseMetaData;
+export const viewport: Viewport = viewportTheme;
 
 const protectedRoutes = [
 	{
@@ -30,6 +34,7 @@ export default function RootLayout({
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				<BotIdClient protect={protectedRoutes} />
+				<StructuredData />
 			</head>
 			<body className={`${siteFont.className} font-sans antialiased`}>
 				<ThemeProvider
@@ -57,6 +62,7 @@ export default function RootLayout({
 							data-track-sessions={false}
 						/>
 						{children}
+						<CookieConsentBanner />
 					</TooltipProvider>
 				</ThemeProvider>
 			</body>

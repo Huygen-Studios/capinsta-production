@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BRAND } from "@/site/brand";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BasePage } from "@/app/base-page";
@@ -24,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 	const release = getReleaseByVersion({ version });
 	if (!release) return {};
 	return {
-		title: `${release.title} (${release.version}) - OpenCut Changelog`,
+			title: `${release.title} (${release.version}) — ${BRAND.productName} Changelog`,
 		description: release.description,
 	};
 }

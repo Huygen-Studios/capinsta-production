@@ -2,17 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { BasePage } from "@/app/base-page";
 import { Separator } from "@/components/ui/separator";
+import { BRAND, SHORT_DESCRIPTION } from "@/site/brand";
 import { getPosts } from "@/blog/query";
 import type { Post } from "@/blog/types";
 
 export const metadata: Metadata = {
-	title: "Blog - OpenCut",
-	description:
-		"Read the latest news and updates about OpenCut, the free and open-source video editor.",
+	title: "Blog",
+	description: `News, updates, and caption-creation guides from ${BRAND.productName}.`,
 	openGraph: {
-		title: "Blog - OpenCut",
-		description:
-			"Read the latest news and updates about OpenCut, the free and open-source video editor.",
+		title: `Blog — ${BRAND.productName}`,
+		description: `News, updates, and caption-creation guides from ${BRAND.productName}.`,
 		type: "website",
 	},
 };
@@ -24,7 +23,7 @@ export default async function BlogPage() {
 	return (
 		<BasePage
 			title="Blog"
-			description="Read the latest news and updates about OpenCut, the free and open-source video editor."
+			description={`News, updates, and caption-creation guides from ${BRAND.productName}.`}
 		>
 			<div className="flex flex-col">
 				{data.posts.map((post) => (

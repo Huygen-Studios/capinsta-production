@@ -1,61 +1,46 @@
-import { SITE_URL } from "@/site/brand";
+import { SITE_URL, ROUTES } from "@/site/brand";
 import { getPosts } from "@/blog/query";
 import type { MetadataRoute } from "next";
 
+/**
+ * Public sitemap. Includes all indexable public pages (landing, company,
+ * guides, FAQ, legal) and blog posts. Excludes:
+ *  - /projects, /editor (private session routes)
+ *  - /render (internal export page)
+ *  - /api/* (API routes)
+ *  - /ads.txt (only when configured; not a page)
+ */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-	const data = await getPosts();
+	const now = new Date();
+
+	const staticPages: MetadataRoute.Sitemap = [
+		{ url: SITE_URL, lastModified: now, changeFrequency: "weekly", priority: 1 },
+		{ url: `${SITE_URL}${ROUTES.features}`, lastModified: now, changeFrequency: "monthly", priority: 0.9 },
+		{ url: `${SITE_URL}${ROUTES.howItWorks}`, lastModified: now, changeFrequency: "monthly", priority: 0.9 },
+		{ url: `${SITE_URL}${ROUTES.guides}`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+		{ url: `${SITE_URL}${ROUTES.faq}`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
+		{ url: `${SITE_URL}${ROUTES.about}`, lastModified: now, changeFrequency: "yearly", priority: 0.6 },
+		{ url: `${SITE_URL}${ROUTES.contact}`, lastModified: now, changeFrequency: "yearly", priority: 0.6 },
+		{ url: `${SITE_URL}/blog`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
+		{ url: `${SITE_URL}/changelog`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
+		// Legal
+		{ url: `${SITE_URL}${ROUTES.privacy}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.terms}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.cookies}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.dataRetention}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.acceptableUse}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.disclaimer}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.copyright}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+		{ url: `${SITE_URL}${ROUTES.accessibility}`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+	];
 
 	const postPages: MetadataRoute.Sitemap =
-		data?.posts?.map((post) => ({
+		(await getPosts().catch(() => null))?.posts?.map((post) => ({
 			url: `${SITE_URL}/blog/${post.slug}`,
 			lastModified: new Date(post.publishedAt),
-			changeFrequency: "weekly",
-			priority: 0.8,
+			changeFrequency: "monthly" as const,
+			priority: 0.6,
 		})) ?? [];
 
-	return [
-		{
-			url: SITE_URL,
-			lastModified: new Date(),
-			changeFrequency: "weekly",
-			priority: 1,
-		},
-		{
-			url: `${SITE_URL}/contributors`,
-			lastModified: new Date(),
-			changeFrequency: "daily",
-			priority: 0.5,
-		},
-		{
-			url: `${SITE_URL}/roadmap`,
-			lastModified: new Date(),
-			changeFrequency: "weekly",
-			priority: 1,
-		},
-		{
-			url: `${SITE_URL}/privacy`,
-			lastModified: new Date(),
-			changeFrequency: "monthly",
-			priority: 0.5,
-		},
-		{
-			url: `${SITE_URL}/terms`,
-			lastModified: new Date(),
-			changeFrequency: "monthly",
-			priority: 0.5,
-		},
-		{
-			url: `${SITE_URL}/why-not-capcut`,
-			lastModified: new Date(),
-			changeFrequency: "yearly",
-			priority: 1,
-		},
-		{
-			url: `${SITE_URL}/blog`,
-			lastModified: new Date(),
-			changeFrequency: "weekly",
-			priority: 1,
-		},
-		...postPages,
-	];
+	return [...staticPages, ...postPages];
 }

@@ -6,6 +6,7 @@ import { Button } from "../ui/button";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { useRouter } from "next/navigation";
+import { BRAND, ROUTES } from "@/site/brand";
 
 const STORAGE_KEY = "mobile-acknowledged";
 
@@ -52,16 +53,16 @@ export function MobileGate({ children }: MobileGateProps) {
 						Desktop only (for now)
 					</h1>
 					<p className="text-muted-foreground text-sm leading-relaxed">
-						OpenCut isn't optimized for mobile or iPad yet. Things will break
-						and the layout will be a mess. Come back on a desktop for the real
-						experience.
+						{BRAND.productName} isn&apos;t optimized for mobile or iPad yet.
+						Things may break and the layout will be a mess. Come back on a desktop
+						for the full experience.
 					</p>
 				</div>
 				<div className="flex items-center gap-3">
 					<Button onClick={handleContinue}>Take a look anyway</Button>
 					<Button variant="ghost" asChild>
-						<Link href="/roadmap" className="flex items-center gap-1">
-							Roadmap
+						<Link href={ROUTES.home} className="flex items-center gap-1">
+							Home
 							<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
 						</Link>
 					</Button>

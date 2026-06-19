@@ -1,245 +1,155 @@
 import type { Metadata } from "next";
+import { BRAND, PRODUCT_BY_LINE } from "@/site/brand";
 import { BasePage } from "@/app/base-page";
-import {
-	Accordion,
-	AccordionContent,
-	AccordionItem,
-	AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Separator } from "@/components/ui/separator";
-import { SOCIAL_LINKS } from "@/site/social";
 
 export const metadata: Metadata = {
-	title: "Terms of Service - OpenCut",
-	description:
-		"OpenCut's Terms of Service. Fair, transparent terms for our free and open-source video editor.",
-	openGraph: {
-		title: "Terms of Service - OpenCut",
-		description:
-			"OpenCut's Terms of Service. Fair, transparent terms for our free and open-source video editor.",
-		type: "website",
-	},
+	title: "Terms of Service",
+	description: `The terms that govern your use of ${BRAND.productName}.`,
 };
 
 export default function TermsPage() {
 	return (
-		<BasePage
-			title="Terms of service"
-			description="Fair and transparent terms for our free, open-source video editor. Contact us if you have any questions."
-		>
-			<Accordion type="single" collapsible className="w-full">
-				<AccordionItem
-					value="quick-summary"
-					className="rounded-2xl border px-5"
-				>
-					<AccordionTrigger className="no-underline!">
-						Quick summary
-					</AccordionTrigger>
-					<AccordionContent>
-						<h3 className="mb-3 text-lg font-medium">
-							You own your content, we own nothing.
-						</h3>
-						<ol className="list-decimal space-y-2 pl-6">
-							<li>
-								Everything runs locally in your browser - nothing is ever
-								uploaded to our servers
-							</li>
-							<li>
-								We never claim ownership of your content
-							</li>
-							<li>
-								Free for personal and commercial use with no watermarks or
-								restrictions
-							</li>
-							<li>
-								You&apos;re responsible for how you use it - don&apos;t break
-								the law
-							</li>
-							<li>
-								Service provided &quot;as is&quot; - we can&apos;t guarantee
-								perfect uptime
-							</li>
-							<li>
-								Open source means you can review our code and self-host if
-								needed
-							</li>
-							<li>
-								No account required - your exported videos are always yours
-							</li>
-						</ol>
-						<p className="mt-4">
-							Questions? Email us at{" "}
-							<a
-								href="mailto:oss@opencut.app"
-								className="text-primary hover:underline"
-							>
-								oss@opencut.app
-							</a>
-						</p>
-					</AccordionContent>
-				</AccordionItem>
-			</Accordion>
+		<BasePage title="Terms of Service" description={`The terms governing your use of ${BRAND.productName}.`}>
+			<div className="prose prose-neutral max-w-none">
+				<p className="text-sm text-muted-foreground">Last updated: June 19, 2026</p>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Your Content, Your Rights</h2>
+				<h2>Acceptance of terms</h2>
 				<p>
-					<strong>You own everything you create.</strong> All editing and
-					processing happens locally on your device. We never see, store, or
-					have access to your files. We make no claims to ownership, licensing,
-					or rights over your videos, projects, or any content you create using
-					OpenCut.
+					By accessing or using {BRAND.productName} (the &quot;Service&quot;), you agree to be
+					bound by these Terms of Service. If you do not agree, do not use the Service.{" "}
+					{PRODUCT_BY_LINE}
 				</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>
-						Your content never leaves your device
-					</li>
-					<li>You retain all intellectual property rights to your content</li>
-					<li>You can export and use your content however you choose</li>
-					<li>No watermarks, no licensing restrictions from OpenCut</li>
+
+				<h2>Service description</h2>
+				<p>
+					{BRAND.productName} is a free, browser-based tool for generating, editing, styling,
+					and exporting video captions. The Service processes uploaded videos to produce
+					accurate captions with word-level timing and active-word highlighting.
+				</p>
+
+				<h2>Free service availability</h2>
+				<p>
+					The Service is provided free of charge. We do not guarantee that the Service will
+					always be available, uninterrupted, or free of errors. We may modify, suspend, or
+					discontinue the Service, or any part of it, at any time without notice.
+				</p>
+
+				<h2>Temporary project storage</h2>
+				<p>
+					Projects you create are stored temporarily on our servers. The Service uses an
+					inactivity-based retention model. Uploaded videos, captions, transcripts, and
+					generated exports are automatically deleted after a period of inactivity
+					(currently 15 minutes).
+				</p>
+
+				<h2>Automatic deletion after inactivity</h2>
+				<p>
+					You acknowledge and agree that the Service will automatically and permanently
+					delete your project, uploaded video, generated captions, transcripts, and exports
+					after 15 minutes of inactivity. We are not responsible for any loss of data
+					resulting from this automatic deletion.
+				</p>
+
+				<h2>Your responsibility to download exports</h2>
+				<p>
+					You are solely responsible for downloading your exported files before the project
+					expires. Once a project is deleted, the data cannot be recovered. We strongly
+					recommend downloading your export immediately upon completion.
+				</p>
+
+				<h2>User ownership of uploaded media</h2>
+				<p>
+					You retain all ownership rights to the videos and content you upload to the
+					Service. We do not claim ownership of your uploaded media. Your media is used
+					solely to provide the captioning service and is deleted after inactivity as
+					described above.
+				</p>
+
+				<h2>Your responsibility for copyright permissions</h2>
+				<p>
+					You are solely responsible for ensuring you have the necessary rights and
+					permissions to upload and caption the videos you submit. You represent that your
+					use of the Service does not infringe the intellectual property rights of any third
+					party.
+				</p>
+
+				<h2>Permitted use</h2>
+				<p>You may use the Service to:</p>
+				<ul>
+					<li>Generate captions for videos you own or have permission to caption.</li>
+					<li>Edit, style, and export captions for personal or commercial projects.</li>
+					<li>Use exported caption files in other software or platforms.</li>
 				</ul>
-			</section>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">How You Can Use OpenCut</h2>
-				<p>OpenCut is free for personal and commercial use. You can:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>
-						Create videos for personal, educational, or commercial purposes
-					</li>
-					<li>Use OpenCut for client work and paid projects</li>
-					<li>Share and distribute videos created with OpenCut</li>
-					<li>
-						Modify and distribute the OpenCut software (under MIT license)
-					</li>
-				</ul>
+				<h2>Prohibited use</h2>
 				<p>
-					You&apos;re responsible for how you use OpenCut and the content you
-					create. Don&apos;t use it for anything illegal in your jurisdiction.
+					You may not use the Service to upload, caption, or distribute content that is
+					illegal, infringing, harmful, or that you do not have the right to use. See our{" "}
+					<a href="/acceptable-use">Acceptable Use Policy</a> for the full list of
+					prohibitions.
 				</p>
-			</section>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">AI Features</h2>
+				<h2>Service availability</h2>
 				<p>
-					AI features like auto captions run entirely in your browser using
-					on-device models. No content is uploaded to any server. These features
-					are optional - you can use OpenCut without them.
+					The Service is provided on an &quot;as available&quot; basis. We do not guarantee
+					uninterrupted access. Maintenance, technical issues, or external factors may cause
+					interruptions.
 				</p>
-			</section>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Service</h2>
+				<h2>Export limitations</h2>
 				<p>
-					OpenCut does not currently require an account. The service is provided
-					&quot;as is&quot; without warranties. While we strive for
-					reliability, we can&apos;t guarantee uninterrupted service.
+					Export quality and file size may be limited by the free nature of the Service. Very
+					large or long videos may take longer to process or may not be supported.
 				</p>
-			</section>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Open Source Benefits</h2>
-				<p>Because OpenCut is open source, you have additional rights:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>Review our code to see exactly how we handle your data</li>
-					<li>Self-host OpenCut on your own servers</li>
-					<li>Modify the software to suit your needs</li>
-					<li>Contribute improvements back to the community</li>
-				</ul>
+				<h2>Disclaimer of warranties</h2>
 				<p>
-					View our source code and license on{" "}
-					<a
-						href={SOCIAL_LINKS.github}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-primary hover:underline"
-					>
-						GitHub
-					</a>
-					.
+					The Service is provided &quot;as is&quot; and &quot;as available&quot; without
+					warranties of any kind, whether express or implied. We do not warrant that the
+					Service will be error-free, that captions will be accurate, or that the Service
+					will meet your specific requirements. See our <a href="/disclaimer">Disclaimer</a>{" "}
+					for more information.
 				</p>
-			</section>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Limitations and Liability</h2>
+				<h2>Limitation of liability</h2>
 				<p>
-					OpenCut is provided free of charge. To the extent permitted by law:
+					To the maximum extent permitted by law, {BRAND.parentCompany} shall not be liable
+					for any indirect, incidental, special, consequential, or punitive damages, or any
+					loss of data, arising from your use of or inability to use the Service.
 				</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>We&apos;re not liable for any loss of data or content</li>
-					<li>
-						Projects are stored in your browser and may be lost if you clear
-						browser data
-					</li>
-					<li>We&apos;re not responsible for how you use the service</li>
-					<li>Our liability is limited to the maximum extent allowed by law</li>
-				</ul>
-				<p>
-					Since your content stays on your device, we have no way to recover
-					lost projects. Consider exporting important videos when finished
-					editing.
-				</p>
-			</section>
 
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Service Changes</h2>
-				<p>We may update OpenCut and these terms:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>We&apos;ll notify you of significant changes to these terms</li>
-					<li>Continued use means you accept any updates</li>
-					<li>You can always self-host an older version if you prefer</li>
-					<li>Major changes will be discussed with the community on GitHub</li>
-				</ul>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Stopping Use</h2>
-				<p>You can stop using OpenCut at any time:</p>
-				<ul className="list-disc space-y-2 pl-6">
-					<li>Clear your browser data to remove local projects</li>
-				</ul>
-			</section>
-
-			<section className="flex flex-col gap-3">
-				<h2 className="text-2xl font-semibold">Contact Us</h2>
-				<p>Questions about these terms or need to report an issue?</p>
+				<h2>Termination</h2>
 				<p>
-					Contact us through our{" "}
-					<a
-						href={`${SOCIAL_LINKS.github}/issues`}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-primary hover:underline"
-					>
-						GitHub repository
-					</a>
-					, email us at{" "}
-					<a
-						href="mailto:oss@opencut.app"
-						className="text-primary hover:underline"
-					>
-						oss@opencut.app
-					</a>
-					, or reach out on{" "}
-					<a
-						href={SOCIAL_LINKS.x}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-primary hover:underline"
-					>
-						X (Twitter)
-					</a>
-					.
+					You may stop using the Service at any time. We may suspend or terminate your
+					access to the Service at any time, without notice, for any reason.
 				</p>
+
+				<h2>Policy changes</h2>
 				<p>
-					These terms are governed by applicable law in your jurisdiction. We
-					prefer to resolve disputes through friendly discussion in our
-					open-source community.
+					We may update these Terms from time to time. We will update the &quot;Last
+					updated&quot; date above. Continued use of the Service after changes constitutes
+					acceptance of the revised Terms.
 				</p>
-			</section>
-			<Separator />
-			<p className="text-muted-foreground text-sm">
-				Last updated: March 15, 2026
-			</p>
+
+				<h2>Governing law</h2>
+				<p className="text-sm">
+					<em>
+						Governing law and jurisdiction: [Placeholder — to be completed by the owner with
+						the appropriate legal jurisdiction and dispute resolution terms.]
+					</em>
+				</p>
+
+				<h2>Contact</h2>
+				<p>
+					For questions about these Terms, contact us at{" "}
+					<a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>.
+				</p>
+
+				<p className="text-sm text-muted-foreground italic">
+					These Terms are provided for informational purposes and do not constitute legal
+					advice.
+				</p>
+			</div>
 		</BasePage>
 	);
 }

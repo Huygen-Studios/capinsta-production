@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { BasePage } from "@/app/base-page";
 import { Separator } from "@/components/ui/separator";
+import { BRAND } from "@/site/brand";
 import {
 	type Release as ReleaseType,
 	getSortedReleases,
@@ -14,26 +15,26 @@ import {
 } from "@/changelog/components/release";
 
 export const metadata: Metadata = {
-	title: "Changelog - OpenCut",
-	description: "What's new in OpenCut",
+	title: "Changelog",
+	description: `What's new in ${BRAND.productName}`,
 	openGraph: {
-		title: "Changelog - OpenCut",
-		description: "Every update, improvement, and fix to OpenCut — documented.",
+		title: `Changelog — ${BRAND.productName}`,
+		description: `Every update, improvement, and fix to ${BRAND.productName} — documented.`,
 		type: "website",
 		images: [
 			{
-				url: "/open-graph/changlog.jpg",
+				url: "/open-graph/default.png",
 				width: 1200,
 				height: 630,
-				alt: "OpenCut Changelog",
+				alt: `${BRAND.productName} Changelog`,
 			},
 		],
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "Changelog - OpenCut",
-		description: "What's new in OpenCut",
-		images: ["/open-graph/changlog.jpg"],
+		title: `Changelog — ${BRAND.productName}`,
+		description: `What's new in ${BRAND.productName}`,
+		images: ["/open-graph/default.png"],
 	},
 };
 
@@ -41,7 +42,7 @@ export default function ChangelogPage() {
 	const releases = getSortedReleases();
 
 	return (
-		<BasePage title="Changelog" description="See what's new in OpenCut">
+		<BasePage title="Changelog" description={`See what's new in ${BRAND.productName}`}>
 			<div className="mx-auto w-full max-w-3xl">
 				<div className="relative">
 					<div

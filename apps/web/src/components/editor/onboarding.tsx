@@ -2,8 +2,7 @@
 
 import { ArrowRightIcon } from "lucide-react";
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import { SOCIAL_LINKS } from "@/site/social";
+import { BRAND, ROUTES } from "@/site/brand";
 import { useLocalStorage } from "@/services/storage/use-local-storage";
 import { Button } from "../ui/button";
 import { Dialog, DialogBody, DialogContent, DialogTitle } from "../ui/dialog";
@@ -28,13 +27,13 @@ export function Onboarding() {
 	const getStepTitle = () => {
 		switch (step) {
 			case 0:
-				return "Welcome to OpenCut Beta! 🎉";
+				return `Welcome to ${BRAND.productName}`;
 			case 1:
-				return "⚠️ This is a super early beta!";
+				return "How it works";
 			case 2:
-				return "🦋 Have fun testing!";
+				return "Ready to caption";
 			default:
-				return "OpenCut Onboarding";
+				return BRAND.productName;
 		}
 	};
 
@@ -44,8 +43,10 @@ export function Onboarding() {
 				return (
 					<div className="space-y-5">
 						<div className="space-y-3">
-							<Title title="Welcome to OpenCut Beta! 🎉" />
-							<Description description="You're among the first to try OpenCut - the fully open source CapCut alternative." />
+							<Title title={`Welcome to ${BRAND.productName}`} />
+							<Description
+								description={`${BRAND.productName} lets you generate accurate captions, style them with presets, and export captioned videos — all in your browser.`}
+							/>
 						</div>
 						<NextButton onClick={handleNext}>Next</NextButton>
 					</div>
@@ -55,9 +56,8 @@ export function Onboarding() {
 					<div className="space-y-5">
 						<div className="space-y-3">
 							<Title title={getStepTitle()} />
-							<Description description="There's still a ton of things to do to make this editor amazing." />
-							<Description description="A lot of features are still missing. We're working hard to build them out!" />
-							<Description description="If you're curious, check out our roadmap [here](https://opencut.app/roadmap)" />
+							<Description description="Upload a video, generate captions automatically, fine-tune timing and styling, then export your finished clip." />
+							<Description description="Projects are temporary — your media is removed after a period of inactivity for your privacy." />
 						</div>
 						<NextButton onClick={handleNext}>Next</NextButton>
 					</div>
@@ -68,10 +68,10 @@ export function Onboarding() {
 						<div className="space-y-3">
 							<Title title={getStepTitle()} />
 							<Description
-								description={`Join our [Discord](${SOCIAL_LINKS.discord}), chat with cool people and share feedback to help make OpenCut the best editor ever.`}
+								description={`${BRAND.productName} is a product by [${BRAND.parentCompany}](${BRAND.companyWebsite}). Need help? Visit our [contact page](/${ROUTES.contact.slice(1)}).`}
 							/>
 						</div>
-						<NextButton onClick={handleClose}>Finish</NextButton>
+						<NextButton onClick={handleClose}>Start</NextButton>
 					</div>
 				);
 			default:
@@ -98,23 +98,7 @@ function Title({ title }: { title: string }) {
 function Description({ description }: { description: string }) {
 	return (
 		<div className="text-muted-foreground">
-			<ReactMarkdown
-				components={{
-					p: ({ children }) => <p className="mb-0">{children}</p>,
-					a: ({ href, children }) => (
-						<a
-							href={href}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="text-foreground hover:text-foreground/80 underline"
-						>
-							{children}
-						</a>
-					),
-				}}
-			>
-				{description}
-			</ReactMarkdown>
+			<p className="mb-0 whitespace-pre-line">{description}</p>
 		</div>
 	);
 }

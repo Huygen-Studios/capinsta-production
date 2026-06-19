@@ -15,7 +15,8 @@
   --popover: hsl(0, 0%, 100%);
   --popover-hover: hsl(0, 0%, 96%);
   --popover-foreground: hsl(0 0% 2%);
-  --primary: hsl(200, 90%, 52%);
+  /* Capinsta brand purple */
+  --primary: hsl(262, 83%, 58%);
   --primary-foreground: hsl(0, 0%, 100%);
   --secondary: hsl(204, 100%, 97%);
   --secondary-border: hsl(204, 100%, 94%);
@@ -289,3 +290,45 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---- Capinsta brand tokens + Neubrutalist landing utilities ---- */
+@theme inline {
+  --color-brand: hsl(262, 83%, 58%);
+  --color-brand-foreground: hsl(0, 0%, 100%);
+  --color-brand-strong: hsl(262, 83%, 50%);
+  --color-ink: hsl(270, 20%, 8%);
+}
+
+/* Hard offset shadow used on cards/buttons in the landing surface. */
+@utility shadow-brut {
+  box-shadow: 4px 4px 0 0 var(--color-ink);
+}
+@utility shadow-brut-sm {
+  box-shadow: 2px 2px 0 0 var(--color-ink);
+}
+@utility shadow-brut-lg {
+  box-shadow: 8px 8px 0 0 var(--color-ink);
+}
+@utility shadow-brand-brut {
+  box-shadow: 4px 4px 0 0 var(--color-brand);
+}
+
+/* Thin grid paper texture for premium landing surfaces (CSS only, no asset). */
+@utility bg-grid-paper {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-ink) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-ink) 6%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
