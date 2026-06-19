@@ -39,7 +39,9 @@ COPY apps/web/ apps/web/
 ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
 ARG MARBLE_WORKSPACE_KEY=build-placeholder
-ARG NEXT_PUBLIC_ENABLE_AI_CAPTIONS=false
+# Caption generation is a core Capinsta feature. Keep it visible unless a
+# deployment explicitly opts out with --build-arg ...=false.
+ARG NEXT_PUBLIC_ENABLE_AI_CAPTIONS=true
 ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=
 
 ENV NODE_ENV=production

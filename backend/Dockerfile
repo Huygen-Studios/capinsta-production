@@ -1,20 +1,3 @@
-# REVIEW(stale-deployment): this legacy image still expects frontend/ rather than
-# apps/web/. Do not use for the launch deployment until its build context is migrated.
-FROM node:20-bookworm-slim AS frontend-builder
-
-WORKDIR /app/frontend
-ENV NEXT_PUBLIC_API_URL=
-ENV NEXT_OUTPUT=export
-ENV NEXT_TELEMETRY_DISABLED=1
-
-COPY frontend/package*.json ./
-RUN npm ci --include=dev
-
-COPY frontend ./
-ENV NODE_ENV=production
-RUN npm run build
-
-
 FROM python:3.11-slim AS app
 
 ENV PYTHONUNBUFFERED=1
@@ -50,8 +33,10 @@ RUN python -m pip install --upgrade pip \
   && python -m playwright install --with-deps chromium
 
 COPY . .
-COPY --from=frontend-builder /app/frontend/out ./frontend/out
 
 EXPOSE 10000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:10000/health || exit 1
 
 CMD ["sh", "-c", "uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
