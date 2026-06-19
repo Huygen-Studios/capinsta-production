@@ -12,7 +12,7 @@ COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 
 COPY apps/web/package.json apps/web/package.json
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 COPY apps/web/ apps/web/
 
