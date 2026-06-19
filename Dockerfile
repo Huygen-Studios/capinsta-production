@@ -21,6 +21,10 @@ WORKDIR /app
 
 # Bring in installed deps from the Bun stage.
 COPY --from=installer /app/node_modules ./node_modules
+# Bun keeps workspace-specific packages (including Next config plugins such as
+# botid and @content-collections/next) in the workspace node_modules directory.
+# Preserve those links so Node can resolve them while loading next.config.ts.
+COPY --from=installer /app/apps/web/node_modules ./apps/web/node_modules
 COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
@@ -58,7 +62,7 @@ ENV NEXT_PUBLIC_CAPINSTA_API_BASE_URL=$NEXT_PUBLIC_CAPINSTA_API_BASE_URL
 ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 
 WORKDIR /app/apps/web
-RUN npx next build
+RUN ./node_modules/.bin/next build
 
 # ---- Stage 3: Runner (Node standalone server) ----
 FROM node:22-alpine AS runner
