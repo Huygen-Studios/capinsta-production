@@ -7,11 +7,8 @@ WORKDIR /app
 ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
 ARG MARBLE_WORKSPACE_KEY=build-placeholder
 
-COPY package.json package.json
-COPY bun.lock bun.lock
-COPY turbo.json turbo.json
-
 COPY apps/web/package.json apps/web/package.json
+
 RUN npm install --legacy-peer-deps
 
 COPY apps/web/ apps/web/
