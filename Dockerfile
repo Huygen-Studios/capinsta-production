@@ -48,6 +48,9 @@ ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Keep the Next.js compiler from consuming the entire VPS during Docker builds.
+# Coolify should still be configured to run only one build at a time.
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 
 # Build-time placeholder values ONLY. Required for Zod/Next.js to compile the
 # production bundle. They are NEVER real secrets. Real credentials

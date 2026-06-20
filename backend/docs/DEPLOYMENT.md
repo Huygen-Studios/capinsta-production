@@ -38,6 +38,21 @@ Health Check Path: /health
 Do not set Base Directory to `/backend`. After changing either field, redeploy
 without build cache once so Coolify does not reuse the invalid build context.
 
+### Small VPS resource safety
+
+The frontend and backend images both run a Next.js production build. On a
+single small VPS, do not deploy them concurrently:
+
+```text
+Coolify concurrent builds: 1
+Deploy order: frontend, then backend
+Recommended swap: at least 4 GB
+```
+
+The Dockerfiles cap the Next.js compiler heap, but the Coolify concurrency
+limit is still required so BuildKit, Bun, Next.js, Python dependencies, and
+Playwright/Chromium do not collectively starve the reverse proxy or SSH.
+
 Required authentication/runtime variables include:
 
 ```env

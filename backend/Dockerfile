@@ -33,6 +33,9 @@ ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=https://api.capinsta.huygenstudios.com
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# The backend image builds the dedicated Next.js render artifact. Bound the
+# compiler heap so it cannot starve Coolify and the reverse proxy on small VPSes.
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
 ENV UPSTASH_REDIS_REST_TOKEN="build-time-placeholder-token"

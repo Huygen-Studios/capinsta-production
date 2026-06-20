@@ -7,7 +7,10 @@ const nextConfig: NextConfig = {
 		removeConsole: process.env.NODE_ENV === "production",
 	},
 	reactStrictMode: true,
-	productionBrowserSourceMaps: true,
+	// Production browser source maps materially increase build RAM and disk use.
+	// Keep them disabled on the small production VPS; server-side stack traces
+	// and local development source maps remain available.
+	productionBrowserSourceMaps: false,
 	output: "standalone",
 	// Prevent Turbopack from scanning Windows reserved device names
 	turbopack: {
