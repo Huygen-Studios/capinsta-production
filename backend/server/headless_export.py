@@ -91,6 +91,7 @@ class ExportPerformanceMetrics:
     captions_only_png_disk_write_seconds: float = 0.0
     captions_only_ffmpeg_encode_seconds: float = 0.0
     renderer_restarts: int = 0
+    browser_recoveries: int = 0
     renderer_restart_seconds: float = 0.0
     screenshots: int = 0
     ffmpeg_drains: int = 0
@@ -130,9 +131,13 @@ class ExportPerformanceMetrics:
             "durationSeconds": round(self.duration_seconds, 6),
             "fps": self.fps,
             "totalFrames": self.total_frames,
+            "timeline_frames": self.total_frames,
             "legacyFrames": legacy_frames,
             "capturedFrames": self.captured_frames,
+            "unique_captured_frames": self.captured_frames,
+            "reused_frames": max(0, self.total_frames - self.captured_frames),
             "frameReductionPercent": round(max(0.0, reduction), 3),
+            "capture_reduction_percent": round(max(0.0, reduction), 3),
             "queueWaitSeconds": round(self.queue_wait_seconds, 6),
             "workerExecutionSeconds": round(self.worker_execution_seconds, 6),
             "browserLaunchSeconds": round(self.browser_launch_seconds, 6),
@@ -150,6 +155,7 @@ class ExportPerformanceMetrics:
             "captionsOnlyPngDiskWriteSeconds": round(self.captions_only_png_disk_write_seconds, 6),
             "captionsOnlyFfmpegEncodeSeconds": round(self.captions_only_ffmpeg_encode_seconds, 6),
             "rendererRestarts": self.renderer_restarts,
+            "browser_recoveries": self.browser_recoveries,
             "rendererRestartSeconds": round(self.renderer_restart_seconds, 6),
             "averagePngBytes": round(self.png_bytes_total / screenshot_count, 1),
             "maximumPngBytes": self.png_bytes_max,
@@ -170,6 +176,20 @@ class ExportPerformanceMetrics:
                 6,
             ),
             "totalElapsedSeconds": round(total_elapsed_seconds, 6),
+            "capture_seconds": round(
+                self.sparse_capture_seconds
+                if self.render_engine == RenderEngine.BROWSER_SPARSE.value
+                else self.frame_advance_seconds + self.screenshot_seconds,
+                6,
+            ),
+            "encode_seconds": round(
+                self.ffmpeg_drain_seconds
+                + self.ffmpeg_finalize_seconds
+                + self.captions_only_ffmpeg_encode_seconds
+                + self.sparse_encode_seconds,
+                6,
+            ),
+            "total_seconds": round(total_elapsed_seconds, 6),
             "peakProcessMemoryMb": self.peak_process_memory_mb,
         }
 
@@ -202,14 +222,14 @@ def _float_env(name: str, default: float) -> float:
 
 
 def resolve_ffmpeg_threads(raw_value: str | None = None, cpu_count: int | None = None) -> int:
-    """Reserve one logical CPU for Chromium and cap x264 parallelism."""
+    """Keep x264 bounded so Chromium has memory and CPU headroom."""
     configured = (raw_value if raw_value is not None else os.getenv("EXPORT_FFMPEG_THREADS", "auto")).strip().lower()
     detected = max(1, cpu_count if cpu_count is not None else (os.cpu_count() or 2))
-    automatic = max(1, min(4, detected - 1))
+    automatic = max(1, min(2, detected))
     if configured in {"", "auto", "0"}:
         return automatic
     try:
-        return max(1, min(64, int(configured)))
+        return max(1, min(automatic, int(configured)))
     except ValueError:
         return automatic
 
@@ -225,17 +245,32 @@ def _render_safe_default() -> bool:
     return bool(os.getenv("RENDER") or os.getenv("RENDER_EXTERNAL_URL"))
 
 
-def _looks_like_browser_disconnect(exc: Exception) -> bool:
-    text = f"{type(exc).__name__}: {exc}".lower()
+def _looks_like_browser_disconnect(exc: BaseException) -> bool:
+    """Classify only Playwright/browser lifecycle failures as recoverable."""
+    current: BaseException | None = exc
+    messages: list[str] = []
+    while current is not None and len(messages) < 6:
+        messages.append(f"{type(current).__name__}: {current}".lower())
+        current = current.__cause__ or current.__context__
+    text = " | ".join(messages)
     return any(
         marker in text
         for marker in (
-            "connection lost",
+            "writeunixtransport",
+            "handler is closed",
+            "targetclosederror",
             "target closed",
+            "browser closed",
             "browser has been closed",
+            "page closed",
             "page has been closed",
-            "crash",
-            "disconnected",
+            "connection closed",
+            "connection lost",
+            "playwright._impl",
+            "browser disconnected",
+            "browser has disconnected",
+            "renderer process crashed",
+            "page crashed",
         )
     )
 
@@ -354,7 +389,7 @@ def check_export_runtime() -> dict[str, object]:
         "bundled_render_page_url": bundled_render_page_url(),
         "frontend_dist_available": frontend_dist_available(),
         "export_prefer_bundled_render": _bool_env("EXPORT_PREFER_BUNDLED_RENDER", True),
-        "export_frame_capture_retries": _int_env("EXPORT_FRAME_CAPTURE_RETRIES", 3),
+        "export_frame_capture_retries": _int_env("EXPORT_FRAME_CAPTURE_RETRIES", 2),
         "export_render_page_recycle_frames": _int_env("EXPORT_RENDER_PAGE_RECYCLE_FRAMES", 0),
         "export_clean_check_interval_frames": _int_env("EXPORT_CLEAN_CHECK_INTERVAL_FRAMES", 0),
         "render_safe_mode": _bool_env("EXPORT_RENDER_SAFE_MODE", _render_safe_default()),
@@ -365,7 +400,7 @@ def check_export_runtime() -> dict[str, object]:
         "export_ffmpeg_threads_resolved": resolve_ffmpeg_threads(),
         "export_stream_retries": _int_env("EXPORT_STREAM_RETRIES", 2),
         "export_sparse_render_enabled": _bool_env("EXPORT_SPARSE_RENDER_ENABLED", False),
-        "export_sparse_render_themes": os.getenv("EXPORT_SPARSE_RENDER_THEMES", "word_highlight_box"),
+        "export_sparse_render_themes": os.getenv("EXPORT_SPARSE_RENDER_THEMES", "*"),
         "export_sparse_min_frame_reduction_percent": _float_env(
             "EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT", 5.0
         ),
@@ -681,7 +716,7 @@ async def export_headless(
             render_safe_mode,
         )
 
-    await progress_callback("export_started", 0, "Launching headless browser...")
+    await progress_callback("preparing", 0, "Preparing headless renderer...")
 
     # Get export duration. The editor sends a duration resolved from timeline,
     # media metadata, captions, or custom settings; ffprobe is a fallback only.
@@ -785,21 +820,44 @@ async def export_headless(
         logger.info("[render] audio included %s", bool(include_audio and media_exists))
 
     browser = None
+    browser_context = None
     page = None
     ffmpeg_proc = None
     stderr_chunks: list[bytes] = []
-    frame_capture_retries = max(1, _int_env("EXPORT_FRAME_CAPTURE_RETRIES", 3))
+    browser_recovery_attempts = max(0, _int_env("EXPORT_FRAME_CAPTURE_RETRIES", 2))
     render_page_recycle_frames = max(0, _int_env("EXPORT_RENDER_PAGE_RECYCLE_FRAMES", 0))
     clean_check_interval_frames = max(0, _int_env("EXPORT_CLEAN_CHECK_INTERVAL_FRAMES", 0))
     async with async_playwright() as p:
-        async def close_browser_safely() -> None:
-            nonlocal browser
-            if browser:
+        replacement_playwright = None
+
+        async def close_page_safely() -> None:
+            nonlocal page
+            old_page, page = page, None
+            if old_page:
                 try:
-                    await browser.close()
+                    await old_page.close()
                 except Exception:
                     pass
-                browser = None
+
+        async def close_context_safely() -> None:
+            nonlocal browser_context
+            await close_page_safely()
+            old_context, browser_context = browser_context, None
+            if old_context:
+                try:
+                    await old_context.close()
+                except Exception:
+                    pass
+
+        async def close_browser_safely() -> None:
+            nonlocal browser
+            await close_context_safely()
+            old_browser, browser = browser, None
+            if old_browser:
+                try:
+                    await old_browser.close()
+                except Exception:
+                    pass
 
         async def launch_browser() -> None:
             nonlocal browser
@@ -809,12 +867,40 @@ async def export_headless(
                 args=[
                     "--disable-gpu",
                     "--no-sandbox",
+                    "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-background-networking",
+                    "--disable-extensions",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--mute-audio",
+                    "--no-first-run",
                     "--disable-background-timer-throttling",
                     "--disable-renderer-backgrounding",
                 ],
             )
+
+        async def restart_playwright_and_browser() -> None:
+            nonlocal p, replacement_playwright
+            await close_browser_safely()
+            if replacement_playwright is not None:
+                try:
+                    await replacement_playwright.stop()
+                except Exception:
+                    pass
+            replacement_playwright = await async_playwright().start()
+            p = replacement_playwright
+            await launch_browser()
+
+        async def shutdown_renderer() -> None:
+            nonlocal replacement_playwright
+            await close_browser_safely()
+            if replacement_playwright is not None:
+                try:
+                    await replacement_playwright.stop()
+                except Exception:
+                    pass
+                replacement_playwright = None
 
         try:
             # Launch headless Chromium
@@ -836,16 +922,7 @@ async def export_headless(
             if len(page_logs) > 40:
                 del page_logs[: len(page_logs) - 40]
 
-        async def close_page_safely() -> None:
-            nonlocal page
-            if page:
-                try:
-                    await page.close()
-                except Exception:
-                    pass
-                page = None
-
-        await progress_callback("exporting", 2, "Loading render page...")
+        await progress_callback("preparing", 2, "Loading render page...")
 
         # Prefer the bundled static render page for long exports. Next dev/HMR
         # pages are useful while editing, but they are much easier to crash
@@ -867,12 +944,13 @@ async def export_headless(
             logger.info("headless_render_page url=%s", candidate_url)
             try:
                 page_load_started = time.perf_counter()
-                await close_page_safely()
+                await close_context_safely()
                 page_logs.clear()
-                page = await browser.new_page(
+                browser_context = await browser.new_context(
                     viewport={"width": width, "height": height},
                     device_scale_factor=1,
                 )
+                page = await browser_context.new_page()
                 page.on("console", lambda msg: capture_page_log("console", msg.text))
                 page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
                 page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
@@ -894,11 +972,11 @@ async def export_headless(
             except ExportStageError as exc:
                 performance.render_page_load_seconds += time.perf_counter() - page_load_started
                 render_load_errors.append(str(exc))
-                await close_page_safely()
+                await close_context_safely()
             except Exception as exc:
                 performance.render_page_load_seconds += time.perf_counter() - page_load_started
                 render_load_errors.append(f"Could not load the caption render page at {candidate_url}: {exc}")
-                await close_page_safely()
+                await close_context_safely()
 
         if not loaded_render_page:
             logs = _tail("\n".join(page_logs), 1400)
@@ -1096,9 +1174,12 @@ async def export_headless(
             reason: Exception,
             current_frame: int | None = None,
         ) -> None:
-            nonlocal page
+            nonlocal browser_context, page
             restart_started = time.perf_counter()
             performance.renderer_restarts += 1
+            is_disconnect_recovery = _looks_like_browser_disconnect(reason)
+            if is_disconnect_recovery:
+                performance.browser_recoveries += 1
             logger.warning(
                 "recovering_render_page export_job_id=%s time=%.3f reason=%s: %s",
                 export_job_id,
@@ -1106,20 +1187,25 @@ async def export_headless(
                 type(reason).__name__,
                 reason,
             )
-            await close_page_safely()
+            await close_context_safely()
             try:
                 browser_connected = bool(browser and browser.is_connected())
             except Exception:
                 browser_connected = False
-            if browser is None or not browser_connected or _looks_like_browser_disconnect(reason):
+            if is_disconnect_recovery:
+                relaunch_started = time.perf_counter()
+                await restart_playwright_and_browser()
+                performance.browser_launch_seconds += time.perf_counter() - relaunch_started
+            elif browser is None or not browser_connected:
                 relaunch_started = time.perf_counter()
                 await launch_browser()
                 performance.browser_launch_seconds += time.perf_counter() - relaunch_started
             page_logs.clear()
-            page = await browser.new_page(
+            browser_context = await browser.new_context(
                 viewport={"width": width, "height": height},
                 device_scale_factor=1,
             )
+            page = await browser_context.new_page()
             page.on("console", lambda msg: capture_page_log("console", msg.text))
             page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
             page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
@@ -1165,7 +1251,7 @@ async def export_headless(
         # The render page signals readiness after: caption data loaded, fonts
         # ready, background color applied, output dimensions applied, prohibited
         # UI stripped, and first caption frame committed.
-        await progress_callback("exporting", 3, "Waiting for render readiness...")
+        await progress_callback("preparing", 3, "Waiting for render readiness...")
         readiness_started = time.perf_counter()
         try:
             await page.wait_for_function(
@@ -1241,7 +1327,7 @@ async def export_headless(
             logger.debug("stripProhibitedRenderUI failed (non-fatal): %s", strip_exc)
 
         # --- Validation: verify overlay element + no debug overlays ---
-        await progress_callback("exporting", 3, "Validating render state...")
+        await progress_callback("preparing", 4, "Validating render state...")
         overlay_capture_dimensions = (width, height)
         try:
             overlay_root_count = await page.locator('[data-capinsta-export-overlay-root="true"]').count() if page else 0
@@ -1293,7 +1379,7 @@ async def export_headless(
         except Exception as val_exc:
             logger.warning("post_inject_validation check failed (non-fatal): %s", val_exc)
 
-        await progress_callback("exporting", 5, "Starting frame capture...")
+        await progress_callback("capturing", 5, "Starting caption capture...")
 
         try:
             parsed_style_config = json.loads(style_config_json) if style_config_json else {}
@@ -1303,7 +1389,7 @@ async def export_headless(
             parsed_style_config = {}
         sparse_themes = {
             item.strip()
-            for item in os.getenv("EXPORT_SPARSE_RENDER_THEMES", "word_highlight_box").split(",")
+            for item in os.getenv("EXPORT_SPARSE_RENDER_THEMES", "*").split(",")
             if item.strip()
         }
         selected_engine, engine_reason = select_render_engine(
@@ -1352,25 +1438,81 @@ async def export_headless(
             try:
                 capture_started = time.perf_counter()
                 for index, segment in enumerate(plan):
-                    if page is None:
-                        raise ExportStageError("frame_capture", "Sparse renderer page is unavailable.")
-                    advance_started = time.perf_counter()
-                    advanced = await page.evaluate(
-                        "(frame) => window.setCaptionFrame(frame)",
-                        segment.capture_frame,
-                    )
-                    performance.frame_advance_seconds += time.perf_counter() - advance_started
-                    if advanced is not True:
+                    data = None
+                    last_disconnect: Exception | None = None
+                    for recovery_attempt in range(browser_recovery_attempts + 1):
+                        try:
+                            if page is None:
+                                raise ExportStageError("frame_capture", "Sparse renderer page is unavailable.")
+                            advance_started = time.perf_counter()
+                            advanced = await page.evaluate(
+                                "(frame) => window.setCaptionFrame(frame)",
+                                segment.capture_frame,
+                            )
+                            performance.frame_advance_seconds += time.perf_counter() - advance_started
+                            if advanced is not True:
+                                raise ExportStageError(
+                                    "frame_capture",
+                                    f"Sparse renderer rejected frame {segment.capture_frame}.",
+                                )
+                            data = await timed_capture_render_frame()
+                            break
+                        except Exception as exc:
+                            if not _looks_like_browser_disconnect(exc):
+                                raise
+                            last_disconnect = exc
+                            if recovery_attempt >= browser_recovery_attempts:
+                                break
+                            await progress_callback(
+                                "capturing",
+                                5 + int((index / max(1, len(plan))) * 72),
+                                f"Renderer disconnected; recovering at timeline frame {segment.capture_frame + 1}/{total_frames}...",
+                            )
+                            await recreate_render_page(
+                                segment.time_seconds,
+                                exc,
+                                segment.capture_frame,
+                            )
+                    if data is None:
+                        logger.error(
+                            "sparse_renderer_recovery_exhausted export_job_id=%s frame=%s attempts=%s raw_error=%r",
+                            export_job_id,
+                            segment.capture_frame,
+                            browser_recovery_attempts,
+                            last_disconnect,
+                        )
                         raise ExportStageError(
                             "frame_capture",
-                            f"Sparse renderer rejected frame {segment.capture_frame}.",
+                            "The headless renderer disconnected during frame capture and could not be "
+                            f"recovered after {browser_recovery_attempts} attempts. "
+                            f"Last completed frame: {segment.start_frame}/{total_frames}.",
+                            last_disconnect,
                         )
-                    data = await timed_capture_render_frame()
                     frame_path = sparse_dir / f"frame_{index:06d}.png"
                     await asyncio.to_thread(frame_path.write_bytes, data)
                     frame_paths.append(frame_path)
+                    capture_pct = 5 + int(((index + 1) / max(1, len(plan))) * 72)
+                    if index == 0 or index == len(plan) - 1 or index % max(1, len(plan) // 20) == 0:
+                        _log_export_event(
+                            "export_capture_progress",
+                            exportJobId=export_job_id,
+                            currentFrame=segment.end_frame_exclusive,
+                            timelineFrames=total_frames,
+                            uniqueCaptures=index + 1,
+                            reusedFrames=max(0, segment.end_frame_exclusive - (index + 1)),
+                            browserRecoveries=performance.browser_recoveries,
+                            captureElapsedSeconds=round(time.perf_counter() - capture_started, 3),
+                            peakProcessMemoryMb=_peak_process_memory_mb(),
+                        )
+                        await progress_callback(
+                            "capturing",
+                            min(77, capture_pct),
+                            f"Capturing captions: {index + 1}/{len(plan)} unique states "
+                            f"({segment.end_frame_exclusive}/{total_frames} timeline frames).",
+                        )
                 performance.sparse_capture_seconds += time.perf_counter() - capture_started
 
+                await progress_callback("encoding", 80, "Encoding video from captured caption states...")
                 manifest_path = sparse_dir / "frames.ffconcat"
                 manifest_lines = ["ffconcat version 1.0"]
                 for frame_path, segment in zip(frame_paths, plan):
@@ -1454,15 +1596,21 @@ async def export_headless(
                     )
                 if not Path(output_path).is_file() or Path(output_path).stat().st_size <= 0:
                     raise ExportStageError("output_validation", "Sparse FFmpeg did not create a non-empty MP4.")
-                await close_browser_safely()
+                await progress_callback("finalizing", 98, "Finalizing export...")
+                await shutdown_renderer()
                 await progress_callback("export_complete", 100, "Done!")
                 await emit_performance_summary()
                 return output_path
-            except Exception:
+            except Exception as sparse_error:
                 try:
                     Path(output_path).unlink(missing_ok=True)
                 except OSError:
                     pass
+                if not (
+                    isinstance(sparse_error, ExportStageError)
+                    and sparse_error.stage == "sparse_plan"
+                ):
+                    await shutdown_renderer()
                 raise
             finally:
                 await asyncio.to_thread(shutil.rmtree, sparse_dir, True)
@@ -1471,7 +1619,12 @@ async def export_headless(
             try:
                 return await run_sparse_export()
             except Exception as sparse_exc:
-                logger.exception(
+                if not (
+                    isinstance(sparse_exc, ExportStageError)
+                    and sparse_exc.stage == "sparse_plan"
+                ):
+                    raise
+                logger.info(
                     "sparse_render_fallback export_job_id=%s reason=%s: %s",
                     export_job_id,
                     type(sparse_exc).__name__,
@@ -1575,7 +1728,6 @@ async def export_headless(
                         last_pct = pct
                         await progress_callback("exporting", pct, f"Captured {chunk_end}/{total_frames} caption frames.")
 
-                await close_browser_safely()
                 await progress_callback("encoding", 82, "Encoding captions-only MP4...")
 
                 encoder = "h264_nvenc" if hardware_acceleration else "libx264"
@@ -1640,6 +1792,8 @@ async def export_headless(
                 if output_size <= 0:
                     raise ExportStageError("output_validation", f"FFmpeg created an empty output file: {output_path}")
 
+                await progress_callback("finalizing", 98, "Finalizing export...")
+                await shutdown_renderer()
                 await progress_callback("export_complete", 100, "Done!")
                 await emit_performance_summary()
                 _log_export_event(
@@ -1651,7 +1805,7 @@ async def export_headless(
                 )
                 return output_path
             finally:
-                await close_browser_safely()
+                await shutdown_renderer()
                 try:
                     shutil.rmtree(frame_dir, ignore_errors=True)
                 except Exception:
@@ -1773,6 +1927,21 @@ async def export_headless(
                     stderr_chunks.append(joined)
 
         stderr_task = asyncio.create_task(drain_stderr())
+        ffmpeg_stdin_closed = False
+
+        async def close_ffmpeg_stdin_once() -> None:
+            nonlocal ffmpeg_stdin_closed
+            if ffmpeg_stdin_closed:
+                return
+            ffmpeg_stdin_closed = True
+            if ffmpeg_proc and ffmpeg_proc.stdin:
+                try:
+                    ffmpeg_proc.stdin.close()
+                    wait_closed = getattr(ffmpeg_proc.stdin, "wait_closed", None)
+                    if wait_closed:
+                        await wait_closed()
+                except Exception:
+                    pass
 
         async def retry_captions_stream(reason: str) -> str | None:
             max_attempts = max(1, _int_env("EXPORT_STREAM_RETRIES", 2))
@@ -1819,10 +1988,17 @@ async def export_headless(
         # Capture frames
         last_pct = 5
         frame_idx = 0
+        last_completed_frame = -1
         frame_stream_error: Exception | None = None
+        frame_capture_started = time.perf_counter()
         try:
             for frame_idx in range(total_frames):
                 current_time = frame_idx / export_fps
+                if ffmpeg_proc.returncode is not None:
+                    raise ExportStageError(
+                        "ffmpeg_stream",
+                        f"FFmpeg exited before timeline frame {frame_idx + 1}/{total_frames}.",
+                    )
 
                 # Page recycling is needed for WebGL stability (legacy mode) but
                 # unnecessary for overlay-only mode (pure React DOM, no GPU state).
@@ -1839,7 +2015,7 @@ async def export_headless(
 
                 screenshot_bytes = None
                 last_frame_error: Exception | None = None
-                for attempt in range(frame_capture_retries):
+                for attempt in range(browser_recovery_attempts + 1):
                     try:
                         if page is None:
                             raise ExportStageError("frame_capture", "Render page is not available.")
@@ -1897,17 +2073,34 @@ async def export_headless(
                         break
                     except Exception as frame_exc:
                         last_frame_error = frame_exc
-                        if attempt >= frame_capture_retries - 1:
+                        if not _looks_like_browser_disconnect(frame_exc):
+                            break
+                        if attempt >= browser_recovery_attempts:
                             break
                         await progress_callback(
-                            "exporting",
+                            "capturing",
                             last_pct,
-                            f"Renderer restarted at frame {frame_idx + 1}/{total_frames}; retrying capture...",
+                            f"Renderer disconnected; recovering at frame {frame_idx + 1}/{total_frames}...",
                         )
                         await recreate_render_page(current_time, frame_exc)
 
                 if screenshot_bytes is None:
                     if last_frame_error:
+                        if _looks_like_browser_disconnect(last_frame_error):
+                            logger.error(
+                                "renderer_recovery_exhausted export_job_id=%s frame=%s attempts=%s raw_error=%r",
+                                export_job_id,
+                                frame_idx,
+                                browser_recovery_attempts,
+                                last_frame_error,
+                            )
+                            raise ExportStageError(
+                                "frame_capture",
+                                "The headless renderer disconnected during frame capture and could not be "
+                                f"recovered after {browser_recovery_attempts} attempts. "
+                                f"Last completed frame: {max(0, last_completed_frame + 1)}/{total_frames}.",
+                                last_frame_error,
+                            )
                         raise last_frame_error
                     raise ExportStageError("frame_capture", "Frame capture returned no image bytes.")
 
@@ -1924,31 +2117,38 @@ async def export_headless(
                             f"FFmpeg stopped accepting PNG frame {frame_idx + 1}/{total_frames}.",
                             exc,
                         ) from exc
+                last_completed_frame = frame_idx
 
                 # Progress update (throttle to every 2%)
-                pct = 5 + int((frame_idx / total_frames) * 90)  # 5% to 95%
+                pct = 5 + int(((frame_idx + 1) / total_frames) * 77)  # 5% to 82%
                 if pct >= last_pct + 2:
                     last_pct = pct
+                    if pct % 10 <= 1:
+                        _log_export_event(
+                            "export_capture_progress",
+                            exportJobId=export_job_id,
+                            currentFrame=frame_idx + 1,
+                            timelineFrames=total_frames,
+                            uniqueCaptures=performance.captured_frames,
+                            reusedFrames=0,
+                            browserRecoveries=performance.browser_recoveries,
+                            captureElapsedSeconds=round(time.perf_counter() - frame_capture_started, 3),
+                            peakProcessMemoryMb=_peak_process_memory_mb(),
+                        )
                     await progress_callback(
-                        "exporting", pct,
-                        f"Rendering frame {frame_idx + 1}/{total_frames} ({pct}%)"
+                        "capturing", pct,
+                        f"Capturing captions: frame {frame_idx + 1}/{total_frames}"
                     )
 
         except Exception as e:
             frame_stream_error = e
-            if ffmpeg_proc and ffmpeg_proc.stdin:
-                try:
-                    ffmpeg_proc.stdin.close()
-                except Exception:
-                    pass
+            await close_ffmpeg_stdin_once()
             logger.exception("Frame capture error at frame %s", frame_idx)
         finally:
             # Close FFmpeg stdin and wait for it to finish
-            if ffmpeg_proc and ffmpeg_proc.stdin:
-                try:
-                    ffmpeg_proc.stdin.close()
-                except Exception:
-                    pass
+            if frame_stream_error is None:
+                await progress_callback("encoding", 90, "Encoding remaining video frames...")
+            await close_ffmpeg_stdin_once()
 
             finalize_started = time.perf_counter()
             if ffmpeg_proc:
@@ -1957,10 +2157,11 @@ async def export_headless(
             performance.ffmpeg_finalize_seconds += time.perf_counter() - finalize_started
             if is_captions_only:
                 performance.captions_only_ffmpeg_encode_seconds += time.perf_counter() - ffmpeg_started_at
-            if browser:
-                await browser.close()
+            if frame_stream_error is None:
+                await progress_callback("finalizing", 98, "Finalizing export...")
 
         if frame_stream_error is not None:
+            await shutdown_renderer()
             retried = await retry_captions_stream(str(frame_stream_error))
             if retried is not None:
                 return retried
@@ -1968,9 +2169,11 @@ async def export_headless(
                 Path(output_path).unlink(missing_ok=True)
             except OSError:
                 pass
+            if isinstance(frame_stream_error, ExportStageError):
+                raise frame_stream_error
             raise ExportStageError(
                 "frame_capture",
-                f"Frame capture failed at frame {frame_idx + 1}/{total_frames}: {frame_stream_error}",
+                str(frame_stream_error),
                 frame_stream_error,
             ) from frame_stream_error
 
@@ -1978,6 +2181,7 @@ async def export_headless(
         if ffmpeg_proc.returncode != 0:
             stderr_text = _tail(b"".join(stderr_chunks).decode(errors="replace"))
             logger.error("FFmpeg failed (exit %s): %s", ffmpeg_proc.returncode, stderr_text)
+            await shutdown_renderer()
             retried = await retry_captions_stream(stderr_text)
             if retried is not None:
                 return retried
@@ -1991,11 +2195,14 @@ async def export_headless(
             )
 
         if not os.path.exists(output_path):
+            await shutdown_renderer()
             raise ExportStageError("output_validation", f"FFmpeg finished but output file was not created: {output_path}")
         output_size = os.path.getsize(output_path)
         if output_size <= 0:
+            await shutdown_renderer()
             raise ExportStageError("output_validation", f"FFmpeg created an empty output file: {output_path}")
 
+        await shutdown_renderer()
         await progress_callback("export_complete", 100, "Done!")
         await emit_performance_summary()
         _log_export_event(

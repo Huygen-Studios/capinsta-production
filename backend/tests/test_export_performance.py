@@ -1,10 +1,13 @@
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from server.headless_export import (
     ExportPerformanceMetrics,
+    _looks_like_browser_disconnect,
     _should_recreate_captions_chunk,
     _should_run_clean_check,
     _should_schedule_page_recycle,
@@ -66,10 +69,29 @@ def test_positive_clean_check_interval_is_respected():
 
 def test_ffmpeg_auto_threads_reserve_cpu_for_chromium():
     assert resolve_ffmpeg_threads("auto", cpu_count=1) == 1
-    assert resolve_ffmpeg_threads("auto", cpu_count=2) == 1
-    assert resolve_ffmpeg_threads("auto", cpu_count=4) == 3
-    assert resolve_ffmpeg_threads("auto", cpu_count=32) == 4
+    assert resolve_ffmpeg_threads("auto", cpu_count=2) == 2
+    assert resolve_ffmpeg_threads("auto", cpu_count=4) == 2
+    assert resolve_ffmpeg_threads("auto", cpu_count=32) == 2
     assert resolve_ffmpeg_threads("2", cpu_count=32) == 2
+    assert resolve_ffmpeg_threads("8", cpu_count=32) == 2
+    assert resolve_ffmpeg_threads("2", cpu_count=1) == 1
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "unable to perform operation on <WriteUnixTransport closed=True>; the handler is closed",
+        "TargetClosedError: Browser closed",
+        "playwright._impl._errors.Error: Connection closed",
+        "Page closed",
+    ],
+)
+def test_playwright_disconnect_errors_are_recoverable(message):
+    assert _looks_like_browser_disconnect(RuntimeError(message))
+
+
+def test_non_browser_capture_errors_are_not_recoverable():
+    assert not _looks_like_browser_disconnect(RuntimeError("PNG encoding failed"))
 
 
 def test_ffmpeg_presets_are_valid_for_software_and_nvenc_encoders():

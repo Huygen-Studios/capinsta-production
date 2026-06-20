@@ -293,6 +293,14 @@ def _memory_mb() -> float | None:
 
 def _stage_from_progress(status: str, details: str) -> str:
     combined = f"{status} {details}".lower()
+    if status == "preparing":
+        return "preparing"
+    if status == "capturing":
+        return "capturing_captions"
+    if status == "encoding":
+        return "encoding_video"
+    if status == "finalizing":
+        return "finalizing"
     if "launch" in combined:
         return "renderer_launch"
     if "load" in combined or "composition" in combined:

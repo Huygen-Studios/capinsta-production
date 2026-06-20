@@ -53,10 +53,10 @@ def test_sparse_plan_contains_transparent_intervals():
 
 
 def test_sparse_rejects_unknown_continuous_effects_and_themes():
-    assert not can_use_sparse_render("kinetic_fade", {})
+    assert can_use_sparse_render("kinetic_fade", {})
     assert not can_use_sparse_render("word_highlight_box", {"gradientAnimation": True})
     with pytest.raises(ValueError, match="unsupported_theme"):
-        build_sparse_caption_render_plan(CAPTIONS, 24, "kinetic_fade", {}, 4.0)
+        build_sparse_caption_render_plan(CAPTIONS, 24, "unknown_theme", {}, 4.0)
 
 
 def test_engine_selection_preserves_full_frame_fallback():
@@ -69,6 +69,29 @@ def test_engine_selection_preserves_full_frame_fallback():
     assert select_render_engine(
         "word_highlight_box", {}, "captions_only", sparse_enabled=True, sparse_themes={"word_highlight_box"}
     ) == (RenderEngine.BROWSER_SPARSE, None)
+    assert select_render_engine(
+        "kinetic_fade", {}, "full_video", sparse_enabled=True, sparse_themes={"*"}
+    ) == (RenderEngine.BROWSER_SPARSE, None)
+
+
+def test_sparse_fade_captures_only_bounded_reveal_interval():
+    captions = [
+        {
+            **CAPTIONS[0],
+            "theme": "kinetic_fade",
+            "style": {
+                "animation": {
+                    "wordEffect": "fade",
+                    "type": "none",
+                    "entrance": "fade",
+                }
+            },
+        }
+    ]
+    plan = build_sparse_caption_render_plan(captions, 30, "kinetic_fade", {}, 4.0)
+    starts = {segment.start_frame for segment in plan}
+    assert all(frame in starts for frame in range(30, 37))
+    assert len(plan) < 120
 
 
 def test_plan_is_frame_deterministic_for_fractional_boundaries():

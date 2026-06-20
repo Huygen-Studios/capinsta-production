@@ -46,13 +46,24 @@ def _style_value(style: dict[str, Any], flat: str, nested: str, default: Any) ->
 
 
 def sparse_compatibility_reason(theme: str, style_config: dict[str, Any] | None) -> str | None:
-    if theme != "word_highlight_box":
+    sparse_capable_themes = {
+        "word_highlight_box",
+        "viral_word_highlight",
+        "mrbeast_style",
+        "apple_cinematic",
+        "kinetic_fade",
+        "attention_punch",
+        "modern_minimalist_lockup",
+        "minimal",
+        "outline_bold",
+    }
+    if theme not in sparse_capable_themes:
         return f"unsupported_theme:{theme}"
     style = style_config or {}
     word_effect = str(_style_value(style, "wordEffect", "wordEffect", "pop"))
     animation_type = str(_style_value(style, "animationType", "type", "pop"))
     entrance = str(_style_value(style, "entranceAnimation", "entrance", "none"))
-    if word_effect not in {"none", "highlight", "paint", "pop", "bounce"}:
+    if word_effect not in {"none", "highlight", "paint", "pop", "bounce", "fade", "reveal"}:
         return f"unsupported_word_effect:{word_effect}"
     if animation_type not in {"none", "pop", "bounce"}:
         return f"unsupported_animation_type:{animation_type}"
@@ -86,7 +97,7 @@ def select_render_engine(
     del export_mode  # Both browser export modes share the caption overlay renderer.
     if not sparse_enabled:
         return RenderEngine.BROWSER_FULL_FRAME, "sparse_disabled"
-    if theme not in sparse_themes:
+    if "*" not in sparse_themes and theme not in sparse_themes:
         return RenderEngine.BROWSER_FULL_FRAME, f"theme_not_enabled:{theme}"
     reason = sparse_compatibility_reason(theme, style_config)
     if reason:
@@ -122,7 +133,8 @@ def build_sparse_caption_render_plan(
         caption_style = dict(style)
         if isinstance(caption.get("style"), dict):
             caption_style.update(caption["style"])
-        caption_reason = sparse_compatibility_reason(theme, caption_style)
+        caption_theme = str(caption.get("theme") or theme)
+        caption_reason = sparse_compatibility_reason(caption_theme, caption_style)
         if caption_reason:
             raise ValueError(caption_reason)
         speed = max(
@@ -159,7 +171,7 @@ def build_sparse_caption_render_plan(
         add(caption_end, "caption_end")
 
         if entrance != "none":
-            entrance_frames = max(2, math.ceil(8 / speed))
+            entrance_frames = max(2, math.ceil(12 / speed))
             for frame in range(caption_start, min(total_frames, caption_start + entrance_frames) + 1):
                 add(frame, "caption_entrance")
 
@@ -179,6 +191,15 @@ def build_sparse_caption_render_plan(
                 last_motion_frame = min(word_end, word_start + math.ceil(settle))
                 for frame in range(word_start, last_motion_frame + 1):
                     add(frame, "active_word_animation")
+            elif word_effect in {"fade", "reveal"}:
+                reveal_duration = max(
+                    0.18,
+                    float(caption_style.get("revealDuration") or 0.32),
+                )
+                reveal_frames = max(2, math.ceil(reveal_duration * fps / speed))
+                last_motion_frame = min(word_end, word_start + reveal_frames)
+                for frame in range(word_start, last_motion_frame + 1):
+                    add(frame, "active_word_reveal")
 
     boundaries = sorted(reasons)
     segments: list[RenderSegment] = []
