@@ -83,6 +83,11 @@ ENV EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT=30
 
 WORKDIR /app
 
+# Force BuildKit to finish the memory-heavy Next.js renderer build before it
+# starts Python dependency and Chromium installation. Without this dependency,
+# BuildKit runs both branches concurrently and can OOM a 4 GB Coolify host.
+COPY --from=render-builder /render-dist ./frontend/out
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     curl \
@@ -96,7 +101,6 @@ RUN python -m pip install --upgrade pip \
   && python -m playwright install --with-deps chromium
 
 COPY backend/ .
-COPY --from=render-builder /render-dist ./frontend/out
 
 EXPOSE 10000
 
