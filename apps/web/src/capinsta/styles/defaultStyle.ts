@@ -1,39 +1,13 @@
 import type { CapinstaCaptionStyleV1 } from "./styleTypes";
+import {
+	CAPINSTA_CREATOR_FONTS,
+	CAPINSTA_FONT_STACKS,
+} from "@/capinsta/fonts/captionFontRegistry";
 
-export const CAPINSTA_CAPTION_STYLE_VERSION = "capinsta.captionStyle.v1" as const;
+export const CAPINSTA_CAPTION_STYLE_VERSION =
+	"capinsta.captionStyle.v1" as const;
 
-export const CAPINSTA_FONT_STACKS: Record<string, string> = {
-	"Komika Axis":
-		"'Komika Axis', 'CCSignLanguage', 'Obelix Pro', 'Anton', Impact, 'Arial Black', sans-serif",
-	CCSignLanguage:
-		"'CCSignLanguage', 'Komika Axis', 'Anton', Impact, 'Arial Black', sans-serif",
-	"Obelix Pro":
-		"'Obelix Pro', 'Komika Axis', 'Anton', Impact, 'Arial Black', sans-serif",
-	Poppins: "'Poppins', 'Inter', Arial, sans-serif",
-	Inter: "'Inter', Arial, sans-serif",
-	"SF Pro Display":
-		"'SF Pro Display', 'Inter', 'Helvetica Neue', Arial, sans-serif",
-	Helvetica: "'Helvetica Local', 'Helvetica Neue', Helvetica, Inter, Arial, sans-serif",
-	"Helvetica Neue": "'Helvetica Neue', Inter, Arial, sans-serif",
-	Montserrat: "'Montserrat Local', 'Montserrat', 'Inter', Arial, sans-serif",
-	LostaMasta: "'LostaMasta', 'Poppins', Impact, sans-serif",
-	"Made Avenue": "'Made Avenue', 'Georgia', serif",
-	Tactic: "'Tactic', 'Inter', Arial, sans-serif",
-	"8-BIT WONDER": "'8-BIT WONDER', Impact, sans-serif",
-	BlackChancery: "'BlackChancery', Georgia, serif",
-	Brushstrike: "'Brushstrike', Impact, sans-serif",
-	Deltha: "'Deltha', Impact, sans-serif",
-	Roboto: "'Roboto', Arial, sans-serif",
-	Oswald: "'Oswald', 'Arial Narrow', Arial, sans-serif",
-	Anton: "'Anton', Impact, Arial, sans-serif",
-	"Bebas Neue": "'Bebas Neue', 'Arial Narrow', Arial, sans-serif",
-	Impact: "Impact, 'Arial Black', sans-serif",
-	"Arial Black": "'Arial Black', Impact, sans-serif",
-	Georgia: "Georgia, 'Times New Roman', serif",
-	Arial: "Arial, sans-serif",
-};
-
-export const CAPINSTA_CREATOR_FONTS = Object.keys(CAPINSTA_FONT_STACKS);
+export { CAPINSTA_CREATOR_FONTS, CAPINSTA_FONT_STACKS };
 
 export const DEFAULT_CAPINSTA_CAPTION_STYLE: CapinstaCaptionStyleV1 = {
 	version: CAPINSTA_CAPTION_STYLE_VERSION,

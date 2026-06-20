@@ -117,6 +117,15 @@ export async function packageRenderArtifact({
 			recursive: true,
 		},
 	);
+	const publicFontDir = path.resolve(
+		nextDir,
+		"..",
+		"public",
+		"caption-fonts",
+	);
+	await cp(publicFontDir, path.join(outputDir, "caption-fonts"), {
+		recursive: true,
+	});
 
 	const artifactFiles = await listFiles(outputDir);
 	const stableMarkers = await findContracts({

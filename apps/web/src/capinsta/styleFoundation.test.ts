@@ -97,7 +97,7 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 	attention_punch: {
 		name: "Attention Punch",
 		description: "Bold outlined words with punchy active-word emphasis.",
-		fontFamily: "Anton",
+		fontFamily: "Tactic",
 		fontSize: 64,
 		fontWeight: 900,
 		textColor: "#FFFFFF",
@@ -123,8 +123,9 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 	},
 	apple_cinematic: {
 		name: "Apple Cinematic",
-		description: "Premium center-screen word reveals with opacity, upward motion, and blur.",
-		fontFamily: "SF Pro Display",
+		description:
+			"Premium center-screen word reveals with opacity, upward motion, and blur.",
+		fontFamily: "Helvetica Local",
 		fontSize: 68,
 		fontWeight: 600,
 		textColor: "#FFFFFF",
@@ -177,7 +178,8 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 	},
 	mrbeast_style: {
 		name: "MrBeast Style",
-		description: "1-2 word all-caps captions with heavy stroke, smart colors, and mechanical pop.",
+		description:
+			"1-2 word all-caps captions with heavy stroke, smart colors, and mechanical pop.",
 		fontFamily: "Komika Axis",
 		fontSize: 76,
 		fontWeight: 900,
@@ -204,8 +206,9 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 	},
 	modern_minimalist_lockup: {
 		name: "Editorial Lockup",
-		description: "Editorial lockup captions with one anchor word and fixed reveal positions.",
-		fontFamily: "Inter",
+		description:
+			"Editorial lockup captions with one anchor word and fixed reveal positions.",
+		fontFamily: "Montserrat",
 		fontSize: 112,
 		fontWeight: 900,
 		textColor: "#FFFFFF",
@@ -264,7 +267,9 @@ describe("Capinsta style foundation", () => {
 			expect(preset.style.animation.type).toBe(expected.animationType);
 			expect(preset.style.animation.strength).toBe(expected.animationStrength);
 			expect(preset.style.animation.speed).toBe(expected.animationSpeed);
-			expect(preset.style.animation.smoothness).toBe(expected.animationSmoothness);
+			expect(preset.style.animation.smoothness).toBe(
+				expected.animationSmoothness,
+			);
 			expect(preset.style.animation.entrance).toBe(expected.entranceAnimation);
 			expect(preset.style.layout.positionX).toBe(expected.positionX);
 			expect(preset.style.layout.positionY).toBe(expected.positionY);
@@ -323,7 +328,9 @@ describe("Capinsta style foundation", () => {
 	});
 
 	test("normalizes old captions without style metadata", () => {
-		const document = capinstaTranscriptToCaptionDocument(sampleCapinstaTranscriptV1);
+		const document = capinstaTranscriptToCaptionDocument(
+			sampleCapinstaTranscriptV1,
+		);
 		const migrated = ensureCapinstaDocumentStyles({
 			...document,
 			style: undefined,
@@ -374,9 +381,12 @@ describe("Capinsta style foundation", () => {
 		});
 
 		expect(
-			project.capinstaCaptionDocuments?.[0]?.document.clips[0]?.style?.text.color,
+			project.capinstaCaptionDocuments?.[0]?.document.clips[0]?.style?.text
+				.color,
 		).toBe("#ff0000");
-		expect(JSON.parse(JSON.stringify(project)).capinstaCaptionDocuments).toHaveLength(1);
+		expect(
+			JSON.parse(JSON.stringify(project)).capinstaCaptionDocuments,
+		).toHaveLength(1);
 	});
 
 	test("maps preview and export style from one shared style model", () => {
@@ -404,8 +414,12 @@ describe("Capinsta style foundation", () => {
 			expect(preview.effectiveFontSize).toBeGreaterThanOrEqual(11);
 			expect(preview.effectiveFontSize).toBeLessThanOrEqual(89.6);
 			expect(preview.containerStyle.width).toMatch(/%$/);
-			expect(exportStyle.textParams.fontFamily).toBe(preset.style.text.fontFamily);
-			expect(exportStyle.textParams.fontSize).toBeLessThan(preset.style.text.fontSize);
+			expect(exportStyle.textParams.fontFamily).toBe(
+				preset.style.text.fontFamily,
+			);
+			expect(exportStyle.textParams.fontSize).toBeLessThan(
+				preset.style.text.fontSize,
+			);
 			expect(exportStyle.canvasFontSizePx).toBeGreaterThan(0);
 			expect(exportStyle.maxWidthPx).toBeGreaterThan(0);
 		}
@@ -515,8 +529,7 @@ describe("Capinsta style foundation", () => {
 
 	test("preview motion helpers expose deterministic pop and paint styles", () => {
 		expect(
-			getCapinstaEntranceStyle({ transition: "pop", progress: 0.5 })
-				.transform,
+			getCapinstaEntranceStyle({ transition: "pop", progress: 0.5 }).transform,
 		).toBe("scale(0.9888888888888889)");
 		expect(
 			getCapinstaActiveWordEffectStyle({
@@ -549,7 +562,9 @@ describe("Capinsta style foundation", () => {
 
 		expect(resetRecord.document.clips[0]?.text).toBe("Build the edit then");
 		expect(resetRecord.document.clips[0]?.style?.text.color).toBe("#FFFFFF");
-		expect(resetRecord.document.clips[0]?.style?.presetId).toBe("mrbeast_style");
+		expect(resetRecord.document.clips[0]?.style?.presetId).toBe(
+			"mrbeast_style",
+		);
 	});
 
 	test("word-effect none exports static styled captions", () => {
@@ -593,7 +608,9 @@ describe("Capinsta style foundation", () => {
 	});
 
 	test("preview renderer excludes debug metadata and marks the active word", () => {
-		const document = capinstaTranscriptToCaptionDocument(sampleCapinstaTranscriptV1);
+		const document = capinstaTranscriptToCaptionDocument(
+			sampleCapinstaTranscriptV1,
+		);
 		const clip = document.clips[0]!;
 		const markup = renderToStaticMarkup(
 			createElement(CapinstaCaptionRenderer, {

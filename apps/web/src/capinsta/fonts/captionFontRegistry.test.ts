@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { getCapinstaPresetStyle } from "@/capinsta/styles/presetRegistry";
 import {
 	CAPINSTA_FONT_REGISTRY,
 	normalizeCapinstaFontWeight,
-	resolveCaptionFontBaseUrl,
+	resolveCapinstaFontFace,
 	resolveCapinstaFont,
 } from "./captionFontRegistry";
 
@@ -25,26 +27,65 @@ describe("Capinsta caption font registry", () => {
 
 	test("bundled Poppins faces and normalized weights are export-resolvable", () => {
 		const poppins = resolveCapinstaFont("Poppins");
-		expect(poppins?.sources[900]).toContain("Poppins-Black.ttf");
+		expect(
+			resolveCapinstaFontFace({
+				definition: poppins!,
+				weight: 900,
+				style: "normal",
+			})?.file,
+		).toContain("Poppins-Black.ttf");
 		expect(normalizeCapinstaFontWeight("bold")).toBe(700);
 		expect(normalizeCapinstaFontWeight(875)).toBe(900);
 		expect(CAPINSTA_FONT_REGISTRY.length).toBeGreaterThan(1);
 	});
 
-	test("headless render pages load fonts from their own backend origin", () => {
+	test("Komika Axis resolves to its stable public asset", () => {
+		const definition = resolveCapinstaFont("Komika Axis");
+		expect(definition).not.toBeNull();
 		expect(
-			resolveCaptionFontBaseUrl({
-				configuredBase: "https://api.capinsta.huygenstudios.com",
-				locationOrigin: "http://127.0.0.1:10000",
-				locationPathname: "/render.html",
-			}),
-		).toBe("http://127.0.0.1:10000");
-		expect(
-			resolveCaptionFontBaseUrl({
-				configuredBase: "https://api.capinsta.huygenstudios.com",
-				locationOrigin: "https://capinsta.huygenstudios.com",
-				locationPathname: "/editor/project",
-			}),
-		).toBe("https://api.capinsta.huygenstudios.com");
+			resolveCapinstaFontFace({
+				definition: definition!,
+				weight: 900,
+				style: "normal",
+			})?.file,
+		).toBe("KomikaAxis.ttf");
+	});
+
+	test("every registered bundled face exists in public caption-fonts", () => {
+		for (const definition of CAPINSTA_FONT_REGISTRY) {
+			for (const fontFace of definition.faces) {
+				expect(
+					existsSync(
+						path.join(
+							process.cwd(),
+							"public",
+							"caption-fonts",
+							...fontFace.file.split("/"),
+						),
+					),
+				).toBe(true);
+			}
+		}
+	});
+
+	test("every preset font resolves to a bundled registry face", () => {
+		for (const presetId of [
+			"word_highlight_box",
+			"attention_punch",
+			"apple_cinematic",
+			"kinetic_fade",
+			"mrbeast_style",
+			"modern_minimalist_lockup",
+		] as const) {
+			const style = getCapinstaPresetStyle(presetId);
+			for (const family of [
+				style.text.fontFamily,
+				style.lockup.bigFontFamily,
+				style.lockup.smallFontFamily,
+			]) {
+				const definition = resolveCapinstaFont(family);
+				expect(definition?.faces.length).toBeGreaterThan(0);
+			}
+		}
 	});
 });

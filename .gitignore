@@ -49,5 +49,8 @@ test-results/
 playwright-report/
 coverage/
 
+# Font source files (served copy lives in apps/web/public/caption-fonts/)
+fonts/
+
 # Local-only notes
 rust-migration-notes.md

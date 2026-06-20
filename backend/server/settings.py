@@ -38,7 +38,14 @@ EXPORT_DIR = _path_env("EXPORT_DIR", TEMP_DIR / "exports")
 CACHE_DIR = _path_env("CACHE_DIR", TEMP_DIR / "cache")
 DB_PATH = _path_env("DB_PATH", TEMP_DIR / "database.sqlite")
 FRONTEND_DIST_DIR = _path_env("FRONTEND_DIST_DIR", ROOT_DIR / "frontend" / "out")
-CAPTION_FONT_DIR = _path_env("CAPTION_FONT_DIR", ROOT_DIR / "fonts")
+_bundled_caption_font_dir = FRONTEND_DIST_DIR / "caption-fonts"
+_development_caption_font_dir = ROOT_DIR.parent / "apps" / "web" / "public" / "caption-fonts"
+CAPTION_FONT_DIR = _path_env(
+    "CAPTION_FONT_DIR",
+    _bundled_caption_font_dir
+    if _bundled_caption_font_dir.exists()
+    else _development_caption_font_dir,
+)
 
 MAX_UPLOAD_SIZE_MB = _int_env("MAX_UPLOAD_SIZE_MB", 500)
 RUNTIME_CLEANUP_HOURS = _int_env("RUNTIME_CLEANUP_HOURS", 24)
