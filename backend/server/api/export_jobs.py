@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..database import get_db
-from ..headless_export import ExportStageError, export_headless
+from ..headless_export import (
+    ExportStageError,
+    _looks_like_browser_disconnect,
+    export_headless,
+)
 from ..progress import manager
 from ..project_cleanup import EXPIRED_MESSAGE, ensure_project_available, is_deleted_row
 from ..settings import (
@@ -540,7 +544,13 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
             await _broadcast_progress(completed)
         except ExportStageError as exc:
             public_stage = _public_export_stage(exc.stage)
-            message = str(exc)
+            if _looks_like_browser_disconnect(exc):
+                message = (
+                    "The headless renderer disconnected during frame capture and "
+                    "could not be recovered."
+                )
+            else:
+                message = str(exc)
             failed = await _set_job(
                 export_job_id,
                 status="failed",
@@ -559,7 +569,13 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
             )
             await _broadcast_progress(failed)
         except Exception as exc:
-            message = str(exc).strip() or repr(exc) or type(exc).__name__
+            if _looks_like_browser_disconnect(exc):
+                message = (
+                    "The headless renderer disconnected during frame capture and "
+                    "could not be recovered."
+                )
+            else:
+                message = str(exc).strip() or repr(exc) or type(exc).__name__
             failed = await _set_job(
                 export_job_id,
                 status="failed",

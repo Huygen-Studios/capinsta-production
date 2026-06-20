@@ -8,12 +8,14 @@ then composites onto the original video using FFmpeg overlay filter.
 import os
 import json
 import asyncio
+import base64
 import logging
 import math
 import struct
 import shutil
 import time
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Awaitable, Optional
@@ -57,6 +59,23 @@ BITRATE_PRESETS = {
 }
 
 EXPORT_FPS = 30
+
+
+@asynccontextmanager
+async def _playwright_session(async_playwright_factory):
+    """Own Playwright without letting a dead driver transport escape cleanup."""
+    playwright = await async_playwright_factory().start()
+    try:
+        yield playwright
+    finally:
+        try:
+            await playwright.stop()
+        except Exception as exc:
+            logger.warning(
+                "playwright_cleanup_ignored transport_already_closed=%s raw_error=%r",
+                _looks_like_browser_disconnect(exc),
+                exc,
+            )
 
 
 def _peak_process_memory_mb() -> float | None:
@@ -402,7 +421,7 @@ def check_export_runtime() -> dict[str, object]:
         "export_sparse_render_enabled": _bool_env("EXPORT_SPARSE_RENDER_ENABLED", False),
         "export_sparse_render_themes": os.getenv("EXPORT_SPARSE_RENDER_THEMES", "*"),
         "export_sparse_min_frame_reduction_percent": _float_env(
-            "EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT", 5.0
+            "EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT", 30.0
         ),
     }
 
@@ -822,16 +841,23 @@ async def export_headless(
     browser = None
     browser_context = None
     page = None
+    cdp_session = None
     ffmpeg_proc = None
     stderr_chunks: list[bytes] = []
     browser_recovery_attempts = max(0, _int_env("EXPORT_FRAME_CAPTURE_RETRIES", 2))
     render_page_recycle_frames = max(0, _int_env("EXPORT_RENDER_PAGE_RECYCLE_FRAMES", 0))
     clean_check_interval_frames = max(0, _int_env("EXPORT_CLEAN_CHECK_INTERVAL_FRAMES", 0))
-    async with async_playwright() as p:
+    async with _playwright_session(async_playwright) as p:
         replacement_playwright = None
 
         async def close_page_safely() -> None:
-            nonlocal page
+            nonlocal cdp_session, page
+            old_cdp, cdp_session = cdp_session, None
+            if old_cdp:
+                try:
+                    await old_cdp.detach()
+                except Exception:
+                    pass
             old_page, page = page, None
             if old_page:
                 try:
@@ -951,6 +977,12 @@ async def export_headless(
                     device_scale_factor=1,
                 )
                 page = await browser_context.new_page()
+                cdp_session = await browser_context.new_cdp_session(page)
+                if not is_captions_only:
+                    await cdp_session.send(
+                        "Emulation.setDefaultBackgroundColorOverride",
+                        {"color": {"r": 0, "g": 0, "b": 0, "a": 0}},
+                    )
                 page.on("console", lambda msg: capture_page_log("console", msg.text))
                 page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
                 page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
@@ -994,6 +1026,13 @@ async def export_headless(
             await close_browser_safely()
             raise ExportStageError("composition_load", "Render page loaded flag was set, but no page instance remained available.")
 
+        overlay_capture_rect = {
+            "x": 0.0,
+            "y": 0.0,
+            "width": float(width),
+            "height": float(height),
+        }
+
         async def capture_render_frame() -> bytes:
             """Capture a single caption frame for the export.
 
@@ -1011,6 +1050,27 @@ async def export_headless(
             # For full-video, we want transparent overlay on source video.
             omit_bg = not is_captions_only
             try:
+                # CDP's optimizeForSpeed path avoids Playwright locator setup and
+                # uses Chromium's faster screenshot encoder. It is materially
+                # faster for production-sized transparent overlays.
+                if cdp_session is not None:
+                    result = await cdp_session.send(
+                        "Page.captureScreenshot",
+                        {
+                            "format": "png",
+                            "fromSurface": True,
+                            "captureBeyondViewport": False,
+                            "optimizeForSpeed": True,
+                            "clip": {
+                                **overlay_capture_rect,
+                                "scale": 1,
+                            },
+                        },
+                    )
+                    encoded = result.get("data") if isinstance(result, dict) else None
+                    if encoded:
+                        return base64.b64decode(encoded)
+
                 # Primary: screenshot the export overlay root element directly.
                 # It is position:fixed at {0,0} sized to export dimensions, so an
                 # element screenshot captures exactly the caption overlay region.
@@ -1174,7 +1234,7 @@ async def export_headless(
             reason: Exception,
             current_frame: int | None = None,
         ) -> None:
-            nonlocal browser_context, page
+            nonlocal browser_context, cdp_session, page
             restart_started = time.perf_counter()
             performance.renderer_restarts += 1
             is_disconnect_recovery = _looks_like_browser_disconnect(reason)
@@ -1206,6 +1266,12 @@ async def export_headless(
                 device_scale_factor=1,
             )
             page = await browser_context.new_page()
+            cdp_session = await browser_context.new_cdp_session(page)
+            if not is_captions_only:
+                await cdp_session.send(
+                    "Emulation.setDefaultBackgroundColorOverride",
+                    {"color": {"r": 0, "g": 0, "b": 0, "a": 0}},
+                )
             page.on("console", lambda msg: capture_page_log("console", msg.text))
             page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
             page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
@@ -1366,6 +1432,12 @@ async def export_headless(
                 rect_h = overlay_rect.get("height")
                 if isinstance(rect_w, (int, float)) and isinstance(rect_h, (int, float)):
                     overlay_capture_dimensions = (int(round(rect_w)), int(round(rect_h)))
+                    overlay_capture_rect = {
+                        "x": max(0.0, float(overlay_rect.get("x") or 0)),
+                        "y": max(0.0, float(overlay_rect.get("y") or 0)),
+                        "width": max(1.0, float(rect_w)),
+                        "height": max(1.0, float(rect_h)),
+                    }
                 # Compare against the canvas dims (from layout info) if available,
                 # otherwise fall back to the export dims.
                 expected_w = canvas_w if canvas_w else width
@@ -1423,7 +1495,7 @@ async def export_headless(
             )
             minimum_reduction_percent = max(
                 0.0,
-                _float_env("EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT", 5.0),
+                _float_env("EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT", 30.0),
             )
             if frame_reduction_percent < minimum_reduction_percent:
                 raise ExportStageError(

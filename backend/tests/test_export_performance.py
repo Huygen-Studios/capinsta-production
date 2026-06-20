@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 
 import pytest
 
@@ -8,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from server.headless_export import (
     ExportPerformanceMetrics,
     _looks_like_browser_disconnect,
+    _playwright_session,
     _should_recreate_captions_chunk,
     _should_run_clean_check,
     _should_schedule_page_recycle,
@@ -92,6 +94,28 @@ def test_playwright_disconnect_errors_are_recoverable(message):
 
 def test_non_browser_capture_errors_are_not_recoverable():
     assert not _looks_like_browser_disconnect(RuntimeError("PNG encoding failed"))
+
+
+def test_dead_playwright_transport_does_not_escape_session_cleanup():
+    class DeadPlaywright:
+        async def stop(self):
+            raise RuntimeError(
+                "unable to perform operation on <WriteUnixTransport closed=True>; "
+                "the handler is closed"
+            )
+
+    class FactoryContext:
+        async def start(self):
+            return DeadPlaywright()
+
+    def factory():
+        return FactoryContext()
+
+    async def run():
+        async with _playwright_session(factory) as playwright:
+            assert isinstance(playwright, DeadPlaywright)
+
+    asyncio.run(run())
 
 
 def test_ffmpeg_presets_are_valid_for_software_and_nvenc_encoders():
