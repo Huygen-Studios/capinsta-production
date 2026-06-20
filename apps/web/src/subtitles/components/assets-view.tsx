@@ -1,4 +1,21 @@
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
 import {
 	Select,
@@ -60,6 +77,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
+import { DownloadIcon, Edit3Icon, MoreVerticalIcon } from "lucide-react";
+import { SubtitleEditorSheet } from "./subtitle-editor-sheet";
+import { ToggleTrackVisibilityCommand, UpdateCapinstaCaptionDocumentCommand } from "@/commands";
+import { formatSubtitleTime } from "@/capinsta/captionEditing";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -167,12 +188,27 @@ export function Captions() {
 		IDLE_STATE,
 	);
 	const [warnings, setWarnings] = useState<string[]>([]);
+	const [subtitleEditorOpen, setSubtitleEditorOpen] = useState(false);
+	const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+	const [showSpeakers, setShowSpeakers] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const captionJobRunningRef = useRef(false);
 	const abortControllerRef = useRef<AbortController | null>(null);
 	const previousSelectedMediaValueRef = useRef("");
 	const editor = useEditor();
+	const captionRecords = useEditor(
+		(e) => e.project.getActive().capinstaCaptionDocuments ?? [],
+	);
+	const activeCaptionRecord = captionRecords[0] ?? null;
+	const captionTrackHidden = useEditor((e) => {
+		const record = e.project.getActive().capinstaCaptionDocuments?.[0];
+		if (!record) return false;
+		const track = e.scenes
+			.getActiveScene()
+			.tracks.overlay.find((candidate) => candidate.id === record.openCutTrackId);
+		return Boolean(track && "hidden" in track && track.hidden);
+	});
 	const isSampleImportEnabled = isCapinstaSampleImportEnabled();
 	const isAiCaptionGenerationEnabled = isAiCaptionsEnabled();
 	const isCapinstaDebug = isCapinstaDebugEnabled();
@@ -627,6 +663,25 @@ export function Captions() {
 		setSelectedLanguage(matchedLanguage.code);
 	};
 
+	const downloadSubtitles = () => {
+		if (!activeCaptionRecord) return;
+		const body = [...activeCaptionRecord.document.clips]
+			.sort((a, b) => a.start - b.start)
+			.map(
+				(clip, index) =>
+					`${index + 1}\n${formatSubtitleTime(clip.start).replace(".", ",")} --> ${formatSubtitleTime(clip.end).replace(".", ",")}\n${clip.text}`,
+			)
+			.join("\n\n");
+		const url = URL.createObjectURL(
+			new Blob([`${body}\n`], { type: "application/x-subrip;charset=utf-8" }),
+		);
+		const anchor = document.createElement("a");
+		anchor.href = url;
+		anchor.download = "subtitles.srt";
+		anchor.click();
+		URL.revokeObjectURL(url);
+	};
+
 	const error =
 		captionJob.errorMessage ??
 		(importProcessing.status === "idle" ? importProcessing.error : null);
@@ -674,6 +729,42 @@ export function Captions() {
 							<HugeiconsIcon icon={CloudUploadIcon} />
 							Import
 						</Button>
+						{activeCaptionRecord ? (
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button type="button" variant="ghost" size="icon" aria-label="Subtitle menu">
+										<MoreVerticalIcon />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuGroup>
+										<DropdownMenuItem icon={<DownloadIcon />} onSelect={downloadSubtitles}>
+											Download
+										</DropdownMenuItem>
+										<DropdownMenuItem icon={<Edit3Icon />} onSelect={() => setSubtitleEditorOpen(true)}>
+											Edit Subtitles
+										</DropdownMenuItem>
+										<DropdownMenuItem
+											onSelect={() =>
+												editor.command.execute({
+													command: new ToggleTrackVisibilityCommand(
+														activeCaptionRecord.openCutTrackId,
+													),
+												})
+											}
+										>
+											{captionTrackHidden ? "Show Subtitles" : "Hide Subtitles"}
+										</DropdownMenuItem>
+										<DropdownMenuItem onSelect={() => setShowSpeakers((value) => !value)}>
+											{showSpeakers ? "Hide Speakers" : "Show Speakers"}
+										</DropdownMenuItem>
+										<DropdownMenuItem variant="destructive" onSelect={() => setDeleteAllOpen(true)}>
+											Delete Subtitles
+										</DropdownMenuItem>
+									</DropdownMenuGroup>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						) : null}
 					</div>
 				</TooltipProvider>
 			}
@@ -805,6 +896,42 @@ export function Captions() {
 					)}
 				</SectionContent>
 			</Section>
+			<SubtitleEditorSheet
+				open={subtitleEditorOpen}
+				onOpenChange={setSubtitleEditorOpen}
+				record={activeCaptionRecord}
+			/>
+			<AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete all subtitles?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes every subtitle from the timeline, preview, downloads,
+							and exports. You can undo the deletion.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								if (!activeCaptionRecord) return;
+								editor.command.execute({
+									command: new UpdateCapinstaCaptionDocumentCommand({
+										...activeCaptionRecord,
+										document: {
+											...activeCaptionRecord.document,
+											clips: [],
+											words: [],
+										},
+									}),
+								});
+							}}
+						>
+							Delete subtitles
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</PanelView>
 	);
 }
