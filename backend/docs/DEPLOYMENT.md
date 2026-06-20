@@ -53,6 +53,20 @@ The Dockerfiles cap the Next.js compiler heap, but the Coolify concurrency
 limit is still required so BuildKit, Bun, Next.js, Python dependencies, and
 Playwright/Chromium do not collectively starve the reverse proxy or SSH.
 
+Exports also run Chromium and FFmpeg together. On a small VPS, use:
+
+```env
+MAX_CONCURRENT_EXPORTS=1
+EXPORT_RENDER_SAFE_MODE=true
+EXPORT_MAX_LONG_EDGE=1920
+EXPORT_MAX_FPS=30
+EXPORT_FFMPEG_THREADS=1
+```
+
+Do not set `EXPORT_FFMPEG_THREADS=auto` on the same server that hosts Coolify.
+It can consume every available CPU core during an export and cause temporary
+504 responses from the Coolify control plane and application proxy.
+
 Required authentication/runtime variables include:
 
 ```env
