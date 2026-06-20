@@ -11,22 +11,35 @@ import type {
 	NeutralCaptionDocument,
 	CapinstaCaptionDocumentRecord,
 } from "@/capinsta/types";
-import { computeCaptionStyleHash, summarizeCaptionStyle } from "@/capinsta/export/exportStyleHash";
+import {
+	computeCaptionStyleHash,
+	summarizeCaptionStyle,
+} from "@/capinsta/export/exportStyleHash";
 import {
 	resolveCapinstaCaptionLayout,
 	summarizeCaptionLayout,
 	computeCaptionLayoutHash,
 } from "@/capinsta/export/captionLayoutDiagnostics";
 import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
-import {
-	resolveRenderBackground,
-	isCaptionsOnlyMode,
-} from "./renderColor";
+import { resolveRenderBackground, isCaptionsOnlyMode } from "./renderColor";
+
+export const CAPINSTA_RENDER_IMPLEMENTATION_VERSION =
+	"capinsta-render-artifact:v1";
+
+export const CAPINSTA_RENDER_ARTIFACT_MARKERS = [
+	"capinsta-render:background-resolution:v1",
+	"capinsta-render:surface-styles:v1",
+	"capinsta-render:readiness:v1",
+	"capinsta-render:cleanliness:v1",
+	"capinsta-render:prohibited-ui-stripping:v1",
+	"capinsta-render:route-exclusions:v1",
+] as const;
 
 // ─── Global type declarations for the render page API ──────────────────────
 
 declare global {
 	interface Window {
+		__CAPINSTA_RENDER_ARTIFACT_MARKERS__: readonly string[];
 		__RENDER_PAGE_LOADED__: boolean;
 		__RENDER_PAGE_LAST_ERROR__: string;
 		__OVERLAY_ONLY_MODE__: boolean;
@@ -115,15 +128,14 @@ declare global {
 // Caption elements live under [data-capinsta-export-overlay-root] and are never
 // matched by any of these selectors.
 const PROHIBITED_UI_SELECTORS = [
-	'[data-cookie-banner]',
-	'[data-consent-root]',
-	'.cookie-banner',
-	'#cookie-consent',
+	"[data-cookie-banner]",
+	"[data-consent-root]",
+	".cookie-banner",
+	"#cookie-consent",
 	'[role="dialog"][aria-label="Cookie preferences"]',
-	'[data-sonner-toaster]',
-	'[data-radix-popper-content-wrapper]',
+	"[data-sonner-toaster]",
+	"[data-radix-popper-content-wrapper]",
 ].join(",");
-
 
 interface CaptionState {
 	records: CapinstaCaptionDocumentRecord[];
@@ -160,7 +172,10 @@ export function RenderPageClient() {
 	const activeState = useMemo(
 		() =>
 			timingIndex
-				? getActiveCapinstaCaptionStateFromIndex({ index: timingIndex, timeSeconds })
+				? getActiveCapinstaCaptionStateFromIndex({
+						index: timingIndex,
+						timeSeconds,
+					})
 				: null,
 		[timingIndex, timeSeconds],
 	);
@@ -171,7 +186,9 @@ export function RenderPageClient() {
 	const indexedRecord = useMemo(
 		() =>
 			activeState && timingIndex
-				? timingIndex.records.find((entry) => entry.record === activeState.record) ?? null
+				? (timingIndex.records.find(
+						(entry) => entry.record === activeState.record,
+					) ?? null)
 				: null,
 		[timingIndex, activeState?.record],
 	);
@@ -202,7 +219,10 @@ export function RenderPageClient() {
 			window.__EXPORT_DEBUG_OVERLAYS_FOUND__ = 0;
 			window.__EXPORT_APPLIED_RENDER_MODE__ = state.renderMode || "full_video";
 			window.__EXPORT_APPLIED_BACKGROUND_COLOR__ = state.backgroundColor;
-			window.__EXPORT_OUTPUT_SIZE__ = { width: state.width, height: state.height };
+			window.__EXPORT_OUTPUT_SIZE__ = {
+				width: state.width,
+				height: state.height,
+			};
 		}
 	}, []);
 
@@ -216,7 +236,12 @@ export function RenderPageClient() {
 	 * source video fills the frame) so we leave the surface transparent.
 	 */
 	const applyRenderSurfaceStyles = useCallback(
-		(renderMode: string, backgroundColor: string, width: number, height: number) => {
+		(
+			renderMode: string,
+			backgroundColor: string,
+			width: number,
+			height: number,
+		) => {
 			if (typeof document === "undefined") return;
 			const rootEl = document.documentElement;
 			const bodyEl = document.body;
@@ -250,6 +275,13 @@ export function RenderPageClient() {
 	useEffect(() => {
 		if (typeof window === "undefined") return;
 
+		// Versioned production-bundle capabilities. The packager validates
+		// these stable literals instead of local names that Turbopack may
+		// legitimately minify or inline.
+		window.__CAPINSTA_RENDER_ARTIFACT_MARKERS__ = [
+			...CAPINSTA_RENDER_ARTIFACT_MARKERS,
+		];
+
 		// Mark page as loaded
 		window.__RENDER_PAGE_LOADED__ = true;
 		window.__RENDER_PAGE_LAST_ERROR__ = "";
@@ -281,7 +313,9 @@ export function RenderPageClient() {
 		window.stripProhibitedRenderUI = () => {
 			if (typeof document === "undefined") return 0;
 			let removed = 0;
-			const nodes = document.querySelectorAll<HTMLElement>(PROHIBITED_UI_SELECTORS);
+			const nodes = document.querySelectorAll<HTMLElement>(
+				PROHIBITED_UI_SELECTORS,
+			);
 			nodes.forEach((node) => {
 				// Never remove anything inside the caption composition root.
 				if (node.closest('[data-capinsta-export-overlay-root="true"]')) return;
@@ -300,7 +334,8 @@ export function RenderPageClient() {
 		 * application UI is still mounted and capture must not proceed.
 		 */
 		window.assertExportClean = () => {
-			if (typeof document === "undefined") return { ok: true, debugOverlaysFound: 0 };
+			if (typeof document === "undefined")
+				return { ok: true, debugOverlaysFound: 0 };
 			// First attempt a defensive strip so a banner that flashed is gone.
 			window.stripProhibitedRenderUI();
 			const found = document.querySelectorAll(PROHIBITED_UI_SELECTORS).length;
@@ -309,7 +344,9 @@ export function RenderPageClient() {
 			// composition root (#render-frame) carries data-capinsta-export-overlay-root,
 			// so the closest() check excludes it and all caption children.
 			const fixedOutside = Array.from(
-				document.querySelectorAll<HTMLElement>('*[style*="fixed"], *[style*="sticky"]'),
+				document.querySelectorAll<HTMLElement>(
+					'*[style*="fixed"], *[style*="sticky"]',
+				),
 			).filter(
 				(el) => !el.closest('[data-capinsta-export-overlay-root="true"]'),
 			).length;
@@ -333,17 +370,18 @@ export function RenderPageClient() {
 			const state = stateRef.current;
 			const fontsReady =
 				typeof document !== "undefined" && "fonts" in document
-					? (document as Document & { fonts: { ready: Promise<unknown> } }).fonts
-							? true
-							: false
+					? (document as Document & { fonts: { ready: Promise<unknown> } })
+							.fonts
+						? true
+						: false
 					: true;
 			return {
 				ready: Boolean(
 					state &&
-						window.__RENDER_PAGE_LOADED__ &&
-						window.__EXPORT_APPLIED_BACKGROUND_COLOR__ &&
-						window.__EXPORT_OUTPUT_SIZE__ &&
-						firstFrameReadyRef.current,
+					window.__RENDER_PAGE_LOADED__ &&
+					window.__EXPORT_APPLIED_BACKGROUND_COLOR__ &&
+					window.__EXPORT_OUTPUT_SIZE__ &&
+					firstFrameReadyRef.current,
 				),
 				renderMode: window.__EXPORT_APPLIED_RENDER_MODE__,
 				backgroundColor: window.__EXPORT_APPLIED_BACKGROUND_COLOR__,
@@ -352,10 +390,15 @@ export function RenderPageClient() {
 				captionsLoaded: Boolean(state),
 				overlayRootPresent:
 					typeof document !== "undefined" &&
-					Boolean(document.querySelector('[data-capinsta-export-overlay-root="true"]')),
-				prohibitedUICount: typeof document !== "undefined"
-					? document.querySelectorAll(PROHIBITED_UI_SELECTORS).length
-					: 0,
+					Boolean(
+						document.querySelector(
+							'[data-capinsta-export-overlay-root="true"]',
+						),
+					),
+				prohibitedUICount:
+					typeof document !== "undefined"
+						? document.querySelectorAll(PROHIBITED_UI_SELECTORS).length
+						: 0,
 				firstFrameReady: firstFrameReadyRef.current,
 				reason: state
 					? firstFrameReadyRef.current
@@ -440,8 +483,8 @@ export function RenderPageClient() {
 					start: Number(clip.start ?? 0),
 					end: Number(clip.end ?? 0),
 					text: clip.text ?? "",
-					wordIds: (clip.words ?? []).map((w: any, wi: number) =>
-						w.id ?? `word-${i}-${wi}`,
+					wordIds: (clip.words ?? []).map(
+						(w: any, wi: number) => w.id ?? `word-${i}-${wi}`,
 					),
 					stylePresetId: clip.stylePresetId ?? theme ?? "word_highlight_box",
 					selected: false,
@@ -522,14 +565,21 @@ export function RenderPageClient() {
 						}
 						// Re-assert the surface styles after React commit, in case the
 						// framework re-rendered body children and reset inherited styles.
-						applyRenderSurfaceStyles(resolvedRenderMode, resolvedBackground, w, h);
+						applyRenderSurfaceStyles(
+							resolvedRenderMode,
+							resolvedBackground,
+							w,
+							h,
+						);
 						// Defensive: strip any prohibited UI that mounted as part of the
 						// normal app layout (cookie banner, toasts, fixed controls).
 						window.stripProhibitedRenderUI?.();
 						firstFrameReadyRef.current = true;
-						const fontsObj = (document as Document & {
-							fonts?: { ready?: Promise<unknown> };
-						}).fonts;
+						const fontsObj = (
+							document as Document & {
+								fonts?: { ready?: Promise<unknown> };
+							}
+						).fonts;
 						const fontsReady = fontsObj?.ready ?? Promise.resolve();
 						void fontsReady.then(() => {
 							window.markRenderReady?.("first-frame-committed");
@@ -543,7 +593,11 @@ export function RenderPageClient() {
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				window.__RENDER_PAGE_LAST_ERROR__ = msg;
-				return { ok: false, error: "Failed to parse caption data", detail: msg };
+				return {
+					ok: false,
+					error: "Failed to parse caption data",
+					detail: msg,
+				};
 			}
 		};
 
@@ -559,7 +613,7 @@ export function RenderPageClient() {
 			setTimeSeconds(frame / Math.max(1, fps));
 			return true;
 		};
-	}, [applyState]);
+	}, [applyRenderSurfaceStyles, applyState]);
 
 	// Export diagnostics are updated from the same indexed active state used by
 	// the renderer. This is observational only and never participates in paint.
@@ -602,48 +656,48 @@ export function RenderPageClient() {
 		}
 	}, [activeState?.document, activeState?.clip, width, height]);
 
-		if (!captionState) {
-			// Page loaded, awaiting setCaptionData injection.
-			// Surface stays transparent until data arrives; html/body styles are
-			// set imperatively in setCaptionData.
-			return (
-				<div
-					id="render-frame"
-					style={{ width: "100vw", height: "100vh", background: "transparent" }}
-				/>
-			);
-		}
-
-		const { backgroundColor } = captionState;
-
+	if (!captionState) {
+		// Page loaded, awaiting setCaptionData injection.
+		// Surface stays transparent until data arrives; html/body styles are
+		// set imperatively in setCaptionData.
 		return (
 			<div
 				id="render-frame"
-				data-capinsta-export-overlay-root="true"
-				style={{
-					position: "fixed",
-					top: 0,
-					left: 0,
-					width,
-					height,
-					overflow: "hidden",
-					// Use the resolved backgroundColor from state. For captions-only
-					// this is the user-selected hex (or green default). For full-video
-					// this is "transparent" (the source video fills the frame).
-					background: backgroundColor,
-					pointerEvents: "none",
-				}}
-				ref={overlayRootRef}
-			>
-				{activeState && renderModel && (
-					<CapinstaCaptionRenderer
-						renderModel={renderModel}
-						activeWordIds={activeState.activeWordIds}
-						timeSeconds={timeSeconds}
-						isPlaying={false}
-						renderMode="export"
-						fps={captionState.fps}
-						viewport={viewport}
+				style={{ width: "100vw", height: "100vh", background: "transparent" }}
+			/>
+		);
+	}
+
+	const { backgroundColor } = captionState;
+
+	return (
+		<div
+			id="render-frame"
+			data-capinsta-export-overlay-root="true"
+			style={{
+				position: "fixed",
+				top: 0,
+				left: 0,
+				width,
+				height,
+				overflow: "hidden",
+				// Use the resolved backgroundColor from state. For captions-only
+				// this is the user-selected hex (or green default). For full-video
+				// this is "transparent" (the source video fills the frame).
+				background: backgroundColor,
+				pointerEvents: "none",
+			}}
+			ref={overlayRootRef}
+		>
+			{activeState && renderModel && (
+				<CapinstaCaptionRenderer
+					renderModel={renderModel}
+					activeWordIds={activeState.activeWordIds}
+					timeSeconds={timeSeconds}
+					isPlaying={false}
+					renderMode="export"
+					fps={captionState.fps}
+					viewport={viewport}
 				/>
 			)}
 		</div>
