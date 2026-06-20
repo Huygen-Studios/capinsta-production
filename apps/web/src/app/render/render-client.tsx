@@ -22,6 +22,11 @@ import {
 } from "@/capinsta/export/captionLayoutDiagnostics";
 import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
 import { resolveRenderBackground, isCaptionsOnlyMode } from "./renderColor";
+import {
+	ensureCapinstaFontLoaded,
+	normalizeCapinstaFontWeight,
+} from "@/capinsta/fonts/captionFontRegistry";
+import type { CapinstaCaptionStyleV1 } from "@/capinsta/styles/styleTypes";
 
 export const CAPINSTA_RENDER_IMPLEMENTATION_VERSION =
 	"capinsta-render-artifact:v1";
@@ -61,6 +66,17 @@ declare global {
 			renderModelBuilds: number;
 			diagnosticBuilds: number;
 		};
+		__CAPINSTA_FONT_READINESS__: {
+			fonts: Array<{
+				id: string;
+				label: string;
+				cssFamily: string;
+				weight: number;
+				style: string;
+				check: boolean;
+			}>;
+			ready: boolean;
+		} | null;
 		__CAPSTA_ACTIVE_FRAME_INFO__: {
 			activeCaptionId: string;
 			activeWordId: string;
@@ -79,7 +95,7 @@ declare global {
 			jobId: string,
 			duration: number,
 			audioIncluded: boolean,
-		): { ok: boolean; error?: string; detail?: string };
+		): Promise<{ ok: boolean; error?: string; detail?: string }>;
 		setCaptionTime(timeSeconds: number): void;
 		setCaptionFrame(frameIndex: number): void;
 		isReady(): boolean;
@@ -425,12 +441,12 @@ export function RenderPageClient() {
 		 * setCaptionData — called by the backend to inject caption data before
 		 * frame capture begins.
 		 */
-		window.setCaptionData = (
+		window.setCaptionData = async (
 			captionsJson,
 			theme,
 			width,
 			height,
-			_styleConfigJson,
+			styleConfigJson,
 			fps,
 			backgroundColor,
 			_compositionJson,
@@ -445,6 +461,9 @@ export function RenderPageClient() {
 					window.__RENDER_PAGE_LAST_ERROR__ = "captions must be an array";
 					return { ok: false, error: "captions must be an array" };
 				}
+				const documentStyle = styleConfigJson
+					? (JSON.parse(styleConfigJson) as CapinstaCaptionStyleV1)
+					: undefined;
 
 				// Resolve the canonical background color for this render mode.
 				// captions-only -> selected hex (or green default when absent);
@@ -520,6 +539,7 @@ export function RenderPageClient() {
 					durationSeconds: duration,
 					languageMode: "english",
 					stylePresetId: theme ?? "word_highlight_box",
+					style: documentStyle,
 					clips,
 					words,
 					manualEdits: {},
@@ -534,6 +554,58 @@ export function RenderPageClient() {
 					openCutTrackId: "capinsta-export",
 					importedAt: new Date().toISOString(),
 				};
+
+				const requestedFonts = new Map<
+					string,
+					{ family: string; weight: number; style: "normal" | "italic" }
+				>();
+				for (const clip of doc.clips) {
+					const style = resolveCapinstaClipStyle({ document: doc, clip });
+					for (const family of [
+						style.text.fontFamily,
+						style.lockup.bigFontFamily,
+						style.lockup.smallFontFamily,
+					]) {
+						const weight = normalizeCapinstaFontWeight(style.text.fontWeight);
+						requestedFonts.set(`${family}:${weight}`, {
+							family,
+							weight,
+							style: "normal",
+						});
+					}
+				}
+				const fontResults = [];
+				for (const requested of requestedFonts.values()) {
+					const loaded = await ensureCapinstaFontLoaded({
+						...requested,
+						strict: true,
+					});
+					const descriptor = `${requested.style} ${requested.weight} 32px "${loaded.cssFamily}"`;
+					fontResults.push({
+						id: loaded.id,
+						label: loaded.label,
+						cssFamily: loaded.cssFamily,
+						weight: requested.weight,
+						style: requested.style,
+						check: document.fonts.check(descriptor),
+					});
+				}
+				console.info("[render] caption font readiness", {
+					renderMode: resolvedRenderMode,
+					fonts: fontResults,
+				});
+				window.__CAPINSTA_FONT_READINESS__ = {
+					fonts: fontResults,
+					ready: fontResults.every((font) => font.check),
+				};
+				if (!window.__CAPINSTA_FONT_READINESS__.ready) {
+					throw new Error(
+						`One or more requested caption fonts failed readiness checks: ${fontResults
+							.filter((font) => !font.check)
+							.map((font) => font.label)
+							.join(", ")}`,
+					);
+				}
 
 				applyState({
 					records: [record],
@@ -595,7 +667,9 @@ export function RenderPageClient() {
 				window.__RENDER_PAGE_LAST_ERROR__ = msg;
 				return {
 					ok: false,
-					error: "Failed to parse caption data",
+					error: msg.toLocaleLowerCase().includes("caption font")
+						? "Requested caption font could not be loaded"
+						: "Failed to parse caption data",
 					detail: msg,
 				};
 			}

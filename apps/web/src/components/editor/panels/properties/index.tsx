@@ -143,9 +143,15 @@ export function PropertiesPanel() {
 						)}
 					</div>
 				) : null}
-				<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
-					{activeTab.content({ trackId: track.id })}
-				</ScrollArea>
+				{activeTab.ownsScroll ? (
+					<div className="min-h-0 flex-1">
+						{activeTab.content({ trackId: track.id })}
+					</div>
+				) : (
+					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
+						{activeTab.content({ trackId: track.id })}
+					</ScrollArea>
+				)}
 			</div>
 		</div>
 	);

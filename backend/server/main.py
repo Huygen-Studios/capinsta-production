@@ -36,7 +36,7 @@ import shutil
 from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
 from .api import captions, health, jobs, export_jobs
-from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR
+from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR
 from .auth import authenticate_request, reset_current_user, set_current_user
 
 logger = logging.getLogger(__name__)
@@ -151,6 +151,15 @@ async def root_timing_health_check():
 
 
 ensure_runtime_dirs()
+if CAPTION_FONT_DIR.exists():
+    app.mount(
+        "/caption-fonts",
+        StaticFiles(directory=str(CAPTION_FONT_DIR), html=False),
+        name="caption-fonts",
+    )
+    logger.info("caption_fonts_enabled path=%s", CAPTION_FONT_DIR)
+else:
+    logger.warning("caption_fonts_missing path=%s", CAPTION_FONT_DIR)
 if frontend_dist_available():
     next_static_dir = FRONTEND_DIST_DIR / "_next" / "static"
     brand_static_dir = FRONTEND_DIST_DIR / "brand"

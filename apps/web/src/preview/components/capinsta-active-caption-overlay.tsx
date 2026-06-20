@@ -11,8 +11,20 @@ import {
 } from "@/capinsta/captionTimingIndex";
 import { createCapinstaRenderModelFromIndex } from "@/capinsta/render/capinstaRenderModel";
 import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
-import { computeCaptionStyleHash, summarizeCaptionStyle } from "@/capinsta/export/exportStyleHash";
-import { resolveCapinstaCaptionLayout, summarizeCaptionLayout, computeCaptionLayoutHash } from "@/capinsta/export/captionLayoutDiagnostics";
+import {
+	computeCaptionStyleHash,
+	summarizeCaptionStyle,
+} from "@/capinsta/export/exportStyleHash";
+import {
+	resolveCapinstaCaptionLayout,
+	summarizeCaptionLayout,
+	computeCaptionLayoutHash,
+} from "@/capinsta/export/captionLayoutDiagnostics";
+import { getVisibleCapinstaCaptionRecords } from "@/capinsta/captionVisibility";
+import {
+	ensureCapinstaFontLoaded,
+	normalizeCapinstaFontWeight,
+} from "@/capinsta/fonts/captionFontRegistry";
 
 declare global {
 	interface Window {
@@ -52,6 +64,20 @@ export function CapinstaActiveCaptionOverlay({
 		(instance) =>
 			instance.project.getActiveOrNull()?.capinstaCaptionDocuments ?? [],
 	);
+	const sceneTracks = useEditor(
+		(instance) => instance.scenes.getActiveSceneOrNull()?.tracks,
+	);
+	const visibleRecords = useMemo(
+		() =>
+			sceneTracks
+				? getVisibleCapinstaCaptionRecords({
+						records,
+						tracks: sceneTracks,
+						includeHidden: allowWithoutTextTrack,
+					})
+				: records,
+		[allowWithoutTextTrack, records, sceneTracks],
+	);
 	const hasTextTrack = useEditor((instance) => {
 		if (allowWithoutTextTrack) {
 			return (
@@ -74,6 +100,7 @@ export function CapinstaActiveCaptionOverlay({
 		return overlayTracks.some(
 			(track) =>
 				track.type === "text" &&
+				!track.hidden &&
 				track.elements.some((el) => el.type === "text"),
 		);
 	});
@@ -84,8 +111,8 @@ export function CapinstaActiveCaptionOverlay({
 		editor.playback.getIsPlaying(),
 	);
 	const timingIndex = useMemo(
-		() => createCapinstaCaptionTimingIndex({ records }),
-		[records],
+		() => createCapinstaCaptionTimingIndex({ records: visibleRecords }),
+		[visibleRecords],
 	);
 	const lastOverlayUpdateRef = useRef({
 		wallTime: 0,
@@ -164,6 +191,32 @@ export function CapinstaActiveCaptionOverlay({
 			}),
 		[timingIndex, timeSeconds, captionViewport],
 	);
+	useEffect(() => {
+		if (!activeState) return;
+		const style = resolveCapinstaClipStyle({
+			document: activeState.document,
+			clip: activeState.clip,
+		});
+		void Promise.all(
+			Array.from(
+				new Set([
+					style.text.fontFamily,
+					style.lockup.bigFontFamily,
+					style.lockup.smallFontFamily,
+				]),
+			).map((family) =>
+				ensureCapinstaFontLoaded({
+					family,
+					weight: normalizeCapinstaFontWeight(style.text.fontWeight),
+				}),
+			),
+		).catch((error) => {
+			console.warn("[capinsta-preview] caption font unavailable", {
+				fontFamily: style.text.fontFamily,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
+	}, [activeState]);
 
 	// Compute and expose a preview style hash so it can be compared against the
 	// export style hash (__EXPORT_STYLE_HASH__) for parity validation.
@@ -180,7 +233,11 @@ export function CapinstaActiveCaptionOverlay({
 			// (__EXPORT_LAYOUT_INFO__ / __EXPORT_LAYOUT_HASH__). Both paths now
 			// call the same shared utility, so values must match.
 			try {
-				const resolved = resolveCapinstaCaptionLayout(style, canvasWidth, canvasHeight);
+				const resolved = resolveCapinstaCaptionLayout(
+					style,
+					canvasWidth,
+					canvasHeight,
+				);
 				window.__PREVIEW_LAYOUT_INFO__ = summarizeCaptionLayout(resolved);
 				window.__PREVIEW_LAYOUT_HASH__ = computeCaptionLayoutHash(resolved);
 			} catch {
@@ -194,11 +251,11 @@ export function CapinstaActiveCaptionOverlay({
 	useEffect(() => {
 		if (process.env.NEXT_PUBLIC_CAPINSTA_DEBUG !== "true") return;
 		console.debug("[capinsta-preview] timing index", {
-			recordCount: records.length,
+			recordCount: visibleRecords.length,
 			clipCount: timingIndex.clipCount,
 			wordCount: timingIndex.wordCount,
 		});
-	}, [records.length, timingIndex]);
+	}, [timingIndex, visibleRecords.length]);
 
 	useEffect(() => {
 		if (
@@ -214,7 +271,6 @@ export function CapinstaActiveCaptionOverlay({
 		console.info("rendered_capinsta_preview", renderModel.manifest);
 	}, [renderModel]);
 
-
 	// FIX 6: Debug logging for active caption state on every render
 	useEffect(() => {
 		if (process.env.NEXT_PUBLIC_CAPINSTA_DEBUG !== "true") return;
@@ -222,7 +278,10 @@ export function CapinstaActiveCaptionOverlay({
 		console.debug("[capinsta-overlay] active caption render", {
 			text: activeState.clip.text,
 			clipId: activeState.clip.id,
-			presetId: activeState.clip.stylePresetId ?? activeState.document.stylePresetId ?? "none",
+			presetId:
+				activeState.clip.stylePresetId ??
+				activeState.document.stylePresetId ??
+				"none",
 			activeWordCount: activeState.activeWordIds.length,
 			timeSeconds,
 		});
@@ -247,13 +306,12 @@ export function CapinstaActiveCaptionOverlay({
 		}
 	}, [activeState, renderTimeSeconds]);
 
-
 	if (!activeState || !renderModel || !hasTextTrack) return null;
 
-		return (
-			<div
-				data-capinsta-caption-renderer="react-overlay-only"
-				className="absolute overflow-hidden pointer-events-none"
+	return (
+		<div
+			data-capinsta-caption-renderer="react-overlay-only"
+			className="absolute overflow-hidden pointer-events-none"
 			style={{
 				left: sceneLeft,
 				top: sceneTop,

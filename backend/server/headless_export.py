@@ -1293,7 +1293,30 @@ async def export_headless(
             fonts_started = time.perf_counter()
             try:
                 await page.evaluate("() => document.fonts ? document.fonts.ready.then(() => true) : true")
+                readiness = await page.evaluate(
+                    "() => window.__CAPINSTA_FONT_READINESS__ || null"
+                )
+                if isinstance(readiness, dict):
+                    logger.info(
+                        "caption_font_readiness export_job_id=%s ready=%s fonts=%s",
+                        export_job_id,
+                        readiness.get("ready"),
+                        json.dumps(readiness.get("fonts") or [], default=str),
+                    )
+                    if not readiness.get("ready", False):
+                        failed = [
+                            str(font.get("label") or font.get("cssFamily") or "unknown")
+                            for font in readiness.get("fonts") or []
+                            if isinstance(font, dict) and not font.get("check")
+                        ]
+                        raise ExportStageError(
+                            "render_readiness",
+                            "Requested caption font did not load in the export renderer"
+                            + (f": {', '.join(failed)}." if failed else "."),
+                        )
             except Exception as exc:
+                if isinstance(exc, ExportStageError):
+                    raise
                 raise ExportStageError("render_readiness", f"Render fonts did not become ready: {exc}", exc) from exc
             finally:
                 performance.font_readiness_seconds += time.perf_counter() - fonts_started

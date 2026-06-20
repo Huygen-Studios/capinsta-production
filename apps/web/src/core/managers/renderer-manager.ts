@@ -20,6 +20,8 @@ import {
 	validateSingleOverlayRenderer,
 	validateCapinstaHeadlessExport,
 } from "@/capinsta/export/capinsta-export-validation";
+import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
+import { getVisibleCapinstaCaptionRecords } from "@/capinsta/captionVisibility";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -199,11 +201,16 @@ export class RendererManager {
 			// caption pixels. We still run tracks through buildCapinstaPreviewTracks
 			// so the capinsta carrier TextElements get hidden:true before scene
 			// building (defense in depth — they also suppress in renderTextToContext).
-			const capinstaRecords = activeProject.capinstaCaptionDocuments ?? [];
+			const allCapinstaRecords = activeProject.capinstaCaptionDocuments ?? [];
+			const capinstaRecords = getVisibleCapinstaCaptionRecords({
+				records: allCapinstaRecords,
+				tracks: rawTracks,
+				includeHidden: exportMode === "captions_solid_background",
+			});
 			const tracks =
-				capinstaRecords.length > 0
+				allCapinstaRecords.length > 0
 					? buildCapinstaPreviewTracks({
-							records: capinstaRecords,
+							records: allCapinstaRecords,
 							tracks: rawTracks,
 						})
 					: rawTracks;
@@ -318,6 +325,10 @@ export class RendererManager {
 				const captionsJson = JSON.stringify(
 					capinstaDoc.clips.map((clip) => ({
 						...clip,
+						style: resolveCapinstaClipStyle({
+							document: capinstaDoc,
+							clip,
+						}),
 						words: clip.wordIds
 							.map((wordId) => wordsById.get(wordId))
 							.filter((word) => word !== undefined),
@@ -339,6 +350,15 @@ export class RendererManager {
 				formData.append(
 					"theme",
 					capinstaDoc.stylePresetId || "word_highlight_box",
+				);
+				formData.append(
+					"style_config_json",
+					JSON.stringify(
+						resolveCapinstaClipStyle({
+							document: capinstaDoc,
+							clip: capinstaDoc.clips[0]!,
+						}),
+					),
 				);
 				const fpsValue =
 					typeof exportFps === "number"
@@ -386,10 +406,13 @@ export class RendererManager {
 				const apiBase = getCapinstaApiBaseUrl() || "http://localhost:8000";
 				onProgress?.({ progress: 0.05 });
 
-				const response = await authenticatedFetch(`${apiBase}/api/export/jobs`, {
-					method: "POST",
-					body: formData,
-				});
+				const response = await authenticatedFetch(
+					`${apiBase}/api/export/jobs`,
+					{
+						method: "POST",
+						body: formData,
+					},
+				);
 
 				if (!response.ok) {
 					const errData = await response.json().catch(() => ({}));
@@ -549,7 +572,7 @@ export class RendererManager {
 				duration,
 				canvasSize,
 				background: activeProject.settings.background,
-				capinstaCaptionDocuments: activeProject.capinstaCaptionDocuments ?? [],
+				capinstaCaptionDocuments: capinstaRecords,
 			});
 
 			const editorPlayback = this.editor.playback;

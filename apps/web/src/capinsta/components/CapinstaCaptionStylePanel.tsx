@@ -5,7 +5,10 @@
 import type { TextElement } from "@/timeline";
 import { useEffect, useState, type ReactNode } from "react";
 import type { CapinstaCaptionBinding } from "../captionTimelineSync";
-import { applyCapinstaPresetToClipStyle, updateCapinstaClipStyle } from "../styles/styleMigration";
+import {
+	applyCapinstaPresetToClipStyle,
+	updateCapinstaClipStyle,
+} from "../styles/styleMigration";
 import { styleToExport } from "../styles/styleToExport";
 import {
 	mergeCapinstaCaptionStyle,
@@ -24,10 +27,14 @@ import { CapinstaColorControl } from "./CapinstaColorControl";
 import { CapinstaSliderControl } from "./CapinstaSliderControl";
 import { CapinstaToggleControl } from "./CapinstaToggleControl";
 import { CapinstaAnimationGrid } from "./CapinstaAnimationGrid";
+import { CAPINSTA_FONT_REGISTRY } from "@/capinsta/fonts/captionFontRegistry";
 import { resolveCapinstaClipStyle } from "../styles/styleMigration";
 import { mediaTimeToSeconds, type MediaTime } from "@/wasm";
 import { getCapinstaActiveWordIds } from "../render/activeWordRenderer";
-import type { CapinstaCaptionDocumentRecord, NeutralCaptionWord } from "../types";
+import type {
+	CapinstaCaptionDocumentRecord,
+	NeutralCaptionWord,
+} from "../types";
 import {
 	applyPresetToCapinstaSelection,
 	applyStylePatchToCapinstaSelection,
@@ -41,13 +48,7 @@ import { rechunkNeutralCaptionDocumentWithConfig } from "../adapter";
 import { getCaptionPresetChunkingConfig } from "../original/captionStylePresets";
 import type { CaptionChunkingConfig } from "../original/types";
 
-function Section({
-	title,
-	children,
-}: {
-	title: string;
-	children: ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
 	return (
 		<section className="grid gap-3 border-b px-3 py-3 last:border-b-0">
 			<h3 className="text-xs font-semibold">{title}</h3>
@@ -93,9 +94,13 @@ type CapinstaCaptionStylePanelProps =
 			ignoredCount?: number;
 	  };
 
-export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps) {
+export function CapinstaCaptionStylePanel(
+	props: CapinstaCaptionStylePanelProps,
+) {
 	const editor = useEditor();
-	useEditor((instance) => instance.project.getActive()?.capinstaCaptionDocuments);
+	useEditor(
+		(instance) => instance.project.getActive()?.capinstaCaptionDocuments,
+	);
 	const [currentTime, setCurrentTime] = useState<MediaTime>(() =>
 		editor.playback.getCurrentTime(),
 	);
@@ -114,13 +119,13 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 
 	const debugEnabled = process.env.NEXT_PUBLIC_CAPINSTA_DEBUG === "true";
 	const timeSeconds = mediaTimeToSeconds({ time: currentTime });
-	const clipWords: NeutralCaptionWord[] = (binding
-		? binding.clip.wordIds.map((wordId) =>
-				binding.record.document.words.find((word) => word.id === wordId),
-			)
-		: []
-	)
-		.filter((word): word is NeutralCaptionWord => word !== undefined);
+	const clipWords: NeutralCaptionWord[] = (
+		binding
+			? binding.clip.wordIds.map((wordId) =>
+					binding.record.document.words.find((word) => word.id === wordId),
+				)
+			: []
+	).filter((word): word is NeutralCaptionWord => word !== undefined);
 	const activeWordIds = binding
 		? getCapinstaActiveWordIds({
 				clip: binding.clip,
@@ -229,7 +234,8 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 				activeDocs.set(ref.documentId, refs);
 			}
 
-			let nextRecords = editor.project.getActive()?.capinstaCaptionDocuments ?? [];
+			let nextRecords =
+				editor.project.getActive()?.capinstaCaptionDocuments ?? [];
 			let nextTracks = editor.scenes.getActiveScene().tracks;
 
 			for (const [docId, refs] of activeDocs.entries()) {
@@ -249,7 +255,9 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 				});
 
 				const nextRecord = { ...record, document: updatedDoc };
-				nextRecords = nextRecords.map((r) => r.document.id === docId ? nextRecord : r);
+				nextRecords = nextRecords.map((r) =>
+					r.document.id === docId ? nextRecord : r,
+				);
 
 				nextTracks = replaceDocumentTextElements({
 					tracks: nextTracks,
@@ -294,7 +302,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 					clip: binding.clip,
 					element: binding.element,
 					style,
-				}
+				},
 			],
 		});
 		editor.timeline.updateTracks(updatedTracks);
@@ -370,10 +378,8 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 	}
 
 	const activePresetId = isBulkMode
-		? (getCommonStyleValue<CapinstaCaptionPresetId>(
-				selectedRefs,
-				"presetId",
-			) ?? "")
+		? (getCommonStyleValue<CapinstaCaptionPresetId>(selectedRefs, "presetId") ??
+			"")
 		: style.presetId;
 
 	return (
@@ -420,13 +426,11 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 						{hasMixedValue("text.fontFamily") ? (
 							<option value="">Mixed</option>
 						) : null}
-						{["Poppins", "Inter", "Anton", "Komika Axis", "SF Pro Display"].map(
-							(font) => (
-								<option key={font} value={font}>
-									{font}
-								</option>
-							),
-						)}
+						{CAPINSTA_FONT_REGISTRY.map((font) => (
+							<option key={font.id} value={font.cssFamily}>
+								{font.label}
+							</option>
+						))}
 					</select>
 				</label>
 				<label className="grid gap-1 text-xs">
@@ -437,9 +441,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 							updateStyle({
 								text: {
 									fontWeight:
-										event.currentTarget.value === "normal"
-											? "normal"
-											: "bold",
+										event.currentTarget.value === "normal" ? "normal" : "bold",
 								},
 							})
 						}
@@ -530,10 +532,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 				<label className="grid gap-1 text-xs">
 					<span className="text-muted-foreground">Text transform</span>
 					<select
-						value={commonValue(
-							"text.textTransform",
-							style.text.textTransform,
-						)}
+						value={commonValue("text.textTransform", style.text.textTransform)}
 						onChange={(event) =>
 							updateStyle({
 								text: {
@@ -555,10 +554,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 				</label>
 				<CapinstaSliderControl
 					label="Letter spacing"
-					value={commonValue(
-						"text.letterSpacing",
-						style.text.letterSpacing,
-					)}
+					value={commonValue("text.letterSpacing", style.text.letterSpacing)}
 					mixed={hasMixedValue("text.letterSpacing")}
 					min={-2}
 					max={8}
@@ -575,10 +571,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 			<Section title="Background">
 				<CapinstaToggleControl
 					label="Enabled"
-					checked={commonValue(
-						"background.enabled",
-						style.background.enabled,
-					)}
+					checked={commonValue("background.enabled", style.background.enabled)}
 					mixed={hasMixedValue("background.enabled")}
 					onChange={(enabled) => updateStyle({ background: { enabled } })}
 				/>
@@ -668,7 +661,9 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 						updateStyle({
 							background: {
 								borderEnabled,
-								borderWidth: borderEnabled ? Math.max(1, style.background.borderWidth) : 0,
+								borderWidth: borderEnabled
+									? Math.max(1, style.background.borderWidth)
+									: 0,
 							},
 						})
 					}
@@ -825,9 +820,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 					mixed={hasMixedValue("background.shadowBlur")}
 					min={0}
 					max={60}
-					onChange={(shadowBlur) =>
-						updateStyle({ background: { shadowBlur } })
-					}
+					onChange={(shadowBlur) => updateStyle({ background: { shadowBlur } })}
 				/>
 				<CapinstaSliderControl
 					label="Background distance"
@@ -901,9 +894,7 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 					min={0}
 					max={1}
 					step={0.01}
-					onChange={(smoothness) =>
-						updateStyle({ animation: { smoothness } })
-					}
+					onChange={(smoothness) => updateStyle({ animation: { smoothness } })}
 				/>
 			</Section>
 			<Section title="Layout">
@@ -1046,7 +1037,9 @@ export function CapinstaCaptionStylePanel(props: CapinstaCaptionStylePanelProps)
 									? `${activeWord.start.toFixed(3)}-${activeWord.end.toFixed(3)}`
 									: "none"}
 							</div>
-							<div>timingNeedsReview={String(binding.clip.timingNeedsReview)}</div>
+							<div>
+								timingNeedsReview={String(binding.clip.timingNeedsReview)}
+							</div>
 							<div>preset={style.presetId}</div>
 							<div>styleHash={JSON.stringify(style).length}</div>
 						</div>

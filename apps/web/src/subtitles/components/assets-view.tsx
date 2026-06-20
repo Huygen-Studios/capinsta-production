@@ -77,9 +77,11 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { DiagnosticSeverity } from "@/diagnostics/types";
-import { DownloadIcon, Edit3Icon, MoreVerticalIcon } from "lucide-react";
-import { SubtitleEditorSheet } from "./subtitle-editor-sheet";
-import { ToggleTrackVisibilityCommand, UpdateCapinstaCaptionDocumentCommand } from "@/commands";
+import { DownloadIcon, MoreVerticalIcon } from "lucide-react";
+import {
+	ToggleTrackVisibilityCommand,
+	UpdateCapinstaCaptionDocumentCommand,
+} from "@/commands";
 import { formatSubtitleTime } from "@/capinsta/captionEditing";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
@@ -117,7 +119,10 @@ function getBackendCaptionProgressState({
 		case "transcribing":
 			return { status: "transcribing", message: "Transcribing speech..." };
 		case "romanizing":
-			return { status: "transcribing", message: "Normalizing transcript text..." };
+			return {
+				status: "transcribing",
+				message: "Normalizing transcript text...",
+			};
 		case "aligning":
 			return { status: "transcribing", message: "Aligning word timings..." };
 		case "normalizing":
@@ -188,7 +193,6 @@ export function Captions() {
 		IDLE_STATE,
 	);
 	const [warnings, setWarnings] = useState<string[]>([]);
-	const [subtitleEditorOpen, setSubtitleEditorOpen] = useState(false);
 	const [deleteAllOpen, setDeleteAllOpen] = useState(false);
 	const [showSpeakers, setShowSpeakers] = useState(false);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -206,7 +210,9 @@ export function Captions() {
 		if (!record) return false;
 		const track = e.scenes
 			.getActiveScene()
-			.tracks.overlay.find((candidate) => candidate.id === record.openCutTrackId);
+			.tracks.overlay.find(
+				(candidate) => candidate.id === record.openCutTrackId,
+			);
 		return Boolean(track && "hidden" in track && track.hidden);
 	});
 	const isSampleImportEnabled = isCapinstaSampleImportEnabled();
@@ -511,7 +517,10 @@ export function Captions() {
 			});
 
 			if (trackId === null) {
-				dispatchCaptionJob({ type: "error", message: "No captions were generated" });
+				dispatchCaptionJob({
+					type: "error",
+					message: "No captions were generated",
+				});
 				return;
 			}
 
@@ -584,7 +593,10 @@ export function Captions() {
 
 	const handleImportFile = async ({ file }: { file: File }) => {
 		setWarnings([]);
-		dispatchImportProcessing({ type: "start", step: "Reading subtitle file..." });
+		dispatchImportProcessing({
+			type: "start",
+			step: "Reading subtitle file...",
+		});
 		try {
 			const input = await file.text();
 			const result = parseSubtitleFile({
@@ -706,11 +718,11 @@ export function Captions() {
 							activeDiagnostics.map((diagnostic) => (
 								<Tooltip key={diagnostic.id}>
 									<TooltipTrigger asChild>
-						<Button
-							type="button"
-							variant={DIAGNOSTIC_BUTTON_VARIANT[diagnostic.severity]}
-							size="icon"
-							aria-label={diagnostic.message}
+										<Button
+											type="button"
+											variant={DIAGNOSTIC_BUTTON_VARIANT[diagnostic.severity]}
+											size="icon"
+											aria-label={diagnostic.message}
 										>
 											<HugeiconsIcon icon={AlertCircleIcon} size={16} />
 										</Button>
@@ -732,17 +744,22 @@ export function Captions() {
 						{activeCaptionRecord ? (
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
-									<Button type="button" variant="ghost" size="icon" aria-label="Subtitle menu">
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										aria-label="Subtitle menu"
+									>
 										<MoreVerticalIcon />
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
 									<DropdownMenuGroup>
-										<DropdownMenuItem icon={<DownloadIcon />} onSelect={downloadSubtitles}>
+										<DropdownMenuItem
+											icon={<DownloadIcon />}
+											onSelect={downloadSubtitles}
+										>
 											Download
-										</DropdownMenuItem>
-										<DropdownMenuItem icon={<Edit3Icon />} onSelect={() => setSubtitleEditorOpen(true)}>
-											Edit Subtitles
 										</DropdownMenuItem>
 										<DropdownMenuItem
 											onSelect={() =>
@@ -755,10 +772,15 @@ export function Captions() {
 										>
 											{captionTrackHidden ? "Show Subtitles" : "Hide Subtitles"}
 										</DropdownMenuItem>
-										<DropdownMenuItem onSelect={() => setShowSpeakers((value) => !value)}>
+										<DropdownMenuItem
+											onSelect={() => setShowSpeakers((value) => !value)}
+										>
 											{showSpeakers ? "Hide Speakers" : "Show Speakers"}
 										</DropdownMenuItem>
-										<DropdownMenuItem variant="destructive" onSelect={() => setDeleteAllOpen(true)}>
+										<DropdownMenuItem
+											variant="destructive"
+											onSelect={() => setDeleteAllOpen(true)}
+										>
 											Delete Subtitles
 										</DropdownMenuItem>
 									</DropdownMenuGroup>
@@ -896,11 +918,6 @@ export function Captions() {
 					)}
 				</SectionContent>
 			</Section>
-			<SubtitleEditorSheet
-				open={subtitleEditorOpen}
-				onOpenChange={setSubtitleEditorOpen}
-				record={activeCaptionRecord}
-			/>
 			<AlertDialog open={deleteAllOpen} onOpenChange={setDeleteAllOpen}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
