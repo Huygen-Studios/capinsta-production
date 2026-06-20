@@ -3,9 +3,12 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from server.headless_export import (
+    _assert_ffmpeg_output_options_after_inputs,
     _build_ffconcat_manifest,
     _capture_chunks,
     _capture_progress,
@@ -95,3 +98,51 @@ def test_sparse_concat_manifest_is_valid(tmp_path):
     assert "duration 0.500000000" in manifest
     assert "duration 1.000000000" in manifest
     assert manifest.count("file '") == 3
+
+
+def test_ffmpeg_encoder_options_follow_all_inputs():
+    command = [
+        "ffmpeg",
+        "-y",
+        "-framerate",
+        "30",
+        "-i",
+        "frame_%06d.png",
+        "-i",
+        "source.mp4",
+        "-filter_complex",
+        "[1:v][0:v]overlay[out]",
+        "-map",
+        "[out]",
+        "-map",
+        "1:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-threads",
+        "1",
+        "-c:a",
+        "copy",
+        "output.mp4",
+    ]
+    _assert_ffmpeg_output_options_after_inputs(command)
+    assert max(index for index, value in enumerate(command) if value == "-i") < command.index("-c:v")
+    assert command[command.index("-c:v") + 1] == "libx264"
+
+
+def test_ffmpeg_order_assertion_rejects_encoder_before_later_input():
+    command = [
+        "ffmpeg",
+        "-i",
+        "frames",
+        "-c:v",
+        "libx264",
+        "-i",
+        "source.mp4",
+        "output.mp4",
+    ]
+    with pytest.raises(ValueError, match="precede"):
+        _assert_ffmpeg_output_options_after_inputs(command)

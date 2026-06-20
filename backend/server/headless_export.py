@@ -345,22 +345,79 @@ def _discard_capture_range(
         frame_paths[index].with_suffix(".png.part").unlink(missing_ok=True)
 
 
+def _assert_ffmpeg_output_options_after_inputs(command: list[str]) -> None:
+    input_positions = [index for index, value in enumerate(command) if value == "-i"]
+    if not input_positions:
+        raise ValueError("FFmpeg command has no inputs.")
+    last_input = input_positions[-1]
+    output_only_options = {
+        "-c:v",
+        "-codec:v",
+        "-preset",
+        "-crf",
+        "-cq",
+        "-b:v",
+        "-threads",
+        "-pix_fmt",
+        "-movflags",
+        "-c:a",
+    }
+    misplaced = [
+        option
+        for option in output_only_options
+        if option in command and command.index(option) < last_input
+    ]
+    if misplaced:
+        raise ValueError(
+            "FFmpeg output options precede the final input: "
+            + ", ".join(sorted(misplaced))
+        )
+
+
+def _useful_ffmpeg_error(stderr_text: str) -> str:
+    lines = [line.strip() for line in stderr_text.splitlines() if line.strip()]
+    preferred = [
+        line
+        for line in lines
+        if any(
+            marker in line.lower()
+            for marker in (
+                "unknown decoder",
+                "decoder not found",
+                "error opening input",
+                "error opening output",
+                "invalid argument",
+                "conversion failed",
+            )
+        )
+    ]
+    useful = preferred[-2:] if preferred else lines[-2:]
+    return " ".join(useful)[:600]
+
+
 def build_full_video_filter_graph(
     source_dimensions: tuple[int, int] | None,
     overlay_dimensions: tuple[int, int],
     output_dimensions: tuple[int, int],
+    *,
+    source_input: int = 0,
+    overlay_input: int = 1,
 ) -> str:
     width, height = output_dimensions
     parts: list[str] = []
     if source_dimensions == output_dimensions:
-        parts.append("[0:v]null[base]")
-    else:
-        parts.append(f"[0:v]scale={width}:{height}:force_original_aspect_ratio=disable[base]")
-    if overlay_dimensions == output_dimensions:
-        parts.append("[1:v]format=rgba[ov]")
+        parts.append(f"[{source_input}:v]null[base]")
     else:
         parts.append(
-            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=disable,format=rgba[ov]"
+            f"[{source_input}:v]scale={width}:{height}:"
+            "force_original_aspect_ratio=disable[base]"
+        )
+    if overlay_dimensions == output_dimensions:
+        parts.append(f"[{overlay_input}:v]format=rgba[ov]")
+    else:
+        parts.append(
+            f"[{overlay_input}:v]scale={width}:{height}:"
+            "force_original_aspect_ratio=disable,format=rgba[ov]"
         )
     parts.append("[base][ov]overlay=0:0:format=auto:eof_action=pass:shortest=0[out]")
     return ";".join(parts)
@@ -1788,7 +1845,20 @@ async def export_headless(
                 await shutdown_renderer()
                 await progress_callback("encoding", 82, "Encoding video...")
                 encoder = "h264_nvenc" if hardware_acceleration else "libx264"
-                ffmpeg_cmd = ["ffmpeg", "-y"]
+                global_args = ["ffmpeg", "-y"]
+                input_args: list[str] = []
+                filter_and_map_args: list[str] = []
+                output_codec_args = [
+                    "-c:v",
+                    encoder,
+                    "-preset",
+                    resolve_ffmpeg_preset(
+                        hardware_acceleration,
+                        fastest=is_captions_only,
+                    ),
+                ]
+                output_args: list[str] = []
+                source_input_index: int | None = None
                 if plan is not None:
                     manifest_path = capture_root / "frames.ffconcat"
                     manifest_text = _build_ffconcat_manifest(
@@ -1802,64 +1872,47 @@ async def export_headless(
                         "utf-8",
                     )
                     if is_captions_only:
-                        ffmpeg_cmd.extend(
+                        input_args.extend(
                             ["-f", "concat", "-safe", "0", "-i", str(manifest_path)]
                         )
                         if include_audio and media_exists:
-                            ffmpeg_cmd.extend(["-i", video_path])
-                        ffmpeg_cmd.extend(
-                            [
-                                "-map",
-                                "0:v:0",
-                                "-vf",
-                                f"fps={export_fps}",
-                                "-c:v",
-                                encoder,
-                                "-preset",
-                                resolve_ffmpeg_preset(
-                                    hardware_acceleration,
-                                    fastest=True,
-                                ),
-                            ]
+                            source_input_index = 1
+                            input_args.extend(["-i", video_path])
+                        filter_and_map_args.extend(
+                            ["-map", "0:v:0", "-vf", f"fps={export_fps}"]
                         )
-                        audio_input = "1:a?"
                     else:
-                        ffmpeg_cmd.extend(
+                        input_args.extend(
                             [
-                                "-i",
-                                video_path,
                                 "-f",
                                 "concat",
                                 "-safe",
                                 "0",
                                 "-i",
                                 str(manifest_path),
+                                "-i",
+                                video_path,
                             ]
                         )
-                        ffmpeg_cmd.extend(
+                        source_input_index = 1
+                        filter_and_map_args.extend(
                             [
                                 "-filter_complex",
                                 build_full_video_filter_graph(
                                     source_dimensions,
                                     overlay_capture_dimensions,
                                     (width, height),
+                                    source_input=1,
+                                    overlay_input=0,
                                 ),
                                 "-map",
                                 "[out]",
                                 "-r",
                                 str(export_fps),
-                                "-c:v",
-                                encoder,
-                                "-preset",
-                                resolve_ffmpeg_preset(
-                                    hardware_acceleration,
-                                    fastest=False,
-                                ),
                             ]
                         )
-                        audio_input = "0:a?"
                 elif is_captions_only:
-                    ffmpeg_cmd.extend(
+                    input_args.extend(
                         [
                             "-framerate",
                             str(export_fps),
@@ -1867,60 +1920,60 @@ async def export_headless(
                             "0",
                             "-i",
                             str(capture_root / "frame_%06d.png"),
-                            "-c:v",
-                            encoder,
-                            "-preset",
-                            resolve_ffmpeg_preset(
-                                hardware_acceleration,
-                                fastest=True,
-                            ),
                         ]
                     )
                     if include_audio and media_exists:
-                        ffmpeg_cmd.extend(["-i", video_path])
-                    audio_input = "1:a?"
+                        source_input_index = 1
+                        input_args.extend(["-i", video_path])
+                    filter_and_map_args.extend(["-map", "0:v:0"])
                 else:
-                    ffmpeg_cmd.extend(
+                    input_args.extend(
                         [
-                            "-i",
-                            video_path,
                             "-framerate",
                             str(export_fps),
                             "-start_number",
                             "0",
                             "-i",
                             str(capture_root / "frame_%06d.png"),
+                            "-i",
+                            video_path,
+                        ]
+                    )
+                    source_input_index = 1
+                    filter_and_map_args.extend(
+                        [
                             "-filter_complex",
                             build_full_video_filter_graph(
                                 source_dimensions,
                                 overlay_capture_dimensions,
                                 (width, height),
+                                source_input=1,
+                                overlay_input=0,
                             ),
                             "-map",
                             "[out]",
-                            "-c:v",
-                            encoder,
-                            "-preset",
-                            resolve_ffmpeg_preset(
-                                hardware_acceleration,
-                                fastest=False,
-                            ),
                         ]
                     )
-                    audio_input = "0:a?"
 
-                ffmpeg_cmd.extend(["-threads", str(ffmpeg_threads)])
+                output_codec_args.extend(["-threads", str(ffmpeg_threads)])
                 if video_bitrate:
-                    ffmpeg_cmd.extend(["-b:v", video_bitrate])
+                    output_codec_args.extend(["-b:v", video_bitrate])
                 else:
-                    ffmpeg_cmd.extend(
+                    output_codec_args.extend(
                         ["-cq" if hardware_acceleration else "-crf", crf]
                     )
-                if include_audio and media_exists:
-                    ffmpeg_cmd.extend(["-map", audio_input, "-c:a", "copy"])
+                if (
+                    include_audio
+                    and media_exists
+                    and source_input_index is not None
+                ):
+                    filter_and_map_args.extend(
+                        ["-map", f"{source_input_index}:a?"]
+                    )
+                    output_codec_args.extend(["-c:a", "copy"])
                 else:
-                    ffmpeg_cmd.append("-an")
-                ffmpeg_cmd.extend(
+                    output_codec_args.append("-an")
+                output_args.extend(
                     [
                         "-t",
                         f"{duration:.9f}",
@@ -1931,6 +1984,14 @@ async def export_headless(
                         output_path,
                     ]
                 )
+                ffmpeg_cmd = (
+                    global_args
+                    + input_args
+                    + filter_and_map_args
+                    + output_codec_args
+                    + output_args
+                )
+                _assert_ffmpeg_output_options_after_inputs(ffmpeg_cmd)
                 _log_export_event(
                     "checkpointed_ffmpeg_encode_started",
                     exportJobId=export_job_id,
@@ -1955,10 +2016,17 @@ async def export_headless(
                 else:
                     performance.ffmpeg_finalize_seconds += encode_elapsed
                 if proc.returncode != 0:
+                    stderr_text = stderr.decode(errors="replace")
+                    logger.error(
+                        "checkpointed_ffmpeg_encode_failed export_job_id=%s exit=%s stderr=%s",
+                        export_job_id,
+                        proc.returncode,
+                        _tail(stderr_text),
+                    )
                     raise ExportStageError(
                         "ffmpeg_encode",
-                        f"FFmpeg failed while encoding the MP4 (exit {proc.returncode}). "
-                        f"{_tail(stderr.decode(errors='replace'))}".strip(),
+                        "FFmpeg could not encode the exported frames. "
+                        f"{_useful_ffmpeg_error(stderr_text)}".strip(),
                     )
                 output = Path(output_path)
                 if not output.is_file() or output.stat().st_size <= 0:
