@@ -306,6 +306,45 @@ def _should_run_clean_check(frame_index: int, interval_frames: int) -> bool:
     return interval_frames > 0 and frame_index > 0 and frame_index % interval_frames == 0
 
 
+def _capture_chunks(total_captures: int, chunk_size: int) -> list[tuple[int, int]]:
+    size = max(1, chunk_size)
+    return [
+        (start, min(total_captures, start + size))
+        for start in range(0, total_captures, size)
+    ]
+
+
+def _capture_progress(completed: int, total: int) -> int:
+    return 5 + int((max(0, min(completed, total)) / max(1, total)) * 75)
+
+
+def _build_ffconcat_manifest(
+    frame_paths: list[Path],
+    duration_frames: list[int],
+    fps: int,
+) -> str:
+    if not frame_paths or len(frame_paths) != len(duration_frames):
+        raise ValueError("Sparse concat manifest requires matching frames and durations.")
+    lines = ["ffconcat version 1.0"]
+    for frame_path, frames in zip(frame_paths, duration_frames):
+        normalized = frame_path.resolve().as_posix().replace("'", "'\\''")
+        lines.append(f"file '{normalized}'")
+        lines.append(f"duration {frames / fps:.9f}")
+    final_path = frame_paths[-1].resolve().as_posix().replace("'", "'\\''")
+    lines.append(f"file '{final_path}'")
+    return "\n".join(lines) + "\n"
+
+
+def _discard_capture_range(
+    frame_paths: list[Path],
+    start: int,
+    end: int,
+) -> None:
+    for index in range(start, end):
+        frame_paths[index].unlink(missing_ok=True)
+        frame_paths[index].with_suffix(".png.part").unlink(missing_ok=True)
+
+
 def build_full_video_filter_graph(
     source_dimensions: tuple[int, int] | None,
     overlay_dimensions: tuple[int, int],
@@ -417,7 +456,6 @@ def check_export_runtime() -> dict[str, object]:
         "detected_cpu_count": os.cpu_count() or 2,
         "export_ffmpeg_threads_configured": os.getenv("EXPORT_FFMPEG_THREADS", "auto"),
         "export_ffmpeg_threads_resolved": resolve_ffmpeg_threads(),
-        "export_stream_retries": _int_env("EXPORT_STREAM_RETRIES", 2),
         "export_sparse_render_enabled": _bool_env("EXPORT_SPARSE_RENDER_ENABLED", False),
         "export_sparse_render_themes": os.getenv("EXPORT_SPARSE_RENDER_THEMES", "*"),
         "export_sparse_min_frame_reduction_percent": _float_env(
@@ -551,7 +589,6 @@ async def export_headless(
     source_job_id: str | None = None,
     queue_wait_seconds: float = 0.0,
     performance_callback: Callable[[dict[str, object]], Awaitable[None]] | None = None,
-    _stream_attempt: int = 0,
 ) -> str:
     """
     Export video with pixel-perfect burned captions using headless browser.
@@ -584,7 +621,6 @@ async def export_headless(
                 composition_json=composition_json,
                 queue_wait_seconds=queue_wait_seconds,
                 performance_callback=performance_callback,
-                _stream_attempt=_stream_attempt,
             )
         )
 
@@ -1480,6 +1516,476 @@ async def export_headless(
             theme=theme,
         )
 
+        async def run_checkpointed_export() -> str:
+            capture_root = Path(tempfile.mkdtemp(prefix=f"capinsta_capture_{job_id}_"))
+            checkpoint_path = capture_root / "checkpoint.json"
+            capture_started = time.perf_counter()
+            capture_attempts = max(1, min(2, _int_env("EXPORT_CAPTURE_CHUNK_ATTEMPTS", 2)))
+            chunk_size = max(25, _int_env("EXPORT_CAPTURE_CHUNK_FRAMES", 200))
+            use_sparse = selected_engine is RenderEngine.BROWSER_SPARSE
+            plan = None
+
+            if use_sparse:
+                plan_started = time.perf_counter()
+                plan = build_sparse_caption_render_plan(
+                    parsed_captions,
+                    export_fps,
+                    theme,
+                    parsed_style_config,
+                    duration,
+                )
+                performance.sparse_plan_seconds += time.perf_counter() - plan_started
+                reduction = (1 - len(plan) / total_frames) * 100 if total_frames else 0.0
+                minimum_reduction = max(
+                    0.0,
+                    _float_env("EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT", 30.0),
+                )
+                if reduction < minimum_reduction:
+                    use_sparse = False
+                    plan = None
+                    performance.render_engine = RenderEngine.BROWSER_FULL_FRAME.value
+                    logger.info(
+                        "checkpoint_sparse_fallback export_job_id=%s reduction=%.3f minimum=%.3f",
+                        export_job_id,
+                        reduction,
+                        minimum_reduction,
+                    )
+
+            required_captures = len(plan) if plan is not None else total_frames
+            frame_paths = [
+                capture_root / f"frame_{index:06d}.png"
+                for index in range(required_captures)
+            ]
+
+            async def write_checkpoint(
+                *,
+                completed: int,
+                mode: str,
+                chunk_start: int,
+                chunk_end: int,
+            ) -> None:
+                payload = {
+                    "mode": mode,
+                    "completedCaptures": completed,
+                    "totalCaptures": required_captures,
+                    "chunkStart": chunk_start,
+                    "chunkEndExclusive": chunk_end,
+                    "elapsedSeconds": round(time.perf_counter() - capture_started, 6),
+                }
+                await asyncio.to_thread(
+                    checkpoint_path.write_text,
+                    json.dumps(payload, sort_keys=True),
+                    "utf-8",
+                )
+
+            async def write_png(index: int, data: bytes) -> None:
+                target = frame_paths[index]
+                temporary = target.with_suffix(".png.part")
+                await asyncio.to_thread(temporary.write_bytes, data)
+                await asyncio.to_thread(temporary.replace, target)
+
+            async def delete_range(start: int, end: int) -> None:
+                await asyncio.to_thread(
+                    _discard_capture_range,
+                    frame_paths,
+                    start,
+                    end,
+                )
+
+            async def start_fresh_renderer(capture_frame: int) -> None:
+                await restart_playwright_and_browser()
+                await recreate_render_page(
+                    capture_frame / export_fps,
+                    ExportStageError(
+                        "frame_capture",
+                        f"Starting fresh renderer for capture frame {capture_frame}.",
+                    ),
+                    capture_frame,
+                )
+
+            async def capture_frame_to_disk(output_index: int, timeline_frame: int) -> None:
+                if page is None:
+                    raise ExportStageError("frame_capture", "Render page is not available.")
+                advance_started = time.perf_counter()
+                advanced = await page.evaluate(
+                    "(frame) => window.setCaptionFrame(frame)",
+                    timeline_frame,
+                )
+                performance.frame_advance_seconds += time.perf_counter() - advance_started
+                if advanced is not True:
+                    raise ExportStageError(
+                        "frame_capture",
+                        f"Caption renderer rejected frame {timeline_frame}.",
+                    )
+                await write_png(output_index, await timed_capture_render_frame())
+
+            try:
+                # The initial renderer validated the packaged route. Capture uses
+                # fresh Playwright/browser ownership per chunk from this point on.
+                await close_browser_safely()
+
+                if plan is not None:
+                    sparse_chunk_size = max(
+                        1,
+                        _int_env("EXPORT_SPARSE_CAPTURE_CHUNK_STATES", 100),
+                    )
+                    for chunk_start, chunk_end in _capture_chunks(len(plan), sparse_chunk_size):
+                        await start_fresh_renderer(plan[chunk_start].capture_frame)
+                        try:
+                            for index in range(chunk_start, chunk_end):
+                                segment = plan[index]
+                                last_error: Exception | None = None
+                                for attempt in range(capture_attempts):
+                                    attempt_started = time.perf_counter()
+                                    try:
+                                        if attempt > 0:
+                                            await start_fresh_renderer(segment.capture_frame)
+                                        await capture_frame_to_disk(index, segment.capture_frame)
+                                        await write_checkpoint(
+                                            completed=index + 1,
+                                            mode="sparse",
+                                            chunk_start=index,
+                                            chunk_end=index + 1,
+                                        )
+                                        _log_export_event(
+                                            "capture_attempt_complete",
+                                            exportJobId=export_job_id,
+                                            mode="sparse",
+                                            captureIndex=index,
+                                            attempt=attempt + 1,
+                                            elapsedSeconds=round(
+                                                time.perf_counter() - attempt_started,
+                                                6,
+                                            ),
+                                            totalElapsedSeconds=round(
+                                                time.perf_counter() - render_started_at,
+                                                6,
+                                            ),
+                                        )
+                                        last_error = None
+                                        break
+                                    except Exception as exc:
+                                        last_error = exc
+                                        logger.exception(
+                                            "sparse_capture_attempt_failed export_job_id=%s index=%s "
+                                            "timeline_frame=%s attempt=%s/%s elapsed_seconds=%.6f",
+                                            export_job_id,
+                                            index,
+                                            segment.capture_frame,
+                                            attempt + 1,
+                                            capture_attempts,
+                                            time.perf_counter() - attempt_started,
+                                        )
+                                        await shutdown_renderer()
+                                        await delete_range(index, index + 1)
+                                        if (
+                                            attempt + 1 >= capture_attempts
+                                            or not _looks_like_browser_disconnect(exc)
+                                        ):
+                                            break
+                                        await progress_callback(
+                                            "capturing",
+                                            _capture_progress(index, required_captures),
+                                            "Retrying caption capture chunk",
+                                        )
+                                if last_error is not None:
+                                    raise ExportStageError(
+                                        "frame_capture",
+                                        f"Caption capture failed for sparse state {index + 1}/"
+                                        f"{required_captures} after {capture_attempts} attempts. "
+                                        "Previously completed "
+                                        "captures were preserved, but the export could not continue.",
+                                        last_error,
+                                    ) from last_error
+                                await progress_callback(
+                                    "capturing",
+                                    _capture_progress(index + 1, required_captures),
+                                    f"Capturing captions: {index + 1}/{required_captures}",
+                                )
+                        finally:
+                            await shutdown_renderer()
+                    performance.sparse_capture_seconds += time.perf_counter() - capture_started
+                else:
+                    for chunk_start, chunk_end in _capture_chunks(total_frames, chunk_size):
+                        chunk_error: Exception | None = None
+                        for attempt in range(capture_attempts):
+                            attempt_started = time.perf_counter()
+                            await delete_range(chunk_start, chunk_end)
+                            try:
+                                await start_fresh_renderer(chunk_start)
+                                for frame_index in range(chunk_start, chunk_end):
+                                    await capture_frame_to_disk(frame_index, frame_index)
+                                await write_checkpoint(
+                                    completed=chunk_end,
+                                    mode="full_frame",
+                                    chunk_start=chunk_start,
+                                    chunk_end=chunk_end,
+                                )
+                                _log_export_event(
+                                    "capture_chunk_complete",
+                                    exportJobId=export_job_id,
+                                    startFrame=chunk_start,
+                                    endFrameExclusive=chunk_end,
+                                    attempt=attempt + 1,
+                                    chunkElapsedSeconds=round(
+                                        time.perf_counter() - attempt_started,
+                                        6,
+                                    ),
+                                    totalElapsedSeconds=round(
+                                        time.perf_counter() - render_started_at,
+                                        6,
+                                    ),
+                                )
+                                chunk_error = None
+                                break
+                            except Exception as exc:
+                                chunk_error = exc
+                                logger.exception(
+                                    "capture_chunk_attempt_failed export_job_id=%s frames=%s-%s "
+                                    "attempt=%s/%s elapsed_seconds=%.6f",
+                                    export_job_id,
+                                    chunk_start,
+                                    chunk_end - 1,
+                                    attempt + 1,
+                                    capture_attempts,
+                                    time.perf_counter() - attempt_started,
+                                )
+                                if (
+                                    attempt + 1 >= capture_attempts
+                                    or not _looks_like_browser_disconnect(exc)
+                                ):
+                                    break
+                                await progress_callback(
+                                    "capturing",
+                                    _capture_progress(chunk_start, total_frames),
+                                    "Retrying caption capture chunk",
+                                )
+                            finally:
+                                await shutdown_renderer()
+                        if chunk_error is not None:
+                            await delete_range(chunk_start, chunk_end)
+                            raise ExportStageError(
+                                "frame_capture",
+                                f"Caption capture failed for frames {chunk_start}-{chunk_end - 1} "
+                                f"after {capture_attempts} attempts. Previously completed frames were preserved, "
+                                "but the export could not continue.",
+                                chunk_error,
+                            ) from chunk_error
+                        await progress_callback(
+                            "capturing",
+                            _capture_progress(chunk_end, total_frames),
+                            f"Capturing captions: {chunk_end}/{total_frames}",
+                        )
+
+                missing = [str(path) for path in frame_paths if not path.is_file()]
+                if missing:
+                    raise ExportStageError(
+                        "frame_capture",
+                        f"Caption capture checkpoint is incomplete ({len(missing)} files missing).",
+                    )
+
+                capture_elapsed = time.perf_counter() - capture_started
+                await shutdown_renderer()
+                await progress_callback("encoding", 82, "Encoding video...")
+                encoder = "h264_nvenc" if hardware_acceleration else "libx264"
+                ffmpeg_cmd = ["ffmpeg", "-y"]
+                if plan is not None:
+                    manifest_path = capture_root / "frames.ffconcat"
+                    manifest_text = _build_ffconcat_manifest(
+                        frame_paths,
+                        [segment.duration_frames for segment in plan],
+                        export_fps,
+                    )
+                    await asyncio.to_thread(
+                        manifest_path.write_text,
+                        manifest_text,
+                        "utf-8",
+                    )
+                    if is_captions_only:
+                        ffmpeg_cmd.extend(
+                            ["-f", "concat", "-safe", "0", "-i", str(manifest_path)]
+                        )
+                        if include_audio and media_exists:
+                            ffmpeg_cmd.extend(["-i", video_path])
+                        ffmpeg_cmd.extend(
+                            [
+                                "-map",
+                                "0:v:0",
+                                "-vf",
+                                f"fps={export_fps}",
+                                "-c:v",
+                                encoder,
+                                "-preset",
+                                resolve_ffmpeg_preset(
+                                    hardware_acceleration,
+                                    fastest=True,
+                                ),
+                            ]
+                        )
+                        audio_input = "1:a?"
+                    else:
+                        ffmpeg_cmd.extend(
+                            [
+                                "-i",
+                                video_path,
+                                "-f",
+                                "concat",
+                                "-safe",
+                                "0",
+                                "-i",
+                                str(manifest_path),
+                            ]
+                        )
+                        ffmpeg_cmd.extend(
+                            [
+                                "-filter_complex",
+                                build_full_video_filter_graph(
+                                    source_dimensions,
+                                    overlay_capture_dimensions,
+                                    (width, height),
+                                ),
+                                "-map",
+                                "[out]",
+                                "-r",
+                                str(export_fps),
+                                "-c:v",
+                                encoder,
+                                "-preset",
+                                resolve_ffmpeg_preset(
+                                    hardware_acceleration,
+                                    fastest=False,
+                                ),
+                            ]
+                        )
+                        audio_input = "0:a?"
+                elif is_captions_only:
+                    ffmpeg_cmd.extend(
+                        [
+                            "-framerate",
+                            str(export_fps),
+                            "-start_number",
+                            "0",
+                            "-i",
+                            str(capture_root / "frame_%06d.png"),
+                            "-c:v",
+                            encoder,
+                            "-preset",
+                            resolve_ffmpeg_preset(
+                                hardware_acceleration,
+                                fastest=True,
+                            ),
+                        ]
+                    )
+                    if include_audio and media_exists:
+                        ffmpeg_cmd.extend(["-i", video_path])
+                    audio_input = "1:a?"
+                else:
+                    ffmpeg_cmd.extend(
+                        [
+                            "-i",
+                            video_path,
+                            "-framerate",
+                            str(export_fps),
+                            "-start_number",
+                            "0",
+                            "-i",
+                            str(capture_root / "frame_%06d.png"),
+                            "-filter_complex",
+                            build_full_video_filter_graph(
+                                source_dimensions,
+                                overlay_capture_dimensions,
+                                (width, height),
+                            ),
+                            "-map",
+                            "[out]",
+                            "-c:v",
+                            encoder,
+                            "-preset",
+                            resolve_ffmpeg_preset(
+                                hardware_acceleration,
+                                fastest=False,
+                            ),
+                        ]
+                    )
+                    audio_input = "0:a?"
+
+                ffmpeg_cmd.extend(["-threads", str(ffmpeg_threads)])
+                if video_bitrate:
+                    ffmpeg_cmd.extend(["-b:v", video_bitrate])
+                else:
+                    ffmpeg_cmd.extend(
+                        ["-cq" if hardware_acceleration else "-crf", crf]
+                    )
+                if include_audio and media_exists:
+                    ffmpeg_cmd.extend(["-map", audio_input, "-c:a", "copy"])
+                else:
+                    ffmpeg_cmd.append("-an")
+                ffmpeg_cmd.extend(
+                    [
+                        "-t",
+                        f"{duration:.9f}",
+                        "-pix_fmt",
+                        "yuv420p",
+                        "-movflags",
+                        "+faststart",
+                        output_path,
+                    ]
+                )
+                _log_export_event(
+                    "checkpointed_ffmpeg_encode_started",
+                    exportJobId=export_job_id,
+                    command=" ".join(ffmpeg_cmd),
+                    captures=required_captures,
+                    captureSeconds=round(capture_elapsed, 6),
+                    totalElapsedSeconds=round(
+                        time.perf_counter() - render_started_at,
+                        6,
+                    ),
+                )
+                encode_started = time.perf_counter()
+                proc = await asyncio.create_subprocess_exec(
+                    *ffmpeg_cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _stdout, stderr = await proc.communicate()
+                encode_elapsed = time.perf_counter() - encode_started
+                if plan is not None:
+                    performance.sparse_encode_seconds += encode_elapsed
+                else:
+                    performance.ffmpeg_finalize_seconds += encode_elapsed
+                if proc.returncode != 0:
+                    raise ExportStageError(
+                        "ffmpeg_encode",
+                        f"FFmpeg failed while encoding the MP4 (exit {proc.returncode}). "
+                        f"{_tail(stderr.decode(errors='replace'))}".strip(),
+                    )
+                output = Path(output_path)
+                if not output.is_file() or output.stat().st_size <= 0:
+                    raise ExportStageError(
+                        "output_validation",
+                        "FFmpeg did not create a non-empty MP4.",
+                    )
+                await progress_callback("finalizing", 98, "Finalizing export...")
+                await progress_callback("export_complete", 100, "Done!")
+                await emit_performance_summary()
+                _log_export_event(
+                    "checkpointed_export_complete",
+                    exportJobId=export_job_id,
+                    captureSeconds=round(capture_elapsed, 6),
+                    encodeSeconds=round(encode_elapsed, 6),
+                    totalSeconds=round(
+                        time.perf_counter() - render_started_at,
+                        6,
+                    ),
+                )
+                return output_path
+            finally:
+                await shutdown_renderer()
+                await asyncio.to_thread(shutil.rmtree, capture_root, True)
+
+        return await run_checkpointed_export()
+
         async def run_sparse_export() -> str:
             plan_started = time.perf_counter()
             plan = build_sparse_caption_render_plan(
@@ -2015,48 +2521,6 @@ async def export_headless(
                 except Exception:
                     pass
 
-        async def retry_captions_stream(reason: str) -> str | None:
-            max_attempts = max(1, _int_env("EXPORT_STREAM_RETRIES", 2))
-            if not is_captions_only or _stream_attempt + 1 >= max_attempts:
-                return None
-            try:
-                Path(output_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-            logger.warning(
-                "captions_only_stream_retry export_job_id=%s attempt=%s/%s reason=%s",
-                export_job_id,
-                _stream_attempt + 2,
-                max_attempts,
-                reason,
-            )
-            return await export_headless(
-                job_id=job_id,
-                source_job_id=source_job_id,
-                video_path=video_path,
-                captions_json=captions_json,
-                theme=theme,
-                resolution=resolution,
-                progress_callback=progress_callback,
-                style_config_json=style_config_json,
-                export_width=export_width,
-                export_height=export_height,
-                export_fps=export_fps,
-                include_audio=include_audio,
-                quality=quality,
-                bitrate=bitrate,
-                custom_bitrate_mbps=custom_bitrate_mbps,
-                export_mode=export_mode,
-                background_color=background_color,
-                duration_override=duration_override,
-                duration_source=duration_source,
-                hardware_acceleration=hardware_acceleration,
-                composition_json=composition_json,
-                queue_wait_seconds=queue_wait_seconds,
-                performance_callback=performance_callback,
-                _stream_attempt=_stream_attempt + 1,
-            )
-
         # Capture frames
         last_pct = 5
         frame_idx = 0
@@ -2234,9 +2698,6 @@ async def export_headless(
 
         if frame_stream_error is not None:
             await shutdown_renderer()
-            retried = await retry_captions_stream(str(frame_stream_error))
-            if retried is not None:
-                return retried
             try:
                 Path(output_path).unlink(missing_ok=True)
             except OSError:
@@ -2254,9 +2715,6 @@ async def export_headless(
             stderr_text = _tail(b"".join(stderr_chunks).decode(errors="replace"))
             logger.error("FFmpeg failed (exit %s): %s", ffmpeg_proc.returncode, stderr_text)
             await shutdown_renderer()
-            retried = await retry_captions_stream(stderr_text)
-            if retried is not None:
-                return retried
             try:
                 Path(output_path).unlink(missing_ok=True)
             except OSError:

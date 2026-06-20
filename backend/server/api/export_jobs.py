@@ -433,9 +433,14 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
         )
         await _broadcast_progress(running_job)
 
+        highest_progress = 1
+
         async def progress_cb(status: str, percent: int, details: str):
+            nonlocal highest_progress
             stage = _stage_from_progress(status, details)
-            progress = max(0, min(99, int(percent)))
+            requested_progress = max(0, min(99, int(percent)))
+            progress = max(highest_progress, requested_progress)
+            highest_progress = progress
             job = await _set_job(
                 export_job_id,
                 status="running",
