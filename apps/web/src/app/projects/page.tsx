@@ -68,6 +68,7 @@ import { RenameProjectDialog } from "@/project/components/rename-project-dialog"
 import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { useExpiredProjectCleanup } from "@/capinsta/useExpiredProjectCleanup";
+import { AccountMenu } from "@/components/auth/account-menu";
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -187,6 +188,7 @@ function ProjectsHeader() {
 				<div className="flex items-center gap-3 md:gap-4">
 					<SearchBar className="hidden md:block" />
 					<NewProjectButton />
+					<AccountMenu compact />
 				</div>
 			</div>
 			<SearchBar className="block md:hidden mb-4" />

@@ -130,9 +130,14 @@ def test_heartbeat_renews_job_and_related_export(tmp_path, monkeypatch):
     assert project_cleanup.parse_utc(lease["expires_at"]) > now + timedelta(minutes=14)
 
 
-def test_expired_job_and_video_endpoints_return_gone(tmp_path):
+def test_expired_job_and_video_endpoints_return_gone(tmp_path, monkeypatch):
     db_path = tmp_path / "jobs.sqlite"
     now = datetime.now(timezone.utc)
+
+    async def get_test_job(db, job_id):
+        return await (await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))).fetchone()
+
+    monkeypatch.setattr(jobs_api, "get_owned_job", get_test_job)
 
     async def arrange_and_call():
         await _create_test_db(db_path)

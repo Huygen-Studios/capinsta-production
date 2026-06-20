@@ -24,6 +24,8 @@ COPY apps/web/ apps/web/
 COPY backend/scripts/package_render_artifact.mjs backend/scripts/package_render_artifact.mjs
 
 ARG NEXT_PUBLIC_SITE_URL=https://capinsta.huygenstudios.com
+ARG NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder
 ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
 ARG MARBLE_WORKSPACE_KEY=build-placeholder
 ARG NEXT_PUBLIC_ENABLE_AI_CAPTIONS=true
@@ -32,10 +34,11 @@ ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=https://api.capinsta.huygenstudios.com
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-ENV BETTER_AUTH_SECRET="build-time-placeholder-secret-not-used-at-runtime"
 ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
 ENV UPSTASH_REDIS_REST_TOKEN="build-time-placeholder-token"
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_MARBLE_API_URL=$NEXT_PUBLIC_MARBLE_API_URL
 ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS=$NEXT_PUBLIC_ENABLE_AI_CAPTIONS

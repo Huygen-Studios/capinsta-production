@@ -25,6 +25,7 @@ async def init_db():
                 ,expires_at TEXT
                 ,deleted_at TEXT
                 ,delete_reason TEXT
+                ,user_id TEXT
             )
         ''')
         await db.commit()
@@ -42,7 +43,7 @@ async def init_db():
         except Exception:
             pass  # Column already exists
 
-        for column in ("last_seen_at TEXT", "expires_at TEXT", "deleted_at TEXT", "delete_reason TEXT"):
+        for column in ("last_seen_at TEXT", "expires_at TEXT", "deleted_at TEXT", "delete_reason TEXT", "user_id TEXT"):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
                 await db.commit()
@@ -71,16 +72,25 @@ async def init_db():
                 ,expires_at TEXT
                 ,deleted_at TEXT
                 ,delete_reason TEXT
+                ,user_id TEXT
             )
         ''')
         await db.commit()
 
-        for column in ("expires_at TEXT", "deleted_at TEXT", "delete_reason TEXT"):
+        for column in ("expires_at TEXT", "deleted_at TEXT", "delete_reason TEXT", "user_id TEXT"):
             try:
                 await db.execute(f"ALTER TABLE export_jobs ADD COLUMN {column}")
                 await db.commit()
             except Exception:
                 pass
+
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_user_id_created_at ON jobs (user_id, created_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_export_jobs_user_id_created_at ON export_jobs (user_id, created_at)"
+        )
+        await db.commit()
 
 async def get_db():
     db = await aiosqlite.connect(str(DB_PATH))

@@ -25,7 +25,8 @@ if ffmpeg_exe and os.path.exists(ffmpeg_exe):
 # 2. Add project root to path so `ai_pipeline` can be imported
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
@@ -36,6 +37,7 @@ from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
 from .api import captions, health, jobs, export_jobs
 from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR
+from .auth import authenticate_request, reset_current_user, set_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,23 @@ app = FastAPI(
     version="5.0.0",
     lifespan=lifespan
 )
+
+PROTECTED_API_PREFIXES = ("/api/jobs", "/api/export/jobs", "/api/captions/jobs")
+
+
+@app.middleware("http")
+async def require_supabase_auth(request: Request, call_next):
+    if not request.url.path.startswith(PROTECTED_API_PREFIXES):
+        return await call_next(request)
+    try:
+        user = authenticate_request(request)
+    except HTTPException:
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    context_token = set_current_user(user)
+    try:
+        return await call_next(request)
+    finally:
+        reset_current_user(context_token)
 
 # CORS configuration for Frontend interaction
 default_origins = [

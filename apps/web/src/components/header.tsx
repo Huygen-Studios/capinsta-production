@@ -13,6 +13,7 @@ import {
 	GithubIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { AccountMenu } from "@/components/auth/account-menu";
 
 const NAV_LINKS = [
 	{ label: "Features", href: ROUTES.features },
@@ -68,6 +69,7 @@ export function Header() {
 							</Button>
 						</Link>
 					</div>
+					<AccountMenu compact />
 					<ThemeToggle />
 					{/* Mobile hamburger */}
 					<Button

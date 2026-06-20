@@ -6,6 +6,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..database import get_db
+from ..auth import get_owned_job
 from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_aligned_words_from_segments
 from ai_pipeline.sync.high_quality import high_quality_alignment_status
 from ai_pipeline.timing import DEFAULT_PAUSE_SPLIT_THRESHOLD, build_timing_report, classify_caption_gaps, normalize_timing_source
@@ -61,10 +62,7 @@ async def timing_debug(
     current_time: float | None = Query(None, alias="currentTime"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
 
     transcript = _load_json(row["transcript_json"] if "transcript_json" in row.keys() else None, None)
     segments = []

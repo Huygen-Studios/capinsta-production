@@ -16,6 +16,7 @@ import type {
 import { validateCapinstaTranscriptV1 } from "./adapter"
 import { CAPINSTA_PRESET_IDS } from "./styles/presetRegistry"
 import type { CapinstaCaptionPresetId } from "./styles/styleTypes"
+import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch"
 
 export class CapinstaApiError extends Error {
   constructor(
@@ -82,11 +83,11 @@ export async function startCapinstaCaptionJob({
     languageMode,
   })
 
-  const response = await fetchImpl(joinUrl(baseUrl, "/api/jobs"), {
+  const response = await authenticatedFetch(joinUrl(baseUrl, "/api/jobs"), {
     method: "POST",
     body: formData,
     signal,
-  })
+  }, fetchImpl)
   const job = await readJsonResponse<CapinstaJobCreateResponse>(response)
   console.debug("[Capinsta captions] Job creation response", job)
   return job
@@ -103,9 +104,9 @@ export async function getCapinstaJob({
   fetchImpl?: typeof fetch
   signal?: AbortSignal
 }): Promise<CapinstaJobDetailResponse> {
-  const response = await fetchImpl(joinUrl(baseUrl, `/api/jobs/${jobId}`), {
+  const response = await authenticatedFetch(joinUrl(baseUrl, `/api/jobs/${jobId}`), {
     signal,
-  })
+  }, fetchImpl)
   const job = await readJsonResponse<CapinstaJobDetailResponse>(response)
   console.debug("[Capinsta captions] Job detail response", {
     jobId,
@@ -127,9 +128,9 @@ export async function cancelCapinstaJob({
   jobId: string
   fetchImpl?: typeof fetch
 }): Promise<CapinstaJobCreateResponse> {
-  const response = await fetchImpl(joinUrl(baseUrl, `/api/jobs/${jobId}/cancel`), {
+  const response = await authenticatedFetch(joinUrl(baseUrl, `/api/jobs/${jobId}/cancel`), {
     method: "POST",
-  })
+  }, fetchImpl)
   return readJsonResponse<CapinstaJobCreateResponse>(response)
 }
 
@@ -175,10 +176,10 @@ export async function sendCapinstaProjectHeartbeat({
   signal?: AbortSignal
 }): Promise<{ job_id: string; last_seen_at: string; expires_at: string }> {
   if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing")
-  const response = await fetchImpl(joinUrl(baseUrl, `/api/jobs/${jobId}/heartbeat`), {
+  const response = await authenticatedFetch(joinUrl(baseUrl, `/api/jobs/${jobId}/heartbeat`), {
     method: "POST",
     signal,
-  })
+  }, fetchImpl)
   return readJsonResponse(response)
 }
 

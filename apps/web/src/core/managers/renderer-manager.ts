@@ -1,5 +1,6 @@
 import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
+import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import type { ExportOptions, ExportResult } from "@/export";
 import { normalizeExportError } from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
@@ -385,7 +386,7 @@ export class RendererManager {
 				const apiBase = getCapinstaApiBaseUrl() || "http://localhost:8000";
 				onProgress?.({ progress: 0.05 });
 
-				const response = await fetch(`${apiBase}/api/export/jobs`, {
+				const response = await authenticatedFetch(`${apiBase}/api/export/jobs`, {
 					method: "POST",
 					body: formData,
 				});
@@ -424,7 +425,7 @@ export class RendererManager {
 
 					await new Promise((resolve) => setTimeout(resolve, 1500));
 
-					const pollRes = await fetch(statusUrl);
+					const pollRes = await authenticatedFetch(statusUrl);
 					if (!pollRes.ok) {
 						pollError = `Status check failed with HTTP ${pollRes.status}`;
 						break;
@@ -459,7 +460,7 @@ export class RendererManager {
 
 				// 6. Fetch output file and return as ArrayBuffer
 				onProgress?.({ progress: 0.98 });
-				const fileRes = await fetch(`${apiBase}${downloadUrl}`);
+				const fileRes = await authenticatedFetch(`${apiBase}${downloadUrl}`);
 				if (!fileRes.ok) {
 					return {
 						success: false,

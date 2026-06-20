@@ -28,6 +28,7 @@ from ..settings import (
     ensure_runtime_dirs,
 )
 from .jobs import _public_export_stage, _resolve_export_dimensions
+from ..auth import current_user, get_owned_job
 
 
 router = APIRouter(prefix="/export/jobs", tags=["export"])
@@ -60,6 +61,7 @@ _EXPORT_JOB_COLUMNS = (
     "expires_at",
     "deleted_at",
     "delete_reason",
+    "user_id",
 )
 
 
@@ -114,6 +116,7 @@ class ExportJobStatus:
     expires_at: str | None = None
     deleted_at: str | None = None
     delete_reason: str | None = None
+    user_id: str = ""
 
     def to_public_dict(self) -> dict[str, object]:
         return {
@@ -163,6 +166,7 @@ def _job_db_values(job: ExportJobStatus) -> tuple[object, ...]:
         job.expires_at,
         job.deleted_at,
         job.delete_reason,
+        job.user_id,
     )
 
 
@@ -188,6 +192,7 @@ def _job_from_row(row: aiosqlite.Row) -> ExportJobStatus:
         expires_at=row["expires_at"],
         deleted_at=row["deleted_at"],
         delete_reason=row["delete_reason"],
+        user_id=row["user_id"],
     )
 
 
@@ -207,20 +212,23 @@ async def _persist_job(job: ExportJobStatus) -> None:
         await db.commit()
 
 
-async def _load_job_from_db(export_job_id: str) -> ExportJobStatus | None:
+async def _load_job_from_db(export_job_id: str, user_id: str) -> ExportJobStatus | None:
     async with aiosqlite.connect(str(DB_PATH)) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT * FROM export_jobs WHERE id = ?", (export_job_id,))
+        cursor = await db.execute(
+            "SELECT * FROM export_jobs WHERE id = ? AND user_id = ?",
+            (export_job_id, user_id),
+        )
         row = await cursor.fetchone()
     return _job_from_row(row) if row else None
 
 
-async def _load_recent_jobs_from_db(limit: int = 50) -> list[ExportJobStatus]:
+async def _load_recent_jobs_from_db(user_id: str, limit: int = 50) -> list[ExportJobStatus]:
     async with aiosqlite.connect(str(DB_PATH)) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT * FROM export_jobs ORDER BY created_at DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM export_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit),
         )
         rows = await cursor.fetchall()
     return [_job_from_row(row) for row in rows]
@@ -623,9 +631,9 @@ async def start_export_job(
             status_code=400,
         )
 
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (source_job_id,))
-    row = await cursor.fetchone()
-    if not row:
+    try:
+        row = await get_owned_job(db, source_job_id)
+    except HTTPException:
         return JSONResponse(
             {"success": False, "stage": "validate_project", "error": "Source caption job was not found."},
             status_code=404,
@@ -691,6 +699,7 @@ async def start_export_job(
             height=export_height,
             fps=export_fps,
             expires_at=row["expires_at"],
+            user_id=current_user().id,
         )
         _jobs[export_job_id] = queued_job
     await _persist_job(queued_job)
@@ -718,7 +727,7 @@ async def start_export_job(
 @router.get("")
 @router.get("/")
 async def list_export_jobs():
-    jobs = await _load_recent_jobs_from_db(50)
+    jobs = await _load_recent_jobs_from_db(current_user().id, 50)
     return [job.to_public_dict() for job in jobs]
 
 
@@ -730,29 +739,22 @@ async def download_export_file(
         """
         SELECT e.*, j.deleted_at AS source_deleted_at, j.status AS source_status
         FROM export_jobs e JOIN jobs j ON j.id = e.source_job_id
-        WHERE e.filename = ? OR e.output_path LIKE ?
+        WHERE (e.filename = ? OR e.output_path LIKE ?) AND e.user_id = ?
         ORDER BY e.created_at DESC LIMIT 1
         """,
-        (Path(filename).name, f"%{Path(filename).name}"),
+        (Path(filename).name, f"%{Path(filename).name}", current_user().id),
     )
     row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Export file was not found or has expired.")
     if row and (
         is_deleted_row(row)
         or row["source_deleted_at"]
         or row["source_status"] == "expired"
     ):
         raise HTTPException(status_code=410, detail=EXPIRED_MESSAGE)
-    source_cursor = await db.execute(
-        """
-        SELECT * FROM jobs
-        WHERE substr(?, 1, length(id) + 1) = id || '_'
-        ORDER BY length(id) DESC LIMIT 1
-        """,
-        (Path(filename).name,),
-    )
-    source_row = await source_cursor.fetchone()
-    if source_row:
-        await ensure_project_available(source_row, db)
+    source_row = await get_owned_job(db, row["source_job_id"])
+    await ensure_project_available(source_row, db)
     file_path = _resolve_export_file(filename)
     return FileResponse(
         file_path,
@@ -770,16 +772,20 @@ async def download_export_file(
 async def get_export_job(
     export_job_id: str, db: aiosqlite.Connection = Depends(get_db)
 ):
-    cursor = await db.execute("SELECT * FROM export_jobs WHERE id = ?", (export_job_id,))
+    user_id = current_user().id
+    cursor = await db.execute(
+        "SELECT * FROM export_jobs WHERE id = ? AND user_id = ?",
+        (export_job_id, user_id),
+    )
     persisted = await cursor.fetchone()
     if persisted and is_deleted_row(persisted):
         raise HTTPException(status_code=410, detail=EXPIRED_MESSAGE)
     async with _jobs_lock:
         job = _jobs.get(export_job_id)
-        if job:
+        if job and job.user_id == user_id:
             return job.to_public_dict()
 
-    job = await _load_job_from_db(export_job_id)
+    job = await _load_job_from_db(export_job_id, user_id)
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found")
 

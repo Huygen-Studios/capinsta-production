@@ -37,6 +37,8 @@ COPY apps/web/ apps/web/
 # client bundle at build time, so it must be a build ARG. Defaults are safe
 # placeholders; Coolify/CI can override via --build-arg.
 ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
+ARG NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder
 ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
 ARG MARBLE_WORKSPACE_KEY=build-placeholder
 # Caption generation is a core Capinsta feature. Keep it visible unless a
@@ -52,12 +54,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # (DATABASE_URL, BETTER_AUTH_SECRET, UPSTASH_*, real MARBLE_WORKSPACE_KEY) are
 # injected at runtime via Coolify environment variables.
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-ENV BETTER_AUTH_SECRET="build-time-placeholder-secret-not-used-at-runtime"
 ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
 ENV UPSTASH_REDIS_REST_TOKEN="build-time-placeholder-token"
 
 # Forward public build args into the build environment.
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_MARBLE_API_URL=$NEXT_PUBLIC_MARBLE_API_URL
 ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS=$NEXT_PUBLIC_ENABLE_AI_CAPTIONS
 ENV NEXT_PUBLIC_CAPINSTA_API_BASE_URL=$NEXT_PUBLIC_CAPINSTA_API_BASE_URL

@@ -69,6 +69,23 @@ class StorageService {
 		});
 	}
 
+	setUserScope({ userId }: { userId: string }): void {
+		const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, "");
+		const projectsDb = `video-editor-projects-${safeUserId}`;
+		if (this.config.projectsDb === projectsDb) return;
+		this.config = {
+			...this.config,
+			projectsDb,
+			mediaDb: `video-editor-media-${safeUserId}`,
+		};
+		this.projectsAdapter = new IndexedDBAdapter<SerializedProject>({
+			dbName: this.config.projectsDb,
+			storeName: "projects",
+			version: this.config.version,
+		});
+		this.migrationsPromise = null;
+	}
+
 	private async ensureMigrations(): Promise<void> {
 		if (this.migrationsPromise) {
 			await this.migrationsPromise;

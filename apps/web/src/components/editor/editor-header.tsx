@@ -32,6 +32,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "../ui/alert-dialog";
+import { AccountMenu } from "@/components/auth/account-menu";
 
 export function EditorHeader() {
 	return (
@@ -44,6 +45,7 @@ export function EditorHeader() {
 				<FeedbackPopover />
 				<ExportButton />
 				<ThemeToggle />
+				<AccountMenu compact />
 			</nav>
 		</header>
 	);

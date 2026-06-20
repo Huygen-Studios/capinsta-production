@@ -21,6 +21,7 @@ from ..progress import manager
 from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, UPLOAD_DIR, ensure_runtime_dirs
 from ..project_cleanup import ensure_project_available, heartbeat_project, iso_utc, project_expiry
 from ..worker_startup import start_pipeline_worker
+from ..auth import current_user, get_owned_job, verify_access_token
 from ai_pipeline.renderer import generate_srt, generate_vtt
 from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_aligned_words_from_segments
 from ai_pipeline.sync.affine import retime_segments
@@ -195,7 +196,7 @@ async def _persist_synced_segments(
         """
         UPDATE jobs
         SET segments_json = ?, transcript_json = ?, srt_content = ?, vtt_content = ?
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
         """,
         (
             json.dumps(segments, ensure_ascii=False),
@@ -203,6 +204,7 @@ async def _persist_synced_segments(
             srt,
             vtt,
             job_id,
+            current_user().id,
         ),
     )
     await db.commit()
@@ -331,10 +333,10 @@ async def create_job(
         await db.execute(
             """
             INSERT INTO jobs
-                (id, status, filename, target_lang, created_at, last_seen_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (id, status, filename, target_lang, created_at, last_seen_at, expires_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (job_id, "queued", filename, normalized_mode, now_text, now_text, expires_text),
+            (job_id, "queued", filename, normalized_mode, now_text, now_text, expires_text, current_user().id),
         )
         await db.commit()
 
@@ -362,7 +364,10 @@ async def create_job(
 @router.get("/", response_model=List[JobDetailResponse])
 async def list_jobs(db: aiosqlite.Connection = Depends(get_db)):
     """List all recent jobs."""
-    cursor = await db.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50")
+    cursor = await db.execute(
+        "SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+        (current_user().id,),
+    )
     rows = await cursor.fetchall()
     
     jobs = []
@@ -383,11 +388,7 @@ async def list_jobs(db: aiosqlite.Connection = Depends(get_db)):
 @router.get("/{job_id}", response_model=JobDetailResponse)
 async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     """Get detailed state of a specific job, including output blocks."""
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    r = await cursor.fetchone()
-    
-    if not r:
-        raise HTTPException(status_code=404, detail="Job not found")
+    r = await get_owned_job(db, job_id)
     await ensure_project_available(r, db)
         
     # Parse segments from JSON
@@ -430,15 +431,13 @@ async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
 @router.post("/{job_id}/heartbeat")
 async def heartbeat_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     """Refresh the backend-enforced inactivity lease for an open editor."""
+    await get_owned_job(db, job_id)
     return await heartbeat_project(job_id, db)
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
 async def cancel_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
 
     if row["status"] == "completed":
         raise HTTPException(status_code=409, detail="Completed jobs cannot be cancelled.")
@@ -450,9 +449,9 @@ async def cancel_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
             progress = -1,
             error = 'Cancelled by user',
             completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
+        WHERE id = ? AND user_id = ?
         """,
-        (job_id,),
+        (job_id, current_user().id),
     )
     await db.commit()
     await manager.broadcast_progress(job_id, "cancelled", -1, "Cancelled by user.")
@@ -474,10 +473,7 @@ async def get_job_timing_debug(
     current_time: float | None = Query(None, alias="currentTime"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
 
     transcript = _load_json(row["transcript_json"] if "transcript_json" in row.keys() else None, None)
     segments = transcript.get("segments") if isinstance(transcript, dict) else None
@@ -527,10 +523,7 @@ async def get_job_timing_debug(
 
 @router.post("/{job_id}/sync/preview")
 async def preview_sync(job_id: str, request: SyncRequest, db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
     segments = _load_json(row["segments_json"], [])
     before_words = _flatten_word_debug(segments)
     result = retime_segments(
@@ -554,10 +547,7 @@ async def preview_sync(job_id: str, request: SyncRequest, db: aiosqlite.Connecti
 
 @router.post("/{job_id}/sync/apply")
 async def apply_sync(job_id: str, request: SyncRequest, db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
     segments = _load_json(row["segments_json"], [])
     result = retime_segments(
         segments,
@@ -576,10 +566,7 @@ async def apply_sync(job_id: str, request: SyncRequest, db: aiosqlite.Connection
 
 @router.post("/{job_id}/sync/auto")
 async def auto_sync(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
     video_path = _video_path_for_row(job_id, row)
     if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Original media file not found for auto sync")
@@ -611,10 +598,7 @@ async def auto_sync(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
 
 @router.post("/{job_id}/sync/high-quality-align")
 async def high_quality_align(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    row = await cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
+    row = await get_owned_job(db, job_id)
     video_path = _video_path_for_row(job_id, row)
     if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Original media file not found for high quality alignment")
@@ -657,10 +641,7 @@ async def get_video(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     """Stream the uploaded video file for browser playback."""
     from fastapi.responses import FileResponse
     
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    r = await cursor.fetchone()
-    if not r:
-        raise HTTPException(status_code=404, detail="Job not found")
+    r = await get_owned_job(db, job_id)
     await ensure_project_available(r, db)
     
     file_path = str(UPLOAD_DIR / f"{job_id}_{r['filename']}")
@@ -718,9 +699,9 @@ async def export_video(
     if duration_source is None and duration_mode is not None:
         duration_source = duration_mode
     
-    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))
-    r = await cursor.fetchone()
-    if not r:
+    try:
+        r = await get_owned_job(db, job_id)
+    except HTTPException:
         return _export_failure("validate_project", "Job not found.", response_format, 404)
     await ensure_project_available(r, db)
 
@@ -976,6 +957,21 @@ async def websocket_endpoint(websocket: WebSocket, job_id: str):
     """
     WebSocket endpoint for real-time progress updates of a specific job.
     """
+    token = websocket.query_params.get("access_token", "")
+    try:
+        user = verify_access_token(token)
+    except HTTPException:
+        await websocket.close(code=4401)
+        return
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT 1 FROM jobs WHERE id = ? AND user_id = ?",
+            (job_id, user.id),
+        )
+        if not await cursor.fetchone():
+            await websocket.close(code=4404)
+            return
     await manager.connect(websocket, job_id)
     try:
         while True:

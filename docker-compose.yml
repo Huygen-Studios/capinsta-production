@@ -62,8 +62,9 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://opencut:opencut@db:5432/opencut
-      - BETTER_AUTH_SECRET=your-production-secret-key-here
       - UPSTASH_REDIS_REST_URL=http://serverless-redis-http:80
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - UPSTASH_REDIS_REST_TOKEN=example_token
       - NEXT_PUBLIC_SITE_URL=http://localhost:3100
       - NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
