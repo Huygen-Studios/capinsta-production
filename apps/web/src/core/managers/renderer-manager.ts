@@ -334,16 +334,6 @@ export class RendererManager {
 							.filter((word) => word !== undefined),
 					})),
 				);
-				const composition = {
-					project: activeProject,
-					mediaAssets: mediaAssets.map((asset) => ({
-						id: asset.id,
-						name: asset.name,
-						type: asset.type,
-						mimeType: asset.file?.type || asset.mimeType,
-					})),
-				};
-
 				const formData = new FormData();
 				formData.append("source_job_id", sourceJobId);
 				formData.append("captions_json", captionsJson);
@@ -399,7 +389,6 @@ export class RendererManager {
 				const durationSeconds = duration / TICKS_PER_SECOND;
 				formData.append("duration_override", durationSeconds.toString());
 				formData.append("duration_source", "frontend");
-				formData.append("composition_json", JSON.stringify(composition));
 				formData.append("render_mode", "headless");
 
 				// 4. Send POST request to start export job

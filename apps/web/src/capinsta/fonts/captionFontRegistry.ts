@@ -122,6 +122,21 @@ export function normalizeCapinstaFontWeight(
 	return Math.max(100, Math.min(900, Math.round(weight / 100) * 100));
 }
 
+export function resolveCaptionFontBaseUrl({
+	configuredBase,
+	locationOrigin,
+	locationPathname,
+}: {
+	configuredBase: string;
+	locationOrigin: string;
+	locationPathname: string;
+}): string {
+	const isHeadlessRenderPage = locationPathname.endsWith("/render.html");
+	return isHeadlessRenderPage
+		? locationOrigin
+		: configuredBase || locationOrigin;
+}
+
 export function getCapinstaFontAssetUrl({
 	definition,
 	weight,
@@ -138,8 +153,13 @@ export function getCapinstaFontAssetUrl({
 	if (!source) return null;
 	const configuredBase = getCapinstaApiBaseUrl();
 	const base =
-		configuredBase ||
-		(typeof window !== "undefined" ? window.location.origin : "");
+		typeof window !== "undefined"
+			? resolveCaptionFontBaseUrl({
+					configuredBase,
+					locationOrigin: window.location.origin,
+					locationPathname: window.location.pathname,
+				})
+			: configuredBase;
 	return `${base}/caption-fonts/${source
 		.split("/")
 		.map((part) => encodeURIComponent(part))

@@ -3,6 +3,7 @@ import { getCapinstaPresetStyle } from "@/capinsta/styles/presetRegistry";
 import {
 	CAPINSTA_FONT_REGISTRY,
 	normalizeCapinstaFontWeight,
+	resolveCaptionFontBaseUrl,
 	resolveCapinstaFont,
 } from "./captionFontRegistry";
 
@@ -28,5 +29,22 @@ describe("Capinsta caption font registry", () => {
 		expect(normalizeCapinstaFontWeight("bold")).toBe(700);
 		expect(normalizeCapinstaFontWeight(875)).toBe(900);
 		expect(CAPINSTA_FONT_REGISTRY.length).toBeGreaterThan(1);
+	});
+
+	test("headless render pages load fonts from their own backend origin", () => {
+		expect(
+			resolveCaptionFontBaseUrl({
+				configuredBase: "https://api.capinsta.huygenstudios.com",
+				locationOrigin: "http://127.0.0.1:10000",
+				locationPathname: "/render.html",
+			}),
+		).toBe("http://127.0.0.1:10000");
+		expect(
+			resolveCaptionFontBaseUrl({
+				configuredBase: "https://api.capinsta.huygenstudios.com",
+				locationOrigin: "https://capinsta.huygenstudios.com",
+				locationPathname: "/editor/project",
+			}),
+		).toBe("https://api.capinsta.huygenstudios.com");
 	});
 });
