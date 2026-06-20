@@ -121,9 +121,9 @@ describe("renderColor", () => {
 			).toBe(CAPTIONS_ONLY_DEFAULT_BACKGROUND);
 		});
 
-		test("full_video mode: valid hex passes through", () => {
+		test("full_video mode: background selection cannot cover the source", () => {
 			expect(resolveRenderBackground("full_video", "#101010")).toBe(
-				"#101010",
+				"transparent",
 			);
 		});
 
@@ -132,7 +132,7 @@ describe("renderColor", () => {
 		});
 
 		test("null renderMode treated as full_video", () => {
-			expect(resolveRenderBackground(null, "#00FF00")).toBe("#00FF00");
+			expect(resolveRenderBackground(null, "#00FF00")).toBe("transparent");
 			expect(resolveRenderBackground(null, null)).toBe("transparent");
 		});
 	});

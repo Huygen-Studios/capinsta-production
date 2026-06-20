@@ -1,6 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+
+export function isRenderPath(pathname: string): boolean {
+	return (
+		pathname === "/render" ||
+		pathname === "/render.html" ||
+		pathname.startsWith("/render/")
+	);
+}
 
 /**
  * Gate that prevents application-only UI from mounting on the headless
@@ -20,13 +29,20 @@ import { usePathname } from "next/navigation";
  */
 export function RenderRouteExclusions({ children }: { children: React.ReactNode }) {
 	const pathname = usePathname();
+	const [mounted, setMounted] = useState(false);
+
+	useEffect(() => {
+		setMounted(true);
+	}, []);
 
 	// The render route is always exactly "/render" — never nested. We also
 	// support a headless query marker for edge cases.
-	const isRenderRoute =
-		pathname === "/render" || pathname.startsWith("/render?") || pathname.startsWith("/render#");
+	const isRenderRoute = isRenderPath(pathname);
 
-	if (isRenderRoute) {
+	// Do not server-render application chrome here. Apart from keeping /render
+	// sterile, this avoids a hydration mismatch where the server emits a cookie
+	// dialog but the client immediately removes it after learning the pathname.
+	if (!mounted || isRenderRoute) {
 		return null;
 	}
 

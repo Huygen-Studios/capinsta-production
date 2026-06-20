@@ -212,7 +212,7 @@ export function createCapinstaRenderModelFromIndex({
 export function createCapinstaRenderModelFromIndexedRecord({
 	indexedRecord,
 	clip,
-	timeSeconds,
+	activeWordIds,
 	rendererPath,
 	viewport,
 	skippedOpenCutTextIds,
@@ -220,16 +220,12 @@ export function createCapinstaRenderModelFromIndexedRecord({
 }: {
 	indexedRecord: CapinstaCaptionTimingIndexRecord;
 	clip: NeutralCaptionClip;
-	timeSeconds: number;
+	activeWordIds: string[];
 	rendererPath: CapinstaRendererPath;
 	viewport?: CaptionCanvasSize;
 	skippedOpenCutTextIds?: string[];
 	skippedCapinstaTrackIds?: string[];
 }): CapinstaRenderModel {
-	const activeWordIds = clip.wordIds.filter((wordId) => {
-		const word = indexedRecord.wordsById.get(wordId);
-		return Boolean(word && word.start <= timeSeconds && timeSeconds < word.end);
-	});
 	return buildModel({
 		record: indexedRecord.record,
 		document: indexedRecord.record.document,

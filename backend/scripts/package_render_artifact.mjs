@@ -4,6 +4,7 @@ import {
 	mkdir,
 	readFile,
 	readdir,
+	rm,
 	stat,
 	writeFile,
 } from "node:fs/promises";
@@ -41,6 +42,9 @@ async function listFiles(directory) {
 	return files;
 }
 
+// Build into a clean directory so removed/renamed hashed chunks cannot survive
+// from an older artifact and accidentally satisfy marker validation.
+await rm(outputDir, { recursive: true, force: true });
 await mkdir(path.join(outputDir, "_next"), { recursive: true });
 await cp(sourceHtml, outputHtml);
 await cp(path.join(nextDir, "static"), path.join(outputDir, "_next", "static"), {

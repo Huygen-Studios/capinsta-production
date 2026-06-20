@@ -13,12 +13,26 @@ import {
 } from "../originalAdapter";
 import type { CapinstaRenderModel } from "./capinstaRenderModel";
 
+export type CapinstaRenderMode = "preview" | "export";
+
+export function resolveCaptionTransition({
+	renderMode,
+	isPlaying,
+}: {
+	renderMode: CapinstaRenderMode;
+	isPlaying: boolean;
+}): boolean {
+	return renderMode === "export" ? false : !isPlaying;
+}
+
 export const CapinstaCaptionRenderer = memo(function CapinstaCaptionRenderer({
 	renderModel,
 	document,
 	clip,
 	timeSeconds,
 	isPlaying,
+	renderMode = "preview",
+	fps,
 	viewport,
 }: {
 	renderModel?: CapinstaRenderModel;
@@ -27,6 +41,8 @@ export const CapinstaCaptionRenderer = memo(function CapinstaCaptionRenderer({
 	activeWordIds: string[];
 	timeSeconds: number;
 	isPlaying?: boolean;
+	renderMode?: CapinstaRenderMode;
+	fps?: number;
 	viewport?: { width: number; height: number };
 }) {
 	const style = useMemo(
@@ -73,9 +89,12 @@ export const CapinstaCaptionRenderer = memo(function CapinstaCaptionRenderer({
 		<OriginalCaptionRenderer
 			captions={captions}
 			currentTime={timeSeconds}
-			fps={isPlaying ? 12 : 30}
+			fps={renderMode === "export" ? Math.max(1, fps ?? 30) : isPlaying ? 12 : 30}
 			scale={1}
-			transition={!isPlaying}
+			transition={resolveCaptionTransition({
+				renderMode,
+				isPlaying: Boolean(isPlaying),
+			})}
 			styleConfig={originalStyleConfig}
 			canvasSize={canvasSize}
 		/>

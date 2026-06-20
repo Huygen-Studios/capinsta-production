@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CapinstaCaptionRenderer } from "@/capinsta/render/CapinstaCaptionRenderer";
-import { createCapinstaRenderModelFromIndex } from "@/capinsta/render/capinstaRenderModel";
+import { createCapinstaRenderModelFromIndexedRecord } from "@/capinsta/render/capinstaRenderModel";
 import {
 	createCapinstaCaptionTimingIndex,
 	getActiveCapinstaCaptionStateFromIndex,
@@ -43,6 +43,16 @@ declare global {
 		__EXPORT_APPLIED_RENDER_MODE__: string | null;
 		/** Output dimensions applied to the composition root. */
 		__EXPORT_OUTPUT_SIZE__: { width: number; height: number } | null;
+		__EXPORT_RENDER_METRICS__: {
+			timingIndexBuilds: number;
+			renderModelBuilds: number;
+			diagnosticBuilds: number;
+		};
+		__CAPSTA_ACTIVE_FRAME_INFO__: {
+			activeCaptionId: string;
+			activeWordId: string;
+			captionText: string;
+		} | null;
 		setCaptionData(
 			captionsJson: string,
 			theme: string,
@@ -139,6 +149,45 @@ export function RenderPageClient() {
 	 * backend only begins capture after a real first frame is painted.
 	 */
 	const firstFrameReadyRef = useRef(false);
+	const records = captionState?.records;
+	const timingIndex = useMemo(() => {
+		if (!records) return null;
+		if (typeof window !== "undefined") {
+			window.__EXPORT_RENDER_METRICS__.timingIndexBuilds += 1;
+		}
+		return createCapinstaCaptionTimingIndex({ records });
+	}, [records]);
+	const activeState = useMemo(
+		() =>
+			timingIndex
+				? getActiveCapinstaCaptionStateFromIndex({ index: timingIndex, timeSeconds })
+				: null,
+		[timingIndex, timeSeconds],
+	);
+	const width = captionState?.width ?? 0;
+	const height = captionState?.height ?? 0;
+	const viewport = useMemo(() => ({ width, height }), [width, height]);
+	const activeWordKey = activeState?.activeWordIds.join(",") ?? "";
+	const indexedRecord = useMemo(
+		() =>
+			activeState && timingIndex
+				? timingIndex.records.find((entry) => entry.record === activeState.record) ?? null
+				: null,
+		[timingIndex, activeState?.record],
+	);
+	const renderModel = useMemo(() => {
+		if (!indexedRecord || !activeState) return null;
+		if (typeof window !== "undefined") {
+			window.__EXPORT_RENDER_METRICS__.renderModelBuilds += 1;
+		}
+		return createCapinstaRenderModelFromIndexedRecord({
+			indexedRecord,
+			clip: activeState.clip,
+			activeWordIds: activeState.activeWordIds,
+			rendererPath: "rendered_capinsta_wysiwyg",
+			viewport,
+		});
+	}, [indexedRecord, activeState?.clip, activeWordKey, viewport]);
 
 	const applyState = useCallback((state: CaptionState) => {
 		stateRef.current = state;
@@ -215,6 +264,11 @@ export function RenderPageClient() {
 		window.__EXPORT_APPLIED_BACKGROUND_COLOR__ = null;
 		window.__EXPORT_APPLIED_RENDER_MODE__ = null;
 		window.__EXPORT_OUTPUT_SIZE__ = null;
+		window.__EXPORT_RENDER_METRICS__ = {
+			timingIndexBuilds: 0,
+			renderModelBuilds: 0,
+			diagnosticBuilds: 0,
+		};
 
 		window.isReady = () => window.__RENDER_PAGE_LOADED__ === true;
 
@@ -507,14 +561,25 @@ export function RenderPageClient() {
 		};
 	}, [applyState]);
 
+	// Export diagnostics are updated from the same indexed active state used by
+	// the renderer. This is observational only and never participates in paint.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		window.__CAPSTA_ACTIVE_FRAME_INFO__ = activeState
+			? {
+					activeCaptionId: activeState.clip.id,
+					activeWordId: activeState.activeWordIds[0] ?? "none",
+					captionText: activeState.clip.text,
+				}
+			: { activeCaptionId: "none", activeWordId: "none", captionText: "" };
+	}, [activeState]);
+
 	// Update style/layout globals whenever active caption changes
 	useEffect(() => {
-		if (!captionState || typeof window === "undefined") return;
-		const { records, width, height } = captionState;
-		const index = createCapinstaCaptionTimingIndex({ records });
-		const activeState = getActiveCapinstaCaptionStateFromIndex({ index, timeSeconds });
+		if (!captionState || !activeState || typeof window === "undefined") return;
 		if (!activeState) return;
 		try {
+			window.__EXPORT_RENDER_METRICS__.diagnosticBuilds += 1;
 			const style = resolveCapinstaClipStyle({
 				document: activeState.document,
 				clip: activeState.clip,
@@ -535,7 +600,7 @@ export function RenderPageClient() {
 		} catch {
 			// non-fatal
 		}
-	}, [captionState, timeSeconds]);
+	}, [activeState?.document, activeState?.clip, width, height]);
 
 		if (!captionState) {
 			// Page loaded, awaiting setCaptionData injection.
@@ -549,18 +614,7 @@ export function RenderPageClient() {
 			);
 		}
 
-		const { records, width, height, backgroundColor } = captionState;
-		const index = createCapinstaCaptionTimingIndex({ records });
-		const activeState = getActiveCapinstaCaptionStateFromIndex({ index, timeSeconds });
-		const viewport = { width, height };
-		const renderModel = activeState
-			? createCapinstaRenderModelFromIndex({
-					index,
-					timeSeconds,
-					rendererPath: "rendered_capinsta_wysiwyg",
-					viewport,
-				})
-			: null;
+		const { backgroundColor } = captionState;
 
 		return (
 			<div
@@ -587,7 +641,9 @@ export function RenderPageClient() {
 						activeWordIds={activeState.activeWordIds}
 						timeSeconds={timeSeconds}
 						isPlaying={false}
-					viewport={viewport}
+						renderMode="export"
+						fps={captionState.fps}
+						viewport={viewport}
 				/>
 			)}
 		</div>

@@ -108,6 +108,7 @@ class ExportJobStatus:
     width: int | None = None
     height: int | None = None
     fps: int | None = None
+    performance: dict[str, object] | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     expires_at: str | None = None
@@ -130,6 +131,7 @@ class ExportJobStatus:
             "width": self.width,
             "height": self.height,
             "fps": self.fps,
+            "performance": self.performance,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
         }
@@ -377,6 +379,7 @@ def _validate_duration(duration: float | None) -> None:
 
 
 async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
+    queue_started = time.perf_counter()
     queued_job = await _set_job(
         export_job_id,
         status="queued",
@@ -387,6 +390,7 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
     await _broadcast_progress(queued_job)
 
     async with _export_semaphore:
+        queue_wait_seconds = time.perf_counter() - queue_started
         started_memory = _memory_mb()
         logger.info(
             "export_job_started export_job_id=%s source_job_id=%s mode=%s render_mode=%s duration=%s fps=%s size=%sx%s memory_mb=%s",
@@ -420,6 +424,9 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 message=details or stage,
             )
             await _broadcast_progress(job)
+
+        async def performance_cb(summary: dict[str, object]) -> None:
+            await _set_job(export_job_id, performance=summary)
 
         try:
             if request.render_mode != "headless":
@@ -474,6 +481,8 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 duration_source=request.duration_source,
                 hardware_acceleration=request.hardware_acceleration,
                 composition_json=request.composition_json,
+                queue_wait_seconds=queue_wait_seconds,
+                performance_callback=performance_cb,
             )
 
             output = Path(output_path)

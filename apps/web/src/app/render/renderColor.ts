@@ -15,8 +15,8 @@
  *  - White (`#FFFFFF`) is a legitimate explicit selection and must pass through.
  *  - `transparent`/empty in captions-only mode resolves to the green default,
  *    never to white.
- *  - In full-video mode the background color is irrelevant (the source video
- *    fills the frame), so an empty value stays empty.
+ *  - In full-video mode the render surface is always transparent so the
+ *    source video remains visible below the caption overlay.
  */
 
 /** Captions-only default background. Green chroma key. */
@@ -72,9 +72,10 @@ export function resolveRenderBackground(
 	if (isCaptionsOnlyMode(renderMode)) {
 		return resolveCaptionsOnlyBackground(value);
 	}
-	// Full-video: transparent overlay over the original video. Preserve the
-	// value as-is (the composition root is never visible behind the video).
-	return value && value.trim() ? value.trim() : "transparent";
+	// Full-video is an overlay over the original source. An explicit CSS
+	// background would make Chromium's PNG opaque and cover the source during
+	// FFmpeg compositing, so the render surface must always be transparent.
+	return "transparent";
 }
 
 /** Whether a render mode is a captions-only / solid-background variant. */
