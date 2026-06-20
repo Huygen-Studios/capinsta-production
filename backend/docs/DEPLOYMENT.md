@@ -1,6 +1,58 @@
 # Deployment
 
-Huygen Caps is production-deployed as one Docker web service. FastAPI serves both the API and the exported Next.js frontend.
+The backend is deployed from the Capinsta monorepo as one Docker web service.
+FastAPI serves the protected API and the bundled Next.js `/render.html` artifact
+used by the headless export pipeline.
+
+## Docker Build Contract
+
+The backend Dockerfile intentionally needs files from both `backend/` and
+`apps/web/`. Always build it with:
+
+```text
+Build context: repository root
+Dockerfile: backend/Dockerfile
+```
+
+Local command:
+
+```powershell
+docker build -f backend/Dockerfile -t capinsta-backend .
+```
+
+Do not use `backend/` as the Docker build context. Docker will then be unable
+to copy `backend/`, `apps/web/`, `package.json`, or `turbo.json`, and the build
+will fail before application dependencies are installed.
+
+## Coolify
+
+Create the backend as a Dockerfile application and set:
+
+```text
+Base Directory: /
+Dockerfile Location: /backend/Dockerfile
+Port Exposes: 10000
+Health Check Path: /health
+```
+
+Do not set Base Directory to `/backend`. After changing either field, redeploy
+without build cache once so Coolify does not reuse the invalid build context.
+
+Required authentication/runtime variables include:
+
+```env
+NODE_ENV=production
+PORT=10000
+FRONTEND_URL=https://<YOUR_FRONTEND_DOMAIN>
+CORS_ORIGINS=https://<YOUR_FRONTEND_DOMAIN>
+SUPABASE_URL=<YOUR_SUPABASE_PROJECT_URL>
+SUPABASE_ANON_KEY=<YOUR_SUPABASE_ANON_PUBLIC_KEY>
+SUPABASE_SERVICE_ROLE_KEY=<YOUR_SUPABASE_SERVICE_ROLE_KEY>
+SUPABASE_JWT_SECRET=<ONLY_IF_LEGACY_HS256_TOKENS_ARE_USED>
+```
+
+Keep `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` runtime-only. Do not
+make them build arguments or expose them through `NEXT_PUBLIC_*`.
 
 ## Render.com
 
@@ -10,7 +62,8 @@ Render service details:
 
 - Type: web service
 - Runtime: Docker
-- Dockerfile: `./Dockerfile`
+- Dockerfile: `./backend/Dockerfile`
+- Docker context: repository root
 - Health check path: `/health`
 - Start command: handled by Docker CMD
 - Required port behavior: bind to `0.0.0.0:$PORT`

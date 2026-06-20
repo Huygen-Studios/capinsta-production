@@ -97,8 +97,8 @@ Invoke-RestMethod http://127.0.0.1:8000/api/health/export
 ## Docker Local Run
 
 ```powershell
-docker build -t huygen-caps .
-docker run --rm --env-file .env -e NODE_ENV=production -e PORT=10000 -p 10000:10000 huygen-caps
+docker build -f backend/Dockerfile -t capinsta-backend .
+docker run --rm --env-file backend/.env -e NODE_ENV=production -e PORT=10000 -p 10000:10000 capinsta-backend
 ```
 
 Then open:
@@ -110,5 +110,5 @@ Then open:
 With Compose:
 
 ```powershell
-docker compose up --build
+docker compose -f backend/docker-compose.yml up --build
 ```

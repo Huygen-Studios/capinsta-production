@@ -2,7 +2,7 @@ services:
   - type: web
     name: huygen-caps
     runtime: docker
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./backend/Dockerfile
     dockerContext: .
     healthCheckPath: /health
     envVars:

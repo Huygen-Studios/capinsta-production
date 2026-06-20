@@ -1,8 +1,10 @@
 services:
   huygen-caps:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # The production backend image also builds the Next.js /render artifact,
+      # so its Docker build context must be the monorepo root.
+      context: ..
+      dockerfile: backend/Dockerfile
     ports:
       - "10000:10000"
     env_file:

@@ -128,16 +128,16 @@ Invoke-RestMethod http://127.0.0.1:8000/health/timing
 
 The production setup is a single Docker web service. Docker builds the Next.js editor as static files, FastAPI serves those files and the `/api/*` routes on the same Render origin, and the frontend uses relative API paths by default. This avoids deployed browsers trying to call `127.0.0.1`.
 
-Render files:
+Deployment files:
 
-- `Dockerfile`: installs FFmpeg, Python dependencies, Playwright Chromium, builds the static editor, and starts FastAPI on `$PORT`.
+- `backend/Dockerfile`: installs FFmpeg, Python dependencies, Playwright Chromium, packages the Next.js render artifact, and starts FastAPI on `$PORT`.
 - `render.yaml`: blueprint for one Docker web service with `/health` as the health check.
 - `.dockerignore`: keeps local media, venvs, node modules, logs, and secrets out of the image.
 
 Render setup:
 
 1. Create a new Blueprint or Docker web service from this repository.
-2. Use the default Dockerfile at `./Dockerfile`.
+2. Use repository root as the Docker context and `./backend/Dockerfile` as the Dockerfile.
 3. Health check path: `/health`.
 4. Add at least one STT key: `SARVAM_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY`.
 5. Keep `NEXT_PUBLIC_API_URL` blank for the single-service Docker deployment.
@@ -155,8 +155,8 @@ uvicorn server.main:app --host 0.0.0.0 --port $PORT
 Local Docker smoke test:
 
 ```powershell
-docker build -t huygen-caps .
-docker run --rm -p 10000:10000 --env-file .env huygen-caps
+docker build -f backend/Dockerfile -t capinsta-backend .
+docker run --rm -p 10000:10000 --env-file backend/.env capinsta-backend
 ```
 
 Open http://localhost:10000 and check http://localhost:10000/health.

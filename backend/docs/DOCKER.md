@@ -1,11 +1,13 @@
 # Docker
 
-The root `Dockerfile` builds and runs the production app as a single container.
+`backend/Dockerfile` builds and runs the production backend/exporter as a
+single container. Its build context is the repository root because it packages
+the editor's Next.js render page for headless exports.
 
 ## What The Dockerfile Does
 
-1. Uses Node 20 to install frontend dependencies.
-2. Builds the Next.js frontend with `NEXT_OUTPUT=export`.
+1. Uses Bun and Node to install the web workspace dependencies.
+2. Builds the Next.js application and packages the verified `/render.html` artifact.
 3. Uses Python 3.11 slim for the runtime image.
 4. Installs FFmpeg, FFprobe, Chromium dependencies, and Python requirements.
 5. Installs Playwright Chromium.
@@ -17,13 +19,13 @@ No dev servers are used in production.
 ## Build
 
 ```powershell
-docker build -t huygen-caps .
+docker build -f backend/Dockerfile -t capinsta-backend .
 ```
 
 ## Run
 
 ```powershell
-docker run --rm --env-file .env -e NODE_ENV=production -e PORT=10000 -p 10000:10000 huygen-caps
+docker run --rm --env-file backend/.env -e NODE_ENV=production -e PORT=10000 -p 10000:10000 capinsta-backend
 ```
 
 Open:
@@ -37,7 +39,7 @@ http://localhost:10000/health/export
 ## Docker Compose
 
 ```powershell
-docker compose up --build
+docker compose -f backend/docker-compose.yml up --build
 ```
 
 The compose service maps host port `10000` to container port `10000` and sets `/tmp/huygen-caps` runtime paths.
