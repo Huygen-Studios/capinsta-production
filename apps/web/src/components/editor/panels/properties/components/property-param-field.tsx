@@ -1,8 +1,8 @@
 "use client";
 
 import type {
-	ParamDefinition,
 	NumberParamDefinition,
+	ParamDefinition,
 	ParamValue,
 } from "@/params";
 import {
@@ -21,9 +21,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { usePropertyDraft } from "../hooks/use-property-draft";
 import { KeyframeToggle } from "./keyframe-toggle";
-import { Textarea } from "@/components/ui/textarea";
 
 export function PropertyParamField({
 	param,
@@ -78,10 +78,11 @@ function ParamInput({
 	onCommit: () => void;
 }) {
 	if (param.type === "number") {
+		const numericValue = typeof value === "number" ? value : Number(value);
 		return (
 			<NumberParamField
 				param={param}
-				value={typeof value === "number" ? value : Number(value)}
+				value={Number.isFinite(numericValue) ? numericValue : param.default}
 				onPreview={onPreview}
 				onCommit={onCommit}
 			/>
@@ -171,32 +172,56 @@ function NumberParamField({
 	onPreview: (value: number) => void;
 	onCommit: () => void;
 }) {
-	const { min, max, step, displayMultiplier = 1 } = param;
+	const normalizedLabel = param.label.toLowerCase();
+	const normalizedKey = param.key.toLowerCase();
+	const inferredPercent =
+		param.unit === "percent" || normalizedKey.includes("opacity");
+	const displayMultiplier =
+		param.displayMultiplier ?? (inferredPercent ? 100 : 1);
+	const explicitDisplaySpace = param.displayMultiplier != null;
+	const displayMin = explicitDisplaySpace
+		? param.min
+		: param.min * displayMultiplier;
+	const displayMax =
+		param.max == null
+			? undefined
+			: explicitDisplaySpace
+				? param.max
+				: param.max * displayMultiplier;
+	const displayStep = explicitDisplaySpace
+		? param.step
+		: param.step * displayMultiplier;
 	const displayValue = value * displayMultiplier;
+
 	const clampDisplayValue = (nextDisplayValue: number) =>
 		Math.max(
-			min,
-			max !== undefined ? Math.min(max, nextDisplayValue) : nextDisplayValue,
+			displayMin,
+			displayMax !== undefined
+				? Math.min(displayMax, nextDisplayValue)
+				: nextDisplayValue,
 		);
 
 	const previewFromDisplay = (displayVal: number) => {
+		if (!Number.isFinite(displayVal)) return;
 		const clamped = clampDisplayValue(
-			snapToStep({ value: displayVal, step }),
+			snapToStep({ value: displayVal, step: displayStep }),
 		);
 		onPreview(clamped / displayMultiplier);
 	};
 
-	const maxFractionDigits = getFractionDigitsForStep({ step });
-
+	const maxFractionDigits = getFractionDigitsForStep({ step: displayStep });
 	const draft = usePropertyDraft({
 		displayValue: formatNumberForDisplay({
 			value: displayValue,
 			maxFractionDigits,
 		}),
 		parse: (input) => {
-			const parsed = parseFloat(input);
-			if (Number.isNaN(parsed)) return null;
-			return clampDisplayValue(snapToStep({ value: parsed, step }));
+			if (input.trim() === "") return null;
+			const parsed = Number(input);
+			if (!Number.isFinite(parsed)) return null;
+			return clampDisplayValue(
+				snapToStep({ value: parsed, step: displayStep }),
+			);
 		},
 		onPreview: previewFromDisplay,
 		onCommit,
@@ -206,33 +231,36 @@ function NumberParamField({
 		onPreview(param.default);
 		onCommit();
 	};
-	const normalizedLabel = param.label.toLowerCase();
-	const unit = normalizedLabel.includes("rotation")
-		? "°"
-		: normalizedLabel.includes("opacity")
-			? "%"
-			: normalizedLabel.includes("position") ||
-				  normalizedLabel.includes("size") ||
-				  normalizedLabel.includes("width") ||
-				  normalizedLabel.includes("height") ||
-				  normalizedLabel.includes("blur") ||
-				  normalizedLabel.includes("radius") ||
-				  normalizedLabel.includes("spacing") ||
-				  normalizedLabel.includes("padding")
-				? "px"
-				: undefined;
+
+	const usesPixels =
+		normalizedKey.includes("position") ||
+		normalizedLabel.includes("position") ||
+		normalizedLabel.includes("size") ||
+		normalizedLabel.includes("width") ||
+		normalizedLabel.includes("height") ||
+		normalizedLabel.includes("blur") ||
+		normalizedLabel.includes("radius") ||
+		normalizedLabel.includes("spacing") ||
+		normalizedLabel.includes("padding");
+	const resolvedUnit =
+		normalizedKey.includes("rotate") || normalizedLabel.includes("rotation")
+			? "°"
+			: inferredPercent
+				? "%"
+				: usesPixels
+					? "px"
+					: undefined;
 
 	return (
 		<NumberField
-			icon={param.shortLabel}
+			icon={param.shortLabel ?? "↔"}
 			label={param.label}
 			value={draft.displayValue}
-			min={min}
-			max={max}
-			step={step}
-			unit={unit}
-			suffix={unit}
-			pixelsPerStep={step < 1 ? 12 : 2}
+			min={displayMin}
+			max={displayMax}
+			step={displayStep}
+			unit={resolvedUnit}
+			pixelsPerStep={displayStep < 1 ? 12 : 2}
 			dragSensitivity="slow"
 			isDefault={value === param.default}
 			onFocus={draft.onFocus}

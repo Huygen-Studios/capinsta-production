@@ -28,4 +28,19 @@ describe("AdSense configuration", () => {
 		expect(config.topSlot).toBe("1234567890");
 		expect(config.sidebarSlot).toBe("");
 	});
+
+	test("layout preview is development-only and does not require ad IDs", () => {
+		expect(
+			parseAdSenseConfig({
+				NODE_ENV: "development",
+				NEXT_PUBLIC_AD_LAYOUT_PREVIEW: "true",
+			}).layoutPreview,
+		).toBe(true);
+		expect(
+			parseAdSenseConfig({
+				NODE_ENV: "production",
+				NEXT_PUBLIC_AD_LAYOUT_PREVIEW: "true",
+			}).layoutPreview,
+		).toBe(false);
+	});
 });

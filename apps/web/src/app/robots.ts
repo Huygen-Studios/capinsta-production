@@ -15,6 +15,7 @@ export default function robots(): MetadataRoute.Robots {
 				"/render",
 				"/api/",
 				"/caption-sync-verify",
+				"/internal/",
 			],
 		},
 		sitemap: `${SITE_URL}/sitemap.xml`,

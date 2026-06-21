@@ -17,13 +17,26 @@ export function parseAdSenseConfig(env: Record<string, string | undefined>) {
 			enabled(env.NEXT_PUBLIC_ADSENSE_ENABLED) &&
 			CLIENT_ID_PATTERN.test(clientId),
 		autoAdsEnabled: enabled(env.NEXT_PUBLIC_ADSENSE_AUTO_ADS_ENABLED),
+		layoutPreview:
+			env.NODE_ENV !== "production" &&
+			enabled(env.NEXT_PUBLIC_AD_LAYOUT_PREVIEW),
 		clientId: CLIENT_ID_PATTERN.test(clientId) ? clientId : "",
 		topSlot: validSlot(env.NEXT_PUBLIC_ADSENSE_TOP_SLOT),
 		sidebarSlot: validSlot(env.NEXT_PUBLIC_ADSENSE_SIDEBAR_SLOT),
 	} as const;
 }
 
-export const ADSENSE_CONFIG = parseAdSenseConfig(process.env);
+export const ADSENSE_CONFIG = parseAdSenseConfig({
+	NODE_ENV: process.env.NODE_ENV,
+	NEXT_PUBLIC_ADSENSE_ENABLED: process.env.NEXT_PUBLIC_ADSENSE_ENABLED,
+	NEXT_PUBLIC_ADSENSE_AUTO_ADS_ENABLED:
+		process.env.NEXT_PUBLIC_ADSENSE_AUTO_ADS_ENABLED,
+	NEXT_PUBLIC_AD_LAYOUT_PREVIEW: process.env.NEXT_PUBLIC_AD_LAYOUT_PREVIEW,
+	NEXT_PUBLIC_ADSENSE_CLIENT_ID: process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID,
+	NEXT_PUBLIC_ADSENSE_TOP_SLOT: process.env.NEXT_PUBLIC_ADSENSE_TOP_SLOT,
+	NEXT_PUBLIC_ADSENSE_SIDEBAR_SLOT:
+		process.env.NEXT_PUBLIC_ADSENSE_SIDEBAR_SLOT,
+});
 
 export const ADSENSE_PUBLISHER_ID = ADSENSE_CONFIG.clientId.replace(/^ca-/, "");
 export const ADS_TXT_CONTENT = ADSENSE_PUBLISHER_ID

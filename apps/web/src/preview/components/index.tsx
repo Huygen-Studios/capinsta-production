@@ -86,7 +86,7 @@ export function PreviewPanel({
 	return (
 		<div
 			ref={handleContainerRef}
-			className="panel bg-background relative flex size-full min-h-0 min-w-0 flex-col rounded-sm border"
+			className="panel editor-panel relative flex size-full min-h-0 min-w-0 flex-col"
 		>
 			<PreviewCanvas
 				container={container}

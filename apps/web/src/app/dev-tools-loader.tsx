@@ -6,8 +6,12 @@ import Script from "next/script";
 export function DevToolsLoader() {
 	const pathname = usePathname();
 
-	// Only load in development
-	if (process.env.NODE_ENV !== "development") {
+	// Keep instrumentation opt-in so normal development and visual QA match
+	// the production UI instead of drawing component outlines over the editor.
+	if (
+		process.env.NODE_ENV !== "development" ||
+		process.env.NEXT_PUBLIC_REACT_SCAN_ENABLED !== "true"
+	) {
 		return null;
 	}
 

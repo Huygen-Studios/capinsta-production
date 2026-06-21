@@ -34,6 +34,7 @@ export function AdSenseUnit({
 	const { state, hydrated } = useCookieConsent();
 	const pushed = useRef(false);
 	const configured = isAdSenseSlotConfigured(slot);
+	const layoutPreview = ADSENSE_CONFIG.layoutPreview;
 	const canLoad =
 		configured &&
 		hydrated &&
@@ -50,14 +51,18 @@ export function AdSenseUnit({
 		}
 	}, [canLoad]);
 
-	if (!configured) return null;
+	if (!configured && !layoutPreview) return null;
 
 	const style = {
 		minWidth: reservedWidth,
 		minHeight: reservedHeight,
 	} as const;
 
-	if (process.env.NODE_ENV !== "production") {
+	if (layoutPreview) {
+		const placementDescription =
+			format === "horizontal"
+				? "Responsive top unit · Planned maximum height: 90px"
+				: "Responsive sidebar unit · Planned width: 320px";
 		return (
 			<aside
 				aria-label={label}
@@ -65,7 +70,8 @@ export function AdSenseUnit({
 				style={style}
 			>
 				<span>{label}</span>
-				<small>Development placeholder</small>
+				<strong>Advertisement layout preview</strong>
+				<small>{placementDescription}</small>
 			</aside>
 		);
 	}

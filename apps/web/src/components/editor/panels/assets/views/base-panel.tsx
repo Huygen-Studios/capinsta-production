@@ -32,9 +32,9 @@ export function PanelView({
 			{...rest}
 		>
 			{!hideHeader && (
-				<div className="bg-background h-11 shrink-0 pl-3 pr-2 flex items-center justify-between border-b">
+				<div className="flex h-11 shrink-0 items-center justify-between border-b-2 border-border bg-card pl-3 pr-2">
 					{title && (
-						<span className="text-muted-foreground text-sm">{title}</span>
+						<span className="text-sm font-semibold text-foreground">{title}</span>
 					)}
 					{actions}
 				</div>

@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { signInPathFor } from "./routes";
+import { isUiTestAuthBypassEnabled, signInPathFor } from "./routes";
 
 export async function requireUser(pathname: string) {
+	if (isUiTestAuthBypassEnabled()) {
+		return { id: "capinsta-ui-verification-user" };
+	}
 	const supabase = await createClient();
 	const {
 		data: { user },
@@ -12,6 +15,7 @@ export async function requireUser(pathname: string) {
 }
 
 export async function redirectAuthenticatedUser(destination = "/projects") {
+	if (isUiTestAuthBypassEnabled()) redirect(destination);
 	const supabase = await createClient();
 	const {
 		data: { user },

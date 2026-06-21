@@ -1,6 +1,14 @@
 /* eslint-disable opencut/prefer-object-params -- Route helpers are intentionally small value utilities. */
 export const DEFAULT_AUTHENTICATED_PATH = "/projects";
 
+export function isUiTestAuthBypassEnabled(
+	env: Record<string, string | undefined> = process.env,
+) {
+	return (
+		env.NODE_ENV !== "production" && env.CAPINSTA_UI_TEST_AUTH === "true"
+	);
+}
+
 const PROTECTED_PREFIXES = [
 	"/projects",
 	"/editor",

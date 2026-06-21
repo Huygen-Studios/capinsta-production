@@ -28,7 +28,7 @@ export function PropertiesPanel() {
 
 	if (selectedElements.length === 0) {
 		return (
-			<div className="panel bg-background flex h-full flex-col items-center justify-center overflow-hidden rounded-sm border">
+			<div className="panel editor-panel flex h-full flex-col items-center justify-center overflow-hidden">
 				<EmptyView />
 			</div>
 		);
@@ -47,7 +47,7 @@ export function PropertiesPanel() {
 
 		if (selectedCapinstaClipRefs.length > 0) {
 			return (
-				<div className="panel bg-background flex h-full overflow-hidden rounded-sm border">
+				<div className="panel editor-panel flex h-full overflow-hidden">
 					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
 						<CapinstaCaptionStylePanel
 							mode="bulk"
@@ -61,7 +61,7 @@ export function PropertiesPanel() {
 		}
 
 		return (
-			<div className="panel bg-background flex h-full flex-col items-center justify-center overflow-hidden rounded-sm border">
+			<div className="panel editor-panel flex h-full flex-col items-center justify-center overflow-hidden">
 				<p className="text-muted-foreground text-sm">
 					{selectedElements.length} elements selected
 				</p>
@@ -96,7 +96,7 @@ export function PropertiesPanel() {
 	if (!activeTab) return null;
 
 	return (
-		<div className="panel bg-background flex h-full overflow-hidden rounded-sm border">
+		<div className="panel editor-panel flex h-full overflow-hidden">
 			<TooltipProvider delayDuration={0}>
 				<div className="flex shrink-0 flex-col gap-0.5 border-r p-1 scrollbar-hidden overflow-y-auto">
 					{visibleTabs.map((tab) => (
@@ -114,9 +114,11 @@ export function PropertiesPanel() {
 									}
 									aria-label={tab.label}
 									className={cn(
-										"shrink-0",
+										"shrink-0 rounded-md border border-transparent",
 										"h-8 w-8",
-										tab.id !== activeTab.id && "text-muted-foreground",
+										tab.id === activeTab.id
+											? "!border-primary !bg-primary/15 !text-primary shadow-[2px_2px_0_color-mix(in_srgb,var(--primary)_55%,transparent)]"
+											: "text-muted-foreground hover:border-border",
 									)}
 								>
 									{tab.icon}

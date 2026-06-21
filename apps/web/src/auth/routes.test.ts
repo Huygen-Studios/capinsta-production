@@ -4,6 +4,7 @@ import {
 	isProtectedPath,
 	isSafeInternalPath,
 	signInPathFor,
+	isUiTestAuthBypassEnabled,
 } from "./routes";
 import { GET, getTrustedPublicOrigin } from "../app/auth/callback/route";
 
@@ -52,6 +53,21 @@ describe("authentication route policy", () => {
 		expect(isSafeInternalPath("/\\evil.example")).toBe(
 			DEFAULT_AUTHENTICATED_PATH,
 		);
+	});
+
+	test("UI test auth bypass can never activate in production", () => {
+		expect(
+			isUiTestAuthBypassEnabled({
+				NODE_ENV: "production",
+				CAPINSTA_UI_TEST_AUTH: "true",
+			}),
+		).toBe(false);
+		expect(
+			isUiTestAuthBypassEnabled({
+				NODE_ENV: "development",
+				CAPINSTA_UI_TEST_AUTH: "true",
+			}),
+		).toBe(true);
 	});
 });
 
@@ -138,4 +154,3 @@ describe("auth callback GET handler and public origin resolution", () => {
 		}
 	});
 });
-

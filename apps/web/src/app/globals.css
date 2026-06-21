@@ -339,6 +339,23 @@
     box-shadow: 2px 2px 0 color-mix(in srgb, var(--primary) 48%, transparent);
   }
 
+  .editor-shell .editor-panel {
+    background: var(--card);
+  }
+
+  .editor-shell [data-slot="slider-track"] {
+    border: 1px solid var(--border);
+  }
+
+  .editor-shell [data-slot="slider-range"] {
+    background: var(--primary);
+  }
+
+  .editor-shell [data-slot="slider-thumb"] {
+    border: 2px solid var(--primary);
+    background: var(--background);
+  }
+
   .editor-shell button:focus-visible,
   .editor-shell input:focus-visible,
   .editor-shell [role="button"]:focus-visible {
@@ -379,6 +396,20 @@
     text-align: center;
     font-size: .62rem;
     color: var(--muted-foreground);
+  }
+
+  .projects-shell {
+    min-height: 100svh;
+    background-color: var(--background);
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--primary) 4%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--primary) 4%, transparent) 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+
+  .projects-shell .project-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 280px;
   }
 
   .editor-top-ad,

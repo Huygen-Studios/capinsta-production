@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { EditorCore } from "@/core";
@@ -69,6 +68,8 @@ import { cn } from "@/utils/ui";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { useExpiredProjectCleanup } from "@/capinsta/useExpiredProjectCleanup";
 import { AccountMenu } from "@/components/auth/account-menu";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { LogoStatic } from "@/components/logo";
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -107,13 +108,13 @@ export default function ProjectsPage() {
 	}, [editor.project]);
 
 	return (
-		<div className="bg-background min-h-screen">
+		<div className="projects-shell min-h-screen bg-background text-foreground">
 			<MigrationDialog />
 			<StoragePersistenceDialog />
 			<ChangelogNotification />
 			<ProjectsHeader />
 			<ProjectsToolbar projectIds={projectsToDisplay.map((p) => p.id)} />
-			<main className="mx-auto px-4 pt-2 pb-6 flex flex-col gap-4">
+			<main className="mx-auto flex max-w-[1800px] flex-col gap-4 px-4 pb-8 pt-3">
 				{isLoading || !isInitialized ? (
 					<ProjectsSkeleton />
 				) : projectsToDisplay.length === 0 ? (
@@ -122,8 +123,8 @@ export default function ProjectsPage() {
 					<div
 						className={
 							viewMode === "grid"
-								? "xs:grid-cols-2 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4 px-4"
-								: "flex flex-col"
+								? "xs:grid-cols-2 grid grid-cols-1 gap-5 px-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5"
+								: "flex flex-col gap-2 px-2"
 						}
 					>
 						{projectsToDisplay.map((project) => (
@@ -144,9 +145,12 @@ function ProjectsHeader() {
 	const { viewMode, isHydrated, setViewMode } = useProjectsStore();
 
 	return (
-		<header className="sticky top-0 z-20 px-8 bg-background flex flex-col gap-2">
+		<header className="sticky top-0 z-20 flex flex-col gap-2 border-b-2 border-border bg-background/95 px-4 backdrop-blur sm:px-8">
 			<div className="flex items-center justify-between h-16 pt-2">
-				<div className="flex items-center gap-5">
+				<div className="flex min-w-0 items-center gap-4">
+					<Link href="/" aria-label="Capinsta home" className="hidden sm:block">
+						<LogoStatic variant="mark" height={28} alt="Capinsta" priority />
+					</Link>
 					<Breadcrumb>
 						<BreadcrumbList>
 							<BreadcrumbItem>
@@ -165,15 +169,17 @@ function ProjectsHeader() {
 						</BreadcrumbList>
 					</Breadcrumb>
 
-					<div className="hidden md:flex items-center rounded-md border p-1 px-1.5 h-10">
+					<div className="hidden h-10 items-center rounded-lg border-2 border-border bg-card p-1 shadow-[2px_2px_0_color-mix(in_srgb,var(--primary)_35%,transparent)] md:flex">
 						{VIEW_MODE_OPTIONS.map(({ mode, icon, label }) => (
 							<Button
 								key={mode}
 								variant="ghost"
 								size="icon"
 								className={cn(
-									"rounded-sm hover:bg-background",
-									isHydrated && viewMode === mode && "!bg-accent",
+									"rounded-md hover:bg-accent",
+									isHydrated &&
+										viewMode === mode &&
+										"!bg-primary/15 !text-primary ring-1 ring-primary",
 								)}
 								onClick={() => setViewMode({ viewMode: mode })}
 								aria-label={label}
@@ -188,6 +194,7 @@ function ProjectsHeader() {
 				<div className="flex items-center gap-3 md:gap-4">
 					<SearchBar className="hidden md:block" />
 					<NewProjectButton />
+					<ThemeToggle />
 					<AccountMenu compact />
 				</div>
 			</div>
@@ -230,7 +237,7 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 	};
 
 	return (
-		<div className="sticky top-16 z-10 flex items-center justify-between px-6 h-14 pt-2 bg-background">
+		<div className="sticky top-16 z-10 mx-4 flex h-14 items-center justify-between border-b border-border bg-background/95 px-2 pt-1 backdrop-blur">
 			<div className="flex items-center gap-2">
 				<Label
 					className="flex items-center gap-3 cursor-pointer px-2"
@@ -251,7 +258,7 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 					</span>
 				</Label>
 
-				<div className="h-4 w-px bg-border/50" />
+				<div className="h-5 w-px bg-border" />
 
 				<SortDropdown>
 					<Button variant="text" className="text-muted-foreground pl-2">
@@ -339,7 +346,7 @@ function SearchBar({
 						value={searchQuery}
 						onChange={(event) => setSearchQuery({ query: event.target.value })}
 						size="lg"
-						className="pl-9"
+						className="h-10 min-w-56 rounded-lg border-2 bg-card pl-9 focus-visible:border-primary"
 					/>
 				</div>
 			)}
@@ -522,7 +529,8 @@ function NewProjectButton() {
 	return (
 		<Button
 			size="lg"
-			className="flex px-5 md:px-6"
+			variant="lime"
+			className="flex px-5 font-black md:px-6"
 			onClick={handleCreateProject}
 		>
 			<span className="text-sm font-medium hidden md:block">New project</span>
@@ -582,8 +590,8 @@ function ProjectItem({
 	};
 
 	const gridContent = (
-		<Card className="bg-background overflow-hidden border-none p-0">
-			<div className="bg-muted relative aspect-video">
+		<Card className="project-card overflow-hidden border-2 border-border bg-card p-0 shadow-[3px_3px_0_color-mix(in_srgb,var(--primary)_45%,transparent)] transition-[transform,box-shadow,border-color] duration-150 group-hover:-translate-y-1 group-hover:border-primary group-hover:shadow-[5px_5px_0_var(--primary)] group-focus-within:border-primary">
+			<div className="relative aspect-video border-b-2 border-border bg-muted">
 				<div className="absolute inset-0">
 					{project.thumbnail ? (
 						<Image
@@ -606,11 +614,11 @@ function ProjectItem({
 				)}
 			</div>
 
-			<CardContent className="flex flex-col gap-2 px-0 pt-4">
+			<CardContent className="flex min-h-24 flex-col gap-2 px-4 py-3">
 				<h3 className="group-hover:text-foreground/90 line-clamp-2 text-sm leading-snug font-medium">
 					{project.name}
 				</h3>
-				<div className="text-muted-foreground flex items-center gap-1.5 text-sm">
+				<div className="text-muted-foreground flex items-center gap-1.5 text-xs">
 					<HugeiconsIcon icon={Calendar04Icon} className="size-4" />
 					<span>Created {formatDate({ date: project.createdAt })}</span>
 				</div>
@@ -651,8 +659,10 @@ function ProjectItem({
 
 	const listContent = (
 		<div
-			className={`flex items-center gap-4 py-2 px-4 border-b border-border/50 ${
-				isSelected ? "bg-primary/5" : ""
+			className={`flex items-center gap-4 rounded-lg border-2 px-4 py-2.5 transition-colors ${
+				isSelected
+					? "border-primary bg-primary/10 shadow-[2px_2px_0_var(--primary)]"
+					: "border-border bg-card hover:border-primary/60 hover:bg-accent/40"
 			}`}
 		>
 			<Checkbox
@@ -690,10 +700,18 @@ function ProjectItem({
 		<>
 			<ContextMenu>
 				<ContextMenuTrigger asChild>
-					<div className="group relative">
+					<div
+						className={cn(
+							"group relative rounded-lg outline-none",
+							isSelected && isGridView && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+						)}
+					>
 						{isGridView ? (
 							<>
-								<Link href={`/editor/${project.id}`} className="block">
+								<Link
+									href={`/editor/${project.id}`}
+									className="block rounded-lg focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary"
+								>
 									{gridContent}
 								</Link>
 
@@ -824,27 +842,6 @@ function ProjectMenu({
 	onDeleteClick: () => void;
 	onInfoClick: () => void;
 }) {
-	const handleMenuClick = ({
-		event,
-	}: {
-		event: MouseEvent<HTMLButtonElement>;
-	}) => {
-		event.preventDefault();
-		event.stopPropagation();
-	};
-
-	const handleMenuKeyDown = ({
-		event,
-	}: {
-		event: KeyboardEvent<HTMLButtonElement>;
-	}) => {
-		if (event.key !== "Enter" && event.key !== " ") {
-			return;
-		}
-		event.preventDefault();
-		event.stopPropagation();
-	};
-
 	const handleRename = () => {
 		onRenameClick();
 		onOpenChange(false);
@@ -879,17 +876,16 @@ function ProjectMenu({
 					}
 					size="icon"
 					aria-label="Project menu"
-					onClick={(event) =>
-						handleMenuClick({
-							event: event as unknown as MouseEvent<HTMLButtonElement>,
-						})
-					}
+					onClick={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+					}}
 					onMouseDown={(event) => event.stopPropagation()}
-					onKeyDown={(event) =>
-						handleMenuKeyDown({
-							event: event as unknown as KeyboardEvent<HTMLButtonElement>,
-						})
-					}
+					onKeyDown={(event) => {
+						if (event.key !== "Enter" && event.key !== " ") return;
+						event.preventDefault();
+						event.stopPropagation();
+					}}
 				>
 					<HugeiconsIcon
 						icon={MoreHorizontalIcon}
@@ -927,11 +923,11 @@ function ProjectsSkeleton() {
 	);
 
 	return (
-		<div className="px-4 xs:grid-cols-2 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4">
+		<div className="xs:grid-cols-2 grid grid-cols-1 gap-5 px-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
 			{skeletonIds.map((skeletonId) => (
 				<Card
 					key={skeletonId}
-					className="bg-background overflow-hidden border-none p-0"
+					className="overflow-hidden border-2 border-border bg-card p-0 shadow-[3px_3px_0_color-mix(in_srgb,var(--primary)_20%,transparent)]"
 				>
 					<div className="bg-muted relative aspect-video">
 						<div className="absolute inset-0">
@@ -973,7 +969,7 @@ function EmptyState() {
 
 	if (savedProjects.length > 0) {
 		return (
-			<div className="flex flex-col items-center justify-center gap-5 py-16 text-center">
+			<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-5 rounded-xl border-2 border-border bg-card px-8 py-16 text-center shadow-[4px_4px_0_color-mix(in_srgb,var(--primary)_45%,transparent)]">
 				<div className="flex flex-col items-center gap-8">
 					<HugeiconsIcon
 						icon={Search01Icon}
@@ -982,7 +978,8 @@ function EmptyState() {
 					<div className="flex flex-col items-center gap-3">
 						<h3 className="text-lg font-medium">No results found</h3>
 						<p className="text-muted-foreground max-w-md">
-							Your search for "{searchQuery}" did not return any results.
+							Your search for &ldquo;{searchQuery}&rdquo; did not return any
+							results.
 						</p>
 					</div>
 				</div>
@@ -998,7 +995,7 @@ function EmptyState() {
 	}
 
 	return (
-		<div className="flex flex-col items-center justify-center gap-6 py-16 text-center">
+		<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-6 rounded-xl border-2 border-border bg-card px-8 py-16 text-center shadow-[4px_4px_0_color-mix(in_srgb,var(--primary)_45%,transparent)]">
 			<div className="flex flex-col items-center gap-2">
 				<div className="bg-muted/30 flex size-16 items-center justify-center rounded-full">
 					<HugeiconsIcon
@@ -1012,7 +1009,7 @@ function EmptyState() {
 					videos. All privately.
 				</p>
 			</div>
-			<Button size="lg" className="gap-2" onClick={handleCreateProject}>
+			<Button size="lg" variant="lime" className="gap-2 font-black" onClick={handleCreateProject}>
 				<HugeiconsIcon icon={PlusSignIcon} />
 				Create your first project
 			</Button>
