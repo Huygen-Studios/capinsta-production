@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { useCookieConsent } from "@/components/cookie-consent";
-import { webEnv } from "@/env/web";
 
 declare global {
 	interface Window {
@@ -47,10 +46,10 @@ export function GoogleAnalyticsProvider() {
 		return null;
 	}
 
-	const gaId = webEnv.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+	const gaId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
 
 	if (!gaId) {
-		if (webEnv.NODE_ENV === "development") {
+		if (process.env.NODE_ENV === "development") {
 			console.warn("Google Analytics is disabled (NEXT_PUBLIC_GA_MEASUREMENT_ID is not set).");
 		}
 		return null;
