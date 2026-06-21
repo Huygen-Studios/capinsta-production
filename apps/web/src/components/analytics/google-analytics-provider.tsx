@@ -12,7 +12,8 @@ declare global {
 	}
 }
 
-export function isAnalyticsExcluded(pathname: string): boolean {
+export function isAnalyticsExcluded(pathname: string | null): boolean {
+	if (!pathname) return false;
 	return (
 		pathname === "/render" ||
 		pathname === "/render.html" ||
