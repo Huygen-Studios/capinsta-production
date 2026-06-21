@@ -29,6 +29,7 @@ import type {
 	TimelineTrack,
 	VisualElement,
 } from "@/timeline";
+import { expandElementRefsWithLinkedMedia } from "@/timeline/linked-media";
 
 const MIN_DRAG_DISTANCE = 0.5;
 const PRIMARY_POINTER_BUTTON = 0;
@@ -108,6 +109,7 @@ export interface SceneReader {
 export interface SelectionApi {
 	getSelected: () => readonly ElementRef[];
 	select: (element: ElementRef) => void;
+	selectMany: (elements: readonly ElementRef[]) => void;
 	clearSelection: () => void;
 }
 
@@ -189,6 +191,25 @@ function buildDragSelection({
 				!isSameElementRef({ left: selectedElement, right: dragTargetRef }),
 		),
 	];
+}
+
+export function buildPreviewClickSelection({
+	clickTarget,
+	tracks,
+}: {
+	clickTarget: ElementWithBounds;
+	tracks: SceneTracks;
+}): ElementRef[] {
+	const clickedRef = {
+		trackId: clickTarget.trackId,
+		elementId: clickTarget.elementId,
+	};
+	return clickTarget.element.capinstaDocumentId
+		? expandElementRefsWithLinkedMedia({
+				tracks,
+				elementRefs: [clickedRef],
+			})
+		: [clickedRef];
 }
 
 function movedPastDragThreshold({
@@ -318,6 +339,10 @@ export class PreviewInteractionController {
 
 		if (!hit || hit.element.type !== "text") return;
 
+		this.deps.selection.select({
+			trackId: hit.trackId,
+			elementId: hit.elementId,
+		});
 		this.editingTextState = {
 			trackId: hit.trackId,
 			elementId: hit.elementId,
@@ -422,10 +447,15 @@ export class PreviewInteractionController {
 			if (!clickTarget) {
 				this.deps.selection.clearSelection();
 			} else {
-				this.deps.selection.select({
-					trackId: clickTarget.trackId,
-					elementId: clickTarget.elementId,
+				const clickSelection = buildPreviewClickSelection({
+					clickTarget,
+					tracks: this.deps.scene.getTracks(),
 				});
+				if (clickSelection.length === 1) {
+					this.deps.selection.select(clickSelection[0]);
+				} else {
+					this.deps.selection.selectMany(clickSelection);
+				}
 			}
 		}
 

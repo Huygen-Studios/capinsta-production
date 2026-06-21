@@ -38,7 +38,7 @@ const { SelectionManager } = await import("@/core/managers/selection-manager");
 const { ElementInteractionController } = await import(
 	"@/timeline/controllers/element-interaction-controller"
 );
-const { PreviewInteractionController } = await import(
+const { PreviewInteractionController, buildPreviewClickSelection } = await import(
 	"@/preview/controllers/preview-interaction-controller"
 );
 
@@ -80,6 +80,13 @@ function makeElements(): TimelineElement[] {
 		capinstaDocumentId: "caption-document",
 		capinstaClipId: "caption-clip",
 	};
+	const captionTwo: TextElement = {
+		...caption,
+		id: "caption-2",
+		name: "Caption two",
+		params: { content: "Caption two" },
+		capinstaClipId: "caption-clip-2",
+	};
 	const text: TextElement = {
 		...BASE,
 		id: "text-1",
@@ -115,7 +122,17 @@ function makeElements(): TimelineElement[] {
 		name: "Effect",
 		effectType: "blur",
 	};
-	return [video, audio, caption, text, image, graphic, sticker, effect];
+	return [
+		video,
+		audio,
+		caption,
+		captionTwo,
+		text,
+		image,
+		graphic,
+		sticker,
+		effect,
+	];
 }
 
 function makeTracks(): SceneTracks {
@@ -146,7 +163,10 @@ function makeTracks(): SceneTracks {
 				type: "text",
 				name: "Captions",
 				hidden: false,
-				elements: [byId("caption-1") as TextElement],
+				elements: [
+					byId("caption-1") as TextElement,
+					byId("caption-2") as TextElement,
+				],
 			},
 			{
 				id: "text-track",
@@ -296,15 +316,31 @@ describe("canonical editor layer selection", () => {
 					const event = mouseEvent();
 					controller.onElementMouseDown({ event, element, track });
 
-					expect(manager.getSelectedElements()).toEqual([
-						{ trackId: track.id, elementId: element.id },
-					]);
+					const expectedSelection = element.capinstaDocumentId
+						? [
+								{ trackId: "caption-track", elementId: element.id },
+								{
+									trackId: "caption-track",
+									elementId:
+										element.id === "caption-1" ? "caption-2" : "caption-1",
+								},
+							]
+						: [{ trackId: track.id, elementId: element.id }];
+					const sortSelection = (
+						selection: readonly { trackId: string; elementId: string }[],
+					) =>
+						[...selection].sort((left, right) =>
+							left.elementId.localeCompare(right.elementId),
+						);
+					expect(sortSelection(manager.getSelectedElements())).toEqual(
+						sortSelection(expectedSelection),
+					);
 
 					documentListeners.emit("mouseup", { clientX: 10, clientY: 10 });
 					controller.onElementClick({ event, element, track });
-					expect(manager.getSelectedElements()).toEqual([
-						{ trackId: track.id, elementId: element.id },
-					]);
+					expect(sortSelection(manager.getSelectedElements())).toEqual(
+						sortSelection(expectedSelection),
+					);
 				}
 			}
 		} finally {
@@ -369,6 +405,100 @@ describe("canonical editor layer selection", () => {
 		}
 	});
 
+	test("generated captions use single-click bulk selection and double-click individual selection", () => {
+		const tracks = makeTracks();
+		const manager = new SelectionManager({} as never);
+		const documentListeners = installDocumentListeners();
+		const controller = new ElementInteractionController({
+			depsRef: {
+				current: {
+					viewport: {
+						getZoomLevel: () => 1,
+						getTracksScrollEl: () => null,
+						getTracksContainerEl: () => null,
+						getHeaderEl: () => null,
+					},
+					input: { isShiftHeld: () => false },
+					scene: { getTracks: () => tracks, getActiveFps: () => null },
+					selection: {
+						getSelected: () => manager.getSelectedElements(),
+						isSelected: (ref) =>
+							manager
+								.getSelectedElements()
+								.some(
+									(selected) =>
+										selected.trackId === ref.trackId &&
+										selected.elementId === ref.elementId,
+								),
+						select: (ref) => manager.selectElement({ element: ref }),
+						selectMany: (refs) =>
+							manager.setSelectedElements({ elements: refs }),
+						handleClick: () => {},
+						clearKeyframeSelection: () => manager.clearKeyframeSelection(),
+					},
+					playback: { getCurrentTime: () => 0 },
+					timeline: { moveElements: () => {} },
+					snap: { isEnabled: () => false },
+				},
+			},
+		});
+		const track = tracks.overlay.find(
+			(candidate) => candidate.id === "caption-track",
+		);
+		const element = track?.elements[0];
+		if (!track || !element) throw new Error("Missing caption fixture");
+
+		try {
+			const singleClick = mouseEvent({ detail: 1 });
+			controller.onElementMouseDown({ event: singleClick, element, track });
+			documentListeners.emit("mouseup", { clientX: 10, clientY: 10 });
+			controller.onElementClick({ event: singleClick, element, track });
+			expect(manager.getSelectedElements()).toEqual([
+				{ trackId: "caption-track", elementId: "caption-1" },
+				{ trackId: "caption-track", elementId: "caption-2" },
+			]);
+
+			const doubleClick = mouseEvent({ detail: 2 });
+			controller.onElementClick({ event: doubleClick, element, track });
+			expect(manager.getSelectedElements()).toEqual([
+				{ trackId: "caption-track", elementId: "caption-1" },
+			]);
+		} finally {
+			controller.destroy();
+			documentListeners.restore();
+		}
+	});
+
+	test("preview single-click expands a generated caption to its whole document", () => {
+		const tracks = makeTracks();
+		const captionTrack = tracks.overlay.find(
+			(track) => track.id === "caption-track",
+		);
+		const caption = captionTrack?.elements[0];
+		if (!captionTrack || !caption) throw new Error("Missing caption fixture");
+
+		expect(
+			buildPreviewClickSelection({
+				tracks,
+				clickTarget: {
+					trackId: captionTrack.id,
+					elementId: caption.id,
+					element: caption,
+					bounds: {
+						cx: 50,
+						cy: 50,
+						width: 20,
+						height: 10,
+						rotation: 0,
+					},
+				},
+			}),
+		).toEqual([
+			{ trackId: "caption-track", elementId: "caption-1" },
+			{ trackId: "caption-track", elementId: "caption-2" },
+		]);
+	});
+
 	test("single-click preview selection opens the same canonical selection and empty canvas clears it", () => {
 		const tracks = makePreviewTracks();
 		const manager = new SelectionManager({} as never);
@@ -402,6 +532,8 @@ describe("canonical editor layer selection", () => {
 					selection: {
 						getSelected: () => manager.getSelectedElements(),
 						select: (element) => manager.selectElement({ element }),
+						selectMany: (elements) =>
+							manager.setSelectedElements({ elements: [...elements] }),
 						clearSelection: () => manager.clearSelection(),
 					},
 					timeline: {
@@ -481,6 +613,8 @@ describe("canonical editor layer selection", () => {
 					selection: {
 						getSelected: () => manager.getSelectedElements(),
 						select: (element) => manager.selectElement({ element }),
+						selectMany: (elements) =>
+							manager.setSelectedElements({ elements: [...elements] }),
 						clearSelection: () => manager.clearSelection(),
 					},
 					timeline: {

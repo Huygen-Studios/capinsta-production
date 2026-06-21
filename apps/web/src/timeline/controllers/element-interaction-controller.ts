@@ -393,9 +393,14 @@ export class ElementInteractionController {
 			!(event.metaKey || event.ctrlKey || event.shiftKey) &&
 			!this.deps.selection.isSelected(ref)
 		) {
-			// Linked media remains part of the drag group, while the inspector
-			// selection stays anchored to the one layer the user clicked.
-			this.deps.selection.select(ref);
+			// Generated captions intentionally select their whole document for
+			// bulk styling. Linked video/audio remains a single inspector
+			// selection even though the pair still participates in dragging.
+			if (element.capinstaDocumentId) {
+				this.deps.selection.selectMany([...selectedElements]);
+			} else {
+				this.deps.selection.select(ref);
+			}
 		}
 
 		this.session = {
@@ -436,11 +441,21 @@ export class ElementInteractionController {
 		if (event.metaKey || event.ctrlKey || event.shiftKey) return;
 
 		const ref = { trackId: track.id, elementId: element.id };
+		if (event.detail >= 2 && element.capinstaDocumentId) {
+			this.deps.selection.select(ref);
+			this.deps.selection.clearKeyframeSelection();
+			return;
+		}
+
 		if (
 			!this.deps.selection.isSelected(ref) ||
 			this.deps.selection.getSelected().length > 1
 		) {
-			this.deps.selection.select(ref);
+			if (element.capinstaDocumentId) {
+				this.deps.selection.selectMany(this.expandLinkedRefs([ref]));
+			} else {
+				this.deps.selection.select(ref);
+			}
 			return;
 		}
 
