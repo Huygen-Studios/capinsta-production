@@ -63,7 +63,11 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant="ghost" className="h-9 gap-2 rounded-full px-2">
+				<Button
+					variant="ghost"
+					aria-label={`Open account menu for ${name}`}
+					className="h-9 gap-2 rounded-full px-2"
+				>
 					{avatar ? (
 						<Image
 							src={avatar}

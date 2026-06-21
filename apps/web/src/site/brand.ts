@@ -15,9 +15,15 @@
  * works for local development, previews, and production. Falls back to a
  * localhost default so static rendering never throws on a missing env var.
  */
-export const SITE_URL: string = (
-	process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
-).replace(/\/$/, "");
+const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+const isLocalOrigin =
+	configuredSiteUrl?.includes("localhost") ||
+	configuredSiteUrl?.includes("127.0.0.1");
+
+export const SITE_URL =
+	configuredSiteUrl && !isLocalOrigin
+		? configuredSiteUrl
+		: "https://capinsta.huygenstudios.com";
 
 export const BRAND = {
 	/** Public product name. */
@@ -118,6 +124,12 @@ export const ROUTES = {
 	disclaimer: "/disclaimer",
 	copyright: "/copyright",
 	accessibility: "/accessibility",
+	captionGenerator: "/caption-generator",
+	autoSubtitleGenerator: "/auto-subtitle-generator",
+	animatedCaptionGenerator: "/animated-caption-generator",
+	captionPresets: "/caption-presets",
+	compare: "/compare",
+	brand: "/brand",
 } as const;
 
 /**

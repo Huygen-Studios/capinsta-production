@@ -206,11 +206,33 @@ function NumberParamField({
 		onPreview(param.default);
 		onCommit();
 	};
+	const normalizedLabel = param.label.toLowerCase();
+	const unit = normalizedLabel.includes("rotation")
+		? "°"
+		: normalizedLabel.includes("opacity")
+			? "%"
+			: normalizedLabel.includes("position") ||
+				  normalizedLabel.includes("size") ||
+				  normalizedLabel.includes("width") ||
+				  normalizedLabel.includes("height") ||
+				  normalizedLabel.includes("blur") ||
+				  normalizedLabel.includes("radius") ||
+				  normalizedLabel.includes("spacing") ||
+				  normalizedLabel.includes("padding")
+				? "px"
+				: undefined;
 
 	return (
 		<NumberField
 			icon={param.shortLabel}
+			label={param.label}
 			value={draft.displayValue}
+			min={min}
+			max={max}
+			step={step}
+			unit={unit}
+			suffix={unit}
+			pixelsPerStep={step < 1 ? 12 : 2}
 			dragSensitivity="slow"
 			isDefault={value === param.default}
 			onFocus={draft.onFocus}

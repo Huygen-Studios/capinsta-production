@@ -97,32 +97,47 @@ function scrubAcrossRanges({
 	return clampScrubValue({ value: currentValue, min, max });
 }
 
-interface NumberFieldProps
+export interface ScrubbableNumberFieldProps
 	extends Omit<ComponentProps<"input">, "size" | "type"> {
 	icon?: React.ReactNode;
+	label?: string;
 	suffix?: string;
+	unit?: string;
 	suffixClassName?: string;
 	dragSensitivity?: DragSensitivity;
+	pixelsPerStep?: number;
 	scrubRanges?: readonly ScrubRange[];
 	scrubClamp?: ScrubClamp;
 	onScrub?: (value: number) => void;
 	onScrubEnd?: () => void;
+	onScrubCancel?: (value: number) => void;
 	allowExpressions?: boolean;
 	onReset?: () => void;
 	isDefault?: boolean;
 }
 
-function NumberField({
+export function getScrubModifier(event: Pick<PointerEvent, "shiftKey" | "altKey">) {
+	if (event.shiftKey && event.altKey) return 1;
+	if (event.shiftKey) return 10;
+	if (event.altKey) return 0.1;
+	return 1;
+}
+
+function ScrubbableNumberField({
 	className,
 	icon,
+	label,
 	suffix,
+	unit,
 	suffixClassName,
 	disabled,
 	dragSensitivity = "default",
+	pixelsPerStep,
 	scrubRanges,
 	scrubClamp,
 	onScrub,
 	onScrubEnd,
+	onScrubCancel,
 	value,
 	allowExpressions = true,
 	onKeyDown,
@@ -133,21 +148,19 @@ function NumberField({
 	isDefault = false,
 	ref,
 	...props
-}: NumberFieldProps & { ref?: React.Ref<HTMLInputElement> }) {
+}: ScrubbableNumberFieldProps & { ref?: React.Ref<HTMLInputElement> }) {
 	const iconRef = useRef<HTMLButtonElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const ghostRef = useRef<HTMLSpanElement>(null);
 	const startValueRef = useRef(0);
 	const cumulativeDeltaRef = useRef(0);
+	const hasDraggedRef = useRef(false);
 	const [isInputFocused, setIsInputFocused] = useState(false);
 	const [suffixLeft, setSuffixLeft] = useState(0);
 	const ghostValue = Array.isArray(value) ? value.join(", ") : String(value ?? "");
 
 	useLayoutEffect(() => {
-		if (!suffix) {
-			setSuffixLeft(0);
-			return;
-		}
+		if (!suffix) return;
 		if (!ghostRef.current || !inputRef.current) return;
 		if (ghostRef.current.textContent !== ghostValue) {
 			ghostRef.current.textContent = ghostValue;
@@ -166,19 +179,28 @@ function NumberField({
 
 	const handleIconPointerDown = (event: React.PointerEvent) => {
 		if (!onScrub || disabled || event.button !== 0) return;
+		if (event.pointerType === "touch") {
+			inputRef.current?.focus();
+			return;
+		}
+		event.preventDefault();
 		const parsed = parseFloat(String(value ?? "0"));
 		startValueRef.current = Number.isNaN(parsed) ? 0 : parsed;
 		cumulativeDeltaRef.current = 0;
-		let hasReceivedFirstMove = false;
-		iconRef.current?.requestPointerLock();
+		hasDraggedRef.current = false;
+		const startX = event.clientX;
+		const pointerId = event.pointerId;
+		event.currentTarget.setPointerCapture(pointerId);
 
 		const handlePointerMove = (moveEvent: PointerEvent) => {
-			// first movementX after pointer lock often contains a bogus warp delta
-			if (!hasReceivedFirstMove) {
-				hasReceivedFirstMove = true;
-				return;
-			}
-			cumulativeDeltaRef.current += moveEvent.movementX;
+			const rawDelta = moveEvent.clientX - startX;
+			if (!hasDraggedRef.current && Math.abs(rawDelta) < 3) return;
+			hasDraggedRef.current = true;
+			cumulativeDeltaRef.current =
+				rawDelta * getScrubModifier(moveEvent);
+			const sensitivity = pixelsPerStep
+				? 1 / pixelsPerStep
+				: DRAG_SENSITIVITIES[dragSensitivity];
 			const newValue = scrubRanges
 				? scrubAcrossRanges({
 						startValue: startValueRef.current,
@@ -188,19 +210,37 @@ function NumberField({
 						max: scrubClamp?.max,
 					})
 				: startValueRef.current +
-					cumulativeDeltaRef.current * DRAG_SENSITIVITIES[dragSensitivity];
-			onScrub(newValue);
+					cumulativeDeltaRef.current * sensitivity;
+			onScrub(clampScrubValue({
+				value: newValue,
+				min: scrubClamp?.min ?? (typeof props.min === "number" ? props.min : undefined),
+				max: scrubClamp?.max ?? (typeof props.max === "number" ? props.max : undefined),
+			}));
 		};
 
-		const handlePointerUp = () => {
+		const finish = (cancelled = false) => {
 			document.removeEventListener("pointermove", handlePointerMove);
 			document.removeEventListener("pointerup", handlePointerUp);
-			document.exitPointerLock();
-			onScrubEnd?.();
+			document.removeEventListener("pointercancel", handlePointerCancel);
+			if (iconRef.current?.hasPointerCapture(pointerId)) {
+				iconRef.current.releasePointerCapture(pointerId);
+			}
+			if (cancelled) {
+				onScrub(startValueRef.current);
+				onScrubCancel?.(startValueRef.current);
+			} else if (hasDraggedRef.current) {
+				onScrubEnd?.();
+			} else {
+				inputRef.current?.focus();
+				inputRef.current?.select();
+			}
 		};
+		const handlePointerUp = () => finish(false);
+		const handlePointerCancel = () => finish(true);
 
 		document.addEventListener("pointermove", handlePointerMove);
 		document.addEventListener("pointerup", handlePointerUp);
+		document.addEventListener("pointercancel", handlePointerCancel);
 	};
 
 	const canScrub = Boolean(icon && onScrub);
@@ -209,9 +249,29 @@ function NumberField({
 		<input
 			type={allowExpressions ? "text" : "number"}
 			inputMode={allowExpressions ? "decimal" : undefined}
-			ref={inputRef}
+			ref={(node) => {
+				inputRef.current = node;
+				if (typeof ref === "function") ref(node);
+				else if (ref) ref.current = node;
+			}}
 			disabled={disabled}
 			value={value}
+			role={onScrub ? "spinbutton" : undefined}
+			aria-label={label ?? (typeof icon === "string" ? icon : undefined)}
+			aria-valuenow={
+				onScrub && Number.isFinite(Number(value)) ? Number(value) : undefined
+			}
+			aria-valuemin={
+				typeof props.min === "number" ? props.min : scrubClamp?.min
+			}
+			aria-valuemax={
+				typeof props.max === "number" ? props.max : scrubClamp?.max
+			}
+			aria-valuetext={
+				onScrub && Number.isFinite(Number(value))
+					? `${value}${unit ?? suffix ?? ""}`
+					: undefined
+			}
 			className="text-sm leading-none bg-transparent outline-none min-w-0 flex-1 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 			onMouseDown={(event) => {
 				const inputElement = event.currentTarget;
@@ -226,12 +286,32 @@ function NumberField({
 			}}
 			onFocus={(event) => {
 				setIsInputFocused(true);
+				const parsed = Number(event.currentTarget.value);
+				if (Number.isFinite(parsed)) startValueRef.current = parsed;
 				event.currentTarget.select();
 				onFocus?.(event);
 			}}
 			onKeyDown={(event) => {
-				const shouldBlurInput = event.key === "Enter" || event.key === "Escape";
-				if (shouldBlurInput) event.currentTarget.blur();
+				if (onScrub && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+					event.preventDefault();
+					const direction = event.key === "ArrowUp" ? 1 : -1;
+					const step = Number(props.step ?? 1) * (event.shiftKey ? 10 : 1);
+					const current = Number(value ?? 0);
+					onScrub(
+						clampScrubValue({
+							value: current + direction * step,
+							min: typeof props.min === "number" ? props.min : scrubClamp?.min,
+							max: typeof props.max === "number" ? props.max : scrubClamp?.max,
+						}),
+					);
+					onScrubEnd?.();
+				}
+				if (event.key === "Enter") event.currentTarget.blur();
+				if (event.key === "Escape") {
+					onScrub?.(startValueRef.current);
+					onScrubCancel?.(startValueRef.current);
+					event.currentTarget.blur();
+				}
 				onKeyDown?.(event);
 			}}
 			onBlur={(event) => {
@@ -261,6 +341,8 @@ function NumberField({
 						className="text-muted-foreground [&_svg]:size-3.5! shrink-0 select-none pl-2.5 text-sm leading-none cursor-ew-resize"
 						onMouseDown={(event) => event.preventDefault()}
 						onPointerDown={handleIconPointerDown}
+						onDoubleClick={() => onReset?.()}
+						title="Drag horizontally to adjust. Shift is faster; Alt is more precise."
 					>
 						{icon}
 					</button>
@@ -315,4 +397,6 @@ function NumberField({
 	);
 }
 
-export { NumberField };
+const NumberField = ScrubbableNumberField;
+
+export { NumberField, ScrubbableNumberField };

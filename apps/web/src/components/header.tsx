@@ -16,12 +16,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { AccountMenu } from "@/components/auth/account-menu";
 
 const NAV_LINKS = [
-	{ label: "Features", href: ROUTES.features },
-	{ label: "How It Works", href: ROUTES.howItWorks },
+	{ label: "Features", href: "/#features" },
+	{ label: "Caption styles", href: ROUTES.captionPresets },
+	{ label: "Compare", href: ROUTES.compare },
 	{ label: "Guides", href: ROUTES.guides },
-	{ label: "FAQ", href: ROUTES.faq },
-	{ label: "About", href: ROUTES.about },
-	{ label: "Contact", href: ROUTES.contact },
+	{ label: "Brand", href: ROUTES.brand },
 ];
 
 export function Header() {
@@ -29,11 +28,15 @@ export function Header() {
 	const closeMenu = () => setIsMenuOpen(false);
 
 	return (
-		<header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-md">
+		<header className="sticky top-0 z-50 border-b-2 border-black bg-[var(--cap-paper)]">
 			<div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 				{/* Logo + nav */}
 				<div className="flex items-center gap-8">
-					<Link href={ROUTES.home} className="flex items-center gap-2.5">
+					<Link
+						href={ROUTES.home}
+						aria-label={`${BRAND.productName} home`}
+						className="flex items-center gap-2.5"
+					>
 						<LogoStatic variant="wordmark" height={28} alt={BRAND.productName} priority />
 					</Link>
 					<nav className="hidden items-center gap-1 lg:flex">
@@ -64,8 +67,8 @@ export function Header() {
 					)}
 					<div className="hidden items-center gap-3 sm:flex">
 						<Link href={ROUTES.projects}>
-							<Button size="sm" className="bg-brand text-brand-foreground text-sm font-semibold hover:bg-brand-strong">
-								Start Captioning
+							<Button size="sm" variant="lime" className="text-sm font-black">
+								Caption a video
 							</Button>
 						</Link>
 					</div>
@@ -104,8 +107,8 @@ export function Header() {
 						))}
 						<div className="mt-4 border-t border-border pt-4">
 							<Link href={ROUTES.projects} onClick={closeMenu}>
-								<Button className="w-full bg-brand text-brand-foreground font-semibold hover:bg-brand-strong">
-									Start Captioning
+								<Button variant="lime" className="w-full font-black">
+									Caption a video
 								</Button>
 							</Link>
 						</div>

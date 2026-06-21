@@ -8,13 +8,17 @@ import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData, viewportTheme } from "./metadata";
 import { BotIdClient } from "botid/client";
 import { webEnv } from "@/env/web";
-import { Inter } from "next/font/google";
+import { Inter, Urbanist } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
 import { CookieConsentBanner } from "@/components/cookie-consent";
-import { StructuredData } from "@/components/structured-data";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
 
-const siteFont = Inter({ subsets: ["latin"] });
+const siteFont = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const displayFont = Urbanist({
+	subsets: ["latin"],
+	variable: "--font-urbanist",
+	weight: ["500", "600", "700", "800", "900"],
+});
 
 export const metadata = baseMetaData;
 export const viewport: Viewport = viewportTheme;
@@ -35,9 +39,10 @@ export default function RootLayout({
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				<BotIdClient protect={protectedRoutes} />
-				<StructuredData />
 			</head>
-			<body className={`${siteFont.className} font-sans antialiased`}>
+			<body
+				className={`${siteFont.variable} ${displayFont.variable} font-sans antialiased`}
+			>
 				<ThemeProvider
 					attribute="class"
 					defaultTheme="system"

@@ -8,7 +8,7 @@ import { BRAND, SITE_URL, SITE_INFO } from "@/site/brand";
  * the application is free with no aggregated reviews.
  */
 
-const organizationSchema = {
+export const organizationSchema = {
 	"@context": "https://schema.org",
 	"@type": "Organization",
 	name: BRAND.parentCompany,
@@ -19,7 +19,7 @@ const organizationSchema = {
 	},
 };
 
-const websiteSchema = {
+export const websiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
 	name: BRAND.productName,
@@ -32,7 +32,7 @@ const websiteSchema = {
 	},
 };
 
-const softwareSchema = {
+export const softwareSchema = {
 	"@context": "https://schema.org",
 	"@type": "SoftwareApplication",
 	name: BRAND.productName,
@@ -52,6 +52,55 @@ const softwareSchema = {
 	},
 };
 
+function assertProductionUrl(url: string) {
+	const parsed = new URL(url);
+	if (parsed.origin !== SITE_URL) {
+		throw new Error(`Structured data URL must use ${SITE_URL}`);
+	}
+	return url;
+}
+
+export function buildArticleSchema({
+	headline,
+	description,
+	path,
+	datePublished,
+	dateModified,
+}: {
+	headline: string;
+	description: string;
+	path: string;
+	datePublished: string;
+	dateModified: string;
+}) {
+	const url = assertProductionUrl(new URL(path, SITE_URL).toString());
+	return {
+		"@context": "https://schema.org",
+		"@type": "Article",
+		headline,
+		description,
+		url,
+		mainEntityOfPage: url,
+		datePublished,
+		dateModified,
+		author: { "@type": "Organization", name: BRAND.parentCompany },
+		publisher: {
+			"@type": "Organization",
+			name: BRAND.parentCompany,
+			url: BRAND.companyWebsite,
+		},
+	};
+}
+
+export function JsonLd({ data }: { data: Record<string, unknown> }) {
+	return (
+		<script
+			type="application/ld+json"
+			dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+		/>
+	);
+}
+
 /** Render all base schemas on the page (typically in <head> via layout). */
 export function StructuredData() {
 	return (
@@ -70,6 +119,12 @@ export function StructuredData() {
 			/>
 		</>
 	);
+}
+
+export function ArticleStructuredData(
+	props: Parameters<typeof buildArticleSchema>[0],
+) {
+	return <JsonLd data={buildArticleSchema(props)} />;
 }
 
 /** FAQPage schema for pages that render visible FAQ content. */

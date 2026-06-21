@@ -62,7 +62,7 @@ const features = [
 
 export function FeaturesSection() {
 	return (
-		<section id="features" className="scroll-mt-20">
+		<section id="features" className="scroll-mt-20 bg-[var(--cap-paper)]">
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="text-center mb-16">
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -77,7 +77,7 @@ export function FeaturesSection() {
 					{features.map((f) => (
 						<div
 							key={f.title}
-							className="group rounded-2xl border-2 border-ink bg-background p-6 shadow-brut transition-transform hover:-translate-y-0.5 hover:shadow-brut-lg"
+							className="group cap-brutal-card p-6 transition-transform hover:-translate-y-1 hover:shadow-[6px_6px_0_#111]"
 						>
 							<div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand/10 text-brand">
 								<HugeiconsIcon icon={f.icon} className="size-6" />
@@ -131,7 +131,7 @@ const steps = [
 
 export function HowItWorksSection() {
 	return (
-		<section id="how-it-works" className="scroll-mt-20 bg-muted/50">
+		<section id="how-it-works" className="scroll-mt-20 border-y-2 border-black bg-[var(--cap-lime)]">
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="text-center mb-16">
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -308,17 +308,15 @@ export function PrivacySection() {
 
 export function WhyFreeSection() {
 	return (
-		<section className="border-t-2 border-ink bg-brand text-brand-foreground">
+		<section className="border-t-2 border-black bg-[var(--cap-purple-600)] text-white">
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="mx-auto max-w-3xl text-center">
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-						Why is {BRAND.productName} free?
+						Free during public beta
 					</h2>
 					<p className="mt-6 text-lg leading-relaxed opacity-90">
-						{BRAND.productName} is built and maintained by {BRAND.parentCompany}.
-						We believe accessible captioning should not require a paid subscription.
-						The service is free to use today, supported by non-intrusive advertising
-						that never interferes with the editor or your exports.
+						{BRAND.productName} is currently free while we learn from creators
+						during public beta. It is built and maintained by {BRAND.parentCompany}.
 					</p>
 				</div>
 			</div>
@@ -333,7 +331,7 @@ export function WhyFreeSection() {
 const faqItems = [
 	{
 		q: "Is Capinsta really free?",
-		a: "Yes. You can upload a video, generate captions, style them, and export without creating an account or paying anything.",
+		a: "Capinsta is currently free during public beta. Product access and pricing may evolve after beta.",
 	},
 	{
 		q: "What languages are supported?",
@@ -390,8 +388,8 @@ export function FinalCtaSection() {
 							Ready to caption your next video?
 						</h2>
 						<p className="mt-4 max-w-xl mx-auto text-lg text-muted-foreground">
-							No sign-up, no watermark, no cost. Open Capinsta and create
-							accurate, animated captions in your browser.
+							Open Capinsta and create accurate, animated captions in your
+							browser. Currently free during public beta.
 						</p>
 						<Link href={ROUTES.projects}>
 							<Button

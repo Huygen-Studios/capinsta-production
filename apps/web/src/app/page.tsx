@@ -13,6 +13,8 @@ import {
 } from "@/components/landing/sections";
 import type { Metadata } from "next";
 import { BRAND, FULL_DESCRIPTION, SITE_URL } from "@/site/brand";
+import { PresetShowcase } from "@/components/landing/preset-showcase";
+import { StructuredData } from "@/components/structured-data";
 
 export const metadata: Metadata = {
 	title: {
@@ -27,11 +29,13 @@ export const metadata: Metadata = {
 
 export default function Home() {
 	return (
-		<div>
+		<div className="marketing-theme">
+			<StructuredData />
 			<Header />
 			<main>
 				<Hero />
 				<FeaturesSection />
+				<PresetShowcase />
 				<HowItWorksSection />
 				<CaptionWorkflowsSection />
 				<EditingExportSection />

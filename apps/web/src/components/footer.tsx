@@ -21,6 +21,8 @@ const footerSections: FooterSection[] = [
 			{ label: "How It Works", href: ROUTES.howItWorks },
 			{ label: "Guides", href: ROUTES.guides },
 			{ label: "FAQ", href: ROUTES.faq },
+			{ label: "Caption presets", href: ROUTES.captionPresets },
+			{ label: "Compare tools", href: ROUTES.compare },
 			{ label: "Open Capinsta", href: ROUTES.projects },
 		],
 	},
@@ -29,6 +31,7 @@ const footerSections: FooterSection[] = [
 		links: [
 			{ label: "About", href: ROUTES.about },
 			{ label: "Contact", href: ROUTES.contact },
+			{ label: "Brand assets", href: ROUTES.brand },
 			{ label: BRAND.parentCompany, href: BRAND.companyWebsite },
 		],
 	},

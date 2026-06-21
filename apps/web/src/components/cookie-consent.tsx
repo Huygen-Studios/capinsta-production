@@ -180,7 +180,7 @@ export function CookieConsentBanner() {
 							We use necessary storage to run the editor. With your permission, we
 							also use analytics and advertising cookies. You can change your choice
 							at any time. Read our{" "}
-							<a href="/cookies" className="text-brand underline">
+							<a href="/cookies" className="text-brand underline dark:text-violet-300">
 								Cookie Policy
 							</a>
 							.
@@ -228,4 +228,3 @@ export function CookiePreferencesButton() {
 		</button>
 	);
 }
-

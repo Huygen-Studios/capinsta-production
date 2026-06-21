@@ -983,6 +983,7 @@ export function CapinstaCaptionStylePanel(
 			<Section title="Subtitle Splits">
 				<CapinstaSliderControl
 					label="Characters per subtitle"
+					scrubbable={false}
 					value={commonValue(
 						"chunking.maxCharsPerCaption",
 						style.chunking?.maxCharsPerCaption ?? 34,
@@ -997,6 +998,7 @@ export function CapinstaCaptionStylePanel(
 				/>
 				<CapinstaSliderControl
 					label="Words per subtitle"
+					scrubbable={false}
 					value={commonValue(
 						"chunking.maxWordsPerCaption",
 						style.chunking?.maxWordsPerCaption ?? 5,
