@@ -12,7 +12,7 @@ import { Inter, Urbanist } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
 import { CookieConsentBanner } from "@/components/cookie-consent";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
-import { GoogleAnalytics } from "@next/third-parties/google";
+import { GoogleAnalyticsProvider } from "@/components/analytics/google-analytics-provider";
 
 const siteFont = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const displayFont = Urbanist({
@@ -44,9 +44,7 @@ export default function RootLayout({
 			<body
 				className={`${siteFont.variable} ${displayFont.variable} font-sans antialiased`}
 			>
-				{webEnv.NEXT_PUBLIC_GA_ID && (
-					<GoogleAnalytics gaId={webEnv.NEXT_PUBLIC_GA_ID} />
-				)}
+				<GoogleAnalyticsProvider />
 				<ThemeProvider
 					attribute="class"
 					defaultTheme="system"
