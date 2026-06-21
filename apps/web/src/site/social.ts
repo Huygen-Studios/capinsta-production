@@ -8,8 +8,6 @@ import { BRAND } from "./brand";
  * not maintain real profiles there — never substitute fake placeholders.
  */
 export const SOCIAL_LINKS = {
-	/** Source code + issues (Huygen Studios org). */
-	github: BRAND.githubUrl,
 	/** Parent-company marketing site. */
 	company: BRAND.companyWebsite,
 } as const;

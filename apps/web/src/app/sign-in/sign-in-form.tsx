@@ -58,14 +58,14 @@ export function SignInForm({
 		>
 			<div className="space-y-5">
 				<GoogleButton redirectPath={redirectPath} onError={setError} />
-				<div className="flex items-center gap-3 text-xs text-zinc-500">
-					<div className="h-px flex-1 bg-zinc-800" />
+				<div className="flex items-center gap-3 text-xs text-muted-foreground">
+					<div className="h-px flex-1 bg-border" />
 					or
-					<div className="h-px flex-1 bg-zinc-800" />
+					<div className="h-px flex-1 bg-border" />
 				</div>
 				<AuthError message={error} />
 				<form className="space-y-4" onSubmit={(event) => void submit(event)}>
-					<label htmlFor="email" className="block text-sm font-medium text-zinc-200">
+					<label htmlFor="email" className="block text-sm font-semibold text-foreground">
 						Email
 						<input
 							id="email"
@@ -85,7 +85,7 @@ export function SignInForm({
 						autoComplete="current-password"
 					/>
 					<div className="text-right">
-						<Link href="/forgot-password" className="text-sm text-violet-400 hover:text-violet-300">
+						<Link href="/forgot-password" className="text-sm font-semibold text-primary hover:underline">
 							Forgot password?
 						</Link>
 					</div>
@@ -93,11 +93,11 @@ export function SignInForm({
 						{loading ? "Signing in..." : "Sign in"}
 					</button>
 				</form>
-				<p className="text-center text-sm text-zinc-400">
+				<p className="text-center text-sm text-muted-foreground">
 					New to Capinsta?{" "}
 					<Link
 						href={`/sign-up?redirect=${encodeURIComponent(redirectPath)}`}
-						className="font-medium text-violet-400 hover:text-violet-300"
+						className="font-semibold text-primary hover:underline"
 					>
 						Create an account
 					</Link>

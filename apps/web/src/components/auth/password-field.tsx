@@ -21,7 +21,7 @@ export function PasswordField({
 }) {
 	const [visible, setVisible] = useState(false);
 	return (
-		<label htmlFor={id} className="block text-sm font-medium text-zinc-200">
+		<label htmlFor={id} className="block text-sm font-semibold text-foreground">
 			{label}
 			<span className="relative block">
 				<input
@@ -38,7 +38,7 @@ export function PasswordField({
 				<button
 					type="button"
 					onClick={() => setVisible((current) => !current)}
-					className="absolute right-0 top-2 flex h-11 w-11 items-center justify-center text-zinc-400 hover:text-zinc-200"
+					className="absolute right-0 top-2 flex h-11 w-11 items-center justify-center text-muted-foreground hover:text-foreground"
 					aria-label={visible ? "Hide password" : "Show password"}
 				>
 					{visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}

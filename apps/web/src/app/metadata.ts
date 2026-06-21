@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { BRAND, SITE_INFO, SITE_URL } from "@/site/brand";
+import { ADSENSE_CONFIG } from "@/site/ads";
 
 export const baseMetaData: Metadata = {
 	metadataBase: new URL(SITE_URL),
@@ -59,27 +60,27 @@ export const baseMetaData: Metadata = {
 	},
 	icons: {
 		icon: [
-			{ url: "/favicon.ico", sizes: "any" },
-			{ url: "/logos/favicon/favicon.ico", sizes: "any" },
+			{ url: "/favicon.ico?v=20260621", sizes: "any" },
+			{ url: "/logos/favicon/favicon.ico?v=20260621", sizes: "any" },
 			{
-				url: "/logos/favicon/favicon-16x16.png",
+				url: "/logos/favicon/favicon-16x16.png?v=20260621",
 				sizes: "16x16",
 				type: "image/png",
 			},
 			{
-				url: "/logos/favicon/favicon-32x32.png",
+				url: "/logos/favicon/favicon-32x32.png?v=20260621",
 				sizes: "32x32",
 				type: "image/png",
 			},
 		],
 		apple: [
 			{
-				url: "/logos/favicon/apple-touch-icon.png",
+				url: "/logos/favicon/apple-touch-icon.png?v=20260621",
 				sizes: "180x180",
 				type: "image/png",
 			},
 		],
-		shortcut: ["/logos/favicon/favicon.ico"],
+		shortcut: ["/favicon.ico?v=20260621"],
 	},
 	appleWebApp: {
 		capable: true,
@@ -87,6 +88,9 @@ export const baseMetaData: Metadata = {
 		title: BRAND.productName,
 	},
 	manifest: "/logos/favicon/site.webmanifest",
+	other: ADSENSE_CONFIG.enabled
+		? { "google-adsense-account": ADSENSE_CONFIG.clientId }
+		: undefined,
 };
 
 /** Theme color + viewport. Exported separately (Next 16 viewport API). */

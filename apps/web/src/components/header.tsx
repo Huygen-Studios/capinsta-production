@@ -6,11 +6,9 @@ import { Button } from "./ui/button";
 import { LogoStatic } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { ROUTES, BRAND } from "@/site/brand";
-import { SOCIAL_LINKS } from "@/site/social";
 import {
 	Menu02Icon,
 	Cancel01Icon,
-	GithubIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AccountMenu } from "@/components/auth/account-menu";
@@ -28,7 +26,7 @@ export function Header() {
 	const closeMenu = () => setIsMenuOpen(false);
 
 	return (
-		<header className="sticky top-0 z-50 border-b-2 border-black bg-[var(--cap-paper)]">
+		<header className="marketing-header sticky top-0 z-50 border-b-2">
 			<div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 				{/* Logo + nav */}
 				<div className="flex items-center gap-8">
@@ -54,17 +52,6 @@ export function Header() {
 
 				{/* Right side */}
 				<div className="flex items-center gap-3">
-					{SOCIAL_LINKS.github && (
-						<Link
-							href={SOCIAL_LINKS.github}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="text-muted-foreground hover:text-foreground transition-colors"
-							aria-label={`${BRAND.productName} on GitHub`}
-						>
-							<HugeiconsIcon icon={GithubIcon} className="size-5" />
-						</Link>
-					)}
 					<div className="hidden items-center gap-3 sm:flex">
 						<Link href={ROUTES.projects}>
 							<Button size="sm" variant="lime" className="text-sm font-black">

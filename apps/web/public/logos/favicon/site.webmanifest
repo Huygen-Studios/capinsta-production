@@ -1,21 +1,24 @@
 {
   "name": "Capinsta",
   "short_name": "Capinsta",
-  "description": "Create and style animated video captions in your browser.",
+  "description": "Generate, edit, and style animated video captions in your browser.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "theme_color": "#750beb",
-  "background_color": "#fff9f2",
+  "background_color": "#0d0818",
   "icons": [
     {
       "src": "/logos/favicon/android-chrome-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/logos/favicon/android-chrome-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }

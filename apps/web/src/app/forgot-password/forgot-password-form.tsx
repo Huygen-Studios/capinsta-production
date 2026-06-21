@@ -43,13 +43,13 @@ export function ForgotPasswordForm() {
 		<AuthShell title="Forgot password?" description="Enter your email and we’ll send you a secure reset link.">
 			<AuthError message={error} />
 			<form className="mt-4 space-y-4" onSubmit={(event) => void submit(event)}>
-				<label htmlFor="email" className="block text-sm font-medium text-zinc-200">
+				<label htmlFor="email" className="block text-sm font-semibold text-foreground">
 					Email address
 					<input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} className={authInputClass} required />
 				</label>
 				<button className={primaryAuthButtonClass} disabled={loading}>{loading ? "Sending..." : "Send reset link"}</button>
 			</form>
-			<p className="mt-5 text-center text-sm"><Link href="/sign-in" className="text-violet-400 hover:text-violet-300">Back to sign in</Link></p>
+			<p className="mt-5 text-center text-sm"><Link href="/sign-in" className="font-semibold text-primary hover:underline">Back to sign in</Link></p>
 		</AuthShell>
 	);
 }

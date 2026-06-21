@@ -44,15 +44,15 @@ export function Hero() {
 			<div className="pointer-events-none absolute inset-0 opacity-25 [background-image:linear-gradient(#750beb_1px,transparent_1px),linear-gradient(90deg,#750beb_1px,transparent_1px)] [background-size:42px_42px]" />
 			<div className="relative mx-auto grid min-h-[calc(100svh-4rem)] max-w-[1500px] items-center gap-12 px-4 py-12 sm:px-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8 lg:py-16">
 				<div className="relative z-10">
-					<div className="inline-flex rotate-[-1deg] items-center gap-2 border-2 border-black bg-[var(--cap-lime)] px-3 py-2 text-sm font-black uppercase shadow-[3px_3px_0_#111]">
+					<div className="inline-flex rotate-[-1deg] items-center gap-2 border-2 border-black bg-[var(--cap-lime)] px-3 py-2 text-sm font-black uppercase text-[#111] shadow-[3px_3px_0_#111]">
 						<Sparkles className="size-4" aria-hidden />
 						Browser-based caption studio
 					</div>
-					<h1 className="mt-7 max-w-3xl text-[clamp(3.2rem,7vw,7.5rem)] font-black leading-[0.82] tracking-[-0.055em] text-[var(--cap-black)]">
+					<h1 className="mt-7 max-w-3xl text-[clamp(3.2rem,7vw,7.5rem)] font-black leading-[0.82] tracking-[-0.055em] text-[var(--cap-outline)]">
 						Turn any video into{" "}
 						<span className="text-[var(--cap-purple-600)]">animated captions.</span>
 					</h1>
-					<p className="mt-7 max-w-xl text-lg font-semibold leading-relaxed text-black/70 sm:text-xl">
+					<p className="mt-7 max-w-xl text-lg font-semibold leading-relaxed text-muted-foreground sm:text-xl">
 						Generate, style, and fine-tune word-timed captions in your browser.
 					</p>
 					<div className="mt-8 flex flex-col gap-4 sm:flex-row">
@@ -65,7 +65,7 @@ export function Hero() {
 							<Link href="#caption-styles">See caption styles</Link>
 						</Button>
 					</div>
-					<p className="mt-5 text-sm font-bold text-black/60">
+					<p className="mt-5 text-sm font-bold text-muted-foreground">
 						Currently free during public beta.
 					</p>
 				</div>

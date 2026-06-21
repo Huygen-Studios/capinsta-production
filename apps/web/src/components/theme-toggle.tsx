@@ -17,7 +17,7 @@ export function ThemeToggle({
 	iconClassName,
 	onToggle,
 }: ThemeToggleProps) {
-	const { theme, setTheme } = useTheme();
+	const { resolvedTheme, setTheme } = useTheme();
 
 	return (
 		<Button
@@ -25,15 +25,24 @@ export function ThemeToggle({
 			variant="ghost"
 			className={cn("size-8", className)}
 			onClick={(e) => {
-				setTheme(theme === "dark" ? "light" : "dark");
+				const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
+				setTheme(nextTheme);
+				document.documentElement.classList.remove("light", "dark");
+				document.documentElement.classList.add(nextTheme);
+				document.documentElement.style.colorScheme = nextTheme;
+				try {
+					localStorage.setItem("theme", nextTheme);
+				} catch {
+					// next-themes still applies the in-memory preference.
+				}
 				onToggle?.(e);
 			}}
+			aria-label={`Use ${resolvedTheme === "dark" ? "light" : "dark"} theme`}
 		>
 			<HugeiconsIcon
 				icon={Sun03Icon}
 				className={cn("!size-[1.1rem]", iconClassName)}
 			/>
-			<span className="sr-only">{theme === "dark" ? "Light" : "Dark"}</span>
 		</Button>
 	);
 }

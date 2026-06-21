@@ -20,12 +20,12 @@ export function ComparisonPage({ comparison }: { comparison: CompetitorCompariso
 			<main className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
 				<p className="font-black uppercase tracking-[.18em] text-[var(--cap-purple-600)]">Independent comparison</p>
 				<h1 className="mt-4 text-5xl font-black tracking-tight sm:text-7xl">{comparison.title}</h1>
-				<p className="mt-6 max-w-3xl text-xl font-semibold leading-relaxed text-black/65">{comparison.summary}</p>
+				<p className="mt-6 max-w-3xl text-xl font-semibold leading-relaxed text-muted-foreground">{comparison.summary}</p>
 				<p className="mt-4 text-sm font-bold">Last verified: {comparison.lastVerified}</p>
 
-				<div className="mt-12 overflow-x-auto rounded-xl border-2 border-black bg-white shadow-[5px_5px_0_#111]">
+				<div className="mt-12 overflow-x-auto rounded-xl border-2 border-black bg-card text-card-foreground shadow-[5px_5px_0_#111]">
 					<table className="w-full min-w-[680px] text-left">
-						<thead className="bg-[var(--cap-lime)]">
+						<thead className="bg-[var(--cap-lime)] text-[#111]">
 							<tr><th className="p-4">Feature</th><th className="p-4">Capinsta</th><th className="p-4">{comparison.competitor}</th></tr>
 						</thead>
 						<tbody>
@@ -51,7 +51,7 @@ export function ComparisonPage({ comparison }: { comparison: CompetitorCompariso
 
 				<section className="mt-12 cap-brutal-card p-7">
 					<h2 className="text-2xl font-black">Sources and methodology</h2>
-					<p className="mt-3 text-black/65">Volatile plan limits, pricing, watermarks, and export details should be checked directly with each provider.</p>
+					<p className="mt-3 text-muted-foreground">Volatile plan limits, pricing, watermarks, and export details should be checked directly with each provider.</p>
 					<ul className="mt-4 list-disc space-y-2 pl-5">
 						{comparison.sourceUrls.map((source) => <li key={source}><a href={source} className="font-bold underline" target="_blank" rel="noreferrer">{source}</a></li>)}
 					</ul>
@@ -69,5 +69,5 @@ export function ComparisonPage({ comparison }: { comparison: CompetitorCompariso
 }
 
 function UseList({ title, items, color }: { title: string; items: string[]; color: string }) {
-	return <section className={`rounded-xl border-2 border-black p-6 shadow-[4px_4px_0_#111] ${color}`}><h2 className="text-xl font-black">{title}</h2><ul className="mt-4 list-disc space-y-2 pl-5 font-semibold">{items.map((item) => <li key={item}>{item}</li>)}</ul></section>;
+	return <section className={`rounded-xl border-2 border-black p-6 text-[#111] shadow-[4px_4px_0_#111] ${color}`}><h2 className="text-xl font-black">{title}</h2><ul className="mt-4 list-disc space-y-2 pl-5 font-semibold">{items.map((item) => <li key={item}>{item}</li>)}</ul></section>;
 }

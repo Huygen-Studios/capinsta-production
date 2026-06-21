@@ -36,10 +36,11 @@ import {
 	bookmarkNotesPreviewOverlay,
 	getBookmarkPreviewOverlaySource,
 } from "@/timeline/bookmarks/index";
+import { EditorAdRail, EditorTopAd } from "@/components/adsense/editor-ads";
 
 export default function Editor() {
-	const params = useParams();
-	const projectId = params.project_id as string;
+	const params = useParams<{ project_id: string }>();
+	const projectId = params.project_id;
 
 	return (
 		<MobileGate>
@@ -70,11 +71,15 @@ function EditorProjectSession() {
 	}
 
 	return (
-				<div className="bg-background flex h-screen w-screen flex-col overflow-hidden">
+				<div className="editor-shell bg-background flex h-screen w-screen flex-col overflow-hidden">
 					<DegradedRendererBanner />
+					<EditorTopAd />
 					<EditorHeader />
-					<div className="min-h-0 min-w-0 flex-1">
-						<EditorLayout />
+					<div className="editor-workspace-with-ads min-h-0 min-w-0 flex-1">
+						<div className="min-h-0 min-w-0">
+							<EditorLayout />
+						</div>
+						<EditorAdRail />
 					</div>
 					<Onboarding />
 					<MigrationDialog />
@@ -174,7 +179,7 @@ function EditorLayout() {
 			>
 				<ResizablePanelGroup
 					direction="horizontal"
-					className="size-full gap-[0.19rem] px-3"
+					className="size-full gap-1 px-3"
 					onLayout={(sizes) => {
 						setPanel({ panel: "tools", size: sizes[0] ?? panels.tools });
 						setPanel({ panel: "preview", size: sizes[1] ?? panels.preview });
@@ -226,7 +231,7 @@ function EditorLayout() {
 				defaultSize={panels.timeline}
 				minSize={15}
 				maxSize={70}
-				className="min-h-0 px-3 pb-3"
+				className="min-h-0 px-3 pb-3 pt-1"
 			>
 				<Timeline />
 			</ResizablePanel>

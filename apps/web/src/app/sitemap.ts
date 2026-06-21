@@ -29,6 +29,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		{ url: `${SITE_URL}${ROUTES.captionPresets}`, lastModified: now, changeFrequency: "weekly", priority: 0.9 },
 		{ url: `${SITE_URL}${ROUTES.compare}`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
 		{ url: `${SITE_URL}${ROUTES.brand}`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
+		{ url: `${SITE_URL}${ROUTES.advertising}`, lastModified: now, changeFrequency: "yearly", priority: 0.5 },
 		{ url: `${SITE_URL}/compare/capinsta-vs-kapwing`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
 		{ url: `${SITE_URL}/compare/capinsta-vs-veed`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
 		{ url: `${SITE_URL}/compare/capinsta-vs-captions-ai`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },

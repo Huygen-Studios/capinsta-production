@@ -3,7 +3,7 @@ import { RenderPageClient } from "./render-client";
 
 export const metadata: Metadata = {
 	title: "CapInsta Render",
-	robots: { index: false, follow: false },
+	robots: { index: false, follow: false, nocache: true, noarchive: true },
 };
 
 export default function RenderPage() {

@@ -1,4 +1,4 @@
-import { ADS_TXT_CONTENT, ADSENSE_ENABLED } from "@/site/ads";
+import { ADS_TXT_CONTENT } from "@/site/ads";
 
 /**
  * /ads.txt route.
@@ -11,10 +11,6 @@ import { ADS_TXT_CONTENT, ADSENSE_ENABLED } from "@/site/ads";
  * See src/site/ads.ts for configuration details.
  */
 export function GET() {
-	if (!ADSENSE_ENABLED || !ADS_TXT_CONTENT) {
-		return new Response("Not Found", { status: 404 });
-	}
-
 	return new Response(ADS_TXT_CONTENT, {
 		status: 200,
 		headers: {

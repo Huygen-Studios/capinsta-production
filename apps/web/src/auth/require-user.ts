@@ -10,3 +10,11 @@ export async function requireUser(pathname: string) {
 	if (!user) redirect(signInPathFor(pathname));
 	return user;
 }
+
+export async function redirectAuthenticatedUser(destination = "/projects") {
+	const supabase = await createClient();
+	const {
+		data: { user },
+	} = await supabase.auth.getUser();
+	if (user) redirect(destination);
+}

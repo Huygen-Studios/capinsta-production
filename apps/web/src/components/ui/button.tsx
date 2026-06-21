@@ -22,9 +22,9 @@ const buttonVariants = cva(
 				ghost: "bg-transparent text-foreground hover:bg-accent",
 				link: "text-primary underline-offset-4 hover:underline !p-0 !h-auto",
 				brutal:
-					"rounded-lg border-2 border-black bg-[var(--cap-purple-600)] text-white shadow-[4px_4px_0_#111] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#111] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_#111]",
+					"rounded-lg border-2 border-[var(--cap-outline)] bg-[var(--cap-purple-600)] text-white shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
 				lime:
-					"rounded-lg border-2 border-black bg-[var(--cap-lime)] text-black shadow-[4px_4px_0_#111] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#111] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_#111]",
+					"rounded-lg border-2 border-[var(--cap-outline)] bg-[var(--cap-lime)] text-[#111] shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
 			},
 			size: {
 				default: "h-9 px-4 py-2",

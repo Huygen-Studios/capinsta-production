@@ -42,7 +42,7 @@ export function GoogleButton({
 			onClick={() => void signIn()}
 			disabled={loading}
 		>
-			<span className="text-base font-bold text-white">G</span>
+			<span className="text-base font-black text-primary">G</span>
 			{loading ? "Connecting..." : "Continue with Google"}
 		</button>
 	);

@@ -131,7 +131,7 @@ const steps = [
 
 export function HowItWorksSection() {
 	return (
-		<section id="how-it-works" className="scroll-mt-20 border-y-2 border-black bg-[var(--cap-lime)]">
+		<section id="how-it-works" className="how-it-works scroll-mt-20 border-y-2 border-black bg-[var(--cap-lime)] text-[#111]">
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="text-center mb-16">
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">

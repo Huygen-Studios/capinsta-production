@@ -22,9 +22,14 @@
   --cap-success: #15803d;
   --cap-destructive: #dc2626;
   --cap-focus: #dfff00;
-  --cap-border: 2px solid var(--cap-black);
-  --cap-shadow: 4px 4px 0 var(--cap-black);
-  --cap-shadow-lg: 6px 6px 0 var(--cap-black);
+  --cap-outline: #111111;
+  --cap-shadow-color: #111111;
+  --cap-marketing-surface: #ffffff;
+  --cap-marketing-muted: #ebe6df;
+  --cap-marketing-text-muted: #57534e;
+  --cap-border: 2px solid var(--cap-outline);
+  --cap-shadow: 4px 4px 0 var(--cap-shadow-color);
+  --cap-shadow-lg: 6px 6px 0 var(--cap-shadow-color);
   --background: hsl(0, 0%, 100%);
   --foreground: hsl(0 0% 11%);
   --card: hsl(0, 0%, 100%);
@@ -88,6 +93,12 @@
 }
 
 .dark {
+  --cap-paper: #0d0818;
+  --cap-outline: #f4edff;
+  --cap-shadow-color: #750beb;
+  --cap-marketing-surface: #181020;
+  --cap-marketing-muted: #24182f;
+  --cap-marketing-text-muted: #c8bdd4;
   --background: hsl(0, 0%, 5%);
   --foreground: hsl(0 0% 87%);
   --card: hsl(0, 0%, 5%);
@@ -262,21 +273,24 @@
 @layer components {
   .marketing-theme {
     background: var(--cap-paper);
-    color: var(--cap-black);
+    color: var(--cap-outline);
     font-family: var(--font-urbanist), sans-serif;
-    color-scheme: light;
-    --background: #fff9f2;
-    --foreground: #111111;
-    --muted: #ebe6df;
-    --muted-foreground: #57534e;
-    --accent: #ebe6df;
-    --border: #111111;
+    --background: var(--cap-paper);
+    --foreground: var(--cap-outline);
+    --card: var(--cap-marketing-surface);
+    --card-foreground: var(--cap-outline);
+    --popover: var(--cap-marketing-surface);
+    --popover-foreground: var(--cap-outline);
+    --muted: var(--cap-marketing-muted);
+    --muted-foreground: var(--cap-marketing-text-muted);
+    --accent: var(--cap-marketing-muted);
+    --border: var(--cap-outline);
   }
 
   .cap-brutal-card {
     border: var(--cap-border);
     border-radius: 1rem;
-    background: #fff;
+    background: var(--cap-marketing-surface);
     box-shadow: var(--cap-shadow);
   }
 
@@ -288,6 +302,126 @@
   .cap-focus:focus-visible {
     outline-color: var(--cap-purple-600);
     box-shadow: 0 0 0 3px var(--cap-lime);
+  }
+
+  .marketing-header {
+    border-color: var(--cap-outline);
+    background: color-mix(in srgb, var(--cap-paper) 94%, transparent);
+    color: var(--cap-outline);
+  }
+
+  .dark .marketing-theme .text-black\/65,
+  .dark .marketing-theme .text-black\/60,
+  .dark .marketing-theme .text-black\/70 {
+    color: var(--cap-marketing-text-muted);
+  }
+
+  .dark .marketing-theme .bg-white {
+    background-color: var(--cap-marketing-surface);
+  }
+
+  .dark .marketing-theme .border-black {
+    border-color: var(--cap-outline);
+  }
+
+  .marketing-theme .how-it-works .text-muted-foreground {
+    color: #374151 !important;
+  }
+
+  .editor-shell {
+    background: var(--background);
+  }
+
+  .editor-shell .panel {
+    border: 1px solid var(--border);
+    border-radius: .55rem;
+    background: var(--card);
+    box-shadow: 2px 2px 0 color-mix(in srgb, var(--primary) 48%, transparent);
+  }
+
+  .editor-shell button:focus-visible,
+  .editor-shell input:focus-visible,
+  .editor-shell [role="button"]:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+
+  .editor-shell input,
+  .editor-shell [role="spinbutton"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .adsense-region,
+  .adsense-placeholder {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: .45rem;
+    background: var(--card);
+    color: var(--muted-foreground);
+  }
+
+  .adsense-placeholder {
+    display: grid;
+    place-content: center;
+    gap: .2rem;
+    text-align: center;
+    font-size: .72rem;
+  }
+
+  .adsense-placeholder small {
+    opacity: .7;
+  }
+
+  .adsense-label {
+    display: block;
+    padding: .25rem .5rem;
+    text-align: center;
+    font-size: .62rem;
+    color: var(--muted-foreground);
+  }
+
+  .editor-top-ad,
+  .editor-ad-rail {
+    display: none;
+  }
+
+  .editor-workspace-with-ads {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 1600px) and (min-height: 900px) {
+    .editor-top-ad:has(.adsense-region),
+    .editor-top-ad:has(.adsense-placeholder) {
+      display: block;
+      max-height: 90px;
+      padding: 0 1rem;
+    }
+  }
+
+  @media (min-width: 1720px) and (min-height: 850px) {
+    .editor-workspace-with-ads:has(.editor-ad-rail .adsense-region),
+    .editor-workspace-with-ads:has(.editor-ad-rail .adsense-placeholder) {
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 1rem;
+      padding-right: 1rem;
+    }
+
+    .editor-ad-rail:has(.adsense-region),
+    .editor-ad-rail:has(.adsense-placeholder) {
+      display: block;
+      width: 320px;
+      padding-top: 150px;
+    }
+
+    .editor-ad-rail .adsense-region,
+    .editor-ad-rail .adsense-placeholder {
+      position: sticky;
+      top: 5rem;
+      width: 300px;
+      margin-inline: auto;
+    }
   }
 
   .preset-word {

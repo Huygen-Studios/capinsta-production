@@ -20,7 +20,7 @@ const downloads = [
 export default function BrandPage() {
 	return <div className="marketing-theme"><Header /><main className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
 		<h1 className="text-5xl font-black sm:text-7xl">Capinsta brand assets.</h1>
-		<p className="mt-5 max-w-3xl text-xl text-black/65">Approved files and factual product language for press, partners, and editorial coverage.</p>
+		<p className="mt-5 max-w-3xl text-xl text-muted-foreground">Approved files and factual product language for press, partners, and editorial coverage.</p>
 		<section className="mt-12 grid gap-6 md:grid-cols-2">
 			<div className="cap-brutal-card grid min-h-72 place-items-center bg-[var(--cap-purple-600)] p-10"><Image src="/logos/capinsta/capinsta-logo.png" alt="Capinsta logo" width={520} height={220} className="h-auto max-h-52 w-auto object-contain" /></div>
 			<div className="cap-brutal-card p-7"><h2 className="text-2xl font-black">Approved downloads</h2><ul className="mt-5 space-y-3">{downloads.map((asset) => <li key={asset.href}><a href={asset.href} download className="font-black text-[var(--cap-purple-600)] underline">{asset.name} ↓</a></li>)}</ul></div>

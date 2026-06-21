@@ -1,30 +1,40 @@
-/**
- * AdSense / ads.txt configuration.
- *
- * The publisher ID is intentionally sourced from an environment variable so the
- * site is "AdSense-ready" without ever publishing a fake placeholder ID. Until a
- * real publisher ID is provided, /ads.txt is NOT served (the route returns 404),
- * and no AdSense scripts are loaded.
- *
- * To activate:
- *   1. Set ADSENSE_PUBLISHER_ID in your production environment, e.g.
- *      ADSENSE_PUBLISHER_ID=pub-1234567890123456
- *   2. Redeploy. /ads.txt will be served automatically.
- *
- * Never commit a real publisher ID to the repository.
- */
+const CLIENT_ID_PATTERN = /^ca-pub-\d{16}$/;
+const SLOT_PATTERN = /^\d+$/;
 
-const rawId = process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID?.trim() ?? "";
+function enabled(value: string | undefined) {
+	return value?.trim().toLowerCase() === "true";
+}
 
-/** Validate that the ID matches Google's pub-XXXXXXXXXXXXXXXX format. */
-const PATTERN = /^pub-\d{16}$/;
+function validSlot(value: string | undefined) {
+	const normalized = value?.trim() ?? "";
+	return SLOT_PATTERN.test(normalized) ? normalized : "";
+}
 
-export const ADSENSE_PUBLISHER_ID: string = PATTERN.test(rawId) ? rawId : "";
+export function parseAdSenseConfig(env: Record<string, string | undefined>) {
+	const clientId = env.NEXT_PUBLIC_ADSENSE_CLIENT_ID?.trim() ?? "";
+	return {
+		enabled:
+			enabled(env.NEXT_PUBLIC_ADSENSE_ENABLED) &&
+			CLIENT_ID_PATTERN.test(clientId),
+		autoAdsEnabled: enabled(env.NEXT_PUBLIC_ADSENSE_AUTO_ADS_ENABLED),
+		clientId: CLIENT_ID_PATTERN.test(clientId) ? clientId : "",
+		topSlot: validSlot(env.NEXT_PUBLIC_ADSENSE_TOP_SLOT),
+		sidebarSlot: validSlot(env.NEXT_PUBLIC_ADSENSE_SIDEBAR_SLOT),
+	} as const;
+}
 
-/** True only when a valid, real publisher ID is configured. */
-export const ADSENSE_ENABLED: boolean = ADSENSE_PUBLISHER_ID.length > 0;
+export const ADSENSE_CONFIG = parseAdSenseConfig(process.env);
 
-/** The single ads.txt line required by AdSense, or empty when disabled. */
-export const ADS_TXT_CONTENT: string = ADSENSE_ENABLED
+export const ADSENSE_PUBLISHER_ID = ADSENSE_CONFIG.clientId.replace(/^ca-/, "");
+export const ADS_TXT_CONTENT = ADSENSE_PUBLISHER_ID
 	? `google.com, ${ADSENSE_PUBLISHER_ID}, DIRECT, f08c47fec0942fa0\n`
-	: "";
+	: "# Add the authorized Google AdSense seller line through production environment configuration.\n";
+
+export function isAdSenseSlotConfigured(slot: string | undefined) {
+	return Boolean(
+		ADSENSE_CONFIG.enabled &&
+			ADSENSE_CONFIG.clientId &&
+			slot &&
+			SLOT_PATTERN.test(slot),
+	);
+}

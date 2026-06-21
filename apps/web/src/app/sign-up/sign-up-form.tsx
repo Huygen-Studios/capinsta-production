@@ -73,16 +73,16 @@ export function SignUpForm({ redirectPath }: { redirectPath: string }) {
 		<AuthShell title="Create your account" description="Your projects, uploads, captions, and exports stay tied to your account.">
 			<div className="space-y-5">
 				<GoogleButton redirectPath={redirectPath} onError={setError} />
-				<div className="flex items-center gap-3 text-xs text-zinc-500">
-					<div className="h-px flex-1 bg-zinc-800" />or<div className="h-px flex-1 bg-zinc-800" />
+				<div className="flex items-center gap-3 text-xs text-muted-foreground">
+					<div className="h-px flex-1 bg-border" />or<div className="h-px flex-1 bg-border" />
 				</div>
 				<AuthError message={error} />
 				<form className="space-y-4" onSubmit={(event) => void submit(event)}>
-					<label htmlFor="full-name" className="block text-sm font-medium text-zinc-200">
+					<label htmlFor="full-name" className="block text-sm font-semibold text-foreground">
 						Full name
 						<input id="full-name" autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} required className={authInputClass} />
 					</label>
-					<label htmlFor="email" className="block text-sm font-medium text-zinc-200">
+					<label htmlFor="email" className="block text-sm font-semibold text-foreground">
 						Email
 						<input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required className={authInputClass} />
 					</label>
@@ -92,9 +92,9 @@ export function SignUpForm({ redirectPath }: { redirectPath: string }) {
 						{loading ? "Creating account..." : "Create account"}
 					</button>
 				</form>
-				<p className="text-center text-sm text-zinc-400">
+				<p className="text-center text-sm text-muted-foreground">
 					Already have an account?{" "}
-					<Link href={`/sign-in?redirect=${encodeURIComponent(redirectPath)}`} className="font-medium text-violet-400 hover:text-violet-300">Sign in</Link>
+					<Link href={`/sign-in?redirect=${encodeURIComponent(redirectPath)}`} className="font-semibold text-primary hover:underline">Sign in</Link>
 				</p>
 			</div>
 		</AuthShell>

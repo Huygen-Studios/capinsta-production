@@ -57,7 +57,7 @@ export function ResetPasswordForm() {
 		);
 	}
 	if (!ready) {
-		return <AuthShell title="Checking your link" description="Securely restoring your password recovery session…"><div className="h-2 animate-pulse rounded bg-violet-600/50" /></AuthShell>;
+		return <AuthShell title="Checking your link" description="Securely restoring your password recovery session…"><div className="h-2 animate-pulse rounded bg-primary/50" /></AuthShell>;
 	}
 	if (success) {
 		return (

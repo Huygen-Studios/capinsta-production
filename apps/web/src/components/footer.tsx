@@ -41,6 +41,7 @@ const footerSections: FooterSection[] = [
 			{ label: "Privacy Policy", href: ROUTES.privacy },
 			{ label: "Terms of Service", href: ROUTES.terms },
 			{ label: "Cookie Policy", href: ROUTES.cookies },
+			{ label: "Advertising disclosure", href: ROUTES.advertising },
 			{ label: "Data Retention Policy", href: ROUTES.dataRetention },
 			{ label: "Acceptable Use Policy", href: ROUTES.acceptableUse },
 			{ label: "Disclaimer", href: ROUTES.disclaimer },

@@ -17,6 +17,8 @@
  */
 const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
 const isLocalOrigin =
+	!configuredSiteUrl ||
+	configuredSiteUrl === "undefined" ||
 	configuredSiteUrl?.includes("localhost") ||
 	configuredSiteUrl?.includes("127.0.0.1");
 
@@ -38,12 +40,6 @@ export const BRAND = {
 	productWebsite: SITE_URL,
 	/** Support / privacy / copyright contact. */
 	supportEmail: "hello@huygenstudios.com",
-	/** Marketing site for the GitHub source. */
-	githubUrl: "https://github.com/Huygen-Studios/capinsta-production",
-	/** Optional social profiles. Omitted platforms have no real profile. */
-	social: {
-		github: "https://github.com/Huygen-Studios/capinsta-production",
-	},
 	/** Relationship line shown next to the logo in headers/footers. */
 	productByLine: "A product by Huygen Studios",
 } as const;
@@ -130,6 +126,7 @@ export const ROUTES = {
 	captionPresets: "/caption-presets",
 	compare: "/compare",
 	brand: "/brand",
+	advertising: "/advertising",
 } as const;
 
 /**
