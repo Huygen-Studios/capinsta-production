@@ -62,6 +62,10 @@ export class SelectionManager {
 		};
 	}
 
+	selectElement({ element }: { element: ElementRef }): void {
+		this.setSelectedElements({ elements: [element] });
+	}
+
 	setSelectedElements({ elements }: { elements: ElementRef[] }): void {
 		this.selectedElements = elements;
 		this.selectedKeyframes = [];

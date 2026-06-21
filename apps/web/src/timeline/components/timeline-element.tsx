@@ -1063,8 +1063,8 @@ function EffectsButton({
 
 	const handleClick = (event: React.MouseEvent) => {
 		event.stopPropagation();
-		editor.selection.setSelectedElements({
-			elements: [{ trackId: track.id, elementId: element.id }],
+		editor.selection.selectElement({
+			element: { trackId: track.id, elementId: element.id },
 		});
 		setActiveTab({ elementType: element.type, tabId: "effects" });
 	};

@@ -37,7 +37,7 @@ type Point = { readonly x: number; readonly y: number };
 
 interface CapturedPointerState {
 	readonly pointerId: number;
-	readonly captureTarget: HTMLElement;
+	readonly captureTarget: Element;
 }
 
 interface PendingGesture extends CapturedPointerState {
@@ -107,7 +107,7 @@ export interface SceneReader {
 
 export interface SelectionApi {
 	getSelected: () => readonly ElementRef[];
-	setSelected: (elements: readonly ElementRef[]) => void;
+	select: (element: ElementRef) => void;
 	clearSelection: () => void;
 }
 
@@ -354,7 +354,7 @@ export class PreviewInteractionController {
 			kind: "pending",
 			origin: startPos,
 			pointerId,
-			captureTarget: currentTarget as HTMLElement,
+			captureTarget: currentTarget,
 			topmostHit: hits[0] ?? null,
 			selectedHit: resolvePreferredHit({
 				hits,
@@ -422,12 +422,10 @@ export class PreviewInteractionController {
 			if (!clickTarget) {
 				this.deps.selection.clearSelection();
 			} else {
-				this.deps.selection.setSelected([
-					{
-						trackId: clickTarget.trackId,
-						elementId: clickTarget.elementId,
-					},
-				]);
+				this.deps.selection.select({
+					trackId: clickTarget.trackId,
+					elementId: clickTarget.elementId,
+				});
 			}
 		}
 
@@ -502,12 +500,10 @@ export class PreviewInteractionController {
 		}
 
 		if (pending.selectedHit === null) {
-			this.deps.selection.setSelected([
-				{
-					trackId: dragTarget.trackId,
-					elementId: dragTarget.elementId,
-				},
-			]);
+			this.deps.selection.select({
+				trackId: dragTarget.trackId,
+				elementId: dragTarget.elementId,
+			});
 		}
 
 		this.gesture = {

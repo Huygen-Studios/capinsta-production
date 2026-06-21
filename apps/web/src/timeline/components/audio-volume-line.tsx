@@ -157,8 +157,8 @@ export function AudioVolumeLine({
 
 			event.preventDefault();
 			event.stopPropagation();
-			editor.selection.setSelectedElements({
-				elements: [{ trackId, elementId: element.id }],
+			editor.selection.selectElement({
+				element: { trackId, elementId: element.id },
 			});
 			activePointerIdRef.current = event.pointerId;
 			startVolumeRef.current = currentVolume;

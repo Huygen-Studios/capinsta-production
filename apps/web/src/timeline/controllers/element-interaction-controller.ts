@@ -389,8 +389,13 @@ export class ElementInteractionController {
 			? this.deps.selection.getSelected()
 			: this.expandLinkedRefs([ref]);
 
-		if (!(event.metaKey || event.ctrlKey || event.shiftKey) && !this.deps.selection.isSelected(ref)) {
-			this.deps.selection.selectMany([...selectedElements]);
+		if (
+			!(event.metaKey || event.ctrlKey || event.shiftKey) &&
+			!this.deps.selection.isSelected(ref)
+		) {
+			// Linked media remains part of the drag group, while the inspector
+			// selection stays anchored to the one layer the user clicked.
+			this.deps.selection.select(ref);
 		}
 
 		this.session = {
@@ -431,17 +436,11 @@ export class ElementInteractionController {
 		if (event.metaKey || event.ctrlKey || event.shiftKey) return;
 
 		const ref = { trackId: track.id, elementId: element.id };
-		if (event.detail >= 2) {
-			this.deps.selection.select(ref);
-			this.deps.selection.clearKeyframeSelection();
-			return;
-		}
-
 		if (
 			!this.deps.selection.isSelected(ref) ||
 			this.deps.selection.getSelected().length > 1
 		) {
-			this.deps.selection.selectMany(this.expandLinkedRefs([ref]));
+			this.deps.selection.select(ref);
 			return;
 		}
 

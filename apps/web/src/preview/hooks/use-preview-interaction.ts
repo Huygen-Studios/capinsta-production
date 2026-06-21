@@ -39,8 +39,7 @@ export function usePreviewInteraction({
 		},
 		selection: {
 			getSelected: () => editor.selection.getSelectedElements(),
-			setSelected: (elements) =>
-				editor.selection.setSelectedElements({ elements: [...elements] }),
+			select: (element) => editor.selection.selectElement({ element }),
 			clearSelection: () => editor.selection.clearSelection(),
 		},
 		timeline: {

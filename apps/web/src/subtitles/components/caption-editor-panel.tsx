@@ -536,10 +536,11 @@ export function CaptionEditorPanel({
 				clipId: clip.id,
 			});
 			if (element) {
-				editor.selection.setSelectedElements({
-					elements: [
-						{ trackId: currentRecord.openCutTrackId, elementId: element.id },
-					],
+				editor.selection.selectElement({
+					element: {
+						trackId: currentRecord.openCutTrackId,
+						elementId: element.id,
+					},
 				});
 			}
 		},
