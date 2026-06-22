@@ -12,6 +12,7 @@ import { TICKS_PER_SECOND } from "@/wasm";
 import { downloadBlob } from "@/utils/browser";
 import { buildCapinstaPreviewTracks } from "@/capinsta/captionTimelineSync";
 import { getCapinstaApiBaseUrl } from "@/capinsta/featureFlags";
+import { readJsonApiResponse } from "@/capinsta/api-response";
 import { mountCapinstaExportOverlayHost } from "@/capinsta/export/CapinstaExportOverlayHost";
 import type { CapinstaExportOverlayHost } from "@/capinsta/export/capinsta-overlay-capture";
 import {
@@ -424,24 +425,29 @@ export class RendererManager {
 					}
 				}
 
+				const startData = await readJsonApiResponse<Record<string, unknown>>({
+					response,
+					endpoint: exportEndpoint,
+				});
 				if (!response.ok) {
-					const errData = await response.json().catch(() => ({}));
 					return {
 						success: false,
 						error: formatExportApiError({
 							endpoint: exportEndpoint,
 							status: response.status,
-							payload: errData,
+							payload: startData,
 							correlationId: response.headers.get("x-correlation-id"),
 						}),
 					};
 				}
 
-				const startData = await response.json();
-				const jobId = startData.jobId;
+				const jobId =
+					typeof startData.jobId === "string" ? startData.jobId : null;
 				const correlationId =
 					response.headers.get("x-correlation-id") ??
-					startData.correlationId ??
+					(typeof startData.correlationId === "string"
+						? startData.correlationId
+						: null) ??
 					null;
 				if (!jobId) {
 					return {
@@ -472,12 +478,15 @@ export class RendererManager {
 					await new Promise((resolve) => setTimeout(resolve, 1500));
 
 					const pollRes = await authenticatedFetch(statusUrl);
+					const jobStatus = await readJsonApiResponse<Record<string, unknown>>({
+						response: pollRes,
+						endpoint: statusUrl,
+					});
 					if (!pollRes.ok) {
-						const pollPayload = await pollRes.json().catch(() => ({}));
 						pollError = formatExportApiError({
 							endpoint: statusUrl,
 							status: pollRes.status,
-							payload: pollPayload,
+							payload: jobStatus,
 							correlationId:
 								pollRes.headers.get("x-correlation-id") ?? correlationId,
 							jobId,
@@ -485,10 +494,12 @@ export class RendererManager {
 						break;
 					}
 
-					const jobStatus = await pollRes.json();
 					if (jobStatus.status === "completed") {
 						isComplete = true;
-						downloadUrl = jobStatus.downloadUrl;
+						downloadUrl =
+							typeof jobStatus.downloadUrl === "string"
+								? jobStatus.downloadUrl
+								: null;
 					} else if (jobStatus.status === "failed") {
 						pollError = formatExportApiError({
 							endpoint: statusUrl,
@@ -500,11 +511,15 @@ export class RendererManager {
 									jobStatus.message ||
 									"Export job failed on server.",
 							},
-							correlationId: jobStatus.correlationId ?? correlationId,
+							correlationId:
+								typeof jobStatus.correlationId === "string"
+									? jobStatus.correlationId
+									: correlationId,
 							jobId,
 						});
 					} else {
-						const progress = jobStatus.progress || 0;
+						const progress =
+							typeof jobStatus.progress === "number" ? jobStatus.progress : 0;
 						onProgress?.({ progress: 0.05 + (progress / 100) * 0.9 });
 					}
 				}

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { capinstaBackendUrl } from "@/capinsta/proxy-url";
+import {
+	buildProxyRequestHeaders,
+	buildProxyResponseHeaders,
+} from "@/capinsta/proxy-http";
 import { webEnv } from "@/env/web";
 
 export const runtime = "nodejs";
@@ -20,15 +24,7 @@ async function proxy(
 		path,
 		search: incoming.search,
 	});
-	const headers = new Headers(request.headers);
-	headers.delete("host");
-	headers.delete("content-length");
-	headers.delete("connection");
-	headers.set("x-capinsta-proxy", "nextjs");
-	headers.set(
-		"x-correlation-id",
-		headers.get("x-correlation-id") ?? crypto.randomUUID(),
-	);
+	const headers = buildProxyRequestHeaders(request.headers);
 
 	try {
 		const init: RequestInit & { duplex?: "half" } = {
@@ -53,11 +49,7 @@ async function proxy(
 			}
 		}
 		const response = await fetch(target, init);
-		const responseHeaders = new Headers(response.headers);
-		responseHeaders.delete("content-length");
-		responseHeaders.delete("content-encoding");
-		responseHeaders.delete("transfer-encoding");
-		responseHeaders.delete("connection");
+		const responseHeaders = buildProxyResponseHeaders(response.headers);
 		return new Response(response.body, {
 			status: response.status,
 			statusText: response.statusText,

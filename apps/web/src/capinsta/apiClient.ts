@@ -17,6 +17,7 @@ import { validateCapinstaTranscriptV1 } from "./adapter";
 import { CAPINSTA_PRESET_IDS } from "./styles/presetRegistry";
 import type { CapinstaCaptionPresetId } from "./styles/styleTypes";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
+import { readJsonApiResponse } from "./api-response";
 
 export class CapinstaApiError extends Error {
 	constructor(
@@ -32,24 +33,29 @@ function joinUrl(baseUrl: string, path: string): string {
 	return `${baseUrl.replace(/\/+$/, "")}${path}`;
 }
 
-async function readJsonResponse<T>(response: Response): Promise<T> {
+async function readJsonResponse<T>({
+	response,
+	endpoint,
+}: {
+	response: Response;
+	endpoint: string;
+}): Promise<T> {
+	const body = await readJsonApiResponse<Record<string, unknown>>({
+		response,
+		endpoint,
+	});
 	if (!response.ok) {
 		let detail = response.statusText;
 		let code: string | undefined;
 		let stage: string | undefined;
 		let correlationId = response.headers.get("x-correlation-id") ?? undefined;
-		try {
-			const body = await response.json();
-			if (typeof body?.detail === "string") detail = body.detail;
-			else if (typeof body?.message === "string") detail = body.message;
-			else if (typeof body?.error === "string") detail = body.error;
-			if (typeof body?.code === "string") code = body.code;
-			if (typeof body?.stage === "string") stage = body.stage;
-			if (typeof body?.correlationId === "string") {
-				correlationId = body.correlationId;
-			}
-		} catch {
-			// Keep the status text when the response is not JSON.
+		if (typeof body.detail === "string") detail = body.detail;
+		else if (typeof body.message === "string") detail = body.message;
+		else if (typeof body.error === "string") detail = body.error;
+		if (typeof body.code === "string") code = body.code;
+		if (typeof body.stage === "string") stage = body.stage;
+		if (typeof body.correlationId === "string") {
+			correlationId = body.correlationId;
 		}
 		const diagnostics = [
 			`HTTP ${response.status}`,
@@ -62,7 +68,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 			response.status,
 		);
 	}
-	return (await response.json()) as T;
+	return body as T;
 }
 
 export async function checkCapinstaHealth({
@@ -75,8 +81,9 @@ export async function checkCapinstaHealth({
 	signal?: AbortSignal;
 }): Promise<CapinstaHealthResponse> {
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
-	const response = await fetchImpl(joinUrl(baseUrl, "/health"), { signal });
-	return readJsonResponse<CapinstaHealthResponse>(response);
+	const endpoint = joinUrl(baseUrl, "/health");
+	const response = await fetchImpl(endpoint, { signal });
+	return readJsonResponse<CapinstaHealthResponse>({ response, endpoint });
 }
 
 export async function startCapinstaCaptionJob({
@@ -101,8 +108,9 @@ export async function startCapinstaCaptionJob({
 		languageMode,
 	});
 
+	const endpoint = joinUrl(baseUrl, "/api/jobs");
 	const response = await authenticatedFetch(
-		joinUrl(baseUrl, "/api/jobs"),
+		endpoint,
 		{
 			method: "POST",
 			body: formData,
@@ -110,7 +118,10 @@ export async function startCapinstaCaptionJob({
 		},
 		fetchImpl,
 	);
-	const job = await readJsonResponse<CapinstaJobCreateResponse>(response);
+	const job = await readJsonResponse<CapinstaJobCreateResponse>({
+		response,
+		endpoint,
+	});
 	console.debug("[Capinsta captions] Job creation response", job);
 	return job;
 }
@@ -126,14 +137,18 @@ export async function getCapinstaJob({
 	fetchImpl?: typeof fetch;
 	signal?: AbortSignal;
 }): Promise<CapinstaJobDetailResponse> {
+	const endpoint = joinUrl(baseUrl, `/api/jobs/${jobId}`);
 	const response = await authenticatedFetch(
-		joinUrl(baseUrl, `/api/jobs/${jobId}`),
+		endpoint,
 		{
 			signal,
 		},
 		fetchImpl,
 	);
-	const job = await readJsonResponse<CapinstaJobDetailResponse>(response);
+	const job = await readJsonResponse<CapinstaJobDetailResponse>({
+		response,
+		endpoint,
+	});
 	console.debug("[Capinsta captions] Job detail response", {
 		jobId,
 		status: job.status,
@@ -154,14 +169,15 @@ export async function cancelCapinstaJob({
 	jobId: string;
 	fetchImpl?: typeof fetch;
 }): Promise<CapinstaJobCreateResponse> {
+	const endpoint = joinUrl(baseUrl, `/api/jobs/${jobId}/cancel`);
 	const response = await authenticatedFetch(
-		joinUrl(baseUrl, `/api/jobs/${jobId}/cancel`),
+		endpoint,
 		{
 			method: "POST",
 		},
 		fetchImpl,
 	);
-	return readJsonResponse<CapinstaJobCreateResponse>(response);
+	return readJsonResponse<CapinstaJobCreateResponse>({ response, endpoint });
 }
 
 function normalizeLanguageMode(
@@ -212,15 +228,16 @@ export async function sendCapinstaProjectHeartbeat({
 	signal?: AbortSignal;
 }): Promise<{ job_id: string; last_seen_at: string; expires_at: string }> {
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
+	const endpoint = joinUrl(baseUrl, `/api/jobs/${jobId}/heartbeat`);
 	const response = await authenticatedFetch(
-		joinUrl(baseUrl, `/api/jobs/${jobId}/heartbeat`),
+		endpoint,
 		{
 			method: "POST",
 			signal,
 		},
 		fetchImpl,
 	);
-	return readJsonResponse(response);
+	return readJsonResponse({ response, endpoint });
 }
 
 function wordText(word: CapinstaApiWord): string {
