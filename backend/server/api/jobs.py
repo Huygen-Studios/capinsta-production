@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, List
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -22,6 +22,8 @@ from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, UPLOAD_DIR, ensure_runtim
 from ..project_cleanup import ensure_project_available, heartbeat_project, iso_utc, project_expiry
 from ..worker_startup import start_pipeline_worker
 from ..auth import current_user, get_owned_job, verify_access_token
+from ..operational_mirror import mirror_caption_job
+from ..runtime_policy import enforce_caption_quota, require_feature, require_provider_enabled
 from ai_pipeline.renderer import generate_srt, generate_vtt
 from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_aligned_words_from_segments
 from ai_pipeline.sync.affine import retime_segments
@@ -90,6 +92,28 @@ def _validate_upload_metadata(file: UploadFile) -> str:
         )
 
     return _sanitize_upload_filename(filename, ext)
+
+
+async def _media_duration_seconds(file_path: str) -> float:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+            file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=15)
+        if process.returncode == 0:
+            return max(0.0, float(stdout.decode().strip()))
+    except (FileNotFoundError, ValueError, asyncio.TimeoutError):
+        logger.warning("media_duration_probe_failed path=%s", file_path)
+    return 0.0
 
 
 def _stored_language_mode(value: str | None) -> str:
@@ -261,11 +285,16 @@ def _resolve_export_dimensions(resolution: str, export_width: int | None, export
 @router.post("", response_model=JobResponse)
 @router.post("/", response_model=JobResponse)
 async def create_job(
+    request: Request,
     languageMode: str = Form(None),
     target_lang: str = Form(None),
+    project_id: str | None = Form(None),
     file: UploadFile = File(...)
 ):
     """Uploads a video and starts a background captioning job."""
+    await require_feature("caption_generation_enabled", "Caption generation is temporarily unavailable.")
+    await require_provider_enabled(os.getenv("STT_PROVIDER", "auto").strip().lower())
+    await enforce_caption_quota(current_user().id)
     job_id = str(uuid.uuid4())
     requested_mode = languageMode or target_lang or "auto_mixed_indian"
     _log_stage(job_id, "request received", language_mode=requested_mode, upload_filename=file.filename)
@@ -324,6 +353,16 @@ async def create_job(
         await file.close()
 
     _log_stage(job_id, "file saved", file_path=file_path, bytes=bytes_written)
+    media_duration = await _media_duration_seconds(file_path)
+    try:
+        await enforce_caption_quota(
+            current_user().id,
+            media_duration if media_duration > 0 else None,
+        )
+    except HTTPException:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise
 
     # Insert initial job state
     async with aiosqlite.connect(str(DB_PATH)) as db:
@@ -333,12 +372,19 @@ async def create_job(
         await db.execute(
             """
             INSERT INTO jobs
-                (id, status, filename, target_lang, created_at, last_seen_at, expires_at, user_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (id, status, filename, target_lang, created_at, last_seen_at, expires_at,
+                 user_id, project_id, correlation_id, media_duration_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (job_id, "queued", filename, normalized_mode, now_text, now_text, expires_text, current_user().id),
+            (
+                job_id, "queued", filename, normalized_mode, now_text, now_text,
+                expires_text, current_user().id, project_id or job_id,
+                request.headers.get("x-correlation-id") or str(uuid.uuid4()),
+                media_duration or None,
+            ),
         )
         await db.commit()
+    await mirror_caption_job(job_id)
 
     # Start background thread for heavy processing. The startup wrapper records
     # import/dependency failures as failed jobs instead of leaving them queued.
@@ -432,7 +478,9 @@ async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
 async def heartbeat_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     """Refresh the backend-enforced inactivity lease for an open editor."""
     await get_owned_job(db, job_id)
-    return await heartbeat_project(job_id, db)
+    result = await heartbeat_project(job_id, db)
+    await mirror_caption_job(job_id)
+    return result
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
@@ -454,6 +502,7 @@ async def cancel_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
         (job_id, current_user().id),
     )
     await db.commit()
+    await mirror_caption_job(job_id)
     await manager.broadcast_progress(job_id, "cancelled", -1, "Cancelled by user.")
 
     return JobResponse(

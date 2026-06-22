@@ -90,6 +90,48 @@ async def init_db():
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_export_jobs_user_id_created_at ON export_jobs (user_id, created_at)"
         )
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS operational_outbox (
+                event_id TEXT PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                next_attempt_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_operational_outbox_retry ON operational_outbox (next_attempt_at, created_at)"
+        )
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS admin_idempotency (
+                idempotency_key TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                result_json TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        for column in (
+            "project_id TEXT", "media_duration_seconds REAL", "started_at TEXT",
+            "retry_count INTEGER DEFAULT 0", "retry_of_job_id TEXT",
+            "admin_retry_by TEXT", "correlation_id TEXT"
+        ):
+            try:
+                await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
+            except Exception:
+                pass
+        for column in (
+            "project_id TEXT", "mode TEXT", "retry_count INTEGER DEFAULT 0",
+            "retry_of_export_id TEXT", "admin_retry_by TEXT", "correlation_id TEXT",
+            "immutable_input_json TEXT", "performance_json TEXT"
+        ):
+            try:
+                await db.execute(f"ALTER TABLE export_jobs ADD COLUMN {column}")
+            except Exception:
+                pass
         await db.commit()
 
 async def get_db():

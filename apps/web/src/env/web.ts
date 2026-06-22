@@ -24,6 +24,14 @@ const webEnvSchema = z.object({
 	UPSTASH_REDIS_REST_URL: z.url(),
 	UPSTASH_REDIS_REST_TOKEN: z.string(),
 	MARBLE_WORKSPACE_KEY: z.string(),
+	SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
+	ADMIN_SECURITY_PEPPER: z.string().min(32),
+	BACKEND_INTERNAL_URL: z.url().default("http://127.0.0.1:8000"),
+	INTERNAL_ADMIN_API_SECRET: z.string().min(32),
+	ADMIN_ASSERTION_ISSUER: z.string().min(3).default("capinsta-web"),
+	INTERNAL_MAINTENANCE_SECRET: z.string().min(32),
+	TRUSTED_PROXY_MODE: z.enum(["none", "cloudflare", "coolify"]).default("none"),
+	CAPINSTA_ADMIN_BOOTSTRAP_USER_ID: z.uuid().optional(),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

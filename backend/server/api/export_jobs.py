@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..database import get_db
@@ -33,6 +33,8 @@ from ..settings import (
 )
 from .jobs import _public_export_stage, _resolve_export_dimensions
 from ..auth import current_user, get_owned_job
+from ..operational_mirror import mirror_export_job
+from ..runtime_policy import enforce_export_quota, require_feature
 
 
 router = APIRouter(prefix="/export/jobs", tags=["export"])
@@ -40,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 ensure_runtime_dirs()
 
-ExportStatus = Literal["queued", "running", "completed", "failed", "expired"]
+ExportStatus = Literal["queued", "running", "completed", "failed", "cancelled", "expired"]
 _export_semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPORTS)
 _jobs_lock = asyncio.Lock()
 _jobs: dict[str, "ExportJobStatus"] = {}
@@ -66,6 +68,14 @@ _EXPORT_JOB_COLUMNS = (
     "deleted_at",
     "delete_reason",
     "user_id",
+    "project_id",
+    "mode",
+    "retry_count",
+    "retry_of_export_id",
+    "admin_retry_by",
+    "correlation_id",
+    "immutable_input_json",
+    "performance_json",
 )
 
 
@@ -121,6 +131,13 @@ class ExportJobStatus:
     deleted_at: str | None = None
     delete_reason: str | None = None
     user_id: str = ""
+    project_id: str | None = None
+    mode: str | None = None
+    retry_count: int = 0
+    retry_of_export_id: str | None = None
+    admin_retry_by: str | None = None
+    correlation_id: str | None = None
+    immutable_input: dict[str, object] | None = None
 
     def to_public_dict(self) -> dict[str, object]:
         return {
@@ -171,6 +188,14 @@ def _job_db_values(job: ExportJobStatus) -> tuple[object, ...]:
         job.deleted_at,
         job.delete_reason,
         job.user_id,
+        job.project_id,
+        job.mode,
+        job.retry_count,
+        job.retry_of_export_id,
+        job.admin_retry_by,
+        job.correlation_id,
+        json.dumps(job.immutable_input or {}, ensure_ascii=False),
+        json.dumps(job.performance or {}, ensure_ascii=False),
     )
 
 
@@ -197,6 +222,14 @@ def _job_from_row(row: aiosqlite.Row) -> ExportJobStatus:
         deleted_at=row["deleted_at"],
         delete_reason=row["delete_reason"],
         user_id=row["user_id"],
+        project_id=row["project_id"] if "project_id" in row.keys() else row["source_job_id"],
+        mode=row["mode"] if "mode" in row.keys() else None,
+        retry_count=int(row["retry_count"] or 0) if "retry_count" in row.keys() else 0,
+        retry_of_export_id=row["retry_of_export_id"] if "retry_of_export_id" in row.keys() else None,
+        admin_retry_by=row["admin_retry_by"] if "admin_retry_by" in row.keys() else None,
+        correlation_id=row["correlation_id"] if "correlation_id" in row.keys() else None,
+        immutable_input=json.loads(row["immutable_input_json"] or "{}") if "immutable_input_json" in row.keys() else {},
+        performance=json.loads(row["performance_json"] or "{}") if "performance_json" in row.keys() else None,
     )
 
 
@@ -214,6 +247,7 @@ async def _persist_job(job: ExportJobStatus) -> None:
             _job_db_values(job),
         )
         await db.commit()
+    await mirror_export_job(job.id)
 
 
 async def _load_job_from_db(export_job_id: str, user_id: str) -> ExportJobStatus | None:
@@ -353,6 +387,8 @@ async def _prune_jobs() -> None:
 async def _set_job(job_id: str, **updates: object) -> ExportJobStatus:
     async with _jobs_lock:
         job = _jobs[job_id]
+        if job.status == "cancelled" and updates.get("status") != "cancelled":
+            return replace(job)
         for key, value in updates.items():
             setattr(job, key, value)
         job.updated_at = _utc_now()
@@ -613,6 +649,7 @@ def export_job_metrics() -> dict[str, int]:
 @router.post("")
 @router.post("/")
 async def start_export_job(
+    request_context: Request,
     db: aiosqlite.Connection = Depends(get_db),
     source_job_id: str = Form(...),
     captions_json: str = Form("[]"),
@@ -641,11 +678,13 @@ async def start_export_job(
     composition_json: str | None = Form(None),
 ):
     await _prune_jobs()
+    await require_feature("export_enabled", "Exports are temporarily unavailable.")
     if duration_override is None and custom_duration is not None:
         duration_override = custom_duration
     if duration_source is None and duration_mode is not None:
         duration_source = duration_mode
     _validate_duration(duration_override)
+    await enforce_export_quota(current_user().id, float(duration_override or 0))
 
     export_fps = max(1, min(120, int(export_fps or 30)))
     export_mode = "captions_only" if captions_only else export_mode
@@ -729,6 +768,30 @@ async def start_export_job(
             fps=export_fps,
             expires_at=row["expires_at"],
             user_id=current_user().id,
+            project_id=row["project_id"] if "project_id" in row.keys() else source_job_id,
+            mode=export_mode,
+            correlation_id=request_context.headers.get("x-correlation-id") or str(uuid.uuid4()),
+            immutable_input={
+                "source_job_id": source_job_id,
+                "theme": theme,
+                "style_config_json": style_config_json,
+                "resolution": resolution,
+                "export_width": export_width,
+                "export_height": export_height,
+                "export_fps": export_fps,
+                "include_audio": include_audio,
+                "quality": quality,
+                "bitrate": bitrate,
+                "custom_bitrate_mbps": custom_bitrate_mbps,
+                "export_mode": export_mode,
+                "background_color": background_color,
+                "duration_override": duration_override,
+                "duration_source": duration_source,
+                "hardware_acceleration": hardware_acceleration,
+                "render_mode": render_mode,
+                "composition_json": composition_json,
+                "captions_json": captions_json,
+            },
         )
         _jobs[export_job_id] = queued_job
     await _persist_job(queued_job)

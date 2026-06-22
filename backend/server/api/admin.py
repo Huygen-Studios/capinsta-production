@@ -1,0 +1,470 @@
+import asyncio
+import json
+import os
+import secrets
+import shutil
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import aiosqlite
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+
+from ..admin_auth import require_backend_admin_permission
+from ..database import get_db
+from ..operational_mirror import (
+    mirror_caption_job,
+    mirror_export_job,
+    reconcile_runtime_jobs,
+    sanitize_error,
+)
+from ..progress import manager
+from ..settings import EXPORT_DIR, UPLOAD_DIR
+from ..worker_startup import start_pipeline_worker
+from ..project_cleanup import ACTIVE_JOB_STATUSES, expire_project
+from ..runtime_policy import project_retention_state
+from . import export_jobs as export_runtime
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+internal_router = APIRouter(prefix="/internal/admin", tags=["internal-admin"])
+
+
+class ReasonRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+def _idempotency_key(request: Request) -> str:
+    value = request.headers.get("idempotency-key", "").strip()
+    if not value or len(value) > 160:
+        raise HTTPException(status_code=400, detail="Idempotency-Key is required")
+    return value
+
+
+async def _existing_result(db: aiosqlite.Connection, request: Request, action: str, target_id: str):
+    key = _idempotency_key(request)
+    cursor = await db.execute(
+        "SELECT action, target_id, result_json FROM admin_idempotency WHERE idempotency_key = ?",
+        (key,),
+    )
+    row = await cursor.fetchone()
+    if row:
+        if row["action"] != action or row["target_id"] != target_id:
+            raise HTTPException(status_code=409, detail="Idempotency key conflict")
+        return json.loads(row["result_json"] or "{}")
+    return None
+
+
+async def _remember_result(
+    db: aiosqlite.Connection,
+    request: Request,
+    action: str,
+    target_id: str,
+    result: dict,
+):
+    await db.execute(
+        """
+        INSERT INTO admin_idempotency (idempotency_key, action, target_id, result_json)
+        VALUES (?, ?, ?, ?)
+        """,
+        (_idempotency_key(request), action, target_id, json.dumps(result)),
+    )
+    await db.commit()
+
+
+@router.get("/jobs")
+async def list_admin_jobs(
+    request: Request,
+    limit: int = 50,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "caption_jobs.read")
+    cursor = await db.execute(
+        """
+        SELECT id, user_id, project_id, status, progress, filename, target_lang,
+               created_at, completed_at, last_seen_at, expires_at, retry_count,
+               retry_of_job_id, admin_retry_by, correlation_id
+        FROM jobs ORDER BY created_at DESC LIMIT ?
+        """,
+        (max(1, min(limit, 100)),),
+    )
+    return {"correlationId": admin.correlation_id, "items": [dict(row) for row in await cursor.fetchall()]}
+
+
+@router.get("/exports")
+async def list_admin_exports(
+    request: Request,
+    limit: int = 50,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "exports.read")
+    cursor = await db.execute(
+        """
+        SELECT id, user_id, project_id, source_job_id, status, stage, progress,
+               filename, bytes, duration, width, height, fps, created_at,
+               updated_at, expires_at, retry_count, retry_of_export_id,
+               admin_retry_by, correlation_id
+        FROM export_jobs ORDER BY created_at DESC LIMIT ?
+        """,
+        (max(1, min(limit, 100)),),
+    )
+    return {"correlationId": admin.correlation_id, "items": [dict(row) for row in await cursor.fetchall()]}
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_admin_job(
+    job_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "caption_jobs.cancel")
+    existing = await _existing_result(db, request, "caption.cancel", job_id)
+    if existing is not None:
+        return existing
+    cursor = await db.execute(
+        """
+        UPDATE jobs SET status = 'cancelled', progress = -1,
+          error = 'Cancelled by administrator', completed_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status NOT IN ('completed','failed','cancelled','expired','closed')
+        """,
+        (job_id,),
+    )
+    if cursor.rowcount != 1:
+        current = await (await db.execute("SELECT status FROM jobs WHERE id = ?", (job_id,))).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if current["status"] != "cancelled":
+            raise HTTPException(status_code=409, detail="Job is no longer cancellable")
+    await db.commit()
+    await manager.broadcast_progress(job_id, "cancelled", -1, "Cancelled by administrator.")
+    await mirror_caption_job(job_id)
+    result = {"ok": True, "status": "cancelled", "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "caption.cancel", job_id, result)
+    return result
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_admin_job(
+    job_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "caption_jobs.retry")
+    existing = await _existing_result(db, request, "caption.retry", job_id)
+    if existing is not None:
+        return existing
+    row = await (await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] not in {"failed", "closed"}:
+        raise HTTPException(status_code=409, detail="Only failed or closed jobs can be retried")
+    source = UPLOAD_DIR / f"{job_id}_{row['filename']}"
+    if not source.exists():
+        raise HTTPException(status_code=409, detail="Immutable source media is no longer available")
+    retry_id = str(uuid.uuid4())
+    destination = UPLOAD_DIR / f"{retry_id}_{row['filename']}"
+    shutil.copy2(source, destination)
+    now = datetime.now(timezone.utc).isoformat()
+    correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
+    await db.execute(
+        """
+        INSERT INTO jobs (
+          id, status, progress, filename, target_lang, created_at, last_seen_at,
+          expires_at, user_id, project_id, retry_count, retry_of_job_id,
+          admin_retry_by, correlation_id
+        ) VALUES (?, 'queued', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            retry_id,
+            row["filename"],
+            row["target_lang"],
+            now,
+            now,
+            row["expires_at"],
+            row["user_id"],
+            row["project_id"] or row["id"],
+            int(row["retry_count"] or 0) + 1,
+            job_id,
+            admin.user_id,
+            correlation_id,
+        ),
+    )
+    await db.commit()
+    await mirror_caption_job(retry_id)
+    start_pipeline_worker(job_id=retry_id, file_path=str(destination), language_mode=row["target_lang"])
+    result = {"ok": True, "jobId": retry_id, "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "caption.retry", job_id, result)
+    return result
+
+
+@router.post("/jobs/{job_id}/close")
+async def close_admin_job(
+    job_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "caption_jobs.cancel")
+    existing = await _existing_result(db, request, "caption.close", job_id)
+    if existing is not None:
+        return existing
+    cursor = await db.execute(
+        "UPDATE jobs SET status = 'closed' WHERE id = ? AND status = 'failed'",
+        (job_id,),
+    )
+    if cursor.rowcount != 1:
+        raise HTTPException(status_code=409, detail="Only failed jobs can be closed")
+    await db.commit()
+    await mirror_caption_job(job_id)
+    result = {"ok": True, "status": "closed", "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "caption.close", job_id, result)
+    return result
+
+
+@router.get("/jobs/{job_id}/diagnostics")
+async def caption_diagnostics(
+    job_id: str,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "caption_jobs.download_diagnostics")
+    row = await (await db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JSONResponse(
+        {
+            "jobId": job_id,
+            "status": row["status"],
+            "progress": row["progress"],
+            "language": row["target_lang"],
+            "error": sanitize_error(row["error"]),
+            "correlationId": row["correlation_id"] or admin.correlation_id,
+            "createdAt": row["created_at"],
+            "completedAt": row["completed_at"],
+        },
+        headers={"Content-Disposition": f'attachment; filename="caption-job-{job_id}-diagnostics.json"'},
+    )
+
+
+@router.post("/exports/{export_id}/cancel")
+async def cancel_admin_export(
+    export_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "exports.cancel")
+    existing = await _existing_result(db, request, "export.cancel", export_id)
+    if existing is not None:
+        return existing
+    row = await (await db.execute("SELECT status FROM export_jobs WHERE id = ?", (export_id,))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Export not found")
+    if row["status"] not in {"queued", "running"}:
+        if row["status"] == "cancelled":
+            return {"ok": True, "status": "cancelled", "correlationId": admin.correlation_id}
+        raise HTTPException(status_code=409, detail="Export is no longer cancellable")
+    await db.execute(
+        """
+        UPDATE export_jobs SET status = 'cancelled', stage = 'cancelled',
+          progress = -1, message = 'Cancelled by administrator',
+          error = 'Cancelled by administrator', updated_at = ?
+        WHERE id = ?
+        """,
+        (datetime.now(timezone.utc).isoformat(), export_id),
+    )
+    await db.commit()
+    async with export_runtime._jobs_lock:
+        if export_id in export_runtime._jobs:
+            export_runtime._jobs[export_id].status = "cancelled"
+            export_runtime._jobs[export_id].stage = "cancelled"
+            export_runtime._jobs[export_id].progress = -1
+    await mirror_export_job(export_id)
+    result = {"ok": True, "status": "cancelled", "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "export.cancel", export_id, result)
+    return result
+
+
+@router.post("/exports/{export_id}/retry")
+async def retry_admin_export(
+    export_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "exports.retry")
+    existing = await _existing_result(db, request, "export.retry", export_id)
+    if existing is not None:
+        return existing
+    row = await (await db.execute("SELECT * FROM export_jobs WHERE id = ?", (export_id,))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Export not found")
+    if row["status"] not in {"failed", "cancelled", "expired"}:
+        raise HTTPException(status_code=409, detail="Export is not retryable")
+    try:
+        immutable = json.loads(row["immutable_input_json"] or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=409, detail="Immutable render input is unavailable") from exc
+    if not immutable:
+        raise HTTPException(status_code=409, detail="Immutable render input is unavailable")
+    source_row = await (await db.execute("SELECT * FROM jobs WHERE id = ?", (row["source_job_id"],))).fetchone()
+    if not source_row:
+        raise HTTPException(status_code=409, detail="Source caption job is unavailable")
+    new_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    retry = export_runtime.ExportJobStatus(
+        id=new_id,
+        source_job_id=row["source_job_id"],
+        status="queued",
+        stage="queued",
+        progress=0,
+        message="Administrative retry queued.",
+        duration=row["duration"],
+        width=row["width"],
+        height=row["height"],
+        fps=row["fps"],
+        expires_at=row["expires_at"],
+        user_id=row["user_id"],
+        project_id=row["project_id"] or row["source_job_id"],
+        mode=row["mode"],
+        retry_count=int(row["retry_count"] or 0) + 1,
+        retry_of_export_id=export_id,
+        admin_retry_by=admin.user_id,
+        correlation_id=request.headers.get("x-correlation-id") or str(uuid.uuid4()),
+        immutable_input=immutable,
+        created_at=now,
+        updated_at=now,
+    )
+    await export_runtime._persist_job(retry)
+    export_request = export_runtime.ExportRequest(
+        source_job_id=immutable["source_job_id"],
+        captions_json=immutable.get("captions_json", "[]"),
+        theme=immutable.get("theme", "word_highlight_box"),
+        style_config_json=immutable.get("style_config_json"),
+        resolution=immutable.get("resolution", "1080p"),
+        export_width=immutable.get("export_width"),
+        export_height=immutable.get("export_height"),
+        export_fps=int(immutable.get("export_fps", 30)),
+        include_audio=bool(immutable.get("include_audio", True)),
+        quality=immutable.get("quality", "standard"),
+        bitrate=immutable.get("bitrate", "auto"),
+        custom_bitrate_mbps=immutable.get("custom_bitrate_mbps"),
+        export_mode=immutable.get("export_mode", "full_video"),
+        captions_only=immutable.get("export_mode") == "captions_only",
+        background_color=immutable.get("background_color", "#101010"),
+        duration_override=immutable.get("duration_override"),
+        duration_source=immutable.get("duration_source"),
+        visible_tracks_count=None,
+        source_media_count=None,
+        caption_chunks_count=None,
+        hardware_acceleration=bool(immutable.get("hardware_acceleration", False)),
+        render_mode=immutable.get("render_mode", "headless"),
+        original_video_path=str(UPLOAD_DIR / f"{row['source_job_id']}_{source_row['filename']}"),
+        composition_json=immutable.get("composition_json"),
+    )
+    async with export_runtime._jobs_lock:
+        export_runtime._jobs[new_id] = retry
+    asyncio.create_task(export_runtime._run_export_job(new_id, export_request))
+    result = {"ok": True, "exportId": new_id, "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "export.retry", export_id, result)
+    return result
+
+
+@router.post("/exports/{export_id}/delete-output")
+async def delete_export_output(
+    export_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "exports.delete_output")
+    existing = await _existing_result(db, request, "export.delete_output", export_id)
+    if existing is not None:
+        return existing
+    row = await (await db.execute("SELECT * FROM export_jobs WHERE id = ?", (export_id,))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Export not found")
+    output_path = Path(row["output_path"] or "")
+    export_root = EXPORT_DIR.resolve()
+    resolved = output_path.resolve() if output_path else export_root
+    if resolved != export_root and export_root not in resolved.parents:
+        raise HTTPException(status_code=400, detail="Invalid export path")
+    if resolved.is_file():
+        resolved.unlink()
+    now = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        """
+        UPDATE export_jobs SET status = 'expired', stage = 'output_deleted',
+          deleted_at = ?, delete_reason = ?, output_path = NULL,
+          download_url = NULL, updated_at = ? WHERE id = ?
+        """,
+        (now, "Deleted by administrator", now, export_id),
+    )
+    await db.commit()
+    await mirror_export_job(export_id)
+    result = {"ok": True, "status": "expired", "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "export.delete_output", export_id, result)
+    return result
+
+
+@router.post("/reconcile")
+async def reconcile_operations(body: ReasonRequest, request: Request):
+    admin = require_backend_admin_permission(request, "system.manage_providers")
+    report = await reconcile_runtime_jobs()
+    return {"ok": True, "report": report, "correlationId": admin.correlation_id}
+
+
+@router.post("/projects/{project_id}/cleanup")
+async def cleanup_admin_project(
+    project_id: str,
+    body: ReasonRequest,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    admin = require_backend_admin_permission(request, "projects.delete_temp_assets")
+    existing = await _existing_result(db, request, "project.cleanup", project_id)
+    if existing is not None:
+        return existing
+    row = await (await db.execute("SELECT * FROM jobs WHERE id = ? OR project_id = ? LIMIT 1", (project_id, project_id))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if row["status"] in ACTIVE_JOB_STATUSES:
+        raise HTTPException(status_code=409, detail="Active caption work still requires these assets")
+    active_export = await (await db.execute(
+        "SELECT 1 FROM export_jobs WHERE (source_job_id = ? OR project_id = ?) AND status IN ('queued','running') LIMIT 1",
+        (row["id"], project_id),
+    )).fetchone()
+    if active_export:
+        raise HTTPException(status_code=409, detail="Active export work still requires these assets")
+    retention_hold, _ = await project_retention_state(project_id)
+    if retention_hold:
+        raise HTTPException(status_code=409, detail="Remove the retention hold before cleanup")
+    removed = await expire_project(row["id"], db, reason="admin_cleanup")
+    await mirror_caption_job(row["id"])
+    result = {"ok": True, "removedFiles": removed, "correlationId": admin.correlation_id}
+    await _remember_result(db, request, "project.cleanup", project_id, result)
+    return result
+
+
+@internal_router.post("/users/{user_id}/execute-deletion")
+async def execute_due_user_deletion(
+    user_id: str,
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    expected = os.getenv("INTERNAL_MAINTENANCE_SECRET", "")
+    supplied = request.headers.get("x-capinsta-maintenance-secret", "")
+    if len(expected) < 32 or not secrets.compare_digest(expected, supplied):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    cursor = await db.execute("SELECT id, status FROM jobs WHERE user_id = ?", (user_id,))
+    rows = await cursor.fetchall()
+    removed = 0
+    for row in rows:
+        if row["status"] in ACTIVE_JOB_STATUSES:
+            raise HTTPException(status_code=409, detail="User still has active jobs")
+        removed += await expire_project(row["id"], db, reason="scheduled_user_deletion")
+        await mirror_caption_job(row["id"])
+    return {"ok": True, "projects": len(rows), "removedFiles": removed}

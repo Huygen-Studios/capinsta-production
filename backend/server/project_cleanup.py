@@ -18,6 +18,7 @@ from .settings import (
     TEMP_DIR,
     UPLOAD_DIR,
 )
+from .runtime_policy import project_retention_state
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,13 @@ def raise_if_deleted(row) -> None:
 
 async def ensure_project_available(row, db: aiosqlite.Connection) -> None:
     raise_if_deleted(row)
+    retention_hold, control_expiry = await project_retention_state(str(row["id"]))
+    if retention_hold:
+        return
     expiry = parse_utc(row["expires_at"] if "expires_at" in row.keys() else None)
+    control_expiry_value = parse_utc(control_expiry)
+    if control_expiry_value and (not expiry or control_expiry_value > expiry):
+        expiry = control_expiry_value
     if expiry and expiry <= utc_now() and row["status"] not in ACTIVE_JOB_STATUSES:
         await expire_project(str(row["id"]), db, reason="inactivity_timeout")
         raise HTTPException(status_code=410, detail=EXPIRED_MESSAGE)
@@ -212,6 +219,12 @@ async def cleanup_expired_projects(
         )
         for row in await cursor.fetchall():
             if row["status"] in ACTIVE_JOB_STATUSES:
+                continue
+            retention_hold, control_expiry = await project_retention_state(str(row["id"]))
+            if retention_hold:
+                continue
+            control_expiry_value = parse_utc(control_expiry)
+            if control_expiry_value and control_expiry_value > current:
                 continue
             active_export = await db.execute(
                 """

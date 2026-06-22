@@ -6,6 +6,7 @@ from ai_pipeline.main import run_pipeline
 from .database import DB_PATH
 import aiosqlite
 from .progress import manager
+from .operational_mirror import mirror_caption_job
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ async def update_job_status(job_id: str, status: str, progress: int = None,
         
         await db.execute(query, tuple(params))
         await db.commit()
+        await mirror_caption_job(job_id)
         return True
 
 def run_pipeline_sync(job_id: str, video_path: str, target_lang: str):

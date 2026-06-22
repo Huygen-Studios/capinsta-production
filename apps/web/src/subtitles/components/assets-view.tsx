@@ -45,8 +45,8 @@ import {
 	getCapinstaJobTimeoutMs,
 	isAiCaptionsEnabled,
 	isCapinstaDebugEnabled,
-	isCapinstaSampleImportEnabled,
 } from "@/capinsta/featureFlags";
+import { usePublicRuntimeFlag } from "@/admin/use-public-runtime-flag";
 import { capinstaTranscriptToOpenCutSubtitleImport } from "@/capinsta/opencutClassicAdapter";
 import { buildCapinstaCaptionTimingDiagnostics } from "@/capinsta/adapter";
 import { rememberCapinstaCaptionDocument } from "@/capinsta/captionDocumentRegistry";
@@ -215,7 +215,9 @@ export function Captions() {
 			);
 		return Boolean(track && "hidden" in track && track.hidden);
 	});
-	const isSampleImportEnabled = isCapinstaSampleImportEnabled();
+	const isSampleImportEnabled = usePublicRuntimeFlag({
+		key: "sample_import_enabled",
+	});
 	const isAiCaptionGenerationEnabled = isAiCaptionsEnabled();
 	const isCapinstaDebug = isCapinstaDebugEnabled();
 	const capinstaApiBaseUrl = getCapinstaApiBaseUrl();

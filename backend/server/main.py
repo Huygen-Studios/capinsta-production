@@ -35,9 +35,11 @@ import shutil
 # These imports will trigger ai_pipeline logic
 from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
-from .api import captions, health, jobs, export_jobs
+from .api import admin, captions, health, jobs, export_jobs
 from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR
 from .auth import authenticate_request, reset_current_user, set_current_user
+from .operational_mirror import operational_mirror_loop, stop_operational_mirror
+from .runtime_policy import require_active_account
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
     if removed:
         logger.info("runtime_cleanup removed_files=%s", removed)
     cleanup_task = asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
+    mirror_task = asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
     
     # Check for crucial runtime dependencies and API keys.
     stt_provider = os.getenv("STT_PROVIDER", "auto").strip() or "auto"
@@ -78,6 +81,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await stop_cleanup_task(cleanup_task)
+        await stop_operational_mirror()
+        mirror_task.cancel()
         print("Shutting down the server...")
 
 
@@ -97,6 +102,7 @@ async def require_supabase_auth(request: Request, call_next):
         return await call_next(request)
     try:
         user = authenticate_request(request)
+        await require_active_account(user.id)
     except HTTPException:
         return JSONResponse({"detail": "Unauthorized"}, status_code=401)
     context_token = set_current_user(user)
@@ -133,6 +139,8 @@ app.include_router(health.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(export_jobs.router, prefix="/api")
 app.include_router(captions.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
+app.include_router(admin.internal_router, prefix="/api")
 
 
 @app.get("/health", response_model=health.HealthResponse)

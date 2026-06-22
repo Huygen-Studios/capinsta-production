@@ -10,7 +10,7 @@ import { BotIdClient } from "botid/client";
 import { webEnv } from "@/env/web";
 import { Inter, Urbanist } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
-import { CookieConsentBanner } from "@/components/cookie-consent";
+import { RouteCookieConsent } from "@/components/route-cookie-consent";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
 import { GoogleAnalyticsProvider } from "@/components/analytics/google-analytics-provider";
 
@@ -72,7 +72,7 @@ export default function RootLayout({
 								data-track-web-vitals={false}
 								data-track-sessions={false}
 							/>
-							<CookieConsentBanner />
+							<RouteCookieConsent />
 						</RenderRouteExclusions>
 						{children}
 					</TooltipProvider>

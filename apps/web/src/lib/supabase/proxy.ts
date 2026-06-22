@@ -9,6 +9,7 @@ import {
 export async function updateSession(request: NextRequest) {
 	let response = NextResponse.next({ request });
 	if (isUiTestAuthBypassEnabled()) return response;
+	if (request.nextUrl.pathname === "/admincapinsta11/login") return response;
 	const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 	const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 

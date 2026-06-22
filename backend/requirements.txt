@@ -19,3 +19,4 @@ aiofiles
 python-dotenv
 playwright
 PyJWT[crypto]
+psycopg[binary]

@@ -1,7 +1,12 @@
+"use client";
+
+import { usePublicRuntimeFlag } from "@/admin/use-public-runtime-flag";
 import { ADSENSE_CONFIG } from "@/site/ads";
 import { AdSenseUnit } from "./adsense-unit";
 
 export function EditorTopAd() {
+	const enabled = usePublicRuntimeFlag({ key: "advertisements_enabled" });
+	if (!enabled) return null;
 	return (
 		<div className="editor-top-ad">
 			<AdSenseUnit
@@ -15,6 +20,8 @@ export function EditorTopAd() {
 }
 
 export function EditorAdRail() {
+	const enabled = usePublicRuntimeFlag({ key: "advertisements_enabled" });
+	if (!enabled) return null;
 	return (
 		<aside className="editor-ad-rail" aria-label="Advertising rail">
 			<AdSenseUnit
