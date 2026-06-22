@@ -31,15 +31,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import shutil
+import uuid
 
 # These imports will trigger ai_pipeline logic
 from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
 from .api import admin, captions, health, jobs, export_jobs
 from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR
-from .auth import authenticate_request, reset_current_user, set_current_user
+from .auth import (
+    AuthBoundaryError,
+    authenticate_request,
+    log_auth_reject,
+    request_token_metadata,
+    reset_current_user,
+    set_current_user,
+    validate_auth_startup,
+)
 from .operational_mirror import operational_mirror_loop, stop_operational_mirror
-from .runtime_policy import require_active_account
+from .runtime_policy import (
+    ControlPlaneUnavailableError,
+    InactiveAccountError,
+    control_plane_health,
+    control_plane_error_reason,
+    require_active_account,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +63,15 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize Database
     ensure_runtime_dirs()
     await init_db()
+    try:
+        validate_auth_startup()
+    except AuthBoundaryError as exc:
+        log_auth_reject(exc)
+    database_health = await control_plane_health()
+    logger.info(
+        "control_plane_status status=%s",
+        database_health["controlPlaneDatabase"],
+    )
     recovered_exports = await export_jobs.recover_orphaned_export_jobs()
     if recovered_exports:
         logger.warning("export_jobs_recovered_orphaned count=%s", recovered_exports)
@@ -100,14 +124,74 @@ PROTECTED_API_PREFIXES = ("/api/jobs", "/api/export/jobs", "/api/captions/jobs")
 async def require_supabase_auth(request: Request, call_next):
     if not request.url.path.startswith(PROTECTED_API_PREFIXES):
         return await call_next(request)
+    correlation_id = (
+        request.headers.get("x-correlation-id") or str(uuid.uuid4())
+    )
     try:
         user = authenticate_request(request)
-        await require_active_account(user.id)
-    except HTTPException:
-        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        await require_active_account(user)
+    except AuthBoundaryError as exc:
+        algorithm, key_id = request_token_metadata(request)
+        log_auth_reject(
+            exc,
+            request=request,
+            algorithm=algorithm,
+            key_id=key_id,
+            correlation_id=correlation_id,
+        )
+        return JSONResponse(
+            {"detail": exc.public_detail, "code": exc.public_code},
+            status_code=exc.status_code,
+            headers={"X-Correlation-ID": correlation_id},
+        )
+    except InactiveAccountError as exc:
+        logger.warning(
+            "auth_reject reason=%s method=%s path=%s correlation_id=%s",
+            exc.reason,
+            request.method,
+            request.url.path,
+            correlation_id,
+        )
+        return JSONResponse(
+            {"detail": "Account unavailable", "code": "account_inactive"},
+            status_code=403,
+            headers={"X-Correlation-ID": correlation_id},
+        )
+    except ControlPlaneUnavailableError as exc:
+        reason = control_plane_error_reason(exc)
+        logger.error(
+            "auth_reject reason=%s method=%s path=%s correlation_id=%s category=%s",
+            reason,
+            request.method,
+            request.url.path,
+            correlation_id,
+            type(exc.__cause__).__name__ if exc.__cause__ else "unavailable",
+        )
+        return JSONResponse(
+            {
+                "detail": "Control plane temporarily unavailable",
+                "code": "control_plane_unavailable",
+            },
+            status_code=503,
+            headers={"X-Correlation-ID": correlation_id},
+        )
+    except Exception:
+        logger.exception(
+            "auth_reject reason=unexpected method=%s path=%s correlation_id=%s",
+            request.method,
+            request.url.path,
+            correlation_id,
+        )
+        return JSONResponse(
+            {"detail": "Internal authentication error", "code": "auth_internal_error"},
+            status_code=500,
+            headers={"X-Correlation-ID": correlation_id},
+        )
     context_token = set_current_user(user)
     try:
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
     finally:
         reset_current_user(context_token)
 
@@ -145,7 +229,7 @@ app.include_router(admin.internal_router, prefix="/api")
 
 @app.get("/health", response_model=health.HealthResponse)
 async def root_health_check():
-    return health.health_payload()
+    return await health.health_payload()
 
 
 @app.get("/health/export")

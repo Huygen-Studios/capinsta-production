@@ -59,6 +59,13 @@ ENV NODE_OPTIONS="--max-old-space-size=1024"
 ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
 ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
 ENV UPSTASH_REDIS_REST_TOKEN="build-time-placeholder-token"
+ENV SUPABASE_SERVICE_ROLE_KEY="build-time-placeholder-service-role-key"
+ENV ADMIN_SECURITY_PEPPER="build-time-placeholder-admin-security-pepper"
+ENV INTERNAL_ADMIN_API_SECRET="build-time-placeholder-internal-admin-api-secret"
+ENV INTERNAL_MAINTENANCE_SECRET="build-time-placeholder-maintenance-secret"
+ENV ADMIN_ASSERTION_ISSUER="capinsta-web"
+ENV BACKEND_INTERNAL_URL="http://127.0.0.1:10000"
+ENV TRUSTED_PROXY_MODE="none"
 
 # Forward public build args into the build environment.
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL

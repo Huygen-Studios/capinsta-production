@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from server.auth import (
+    AuthBoundaryError,
     AuthenticatedUser,
     get_owned_job,
     reset_current_user,
@@ -14,7 +15,7 @@ from server.auth import (
 
 
 def test_invalid_token_is_unauthorized():
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(AuthBoundaryError) as error:
         verify_access_token("not-a-jwt")
     assert error.value.status_code == 401
 

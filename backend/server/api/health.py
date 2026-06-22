@@ -10,6 +10,8 @@ from ..settings import EXPORT_DIR, FRONTEND_DIST_DIR, MAX_UPLOAD_SIZE_MB, TEMP_D
 from ..headless_export import check_export_runtime, check_export_runtime_async
 from ..worker_startup import check_pipeline_worker_import
 from .export_jobs import export_job_metrics
+from ..auth import auth_health_status
+from ..runtime_policy import control_plane_health
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -25,6 +27,9 @@ class HealthResponse(BaseModel):
     render_page_url: str
     render_artifact: dict[str, object] | None = None
     message: str | None = None
+    supabaseAuth: str = "unknown"
+    controlPlaneDatabase: str = "unknown"
+    jwtMode: str = "unknown"
 
 def _has_key(name: str) -> bool:
     value = os.getenv(name, "").strip()
@@ -61,7 +66,7 @@ def _render_artifact_metadata() -> dict[str, object] | None:
     return metadata
 
 
-def health_payload() -> HealthResponse:
+async def health_payload() -> HealthResponse:
     deps = dependency_status()
     worker_import = check_pipeline_worker_import()
     deps["captionWorkerImport"] = bool(worker_import.get("ok"))
@@ -76,8 +81,16 @@ def health_payload() -> HealthResponse:
     if not worker_import.get("ok"):
         warnings.append(str(worker_import.get("error")))
 
+    auth_status = auth_health_status()
+    database_status = await control_plane_health()
+    overall_status = (
+        "ok"
+        if auth_status["supabaseAuth"] == "healthy"
+        and database_status["controlPlaneDatabase"] == "healthy"
+        else "degraded"
+    )
     return HealthResponse(
-        status="ok",
+        status=overall_status,
         environment=os.getenv("NODE_ENV", "development"),
         version="5.0.0",
         stt_provider=provider,
@@ -91,6 +104,8 @@ def health_payload() -> HealthResponse:
         render_page_url=default_render_page_url(),
         render_artifact=_render_artifact_metadata(),
         message=" ".join(warnings) if warnings else None,
+        **auth_status,
+        **database_status,
     )
 
 
@@ -173,7 +188,7 @@ async def export_health_payload_async() -> dict[str, object]:
 @router.get("/", response_model=HealthResponse)
 async def health_check():
     """Runtime health check for Render and the editor connectivity probe."""
-    return health_payload()
+    return await health_payload()
 
 
 @router.get("/export")

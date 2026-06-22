@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import aiosqlite
 from fastapi import HTTPException
 
+from .auth import AuthenticatedUser
 from .settings import DB_PATH
 
 try:
@@ -22,6 +23,21 @@ class UserLimits:
     max_concurrent_export_jobs: int = 1
 
 
+class ControlPlaneUnavailableError(Exception):
+    reason = "control_plane_unavailable"
+
+
+class InactiveAccountError(Exception):
+    reason = "profile_suspended"
+
+
+def control_plane_error_reason(error: ControlPlaneUnavailableError) -> str:
+    cause = error.__cause__
+    if getattr(cause, "sqlstate", None) == "28P01":
+        return "database_authentication_failed"
+    return "control_plane_unavailable"
+
+
 def database_url() -> str:
     return (os.getenv("ADMIN_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
 
@@ -35,7 +51,7 @@ async def _query_one(query: str, params: tuple = ()):
     if not url or psycopg is None:
         if _allow_without_control_plane():
             return None
-        raise HTTPException(status_code=503, detail="Control plane unavailable")
+        raise ControlPlaneUnavailableError()
     try:
         async with await psycopg.AsyncConnection.connect(url, connect_timeout=3) as connection:
             async with connection.cursor() as cursor:
@@ -46,16 +62,70 @@ async def _query_one(query: str, params: tuple = ()):
     except Exception as exc:
         if _allow_without_control_plane():
             return None
-        raise HTTPException(status_code=503, detail="Control plane unavailable") from exc
+        raise ControlPlaneUnavailableError() from exc
 
 
-async def require_active_account(user_id: str) -> None:
+async def require_active_account(user: AuthenticatedUser) -> None:
     row = await _query_one(
         "SELECT account_status FROM profiles WHERE user_id = %s::uuid",
-        (user_id,),
+        (user.id,),
     )
-    if row is not None and row[0] != "active":
-        raise HTTPException(status_code=403, detail="Account unavailable")
+    if row is None:
+        auth_user = await _query_one(
+            "SELECT email FROM auth.users WHERE id = %s::uuid",
+            (user.id,),
+        )
+        if auth_user is None:
+            raise InactiveAccountError()
+        await _execute(
+            """
+            INSERT INTO profiles (user_id, email_snapshot)
+            VALUES (%s::uuid, %s)
+            ON CONFLICT (user_id) DO UPDATE
+              SET email_snapshot = COALESCE(profiles.email_snapshot, EXCLUDED.email_snapshot),
+                  updated_at = now()
+            """,
+            (user.id, auth_user[0]),
+        )
+        row = await _query_one(
+            "SELECT account_status FROM profiles WHERE user_id = %s::uuid",
+            (user.id,),
+        )
+    if row is None or row[0] != "active":
+        raise InactiveAccountError()
+
+
+async def _execute(query: str, params: tuple = ()) -> None:
+    url = database_url()
+    if not url or psycopg is None:
+        raise ControlPlaneUnavailableError()
+    try:
+        async with await psycopg.AsyncConnection.connect(
+            url, connect_timeout=3
+        ) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(query, params)
+            await connection.commit()
+    except Exception as exc:
+        raise ControlPlaneUnavailableError() from exc
+
+
+async def control_plane_health() -> dict[str, str]:
+    try:
+        row = await _query_one(
+            """
+            SELECT
+              to_regclass('public.profiles') IS NOT NULL,
+              to_regclass('public.feature_flags') IS NOT NULL,
+              to_regclass('public.system_settings') IS NOT NULL,
+              to_regclass('public.user_quotas') IS NOT NULL,
+              (SELECT enabled FROM feature_flags WHERE key = 'caption_generation_enabled')
+            """
+        )
+        healthy = bool(row and all(row[:4]) and isinstance(row[4], bool))
+        return {"controlPlaneDatabase": "healthy" if healthy else "unavailable"}
+    except ControlPlaneUnavailableError:
+        return {"controlPlaneDatabase": "unavailable"}
 
 
 async def feature_enabled(key: str, default: bool = True) -> bool:
