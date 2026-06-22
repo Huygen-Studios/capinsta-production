@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
 	// and local development source maps remain available.
 	productionBrowserSourceMaps: false,
 	output: "standalone",
+	experimental: {
+		// Caption generation uploads extracted audio/video through the same-origin
+		// Next.js proxy. Next defaults proxy request bodies to 10 MB, which
+		// truncated ordinary media uploads before they reached FastAPI.
+		// Keep this aligned with the backend MAX_UPLOAD_MB=500 policy.
+		proxyClientMaxBodySize: "500mb",
+	},
 	// Prevent Turbopack from scanning Windows reserved device names
 	turbopack: {
 		resolveAlias: {},
