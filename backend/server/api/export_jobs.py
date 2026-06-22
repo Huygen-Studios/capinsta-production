@@ -76,6 +76,7 @@ _EXPORT_JOB_COLUMNS = (
     "correlation_id",
     "immutable_input_json",
     "performance_json",
+    "idempotency_key",
 )
 
 
@@ -138,6 +139,7 @@ class ExportJobStatus:
     admin_retry_by: str | None = None
     correlation_id: str | None = None
     immutable_input: dict[str, object] | None = None
+    idempotency_key: str | None = None
 
     def to_public_dict(self) -> dict[str, object]:
         return {
@@ -196,6 +198,7 @@ def _job_db_values(job: ExportJobStatus) -> tuple[object, ...]:
         job.correlation_id,
         json.dumps(job.immutable_input or {}, ensure_ascii=False),
         json.dumps(job.performance or {}, ensure_ascii=False),
+        job.idempotency_key,
     )
 
 
@@ -230,6 +233,7 @@ def _job_from_row(row: aiosqlite.Row) -> ExportJobStatus:
         correlation_id=row["correlation_id"] if "correlation_id" in row.keys() else None,
         immutable_input=json.loads(row["immutable_input_json"] or "{}") if "immutable_input_json" in row.keys() else {},
         performance=json.loads(row["performance_json"] or "{}") if "performance_json" in row.keys() else None,
+        idempotency_key=row["idempotency_key"] if "idempotency_key" in row.keys() else None,
     )
 
 
@@ -678,6 +682,30 @@ async def start_export_job(
     composition_json: str | None = Form(None),
 ):
     await _prune_jobs()
+    idempotency_key = request_context.headers.get("x-idempotency-key", "").strip()
+    if idempotency_key:
+        if len(idempotency_key) > 128 or not re.fullmatch(
+            r"[A-Za-z0-9._:-]+", idempotency_key
+        ):
+            raise HTTPException(status_code=400, detail="Invalid idempotency key.")
+        cursor = await db.execute(
+            """
+            SELECT * FROM export_jobs
+            WHERE user_id = ? AND idempotency_key = ?
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (current_user().id, idempotency_key),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            existing_job = _job_from_row(existing)
+            return {
+                "success": True,
+                "jobId": existing_job.id,
+                "statusUrl": f"/api/export/jobs/{existing_job.id}",
+                "message": "Existing export request resumed",
+                "idempotentReplay": True,
+            }
     await require_feature("export_enabled", "Exports are temporarily unavailable.")
     if duration_override is None and custom_duration is not None:
         duration_override = custom_duration
@@ -792,6 +820,7 @@ async def start_export_job(
                 "composition_json": composition_json,
                 "captions_json": captions_json,
             },
+            idempotency_key=idempotency_key or None,
         )
         _jobs[export_job_id] = queued_job
     await _persist_job(queued_job)

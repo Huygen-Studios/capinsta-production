@@ -126,12 +126,20 @@ async def init_db():
         for column in (
             "project_id TEXT", "mode TEXT", "retry_count INTEGER DEFAULT 0",
             "retry_of_export_id TEXT", "admin_retry_by TEXT", "correlation_id TEXT",
-            "immutable_input_json TEXT", "performance_json TEXT"
+            "immutable_input_json TEXT", "performance_json TEXT",
+            "idempotency_key TEXT"
         ):
             try:
                 await db.execute(f"ALTER TABLE export_jobs ADD COLUMN {column}")
             except Exception:
                 pass
+        await db.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_export_jobs_user_idempotency
+            ON export_jobs (user_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            """
+        )
         await db.commit()
 
 async def get_db():

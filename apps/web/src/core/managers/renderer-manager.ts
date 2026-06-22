@@ -394,14 +394,35 @@ export class RendererManager {
 				// 4. Send POST request to start export job
 				const apiBase = getCapinstaApiBaseUrl() || "http://localhost:8000";
 				onProgress?.({ progress: 0.05 });
-
-				const response = await authenticatedFetch(
-					`${apiBase}/api/export/jobs`,
-					{
+				const exportEndpoint = `${apiBase}/api/export/jobs`;
+				const idempotencyKey = crypto.randomUUID();
+				let response: Response;
+				try {
+					response = await authenticatedFetch(exportEndpoint, {
 						method: "POST",
 						body: formData,
-					},
-				);
+						headers: { "X-Idempotency-Key": idempotencyKey },
+					});
+				} catch (firstError) {
+					if (!(firstError instanceof TypeError) || !navigator.onLine) {
+						throw firstError;
+					}
+					await new Promise((resolve) => setTimeout(resolve, 750));
+					try {
+						response = await authenticatedFetch(exportEndpoint, {
+							method: "POST",
+							body: formData,
+							headers: { "X-Idempotency-Key": idempotencyKey },
+						});
+					} catch (retryError) {
+						if (retryError instanceof TypeError) {
+							throw new Error(
+								`Could not reach the export service at ${apiBase}. Check that the backend deployment is healthy, then retry.`,
+							);
+						}
+						throw retryError;
+					}
+				}
 
 				if (!response.ok) {
 					const errData = await response.json().catch(() => ({}));
