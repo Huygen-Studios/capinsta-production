@@ -75,3 +75,69 @@ def test_outbox_retries_and_then_deletes(tmp_path, monkeypatch):
         assert second["delivered"] == 1
 
     asyncio.run(run())
+
+
+def test_outbox_delivery_does_not_hold_sqlite_write_lock(tmp_path, monkeypatch):
+    async def run():
+        db_path = tmp_path / "nonblocking-flush.sqlite"
+        monkeypatch.setattr(mirror, "DB_PATH", db_path)
+        async with aiosqlite.connect(str(db_path)) as db:
+            await db.execute(
+                """
+                CREATE TABLE operational_outbox (
+                  event_id TEXT PRIMARY KEY, event_type TEXT, record_id TEXT,
+                  payload_json TEXT, attempts INTEGER, last_error TEXT,
+                  created_at TEXT, next_attempt_at TEXT
+                )
+                """
+            )
+            await db.executemany(
+                "INSERT INTO operational_outbox VALUES (?,?,?,?,0,NULL,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                [
+                    ("e1", "caption_job", "job-1", "{}"),
+                    ("e2", "caption_job", "job-2", "{}"),
+                ],
+            )
+            await db.commit()
+
+        second_delivery_started = asyncio.Event()
+        release_second_delivery = asyncio.Event()
+        deliveries = 0
+
+        async def deliver(*_):
+            nonlocal deliveries
+            deliveries += 1
+            if deliveries == 2:
+                second_delivery_started.set()
+                await release_second_delivery.wait()
+
+        monkeypatch.setattr(mirror, "deliver_event", deliver)
+        flush_task = asyncio.create_task(mirror.flush_operational_outbox())
+        await asyncio.wait_for(second_delivery_started.wait(), timeout=2)
+
+        async with aiosqlite.connect(str(db_path), timeout=0.1) as db:
+            await db.execute(
+                "INSERT INTO operational_outbox VALUES ('concurrent','caption_job','job-3','{}',0,NULL,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+            )
+            await db.commit()
+
+        release_second_delivery.set()
+        result = await asyncio.wait_for(flush_task, timeout=2)
+        assert result["delivered"] == 2
+
+    asyncio.run(run())
+
+
+def test_mirror_enqueue_failure_does_not_fail_runtime_job(monkeypatch):
+    async def run():
+        async def payload(_job_id):
+            return {"id": "export-1", "updated_at": "2026-01-01T00:00:00Z"}
+
+        async def enqueue(*_):
+            raise aiosqlite.OperationalError("database is locked")
+
+        monkeypatch.setattr(mirror, "export_payload", payload)
+        monkeypatch.setattr(mirror, "mirror_event", enqueue)
+        await mirror.mirror_export_job("export-1")
+
+    asyncio.run(run())

@@ -9,6 +9,7 @@ from typing import Any
 
 import aiosqlite
 
+from .database import runtime_db
 from .settings import DB_PATH
 
 try:
@@ -41,7 +42,7 @@ def _stable_event_id(kind: str, record_id: str, updated_at: object) -> str:
 
 async def _enqueue(kind: str, record_id: str, payload: dict[str, Any]) -> None:
     event_id = _stable_event_id(kind, record_id, payload.get("updated_at"))
-    async with aiosqlite.connect(str(DB_PATH)) as db:
+    async with runtime_db(path=DB_PATH) as db:
         await db.execute(
             """
             INSERT INTO operational_outbox
@@ -284,9 +285,15 @@ async def caption_payload(job_id: str) -> dict[str, Any] | None:
 
 
 async def mirror_caption_job(job_id: str) -> None:
-    payload = await caption_payload(job_id)
-    if payload:
-        await mirror_event("caption_job", job_id, payload)
+    try:
+        payload = await caption_payload(job_id)
+        if payload:
+            await mirror_event("caption_job", job_id, payload)
+    except Exception:
+        logger.exception(
+            "operational_mirror_enqueue_failed event_type=caption_job record_id=%s",
+            job_id,
+        )
 
 
 async def export_payload(export_job_id: str) -> dict[str, Any] | None:
@@ -342,15 +349,20 @@ async def export_payload(export_job_id: str) -> dict[str, Any] | None:
 
 
 async def mirror_export_job(export_job_id: str) -> None:
-    payload = await export_payload(export_job_id)
-    if payload:
-        await mirror_event("export_job", export_job_id, payload)
+    try:
+        payload = await export_payload(export_job_id)
+        if payload:
+            await mirror_event("export_job", export_job_id, payload)
+    except Exception:
+        logger.exception(
+            "operational_mirror_enqueue_failed event_type=export_job record_id=%s",
+            export_job_id,
+        )
 
 
 async def flush_operational_outbox(limit: int = 100) -> dict[str, int]:
     delivered = failed = 0
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        db.row_factory = aiosqlite.Row
+    async with runtime_db(path=DB_PATH, row_factory=True) as db:
         cursor = await db.execute(
             """
             SELECT * FROM operational_outbox
@@ -360,14 +372,17 @@ async def flush_operational_outbox(limit: int = 100) -> dict[str, int]:
             (limit,),
         )
         rows = await cursor.fetchall()
-        for row in rows:
-            try:
-                await deliver_event(row["event_type"], json.loads(row["payload_json"]))
+    for row in rows:
+        try:
+            await deliver_event(row["event_type"], json.loads(row["payload_json"]))
+            async with runtime_db(path=DB_PATH) as db:
                 await db.execute("DELETE FROM operational_outbox WHERE event_id = ?", (row["event_id"],))
-                delivered += 1
-            except Exception as exc:
-                attempts = int(row["attempts"] or 0) + 1
-                delay_seconds = min(3600, 2 ** min(attempts, 10))
+                await db.commit()
+            delivered += 1
+        except Exception as exc:
+            attempts = int(row["attempts"] or 0) + 1
+            delay_seconds = min(3600, 2 ** min(attempts, 10))
+            async with runtime_db(path=DB_PATH) as db:
                 await db.execute(
                     """
                     UPDATE operational_outbox
@@ -377,8 +392,8 @@ async def flush_operational_outbox(limit: int = 100) -> dict[str, int]:
                     """,
                     (attempts, sanitize_error(exc), f"+{delay_seconds} seconds", row["event_id"]),
                 )
-                failed += 1
-        await db.commit()
+                await db.commit()
+            failed += 1
     return {"delivered": delivered, "failed": failed, "remaining": len(rows) - delivered}
 
 

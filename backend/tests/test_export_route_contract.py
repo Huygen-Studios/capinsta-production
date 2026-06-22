@@ -3,15 +3,11 @@ from server.main import app
 
 
 def test_background_export_router_is_mounted_under_api_prefix():
-    route_methods = {
-        (route.path, method)
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-    }
+    paths = app.openapi()["paths"]
 
-    assert ("/api/export/jobs", "POST") in route_methods
-    assert ("/api/export/jobs/{export_job_id}", "GET") in route_methods
-    assert ("/api/export/jobs/download/{filename}", "GET") in route_methods
+    assert "post" in paths["/api/export/jobs"]
+    assert "get" in paths["/api/export/jobs/{export_job_id}"]
+    assert "get" in paths["/api/export/jobs/download/{filename}"]
 
 
 def test_failed_export_status_exposes_stage_and_correlation_id():

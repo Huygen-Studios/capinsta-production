@@ -1,12 +1,53 @@
+import os
+from contextlib import asynccontextmanager
+
 import aiosqlite
 
 from .settings import DB_PATH, ensure_runtime_dirs
+
+def _sqlite_busy_timeout_ms() -> int:
+    try:
+        return max(1_000, int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "15000")))
+    except ValueError:
+        return 15_000
+
+
+SQLITE_BUSY_TIMEOUT_MS = _sqlite_busy_timeout_ms()
+
+
+async def connect_runtime_db(
+    *,
+    path=None,
+    row_factory: bool = False,
+) -> aiosqlite.Connection:
+    database_path = DB_PATH if path is None else path
+    db = await aiosqlite.connect(
+        str(database_path),
+        timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+    )
+    await db.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    await db.execute("PRAGMA foreign_keys = ON")
+    if row_factory:
+        db.row_factory = aiosqlite.Row
+    return db
+
+
+@asynccontextmanager
+async def runtime_db(*, path=None, row_factory: bool = False):
+    db = await connect_runtime_db(path=path, row_factory=row_factory)
+    try:
+        yield db
+    finally:
+        await db.close()
+
 
 async def init_db():
     # Ensure storage folder exists
     ensure_runtime_dirs()
     
-    async with aiosqlite.connect(str(DB_PATH)) as db:
+    async with runtime_db() as db:
+        await db.execute("PRAGMA journal_mode = WAL")
+        await db.execute("PRAGMA synchronous = NORMAL")
         await db.execute('''
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
@@ -143,9 +184,5 @@ async def init_db():
         await db.commit()
 
 async def get_db():
-    db = await aiosqlite.connect(str(DB_PATH))
-    db.row_factory = aiosqlite.Row
-    try:
+    async with runtime_db(row_factory=True) as db:
         yield db
-    finally:
-        await db.close()

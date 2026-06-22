@@ -15,7 +15,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from ..database import get_db
+from ..database import get_db, runtime_db
 from ..headless_export import (
     ExportStageError,
     _looks_like_browser_disconnect,
@@ -242,16 +242,30 @@ async def _persist_job(job: ExportJobStatus) -> None:
     placeholders = ", ".join("?" for _ in _EXPORT_JOB_COLUMNS)
     update_columns = [column for column in _EXPORT_JOB_COLUMNS if column != "id"]
     update_clause = ", ".join(f"{column}=excluded.{column}" for column in update_columns)
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        await db.execute(
-            f"""
-            INSERT INTO export_jobs ({", ".join(_EXPORT_JOB_COLUMNS)})
-            VALUES ({placeholders})
-            ON CONFLICT(id) DO UPDATE SET {update_clause}
-            """,
-            _job_db_values(job),
-        )
-        await db.commit()
+    for attempt in range(5):
+        try:
+            async with runtime_db(path=DB_PATH) as db:
+                await db.execute(
+                    f"""
+                    INSERT INTO export_jobs ({", ".join(_EXPORT_JOB_COLUMNS)})
+                    VALUES ({placeholders})
+                    ON CONFLICT(id) DO UPDATE SET {update_clause}
+                    """,
+                    _job_db_values(job),
+                )
+                await db.commit()
+            break
+        except aiosqlite.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt == 4:
+                raise
+            delay = 0.05 * (2**attempt)
+            logger.warning(
+                "export_job_persist_retry export_job_id=%s attempt=%s delay_seconds=%.2f",
+                job.id,
+                attempt + 1,
+                delay,
+            )
+            await asyncio.sleep(delay)
     await mirror_export_job(job.id)
 
 
