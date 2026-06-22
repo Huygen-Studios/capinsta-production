@@ -158,6 +158,7 @@ class ExportJobStatus:
             "height": self.height,
             "fps": self.fps,
             "performance": self.performance,
+            "correlationId": self.correlation_id,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
         }
@@ -705,6 +706,7 @@ async def start_export_job(
                 "statusUrl": f"/api/export/jobs/{existing_job.id}",
                 "message": "Existing export request resumed",
                 "idempotentReplay": True,
+                "correlationId": existing_job.correlation_id,
             }
     await require_feature("export_enabled", "Exports are temporarily unavailable.")
     if duration_override is None and custom_duration is not None:
@@ -842,6 +844,7 @@ async def start_export_job(
         "jobId": export_job_id,
         "statusUrl": f"/api/export/jobs/{export_job_id}",
         "message": "Export started",
+        "correlationId": queued_job.correlation_id,
     }
 
 

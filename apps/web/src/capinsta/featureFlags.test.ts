@@ -1,72 +1,72 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test";
 import {
-  getCapinstaApiBaseUrl,
-  getCapinstaJobTimeoutMs,
-  isCapinstaSampleImportEnabled,
-} from "./featureFlags"
+	getCapinstaApiBaseUrl,
+	getCapinstaJobTimeoutMs,
+	isCapinstaSampleImportEnabled,
+} from "./featureFlags";
 
 function restoreEnv({
-  name,
-  value,
+	name,
+	value,
 }: {
-  name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT"
-  value: string | undefined
+	name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT";
+	value: string | undefined;
 }) {
-  if (value === undefined) {
-    delete process.env[name]
-    return
-  }
-  process.env[name] = value
+	if (value === undefined) {
+		delete process.env[name];
+		return;
+	}
+	process.env[name] = value;
 }
 
 describe("Capinsta feature flags", () => {
-  test("keeps sample import disabled by default", () => {
-    const previous = process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT
-    delete process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT
+	test("keeps sample import disabled by default", () => {
+		const previous = process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT;
+		delete process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT;
 
-    expect(isCapinstaSampleImportEnabled()).toBe(false)
+		expect(isCapinstaSampleImportEnabled()).toBe(false);
 
-    restoreEnv({
-      name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT",
-      value: previous,
-    })
-  })
+		restoreEnv({
+			name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT",
+			value: previous,
+		});
+	});
 
-  test("enables sample import from the direct Next public flag", () => {
-    const previous = process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT
-    process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT = "true"
+	test("enables sample import from the direct Next public flag", () => {
+		const previous = process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT;
+		process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT = "true";
 
-    expect(isCapinstaSampleImportEnabled()).toBe(true)
+		expect(isCapinstaSampleImportEnabled()).toBe(true);
 
-    restoreEnv({
-      name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT",
-      value: previous,
-    })
-  })
+		restoreEnv({
+			name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT",
+			value: previous,
+		});
+	});
 
-  test("reads and normalizes the Capinsta backend URL", () => {
-    const previous = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL
-    process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = "http://127.0.0.1:8000/"
+	test("uses the same-origin Capinsta proxy regardless of a legacy public URL", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
+		process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = "http://127.0.0.1:8000/";
 
-    expect(getCapinstaApiBaseUrl()).toBe("http://127.0.0.1:8000")
+		expect(getCapinstaApiBaseUrl()).toBe("/api/capinsta");
 
-    if (previous === undefined) {
-      delete process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL
-      return
-    }
-    process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = previous
-  })
+		if (previous === undefined) {
+			delete process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
+			return;
+		}
+		process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = previous;
+	});
 
-  test("uses a configurable caption job timeout", () => {
-    const previous = process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS
-    process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS = "1500"
+	test("uses a configurable caption job timeout", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS;
+		process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS = "1500";
 
-    expect(getCapinstaJobTimeoutMs()).toBe(1500)
+		expect(getCapinstaJobTimeoutMs()).toBe(1500);
 
-    if (previous === undefined) {
-      delete process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS
-      return
-    }
-    process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS = previous
-  })
-})
+		if (previous === undefined) {
+			delete process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS;
+			return;
+		}
+		process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS = previous;
+	});
+});

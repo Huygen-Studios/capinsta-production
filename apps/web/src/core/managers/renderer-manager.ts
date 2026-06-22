@@ -2,7 +2,7 @@ import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import type { ExportOptions, ExportResult } from "@/export";
-import { normalizeExportError } from "@/export";
+import { formatExportApiError, normalizeExportError } from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -392,7 +392,7 @@ export class RendererManager {
 				formData.append("render_mode", "headless");
 
 				// 4. Send POST request to start export job
-				const apiBase = getCapinstaApiBaseUrl() || "http://localhost:8000";
+				const apiBase = getCapinstaApiBaseUrl();
 				onProgress?.({ progress: 0.05 });
 				const exportEndpoint = `${apiBase}/api/export/jobs`;
 				const idempotencyKey = crypto.randomUUID();
@@ -428,20 +428,33 @@ export class RendererManager {
 					const errData = await response.json().catch(() => ({}));
 					return {
 						success: false,
-						error: normalizeExportError(
-							errData.detail ||
-								errData.error ||
-								`Export API returned HTTP ${response.status}`,
-						),
+						error: formatExportApiError({
+							endpoint: exportEndpoint,
+							status: response.status,
+							payload: errData,
+							correlationId: response.headers.get("x-correlation-id"),
+						}),
 					};
 				}
 
 				const startData = await response.json();
 				const jobId = startData.jobId;
+				const correlationId =
+					response.headers.get("x-correlation-id") ??
+					startData.correlationId ??
+					null;
 				if (!jobId) {
 					return {
 						success: false,
-						error: "Export API did not return a job ID.",
+						error: formatExportApiError({
+							endpoint: exportEndpoint,
+							status: response.status,
+							payload: {
+								stage: "create_job",
+								error: "Export API did not return a job ID.",
+							},
+							correlationId,
+						}),
 					};
 				}
 
@@ -460,7 +473,15 @@ export class RendererManager {
 
 					const pollRes = await authenticatedFetch(statusUrl);
 					if (!pollRes.ok) {
-						pollError = `Status check failed with HTTP ${pollRes.status}`;
+						const pollPayload = await pollRes.json().catch(() => ({}));
+						pollError = formatExportApiError({
+							endpoint: statusUrl,
+							status: pollRes.status,
+							payload: pollPayload,
+							correlationId:
+								pollRes.headers.get("x-correlation-id") ?? correlationId,
+							jobId,
+						});
 						break;
 					}
 
@@ -469,11 +490,19 @@ export class RendererManager {
 						isComplete = true;
 						downloadUrl = jobStatus.downloadUrl;
 					} else if (jobStatus.status === "failed") {
-						pollError = normalizeExportError(
-							jobStatus.error ||
-								jobStatus.message ||
-								"Export job failed on server.",
-						);
+						pollError = formatExportApiError({
+							endpoint: statusUrl,
+							status: pollRes.status,
+							payload: {
+								stage: jobStatus.stage,
+								error:
+									jobStatus.error ||
+									jobStatus.message ||
+									"Export job failed on server.",
+							},
+							correlationId: jobStatus.correlationId ?? correlationId,
+							jobId,
+						});
 					} else {
 						const progress = jobStatus.progress || 0;
 						onProgress?.({ progress: 0.05 + (progress / 100) * 0.9 });
@@ -487,7 +516,16 @@ export class RendererManager {
 				if (!downloadUrl) {
 					return {
 						success: false,
-						error: "No download URL returned for finished export.",
+						error: formatExportApiError({
+							endpoint: statusUrl,
+							status: 200,
+							payload: {
+								stage: "resolve_output",
+								error: "No download URL returned for finished export.",
+							},
+							correlationId,
+							jobId,
+						}),
 					};
 				}
 
@@ -497,7 +535,17 @@ export class RendererManager {
 				if (!fileRes.ok) {
 					return {
 						success: false,
-						error: `Failed to download exported video from ${downloadUrl}`,
+						error: formatExportApiError({
+							endpoint: `${apiBase}${downloadUrl}`,
+							status: fileRes.status,
+							payload: {
+								stage: "download_output",
+								error: "Failed to download the completed export.",
+							},
+							correlationId:
+								fileRes.headers.get("x-correlation-id") ?? correlationId,
+							jobId,
+						}),
 					};
 				}
 

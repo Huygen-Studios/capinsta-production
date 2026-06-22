@@ -86,6 +86,45 @@ export function normalizeExportError(error: unknown): string {
 	return String(error);
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function formatExportApiError({
+	endpoint,
+	status,
+	payload,
+	correlationId,
+	jobId,
+}: {
+	endpoint: string;
+	status?: number;
+	payload?: unknown;
+	correlationId?: string | null;
+	jobId?: string | null;
+}): string {
+	const data = isUnknownRecord(payload) ? payload : {};
+	const stage = normalizeExportError(data.stage ?? "request");
+	const backendError = normalizeExportError(
+		data.error ??
+			data.detail ??
+			data.message ??
+			payload ??
+			"Unknown export error",
+	);
+	const details = [
+		`Endpoint: ${endpoint}`,
+		status !== undefined
+			? `HTTP status: ${status}`
+			: "HTTP status: unavailable",
+		`Backend stage: ${stage}`,
+		`Backend error: ${backendError}`,
+		jobId ? `Export job ID: ${jobId}` : null,
+		correlationId ? `Correlation ID: ${correlationId}` : null,
+	].filter((value): value is string => Boolean(value));
+	return details.join(" | ");
+}
+
 export function downloadBuffer({
 	buffer,
 	filename,

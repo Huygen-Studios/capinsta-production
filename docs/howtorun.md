@@ -22,7 +22,7 @@ cd F:\CapInsta\capinsta-production-editor
 C:\Users\shrav\.bun\bin\bun.exe install
 $env:NEXT_PUBLIC_ENABLE_AI_CAPTIONS="true"
 $env:NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT="false"
-$env:NEXT_PUBLIC_CAPINSTA_API_BASE_URL="http://127.0.0.1:8000"
+$env:BACKEND_INTERNAL_URL="http://127.0.0.1:8000"
 $env:NEXT_PUBLIC_CAPINSTA_DEBUG="false"
 C:\Users\shrav\.bun\bin\bun.exe run dev:web
 ```
