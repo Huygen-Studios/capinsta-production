@@ -3,6 +3,7 @@ import threading
 import time
 
 from ai_pipeline.audio import Chunk, build_vad_chunk_ranges
+import ai_pipeline.main as pipeline_main
 from ai_pipeline.transcriber import transcribe_sarvam_chunks_bounded
 from ai_pipeline.transcript_normalizer import build_word_timed_transcript_from_chunks
 import ai_pipeline.transcriber as transcriber
@@ -98,3 +99,10 @@ def test_sarvam_requests_are_bounded_and_results_remain_ordered(monkeypatch):
         "chunk-3",
     ]
     assert progress[-1] == (4, 4)
+
+
+def test_pipeline_does_not_pass_worker_progress_into_sarvam_event_loop(
+    monkeypatch,
+):
+    source = pipeline_main.run_pipeline.__code__
+    assert "on_parallel_progress" not in source.co_names

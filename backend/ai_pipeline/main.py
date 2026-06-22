@@ -198,20 +198,20 @@ def run_pipeline(
 
         parallel_results: list[dict] | None = None
         if resolved_stt_provider(language_mode) == "sarvam" and len(chunks) > 1:
-            def on_parallel_progress(completed: int, total: int) -> None:
-                percent = 18 + int((completed / max(total, 1)) * 48)
-                emit_progress(
-                    "transcribing",
-                    percent,
-                    f"Transcribed {completed}/{total} audio chunks.",
-                )
-
             parallel_results = asyncio.run(
                 transcribe_sarvam_chunks_bounded(
                     [chunk.audio_path for chunk in chunks],
                     language_mode,
-                    progress_callback=on_parallel_progress,
+                    # The pipeline worker owns a separate event loop for DB and
+                    # WebSocket progress. Calling that callback from inside this
+                    # temporary Sarvam loop would nest run_until_complete().
+                    progress_callback=None,
                 )
+            )
+            emit_progress(
+                "transcribing",
+                66,
+                f"Transcribed {len(chunks)}/{len(chunks)} audio chunks.",
             )
 
         for i, chunk in enumerate(chunks):
