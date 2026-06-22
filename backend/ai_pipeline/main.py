@@ -1,5 +1,6 @@
 import logging
 import os
+import asyncio
 from typing import Any, Dict
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -32,7 +33,11 @@ from .timing import (
     build_timing_report,
     detect_silence_gaps,
 )
-from .transcriber import transcribe_audio
+from .transcriber import (
+    resolved_stt_provider,
+    transcribe_audio,
+    transcribe_sarvam_chunks_bounded,
+)
 from .language_modes import CODE_MIXED_LANGUAGE_MODES, normalize_caption_text, normalize_language_mode
 from .transcript_normalizer import (
     TranscriptValidationError,
@@ -177,19 +182,48 @@ def run_pipeline(
 
         emit_progress("normalizing", 15, "Chunking audio for transcription.")
         is_strict = metrics["snr_db"] < 10.0
-        chunks = overlap_chunk(audio_path, mode="strict" if is_strict else "normal")
+        chunks = overlap_chunk(
+            audio_path,
+            mode="strict" if is_strict else "normal",
+            speech_segments=vad_report.get("speechSegments") or [],
+        )
         total_chunks = max(len(chunks), 1)
         processed_chunks = []
 
         emit_progress("transcribing", 18, f"Transcribing {len(chunks)} audio chunk(s).")
         _stage_log("transcription started", chunk_count=len(chunks), language_mode=language_mode)
 
-        for i, chunk in enumerate(chunks):
-            chunk_pct = 18 + int((i / total_chunks) * 48)
-            emit_progress("transcribing", chunk_pct, f"Processing chunk {i + 1}/{len(chunks)}.")
+        for chunk in chunks:
             apply_fade(chunk.audio_path)
 
-            transcription_result = transcribe_audio(chunk.audio_path, language_mode=language_mode)
+        parallel_results: list[dict] | None = None
+        if resolved_stt_provider(language_mode) == "sarvam" and len(chunks) > 1:
+            def on_parallel_progress(completed: int, total: int) -> None:
+                percent = 18 + int((completed / max(total, 1)) * 48)
+                emit_progress(
+                    "transcribing",
+                    percent,
+                    f"Transcribed {completed}/{total} audio chunks.",
+                )
+
+            parallel_results = asyncio.run(
+                transcribe_sarvam_chunks_bounded(
+                    [chunk.audio_path for chunk in chunks],
+                    language_mode,
+                    progress_callback=on_parallel_progress,
+                )
+            )
+
+        for i, chunk in enumerate(chunks):
+            chunk_pct = 18 + int((i / total_chunks) * 48)
+            if parallel_results is None:
+                emit_progress("transcribing", chunk_pct, f"Processing chunk {i + 1}/{len(chunks)}.")
+
+            transcription_result = (
+                parallel_results[i]
+                if parallel_results is not None
+                else transcribe_audio(chunk.audio_path, language_mode=language_mode)
+            )
             transcription_providers.add(str(transcription_result.get("provider") or "unknown"))
             raw_text = transcription_result.get("text", "")
             clean_text = normalize_caption_text(raw_text, language_mode)

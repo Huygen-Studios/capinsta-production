@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import asyncio
 from typing import Any
 
 import requests
@@ -118,6 +119,10 @@ def validate_transcription_config(language_mode: str) -> None:
         if language_mode in {"telgish", "auto_mixed_indian"}:
             raise RuntimeError(TELUGU_CAPABLE_PROVIDER_ERROR)
         raise RuntimeError("STT_PROVIDER=groq_whisper requires GROQ_API_KEY.")
+
+
+def resolved_stt_provider(language_mode: str) -> str:
+    return _resolve_provider(normalize_language_mode(language_mode))
 
 
 def _as_timing_float(value: Any) -> float | None:
@@ -407,3 +412,49 @@ def transcribe_audio(audio_path: str, language_mode: str = "english") -> dict:
         return _normalize_provider_result(_call_openai_whisper(audio_path, normalized_mode), provider)
 
     return _normalize_provider_result(transcribe_chunk_with_retry(audio_path, language=normalized_mode), provider)
+
+
+async def transcribe_sarvam_chunks_bounded(
+    audio_paths: list[str],
+    language_mode: str,
+    progress_callback=None,
+) -> list[dict]:
+    """Run blocking Sarvam REST calls concurrently with a strict upper bound."""
+    normalized_mode = normalize_language_mode(language_mode)
+    if _resolve_provider(normalized_mode) != "sarvam":
+        return [
+            transcribe_audio(audio_path, language_mode=normalized_mode)
+            for audio_path in audio_paths
+        ]
+    try:
+        concurrency = int(os.getenv("SARVAM_MAX_CONCURRENCY", "2"))
+    except ValueError:
+        concurrency = 2
+    concurrency = max(1, min(concurrency, 8))
+    semaphore = asyncio.Semaphore(concurrency)
+    completed = 0
+    completed_lock = asyncio.Lock()
+
+    async def transcribe_one(index: int, audio_path: str) -> tuple[int, dict]:
+        nonlocal completed
+        async with semaphore:
+            result = await asyncio.to_thread(
+                transcribe_audio,
+                audio_path,
+                normalized_mode,
+            )
+        async with completed_lock:
+            completed += 1
+            if progress_callback:
+                progress_callback(completed, len(audio_paths))
+        return index, result
+
+    logger.info(
+        "sarvam_parallel_transcription chunks=%s concurrency=%s",
+        len(audio_paths),
+        concurrency,
+    )
+    indexed = await asyncio.gather(
+        *(transcribe_one(index, path) for index, path in enumerate(audio_paths))
+    )
+    return [result for _, result in sorted(indexed, key=lambda item: item[0])]

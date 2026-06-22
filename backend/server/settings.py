@@ -113,8 +113,12 @@ def default_render_page_url() -> str:
     if configured:
         return configured
 
-    if frontend_dist_available() or os.getenv("NODE_ENV") == "production":
+    if frontend_dist_available():
         return bundled_render_page_url()
+
+    frontend_url = os.getenv("FRONTEND_URL", "").split(",", 1)[0].strip().rstrip("/")
+    if frontend_url:
+        return f"{frontend_url}/render"
 
     return "http://localhost:3000/render"
 

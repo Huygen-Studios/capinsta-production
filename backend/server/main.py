@@ -262,7 +262,8 @@ if frontend_dist_available():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST_DIR), html=True), name="frontend")
 
 # Local dev can still run the Next.js app separately on port 3000.
-# Production Docker builds frontend/out and serves it from this FastAPI app.
+# A bundled renderer is still supported for local/custom images. Standard
+# production deployment uses the independently deployed frontend /render route.
 
 
 if __name__ == "__main__":

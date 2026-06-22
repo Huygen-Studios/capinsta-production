@@ -1,66 +1,10 @@
 # Build context: repository root
 # Coolify: Base Directory=/, Dockerfile Location=/backend/Dockerfile
-
-# ---- Stage 1: install the web workspace dependencies ----
-FROM oven/bun:1.3.14-alpine AS web-installer
-
-WORKDIR /app
-
-COPY package.json bun.lock turbo.json ./
-COPY apps/web/package.json apps/web/package.json
-
-RUN bun install --frozen-lockfile
-
-# ---- Stage 2: build and package the production render page ----
-FROM node:22-alpine AS render-builder
-
-WORKDIR /app
-
-COPY --from=web-installer /app/node_modules ./node_modules
-COPY --from=web-installer /app/apps/web/node_modules ./apps/web/node_modules
-COPY package.json bun.lock turbo.json ./
-COPY apps/web/package.json apps/web/package.json
-COPY apps/web/ apps/web/
-COPY backend/scripts/package_render_artifact.mjs backend/scripts/package_render_artifact.mjs
-
-ARG NEXT_PUBLIC_SITE_URL=https://capinsta.huygenstudios.com
-ARG NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder
-ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
-ARG MARBLE_WORKSPACE_KEY=build-placeholder
-ARG NEXT_PUBLIC_ENABLE_AI_CAPTIONS=true
-ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=https://api.capinsta.huygenstudios.com
-
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-# The backend image builds the dedicated Next.js render artifact. Bound the
-# compiler heap so it cannot starve Coolify and the reverse proxy on small VPSes.
-ENV NODE_OPTIONS="--max-old-space-size=1024"
-ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
-ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
-ENV UPSTASH_REDIS_REST_TOKEN="build-time-placeholder-token"
-ENV SUPABASE_SERVICE_ROLE_KEY="build-time-placeholder-service-role-key"
-ENV ADMIN_SECURITY_PEPPER="build-time-placeholder-admin-security-pepper"
-ENV INTERNAL_ADMIN_API_SECRET="build-time-placeholder-internal-admin-api-secret"
-ENV INTERNAL_MAINTENANCE_SECRET="build-time-placeholder-maintenance-secret"
-ENV ADMIN_ASSERTION_ISSUER="capinsta-web"
-ENV BACKEND_INTERNAL_URL="http://127.0.0.1:10000"
-ENV TRUSTED_PROXY_MODE="none"
-ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV NEXT_PUBLIC_MARBLE_API_URL=$NEXT_PUBLIC_MARBLE_API_URL
-ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
-ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS=$NEXT_PUBLIC_ENABLE_AI_CAPTIONS
-ENV NEXT_PUBLIC_CAPINSTA_API_BASE_URL=$NEXT_PUBLIC_CAPINSTA_API_BASE_URL
-
-WORKDIR /app/apps/web
-RUN ./node_modules/.bin/next build
-
-WORKDIR /app
-RUN node backend/scripts/package_render_artifact.mjs apps/web/.next /render-dist
-
-# ---- Stage 3: production API/exporter ----
+#
+# The backend intentionally does not compile Next.js. Headless export uses the
+# independently deployed frontend /render route configured by RENDER_PAGE_URL
+# or FRONTEND_URL. This keeps API deployments small and prevents frontend build
+# OOM/timeouts from taking down backend releases.
 FROM python:3.11-slim AS app
 
 ENV PYTHONUNBUFFERED=1
@@ -88,11 +32,6 @@ ENV EXPORT_SPARSE_RENDER_THEMES=*
 ENV EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT=30
 
 WORKDIR /app
-
-# Force BuildKit to finish the memory-heavy Next.js renderer build before it
-# starts Python dependency and Chromium installation. Without this dependency,
-# BuildKit runs both branches concurrently and can OOM a 4 GB Coolify host.
-COPY --from=render-builder /render-dist ./frontend/out
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
