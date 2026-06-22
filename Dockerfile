@@ -10,7 +10,8 @@ COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
 
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,id=capinsta-bun-cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 
 # ---- Stage 2: Builder (Node + Next.js build) ----
 # Node runs `next build`. This avoids Bun's SIGILL/segfault on VPS CPUs that
@@ -75,7 +76,16 @@ ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS=$NEXT_PUBLIC_ENABLE_AI_CAPTIONS
 ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 
 WORKDIR /app/apps/web
-RUN ./node_modules/.bin/next build
+# Next/Turbopack can be silent for several minutes on a small Coolify VPS.
+# Emit a periodic heartbeat so the remote deployment helper does not mistake a
+# healthy compile for a stalled command. Preserve Next's incremental cache so a
+# failed/retried deployment does not repeat all compilation work.
+RUN --mount=type=cache,id=capinsta-next-cache,target=/app/apps/web/.next/cache \
+    set -eu; \
+    (while sleep 25; do echo "capinsta_next_build_active"; done) & \
+    heartbeat_pid=$!; \
+    trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT; \
+    ./node_modules/.bin/next build
 
 # ---- Stage 3: Runner (Node standalone server) ----
 FROM node:22-alpine AS runner
