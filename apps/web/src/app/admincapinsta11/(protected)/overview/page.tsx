@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import {
   Table,
@@ -72,6 +73,16 @@ export default async function OverviewPage() {
         title="Operational overview"
         description="Real account, job, storage, support, provider, and security signals from the Capinsta control plane."
       />
+      {data.degradedSources.length ? (
+        <Alert className="mb-4 border-caution">
+          <Activity aria-hidden="true" />
+          <AlertTitle>Some overview data is temporarily unavailable</AlertTitle>
+          <AlertDescription>
+            Unavailable sources: {data.degradedSources.join(", ")}. Other
+            administrative modules remain usable.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {cards.map(([label, value, detail, Icon]) => (
           <Card key={label} className="border-2">

@@ -20,110 +20,199 @@ import { webEnv } from "@/env/web";
 
 export type AdminTableRow = Record<string, string | number | boolean | null>;
 
+async function overviewQuery<T>({
+  source,
+  query,
+  fallback,
+}: {
+  source: string;
+  query: Promise<T>;
+  fallback: T;
+}): Promise<{ data: T; degradedSource: string | null }> {
+  try {
+    return { data: await query, degradedSource: null };
+  } catch (error) {
+    console.error("admin_overview_query_failed", {
+      source,
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              cause:
+                error.cause instanceof Error
+                  ? {
+                      name: error.cause.name,
+                      message: error.cause.message,
+                    }
+                  : undefined,
+            }
+          : { name: "UnknownError", message: "Unknown overview query failure" },
+    });
+    return { data: fallback, degradedSource: source };
+  }
+}
+
 export async function getOverviewData() {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   const sevenDays = new Date(Date.now() - 7 * 86400000);
   const thirtyDays = new Date(Date.now() - 30 * 86400000);
   const [
-    [userTotals],
-    [captionTotals],
-    [exportTotals],
-    [projectTotals],
-    [supportTotals],
-    recentAudit,
-    providerHealth,
-    backendHealth,
+    usersResult,
+    captionsResult,
+    exportsResult,
+    projectsResult,
+    supportResult,
+    auditResult,
+    providerResult,
+    backendResult,
   ] = await Promise.all([
-    db
-      .select({
-        total: count(),
-        today: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${today})`,
-        seven: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${sevenDays})`,
-        thirty: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${thirtyDays})`,
-        dau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${today})`,
-        wau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${sevenDays})`,
-        mau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${thirtyDays})`,
-      })
-      .from(profiles),
-    db
-      .select({
-        total: count(),
-        queued: sql<number>`count(*) filter (where ${captionJobs.status} = 'queued')`,
-        running: sql<number>`count(*) filter (where ${captionJobs.status} = 'running')`,
-        succeeded: sql<number>`count(*) filter (where ${captionJobs.status} in ('completed','succeeded'))`,
-        failed: sql<number>`count(*) filter (where ${captionJobs.status} = 'failed')`,
-      })
-      .from(captionJobs),
-    db
-      .select({
-        total: count(),
-        queued: sql<number>`count(*) filter (where ${exportJobs.status} = 'queued')`,
-        running: sql<number>`count(*) filter (where ${exportJobs.status} = 'running')`,
-        succeeded: sql<number>`count(*) filter (where ${exportJobs.status} in ('completed','succeeded'))`,
-        failed: sql<number>`count(*) filter (where ${exportJobs.status} = 'failed')`,
-      })
-      .from(exportJobs),
-    db
-      .select({
-        total: count(),
-        expiring: sql<number>`count(*) filter (where ${projectRegistry.expiresAt} < now() + interval '24 hours' and ${projectRegistry.retentionHold} = false)`,
-        bytes: sql<number>`coalesce(sum(${projectRegistry.approximateBytes}), 0)`,
-      })
-      .from(projectRegistry),
-    db
-      .select({
-        open: sql<number>`count(*) filter (where ${supportCases.status} not in ('resolved','closed'))`,
-      })
-      .from(supportCases),
-    db
-      .select({
-        id: adminAuditLog.id,
-        action: adminAuditLog.action,
-        targetType: adminAuditLog.targetType,
-        success: adminAuditLog.success,
-        severity: adminAuditLog.severity,
-        createdAt: adminAuditLog.createdAt,
-      })
-      .from(adminAuditLog)
-      .orderBy(desc(adminAuditLog.createdAt))
-      .limit(8),
-    db
-      .selectDistinctOn(
-        [providerHealthEvents.provider, providerHealthEvents.component],
-        {
-          provider: providerHealthEvents.provider,
-          component: providerHealthEvents.component,
-          status: providerHealthEvents.status,
-          latencyMs: providerHealthEvents.latencyMs,
-          checkedAt: providerHealthEvents.checkedAt,
-        },
-      )
-      .from(providerHealthEvents)
-      .orderBy(
-        providerHealthEvents.provider,
-        providerHealthEvents.component,
-        desc(providerHealthEvents.checkedAt),
-      ),
-    fetch(`${webEnv.BACKEND_INTERNAL_URL}/health`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(2500),
-    })
-      .then(async (response) => ({
+    overviewQuery({
+      source: "users",
+      query: db
+        .select({
+          total: count(),
+          today: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${today})`,
+          seven: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${sevenDays})`,
+          thirty: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${thirtyDays})`,
+          dau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${today})`,
+          wau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${sevenDays})`,
+          mau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${thirtyDays})`,
+        })
+        .from(profiles)
+        .then((rows) => rows[0]),
+      fallback: {
+        total: 0,
+        today: 0,
+        seven: 0,
+        thirty: 0,
+        dau: 0,
+        wau: 0,
+        mau: 0,
+      },
+    }),
+    overviewQuery({
+      source: "caption_jobs",
+      query: db
+        .select({
+          total: count(),
+          queued: sql<number>`count(*) filter (where ${captionJobs.status} = 'queued')`,
+          running: sql<number>`count(*) filter (where ${captionJobs.status} = 'running')`,
+          succeeded: sql<number>`count(*) filter (where ${captionJobs.status} in ('completed','succeeded'))`,
+          failed: sql<number>`count(*) filter (where ${captionJobs.status} = 'failed')`,
+        })
+        .from(captionJobs)
+        .then((rows) => rows[0]),
+      fallback: { total: 0, queued: 0, running: 0, succeeded: 0, failed: 0 },
+    }),
+    overviewQuery({
+      source: "export_jobs",
+      query: db
+        .select({
+          total: count(),
+          queued: sql<number>`count(*) filter (where ${exportJobs.status} = 'queued')`,
+          running: sql<number>`count(*) filter (where ${exportJobs.status} = 'running')`,
+          succeeded: sql<number>`count(*) filter (where ${exportJobs.status} in ('completed','succeeded'))`,
+          failed: sql<number>`count(*) filter (where ${exportJobs.status} = 'failed')`,
+        })
+        .from(exportJobs)
+        .then((rows) => rows[0]),
+      fallback: { total: 0, queued: 0, running: 0, succeeded: 0, failed: 0 },
+    }),
+    overviewQuery({
+      source: "projects",
+      query: db
+        .select({
+          total: count(),
+          expiring: sql<number>`count(*) filter (where ${projectRegistry.expiresAt} < now() + interval '24 hours' and ${projectRegistry.retentionHold} = false)`,
+          bytes: sql<number>`coalesce(sum(${projectRegistry.approximateBytes}), 0)`,
+        })
+        .from(projectRegistry)
+        .then((rows) => rows[0]),
+      fallback: { total: 0, expiring: 0, bytes: 0 },
+    }),
+    overviewQuery({
+      source: "support_cases",
+      query: db
+        .select({
+          open: sql<number>`count(*) filter (where ${supportCases.status} not in ('resolved','closed'))`,
+        })
+        .from(supportCases)
+        .then((rows) => rows[0]),
+      fallback: { open: 0 },
+    }),
+    overviewQuery({
+      source: "admin_audit_log",
+      query: db
+        .select({
+          id: adminAuditLog.id,
+          action: adminAuditLog.action,
+          targetType: adminAuditLog.targetType,
+          success: adminAuditLog.success,
+          severity: adminAuditLog.severity,
+          createdAt: adminAuditLog.createdAt,
+        })
+        .from(adminAuditLog)
+        .orderBy(desc(adminAuditLog.createdAt))
+        .limit(8),
+      fallback: [],
+    }),
+    overviewQuery({
+      source: "provider_health_events",
+      query: db
+        .selectDistinctOn(
+          [providerHealthEvents.provider, providerHealthEvents.component],
+          {
+            provider: providerHealthEvents.provider,
+            component: providerHealthEvents.component,
+            status: providerHealthEvents.status,
+            latencyMs: providerHealthEvents.latencyMs,
+            checkedAt: providerHealthEvents.checkedAt,
+          },
+        )
+        .from(providerHealthEvents)
+        .orderBy(
+          providerHealthEvents.provider,
+          providerHealthEvents.component,
+          desc(providerHealthEvents.checkedAt),
+        ),
+      fallback: [],
+    }),
+    overviewQuery({
+      source: "backend_health",
+      query: fetch(`${webEnv.BACKEND_INTERNAL_URL}/health`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2500),
+      }).then(async (response) => ({
         ok: response.ok,
         data: response.ok ? await response.json() : null,
-      }))
-      .catch(() => ({ ok: false, data: null })),
+      })),
+      fallback: { ok: false, data: null },
+    }),
   ]);
+  const degradedSources = [
+    usersResult,
+    captionsResult,
+    exportsResult,
+    projectsResult,
+    supportResult,
+    auditResult,
+    providerResult,
+    backendResult,
+  ].flatMap((result) =>
+    result.degradedSource ? [result.degradedSource] : [],
+  );
   return {
-    users: userTotals,
-    captions: captionTotals,
-    exports: exportTotals,
-    projects: projectTotals,
-    support: supportTotals,
-    recentAudit,
-    providerHealth,
-    backendHealth,
+    users: usersResult.data,
+    captions: captionsResult.data,
+    exports: exportsResult.data,
+    projects: projectsResult.data,
+    support: supportResult.data,
+    recentAudit: auditResult.data,
+    providerHealth: providerResult.data,
+    backendHealth: backendResult.data,
+    degradedSources,
     refreshedAt: new Date(),
   };
 }

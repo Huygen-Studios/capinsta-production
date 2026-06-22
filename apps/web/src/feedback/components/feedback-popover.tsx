@@ -32,7 +32,20 @@ interface FeedbackFormValues {
 function readHistory(): FeedbackEntry[] {
 	try {
 		const stored = localStorage.getItem(HISTORY_KEY);
-		return stored ? (JSON.parse(stored) as FeedbackEntry[]) : [];
+		if (!stored) return [];
+		const parsed: unknown = JSON.parse(stored);
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter(
+			(entry): entry is FeedbackEntry =>
+				typeof entry === "object" &&
+				entry !== null &&
+				"id" in entry &&
+				typeof entry.id === "string" &&
+				"message" in entry &&
+				typeof entry.message === "string" &&
+				"createdAt" in entry &&
+				typeof entry.createdAt === "string",
+		);
 	} catch {
 		return [];
 	}
@@ -69,7 +82,9 @@ function useFeedback() {
 
 			if (!res.ok) {
 				const data = await res.json().catch(() => null);
-				throw new Error(data?.error ?? "Failed to submit");
+				throw new Error(
+					`${data?.error ?? "Failed to submit"} (HTTP ${res.status})`,
+				);
 			}
 
 			const { entry } = await res.json();

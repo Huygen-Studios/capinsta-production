@@ -8,4 +8,9 @@ export interface FeedbackEntry {
 
 export interface SubmitFeedbackInput {
 	message: string;
+	userId?: string | null;
+	email?: string | null;
+	page?: string | null;
+	browser?: string | null;
+	appVersion?: string | null;
 }
