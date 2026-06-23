@@ -159,6 +159,7 @@ def run_pipeline(
     audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
     chunks = []
     transcription_providers: set[str] = set()
+    transcription_fallback_from: set[str] = set()
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -225,6 +226,8 @@ def run_pipeline(
                 else transcribe_audio(chunk.audio_path, language_mode=language_mode)
             )
             transcription_providers.add(str(transcription_result.get("provider") or "unknown"))
+            if transcription_result.get("fallback") and transcription_result.get("fallback_from"):
+                transcription_fallback_from.add(str(transcription_result.get("fallback_from")))
             raw_text = transcription_result.get("text", "")
             clean_text = normalize_caption_text(raw_text, language_mode)
             chunk.raw_text = clean_text
@@ -461,9 +464,23 @@ def run_pipeline(
         log_summary = pipeline_logger.get_summary()
         provider_name = ",".join(sorted(transcription_providers)) or "unknown"
         transcript = build_normalized_transcript(clamped_segments, language_mode, provider_name)
+        if provider_name == "gemini":
+            transcript["provider"] = {"name": "gemini", "model": os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash")}
+        elif provider_name == "sarvam" and transcription_fallback_from:
+            transcript["provider"] = {
+                "name": "sarvam",
+                "model": "saaras:v3",
+                "fallback": True,
+                "fallbackFrom": ",".join(sorted(transcription_fallback_from)),
+            }
         transcript["alignedWords"] = aligned_words
         transcript["metadata"] = {
             **log_summary,
+            "transcription": {
+                "provider": transcript["provider"],
+                "fallback": bool(transcription_fallback_from),
+                "fallbackFrom": sorted(transcription_fallback_from),
+            },
             "audio": {
                 "sampleRate": 16000,
                 "channels": 1,
