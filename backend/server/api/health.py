@@ -21,6 +21,7 @@ from ..settings import (
 )
 from ..headless_export import check_export_runtime, check_export_runtime_async
 from ..worker_startup import check_pipeline_worker_import
+from ai_pipeline.transcriber import is_real_secret
 from .export_jobs import export_job_metrics
 from ..auth import auth_health_status
 from ..runtime_policy import control_plane_health
@@ -46,8 +47,7 @@ class HealthResponse(BaseModel):
     jwtMode: str = "unknown"
 
 def _has_key(name: str) -> bool:
-    value = os.getenv(name, "").strip()
-    return bool(value and not value.startswith("your_") and "placeholder" not in value.lower())
+    return is_real_secret(os.getenv(name))
 
 
 def _tree_bytes(

@@ -4,8 +4,6 @@ import os
 import re
 from typing import Any
 
-import requests
-
 from .language_modes import (
     containsDevanagariScript,
     containsTeluguScript,
@@ -14,7 +12,7 @@ from .language_modes import (
     romanizeHindiText,
     romanizeTeluguText,
 )
-from .transcriber import GEMINI_MODEL, GEMINI_URL_TEMPLATE, _gemini_api_key
+from .transcriber import GEMINI_MODEL, _extract_json_object, _gemini_api_key, _gemini_client, _sanitize_provider_message
 
 logger = logging.getLogger(__name__)
 WORD_RE = re.compile(r"\S+")
@@ -137,25 +135,22 @@ def _translate_text(text: str, source_language: str, output_language: str) -> st
         "Return only JSON: {\"text\":\"translated caption\"}.\n\n"
         f"Caption: {text}"
     )
-    response = requests.post(
-        GEMINI_URL_TEMPLATE.format(model=os.getenv("GEMINI_TRANSLATION_MODEL", GEMINI_MODEL)),
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        json={
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.1, "response_mime_type": "application/json"},
-        },
-        timeout=60,
-    )
-    if response.status_code >= 400:
-        raise OutputTransformationError(f"Translation provider failed with status {response.status_code}.")
+    client = _gemini_client(api_key)
     try:
-        payload = response.json()
-        candidates = payload.get("candidates") or []
-        parts = (((candidates[0] or {}).get("content") or {}).get("parts") or []) if candidates else []
-        raw_text = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
-        translated = json.loads(raw_text).get("text", "").strip()
+        interaction = client.interactions.create(
+            model=os.getenv("GEMINI_TRANSLATION_MODEL", GEMINI_MODEL),
+            input=prompt,
+            response_format={
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+            timeout=60,
+        )
+        translated = _extract_json_object(str(getattr(interaction, "output_text", "") or "")).get("text", "").strip()
     except Exception as exc:
-        raise OutputTransformationError("Translation provider returned malformed JSON.") from exc
+        logger.warning("translation_provider_failed provider=gemini message=%s", _sanitize_provider_message(str(exc)) or "-")
+        raise OutputTransformationError("Translation provider failed or returned malformed JSON.") from exc
     if not translated:
         raise OutputTransformationError("Translation provider returned empty text.")
     return translated

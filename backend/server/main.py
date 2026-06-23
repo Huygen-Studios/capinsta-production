@@ -91,16 +91,18 @@ async def lifespan(app: FastAPI):
     mirror_task = asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
     
     # Check for crucial runtime dependencies and API keys.
+    from ai_pipeline.transcriber import is_real_secret
+
     stt_provider = os.getenv("STT_PROVIDER", "auto").strip() or "auto"
-    gemini_key = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    openai_key = os.getenv("OPENAI_API_KEY", "")
-    sarvam_key = os.getenv("SARVAM_API_KEY", "")
+    gemini_key = is_real_secret(os.getenv("GEMINI_API_KEY")) or is_real_secret(os.getenv("GOOGLE_API_KEY"))
+    groq_key = is_real_secret(os.getenv("GROQ_API_KEY"))
+    openai_key = is_real_secret(os.getenv("OPENAI_API_KEY"))
+    sarvam_key = is_real_secret(os.getenv("SARVAM_API_KEY"))
     if stt_provider == "auto" and not any([gemini_key, groq_key, openai_key, sarvam_key]):
         print("WARNING: No STT provider API key is configured. Caption generation will fail until a key is set.")
-    if stt_provider == "gemini" and not gemini_key and not sarvam_key:
-        print("WARNING: STT_PROVIDER=gemini requires GEMINI_API_KEY or SARVAM_API_KEY fallback. Transcription will fail.")
-    if stt_provider in {"whisper", "groq_whisper"} and (not groq_key or "your_groq_api_key" in groq_key):
+    if stt_provider == "gemini" and not gemini_key:
+        print("WARNING: STT_PROVIDER=gemini requires GEMINI_API_KEY. Transcription will fail.")
+    if stt_provider in {"whisper", "groq_whisper"} and not groq_key:
         print("WARNING: GROQ_API_KEY is not set or is still a placeholder. Transcription will fail.")
     if stt_provider == "sarvam" and not sarvam_key:
         print("WARNING: STT_PROVIDER=sarvam requires SARVAM_API_KEY. Transcription will fail.")

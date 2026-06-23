@@ -137,6 +137,7 @@ export function SectionHeader({
 			type="button"
 			className="min-w-0 flex-1 flex items-center gap-2 h-full cursor-pointer text-left"
 			onClick={handleClick}
+			aria-expanded={isCollapsible ? isOpen : undefined}
 		>
 			{leading}
 			<div className="min-w-0 flex-1 flex items-center">{children}</div>

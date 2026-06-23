@@ -37,8 +37,8 @@ export function ElementParamsTab({
 
 	return (
 		<Section sectionKey={`${element.id}:${sectionKey}`}>
-			<SectionContent className="pt-4">
-				<SectionFields>
+			<SectionContent className="p-0">
+				<SectionFields className="gap-2">
 					{params
 						.filter((param) => isVisible({ param, values: baseValues }))
 						.map((param) => (

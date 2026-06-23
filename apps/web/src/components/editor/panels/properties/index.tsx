@@ -1,22 +1,17 @@
 "use client";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipProvider,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
-import { usePropertiesStore } from "./stores/properties-store";
 import { getPropertiesConfig } from "./registry";
-import { cn } from "@/utils/ui";
-import { EmptyView } from "./empty-view";
 import { findCapinstaBindingForElement } from "@/capinsta/captionTimelineSync";
 import { getSelectedCapinstaCaptionRefs } from "@/capinsta/bulkStyleSync";
 import { CapinstaCaptionStylePanel } from "@/capinsta/components/CapinstaCaptionStylePanel";
+import {
+	EffectControlsEmptyState,
+	EffectControlsPanel,
+	EffectControlsShell,
+} from "./effect-controls-panel";
 
 export function PropertiesPanel() {
 	const editor = useEditor();
@@ -24,14 +19,9 @@ export function PropertiesPanel() {
 	useEditor((e) => e.media.getAssets());
 	useEditor((e) => e.project.getActive()?.capinstaCaptionDocuments);
 	const { selectedElements } = useElementSelection();
-	const { activeTabPerType, setActiveTab } = usePropertiesStore();
 
 	if (selectedElements.length === 0) {
-		return (
-			<div className="panel editor-panel flex h-full flex-col items-center justify-center overflow-hidden">
-				<EmptyView />
-			</div>
-		);
+		return <EffectControlsEmptyState />;
 	}
 
 	if (selectedElements.length > 1) {
@@ -47,7 +37,7 @@ export function PropertiesPanel() {
 
 		if (selectedCapinstaClipRefs.length > 0) {
 			return (
-				<div className="panel editor-panel flex h-full overflow-hidden">
+				<EffectControlsShell>
 					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
 						<CapinstaCaptionStylePanel
 							mode="bulk"
@@ -56,16 +46,18 @@ export function PropertiesPanel() {
 							ignoredCount={ignoredCount}
 						/>
 					</ScrollArea>
-				</div>
+				</EffectControlsShell>
 			);
 		}
 
 		return (
-			<div className="panel editor-panel flex h-full flex-col items-center justify-center overflow-hidden">
+			<EffectControlsShell>
+				<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
 				<p className="text-muted-foreground text-sm">
 					{selectedElements.length} elements selected
 				</p>
-			</div>
+				</div>
+			</EffectControlsShell>
 		);
 	}
 
@@ -86,51 +78,9 @@ export function PropertiesPanel() {
 	});
 	const config = getPropertiesConfig({ element, mediaAssets, capinstaBinding });
 	const visibleTabs = config.tabs;
+	if (visibleTabs.length === 0) return <EffectControlsEmptyState />;
 
-	const storedTabId = activeTabPerType[element.type];
-	const isStoredTabVisible = visibleTabs.some((t) => t.id === storedTabId);
-	const activeTabId = isStoredTabVisible ? storedTabId : config.defaultTab;
-	const activeTab =
-		visibleTabs.find((t) => t.id === activeTabId) ?? visibleTabs[0];
-
-	if (!activeTab) return null;
-
-	return (
-		<div className="panel editor-panel flex h-full overflow-hidden">
-			<TooltipProvider delayDuration={0}>
-				<div className="flex shrink-0 flex-col gap-0.5 border-r p-1 scrollbar-hidden overflow-y-auto">
-					{visibleTabs.map((tab) => (
-						<Tooltip key={tab.id}>
-							<TooltipTrigger asChild>
-								<Button
-									type="button"
-									variant={tab.id === activeTab.id ? "secondary" : "ghost"}
-									size="icon"
-									onClick={() =>
-										setActiveTab({
-											elementType: element.type,
-											tabId: tab.id,
-										})
-									}
-									aria-label={tab.label}
-									className={cn(
-										"shrink-0 rounded-md border border-transparent",
-										"h-8 w-8",
-										tab.id === activeTab.id
-											? "!border-primary !bg-primary/15 !text-primary shadow-[2px_2px_0_color-mix(in_srgb,var(--primary)_55%,transparent)]"
-											: "text-muted-foreground hover:border-border",
-									)}
-								>
-									{tab.icon}
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent side="right">{tab.label}</TooltipContent>
-						</Tooltip>
-					))}
-				</div>
-			</TooltipProvider>
-			<div className="flex min-w-0 flex-1 flex-col">
-				{capinstaBinding ? (
+	const captionStatus = capinstaBinding ? (
 					<div className="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
 						<span className="font-medium">Capinsta caption</span>
 						{capinstaBinding.clip.timingNeedsReview ? (
@@ -144,17 +94,14 @@ export function PropertiesPanel() {
 							<span className="text-muted-foreground">Word timing linked</span>
 						)}
 					</div>
-				) : null}
-				{activeTab.ownsScroll ? (
-					<div className="min-h-0 flex-1">
-						{activeTab.content({ trackId: track.id })}
-					</div>
-				) : (
-					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
-						{activeTab.content({ trackId: track.id })}
-					</ScrollArea>
-				)}
-			</div>
-		</div>
+	) : undefined;
+
+	return (
+		<EffectControlsPanel
+			tabs={visibleTabs}
+			trackId={track.id}
+			element={element}
+			captionStatus={captionStatus}
+		/>
 	);
 }

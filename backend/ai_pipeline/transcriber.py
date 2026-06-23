@@ -3,11 +3,14 @@ import logging
 import json
 import asyncio
 import base64
+import mimetypes
 import re
 import wave
 from typing import Any
 
 import requests
+from google import genai
+from google.genai import errors as genai_errors
 from groq import Groq
 from openai import OpenAI
 from .retry import with_retry
@@ -48,7 +51,7 @@ SARVAM_LANGUAGE_CODES = {
 
 SARVAM_URL = "https://api.sarvam.ai/speech-to-text"
 GEMINI_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
-GEMINI_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
 
 
 SUPPORTED_STT_PROVIDERS = {"auto", "whisper", "groq_whisper", "openai_whisper", "sarvam", "gemini"}
@@ -60,10 +63,19 @@ GEMINI_KEY_ERROR = "Gemini API key is invalid or missing. Update GEMINI_API_KEY 
 
 
 class TranscriptionProviderError(RuntimeError):
-    def __init__(self, provider: str, category: str, message: str | None = None, status: int | None = None):
+    def __init__(
+        self,
+        provider: str,
+        category: str,
+        message: str | None = None,
+        status: int | None = None,
+        *,
+        provider_code: str | None = None,
+    ):
         self.provider = provider
         self.category = category
         self.status = status
+        self.provider_code = provider_code
         safe_message = message or category
         super().__init__(safe_message)
 
@@ -100,9 +112,32 @@ def _provider_order() -> list[str]:
     return ordered or list(DEFAULT_STT_PROVIDER_ORDER)
 
 
+def is_real_secret(value: str | None) -> bool:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    placeholder_tokens = (
+        "placeholder",
+        "your_api_key",
+        "your api key",
+        "your_",
+        "real key",
+        "remove it",
+        "example",
+        "changeme",
+    )
+    if cleaned.startswith("<") and cleaned.endswith(">"):
+        return False
+    if any(token in lowered for token in placeholder_tokens):
+        return False
+    if set(cleaned) <= {"."}:
+        return False
+    return True
+
+
 def _has_real_key(env_name: str) -> bool:
-    value = (os.environ.get(env_name) or "").strip()
-    return bool(value and not value.startswith("your_") and "placeholder" not in value.lower())
+    return is_real_secret(os.environ.get(env_name))
 
 
 def _provider_key_available(provider: str) -> bool:
@@ -121,7 +156,7 @@ def _configured_provider_sequence() -> list[str]:
     provider = get_stt_provider()
     if provider != "auto":
         return [provider]
-    return _provider_order()
+    return [candidate for candidate in _provider_order() if _provider_key_available(candidate)]
 
 
 def _resolve_provider(language_mode: str, requested_provider: str | None = None) -> str:
@@ -140,7 +175,7 @@ def validate_transcription_config(language_mode: str) -> None:
     language_mode = normalize_language_mode(language_mode)
     providers = _configured_provider_sequence()
     if get_stt_provider() == "auto":
-        if any(_provider_key_available(provider) for provider in providers):
+        if providers:
             return
         raise RuntimeError("Configure GEMINI_API_KEY, SARVAM_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for transcription.")
     provider = providers[0]
@@ -219,6 +254,29 @@ def _failure_category(exc: Exception) -> tuple[str, int | None]:
     return "provider_error", None
 
 
+def _failure_summary(provider: str, category: str, status: int | None) -> str:
+    if provider == "gemini":
+        if category == "authentication":
+            detail = f"HTTP {status}, invalid Gemini API key" if status else "invalid Gemini API key"
+            return f"gemini(authentication: {detail})"
+        if category == "permission_or_blocked_key":
+            detail = f"HTTP {status}, API key blocked or permission denied" if status else "API key blocked or permission denied"
+            return f"gemini(permission_or_blocked_key: {detail})"
+        if category == "quota_or_rate_limit":
+            return f"gemini(quota_or_rate_limit{f': HTTP {status}' if status else ''})"
+        if category == "endpoint_or_model_not_found":
+            return f"gemini(endpoint_or_model_not_found{f': HTTP {status}' if status else ''})"
+        if category == "invalid_request":
+            return f"gemini(invalid_request{f': HTTP {status}' if status else ''})"
+        if category == "provider_unavailable":
+            return f"gemini(provider_unavailable{f': HTTP {status}' if status else ''})"
+        if category == "transport_error":
+            return "gemini(transport_error)"
+        if category == "response_error":
+            return "gemini(response_error)"
+    return f"{provider}({category}{f': HTTP {status}' if status else ''})"
+
+
 def _validate_transcription_result(result: dict, provider: str, audio_path: str) -> dict:
     text = str(result.get("text") or "").strip()
     if not text:
@@ -261,11 +319,80 @@ def _validate_transcription_result(result: dict, provider: str, audio_path: str)
 
 
 def _gemini_api_key() -> str:
-    gemini_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
-    google_key = (os.environ.get("GOOGLE_API_KEY") or "").strip()
-    if gemini_key and google_key:
-        logger.warning("Both GEMINI_API_KEY and GOOGLE_API_KEY are configured; using GEMINI_API_KEY.")
-    return gemini_key or google_key
+    raw_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = raw_key.strip() if raw_key else None
+    google_raw = os.getenv("GOOGLE_API_KEY")
+    google_key = google_raw.strip() if google_raw else None
+    if is_real_secret(gemini_key) and is_real_secret(google_key):
+        logger.warning("Both GEMINI_API_KEY and GOOGLE_API_KEY are configured; GOOGLE_API_KEY is ignored for Gemini transcription.")
+    if is_real_secret(gemini_key):
+        return gemini_key or ""
+    if is_real_secret(google_key):
+        return google_key or ""
+    return ""
+
+
+def _gemini_client(api_key: str):
+    return genai.Client(api_key=api_key)
+
+
+def _audio_mime_type(audio_path: str) -> str:
+    guessed, _ = mimetypes.guess_type(audio_path)
+    if guessed in {
+        "audio/wav",
+        "audio/x-wav",
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/aiff",
+        "audio/aac",
+        "audio/ogg",
+        "audio/flac",
+        "audio/m4a",
+        "audio/opus",
+    }:
+        return "audio/wav" if guessed == "audio/x-wav" else guessed
+    return "audio/wav"
+
+
+def _sanitize_provider_message(message: str | None) -> str:
+    text = str(message or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"AIza[0-9A-Za-z_\-]{10,}", "[redacted]", text)
+    text = re.sub(r"AQ\.[0-9A-Za-z_\-.]{10,}", "[redacted]", text)
+    text = re.sub(r"key=[^&\s]+", "key=[redacted]", text, flags=re.IGNORECASE)
+    return text[:300]
+
+
+def _classify_gemini_error(exc: Exception) -> TranscriptionProviderError:
+    if isinstance(exc, genai_errors.APIError):
+        status = getattr(exc, "code", None)
+        provider_code = str(getattr(exc, "status", "") or "") or None
+        message = _sanitize_provider_message(getattr(exc, "message", None) or str(exc))
+        category = "response_error"
+        if status == 400:
+            category = "invalid_request"
+        elif status == 401:
+            category = "authentication"
+        elif status == 403:
+            category = "permission_or_blocked_key"
+        elif status == 404:
+            category = "endpoint_or_model_not_found"
+        elif status == 429:
+            category = "quota_or_rate_limit"
+        elif status and status >= 500:
+            category = "provider_unavailable"
+        logger.warning(
+            "gemini_request_failed provider=gemini model=%s status=%s google_code=%s message=%s",
+            GEMINI_MODEL,
+            status,
+            provider_code or "-",
+            message or "-",
+        )
+        return TranscriptionProviderError("gemini", category, message or category, status, provider_code=provider_code)
+    if isinstance(exc, (TimeoutError, requests.Timeout, requests.ConnectionError)):
+        return TranscriptionProviderError("gemini", "transport_error", "Gemini transport error.")
+    return TranscriptionProviderError("gemini", "response_error", _sanitize_provider_message(str(exc)) or "Gemini response error.")
 
 
 def _normalize_provider_result(result: dict, provider: str) -> dict:
@@ -399,6 +526,33 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return payload
 
 
+def _derive_words_for_segment(text: str, start: float, end: float, provider: str = "gemini") -> list[dict[str, Any]]:
+    tokens = [token for token in re.split(r"\s+", text.strip()) if token]
+    if not tokens:
+        return []
+    span = max(0.02, end - start)
+    step = span / len(tokens)
+    derived: list[dict[str, Any]] = []
+    cursor = start
+    for index, token in enumerate(tokens):
+        word_start = cursor
+        word_end = end if index == len(tokens) - 1 else min(end, start + step * (index + 1))
+        if word_end <= word_start:
+            word_end = min(end, word_start + 0.02)
+        derived.append(
+            {
+                "word": token,
+                "start": round(max(0.0, word_start), 3),
+                "end": round(max(word_start + 0.001, word_end), 3),
+                "provider": provider,
+                "timing_source": "derived",
+                "timingSource": "derived",
+            }
+        )
+        cursor = word_end
+    return derived
+
+
 def _normalize_gemini_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     raw_words = payload.get("words") or []
@@ -424,87 +578,175 @@ def _normalize_gemini_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "confidence": _as_timing_float(raw_word.get("confidence")),
                 "provider": "gemini",
                 "timing_source": "provider_word",
+                "timingSource": "provider_word",
             }
         )
 
     return normalized
 
 
+def _normalize_gemini_segments(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    segments: list[dict[str, Any]] = []
+    all_words: list[dict[str, Any]] = []
+    raw_segments = payload.get("segments") or []
+    if not isinstance(raw_segments, list):
+        raw_segments = []
+
+    last_segment_end = -0.001
+    for raw_segment in raw_segments:
+        if not isinstance(raw_segment, dict):
+            continue
+        text = str(raw_segment.get("text") or "").strip()
+        start = _as_timing_float(raw_segment.get("start"))
+        end = _as_timing_float(raw_segment.get("end"))
+        if not text or start is None or end is None:
+            continue
+        start = max(0.0, start)
+        end = max(start + 0.02, end)
+        if start + 0.001 < last_segment_end:
+            raise TranscriptionProviderError("gemini", "response_error", "Gemini returned non-monotonic segment timestamps.")
+
+        segment_words_payload = {"words": raw_segment.get("words") or []}
+        segment_words = _normalize_gemini_words(segment_words_payload)
+        in_segment_words: list[dict[str, Any]] = []
+        last_word_end = start - 0.001
+        for word in segment_words:
+            word_start = _as_timing_float(word.get("start"))
+            word_end = _as_timing_float(word.get("end"))
+            if word_start is None or word_end is None:
+                continue
+            if word_start + 0.001 < start or word_end > end + 0.001 or word_start + 0.001 < last_word_end:
+                in_segment_words = []
+                break
+            in_segment_words.append(word)
+            last_word_end = word_end
+        if not in_segment_words:
+            in_segment_words = _derive_words_for_segment(text, start, end)
+
+        segment = {
+            **raw_segment,
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "text": text,
+            "words": in_segment_words,
+            "provider": "gemini",
+        }
+        segments.append(segment)
+        all_words.extend(in_segment_words)
+        last_segment_end = end
+
+    if not segments:
+        flat_words = _normalize_gemini_words(payload)
+        text = str(payload.get("text") or "").strip()
+        if flat_words and text:
+            start = min(float(word["start"]) for word in flat_words)
+            end = max(float(word["end"]) for word in flat_words)
+            segments.append({"start": start, "end": end, "text": text, "words": flat_words, "provider": "gemini"})
+            all_words.extend(flat_words)
+
+    return segments, all_words
+
+
+def _gemini_transcription_prompt(language_mode: str) -> str:
+    return (
+        "Transcribe this audio for Capinsta captions. "
+        f"Spoken language hint: {language_mode}. "
+        "Return only JSON with this exact shape: "
+        '{"language":"detected language","segments":[{"start":0.0,"end":1.0,"text":"spoken words","words":[{"word":"spoken","start":0.0,"end":0.4}]}]}. '
+        "Use seconds from the start of the audio. Include segment timestamps and word timestamps when you can align them reliably."
+    )
+
+
+GEMINI_TRANSCRIPTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "language": {"type": "string"},
+        "segments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "start": {"type": "number"},
+                    "end": {"type": "number"},
+                    "text": {"type": "string"},
+                    "words": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "word": {"type": "string"},
+                                "start": {"type": "number"},
+                                "end": {"type": "number"},
+                            },
+                            "required": ["word", "start", "end"],
+                        },
+                    },
+                },
+                "required": ["start", "end", "text"],
+            },
+        },
+    },
+    "required": ["language", "segments"],
+}
+
+
+def _gemini_audio_input(client: Any, audio_path: str) -> dict[str, Any]:
+    mime_type = _audio_mime_type(audio_path)
+    size_bytes = os.path.getsize(audio_path)
+    logger.info(
+        "gemini_audio_input provider=gemini model=%s mime_type=%s file_size=%s",
+        GEMINI_MODEL,
+        mime_type,
+        size_bytes,
+    )
+    if size_bytes < GEMINI_INLINE_AUDIO_LIMIT_BYTES:
+        with open(audio_path, "rb") as file:
+            return {
+                "type": "audio",
+                "data": base64.b64encode(file.read()).decode("utf-8"),
+                "mime_type": mime_type,
+            }
+    uploaded_file = client.files.upload(file=audio_path, config={"mime_type": mime_type})
+    return {
+        "type": "audio",
+        "uri": uploaded_file.uri,
+        "mime_type": getattr(uploaded_file, "mime_type", None) or mime_type,
+    }
+
+
 def _call_gemini(audio_path: str, language_mode: str) -> dict:
     api_key = _gemini_api_key()
     if not api_key:
         raise RuntimeError("STT_PROVIDER=gemini requires GEMINI_API_KEY.")
-
-    with open(audio_path, "rb") as file:
-        audio_b64 = base64.b64encode(file.read()).decode("ascii")
-
-    prompt = (
-        "Transcribe this audio and return high-precision word timing alignment. "
-        f"Language mode: {language_mode}. "
-        "Return only valid JSON shaped as "
-        '{"text":"full transcript","language":"detected language","words":[{"word":"token","start":0.000,"end":0.250,"confidence":0.0}]}. '
-        "Use seconds from the start of this audio file. Include every spoken word in order."
-    )
-    response = requests.post(
-        GEMINI_URL_TEMPLATE.format(model=GEMINI_MODEL),
-        headers={
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        },
-        json={
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": "audio/wav", "data": audio_b64}},
-                    ],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0,
-                "response_mime_type": "application/json",
-            },
-        },
-        timeout=180,
-    )
-
-    if response.status_code >= 400:
-        try:
-            payload = response.json()
-            error = payload.get("error") or {}
-            provider_code = error.get("status") or error.get("code")
-        except (ValueError, json.JSONDecodeError):
-            provider_code = None
-
-        if response.status_code in {401, 403} or str(provider_code).lower() in {"unauthenticated", "permission_denied", "invalid_api_key"}:
-            raise TranscriptionProviderError("gemini", "authentication", GEMINI_KEY_ERROR, response.status_code)
-        if response.status_code == 429:
-            raise TranscriptionProviderError("gemini", "rate_limit", "Gemini transcription rate or quota limit exceeded.", response.status_code)
-        if response.status_code >= 500:
-            raise TranscriptionProviderError("gemini", "server_error", "Gemini transcription service returned a server error.", response.status_code)
-        raise TranscriptionProviderError("gemini", "provider_error", "Gemini transcription failed.", response.status_code)
-
+    client = _gemini_client(api_key)
     try:
-        payload = response.json()
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise TranscriptionProviderError("gemini", "malformed_response", "Gemini returned invalid JSON.") from exc
-    candidates = payload.get("candidates") or []
-    parts = (((candidates[0] or {}).get("content") or {}).get("parts") or []) if candidates else []
-    text_response = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
+        interaction = client.interactions.create(
+            model=GEMINI_MODEL,
+            input=[
+                {"type": "text", "text": _gemini_transcription_prompt(language_mode)},
+                _gemini_audio_input(client, audio_path),
+            ],
+            response_format=GEMINI_TRANSCRIPTION_SCHEMA,
+            timeout=180,
+        )
+    except Exception as exc:
+        raise _classify_gemini_error(exc) from exc
+
+    text_response = str(getattr(interaction, "output_text", "") or "").strip()
     if not text_response:
         raise TranscriptionProviderError("gemini", "empty_transcript", "Gemini transcription returned an empty response.")
-
     try:
         transcript_payload = _extract_json_object(text_response)
     except (ValueError, json.JSONDecodeError) as exc:
-        raise TranscriptionProviderError("gemini", "malformed_response", "Gemini returned malformed transcript JSON.") from exc
+        raise TranscriptionProviderError("gemini", "response_error", "Gemini returned malformed transcript JSON.") from exc
+    segments, words = _normalize_gemini_segments(transcript_payload)
+    transcript_text = " ".join(str(segment.get("text") or "").strip() for segment in segments).strip()
     return {
-        "text": (transcript_payload.get("text") or "").strip(),
+        "text": transcript_text,
         "language": transcript_payload.get("language"),
         "duration": transcript_payload.get("duration"),
-        "segments": transcript_payload.get("segments") if isinstance(transcript_payload.get("segments"), list) else [],
-        "words": _normalize_gemini_words(transcript_payload),
+        "segments": segments,
+        "words": words,
         "provider": "gemini",
         "model": GEMINI_MODEL,
     }
@@ -691,15 +933,17 @@ def transcribe_audio(audio_path: str, language_mode: str = "english") -> dict:
             category, status = _failure_category(exc)
             failures.append((provider, category, status))
             attempted.append(provider)
+            provider_code = getattr(exc, "provider_code", None)
             logger.warning(
-                "transcription_provider_failed provider=%s category=%s%s",
+                "transcription_provider_failed provider=%s category=%s%s%s",
                 provider,
                 category,
                 f" status={status}" if status else "",
+                f" provider_code={provider_code}" if provider_code else "",
             )
 
     summary = ", ".join(
-        f"{provider}({category})" for provider, category, _status in failures
+        _failure_summary(provider, category, status) for provider, category, status in failures
     )
     raise RuntimeError(f"All configured transcription providers failed: {summary}.")
 
