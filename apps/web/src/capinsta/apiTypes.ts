@@ -95,7 +95,7 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
   segments?: CapinstaApiSegment[] | null
   transcript?: {
     languageMode?: string
-    provider?: string | { name?: string; model?: string }
+    provider?: string | { name?: string; model?: string; fallback?: boolean; fallbackFrom?: string }
     romanized?: boolean
     segments?: CapinstaApiSegment[]
     alignedWords?: CapinstaApiWord[]
@@ -110,6 +110,11 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
         [key: string]: unknown
       }
       sync?: Record<string, unknown>
+      transcription?: {
+        provider?: string | { name?: string; model?: string; fallback?: boolean; fallbackFrom?: string }
+        fallback?: boolean
+        fallbackFrom?: string[]
+      }
       stylePreset?: Record<string, unknown>
     }
   } | null

@@ -209,6 +209,7 @@ async def health_payload() -> HealthResponse:
         version="5.0.0",
         stt_provider=provider,
         provider_keys={
+            "gemini": _has_key("GEMINI_API_KEY") or _has_key("GOOGLE_API_KEY"),
             "groq": _has_key("GROQ_API_KEY"),
             "openai": _has_key("OPENAI_API_KEY"),
             "sarvam": _has_key("SARVAM_API_KEY"),

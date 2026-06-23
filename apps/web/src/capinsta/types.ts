@@ -24,9 +24,11 @@ export interface CapinstaSourceAssetV1 {
 }
 
 export interface CapinstaProviderMetadataV1 {
-  name: "sarvam" | "openai_whisper" | "groq_whisper" | "unknown" | string
+  name: "gemini" | "sarvam" | "openai_whisper" | "groq_whisper" | "unknown" | string
   model?: string
   requestId?: string
+  fallback?: boolean
+  fallbackFrom?: string
 }
 
 export interface CapinstaTranscriptClipV1 {
@@ -154,6 +156,8 @@ export interface NeutralCaptionDocument {
     sourceAssetId: string
     sourceAssetName: string
     provider: string
+    providerFallback?: boolean
+    providerFallbackFrom?: string
   }
   durationSeconds: number
   languageMode: CapinstaLanguageMode

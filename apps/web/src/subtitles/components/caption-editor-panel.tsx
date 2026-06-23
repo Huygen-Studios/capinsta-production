@@ -58,6 +58,20 @@ function clipWords({
 		.filter((word): word is NeutralCaptionWord => Boolean(word));
 }
 
+function captionProviderLabel(document: NeutralCaptionDocument): string {
+	const provider = document.sourceTranscriptRef.provider.toLowerCase();
+	const fallback = document.sourceTranscriptRef.providerFallback;
+	if (provider === "gemini") return "Generated with Gemini AI";
+	if (provider === "sarvam") {
+		return fallback
+			? "Generated via Sarvam AI [Fallback]"
+			: "Generated with Sarvam AI";
+	}
+	if (provider === "openai_whisper") return "Generated with OpenAI Whisper";
+	if (provider === "groq_whisper") return "Generated with Groq Whisper";
+	return `Generated with ${document.sourceTranscriptRef.provider}`;
+}
+
 function TimeInput({
 	label,
 	value,
@@ -502,6 +516,7 @@ export function CaptionEditorPanel({
 		() => [...(document?.clips ?? [])].sort((a, b) => a.start - b.start),
 		[document],
 	);
+	const providerLabel = document ? captionProviderLabel(document) : "";
 	const results = useMemo(
 		() =>
 			search
@@ -580,7 +595,7 @@ export function CaptionEditorPanel({
 					<div>
 						<h2 className="text-sm font-semibold">Captions</h2>
 						<p className="text-muted-foreground text-xs">
-							Edit text and timing
+							{providerLabel || "Edit text and timing"}
 						</p>
 					</div>
 					<Button

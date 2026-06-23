@@ -434,6 +434,8 @@ export function normalizeCapinstaJobToTranscript({
 			: {
 					name: providerValue?.name || "unknown",
 					model: providerValue?.model,
+					fallback: providerValue?.fallback,
+					fallbackFrom: providerValue?.fallbackFrom,
 				};
 	const maxEnd = Math.max(...clips.map((clip) => clip.end));
 	const durationSeconds =
