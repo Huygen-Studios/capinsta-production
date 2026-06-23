@@ -48,9 +48,11 @@ ARG NEXT_PUBLIC_ENABLE_AI_CAPTIONS=true
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-# Keep the Next.js compiler from consuming the entire VPS during Docker builds.
-# Coolify should still be configured to run only one build at a time.
-ENV NODE_OPTIONS="--max-old-space-size=1024"
+# Keep the Next.js compiler bounded during Docker builds, but do not starve
+# Turbopack's type/page-data workers. Coolify's previous 1 GB heap cap caused
+# SIGABRT during `next build` after compilation succeeded.
+ARG NEXT_BUILD_HEAP_MB=2048
+ENV NODE_OPTIONS="--max-old-space-size=${NEXT_BUILD_HEAP_MB}"
 
 # Build-time placeholder values ONLY. Required for Zod/Next.js to compile the
 # production bundle. They are NEVER real secrets. Real credentials

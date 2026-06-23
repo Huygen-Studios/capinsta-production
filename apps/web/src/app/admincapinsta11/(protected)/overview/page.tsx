@@ -2,10 +2,13 @@ import {
   Activity,
   BriefcaseBusiness,
   Clapperboard,
+  KeyRound,
   LifeBuoy,
+  SlidersHorizontal,
   Users,
   Video,
 } from "lucide-react";
+import Link from "next/link";
 import { requireAdminSession } from "@/admin/auth";
 import { getOverviewData } from "@/admin/data";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
@@ -39,6 +42,10 @@ function formatBytes(value: unknown): string {
   return `${(bytes / 1024 ** unit).toFixed(unit > 1 ? 1 : 0)} ${units[unit]}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export default async function OverviewPage() {
   await requireAdminSession();
   const data = await getOverviewData();
@@ -51,12 +58,10 @@ export default async function OverviewPage() {
     ? Math.round((Number(data.exports.succeeded || 0) / exportTotal) * 100)
     : 0;
   const backendStorage =
-    data.backendHealth.data &&
-    typeof data.backendHealth.data === "object" &&
+    isRecord(data.backendHealth.data) &&
     "storage" in data.backendHealth.data &&
-    data.backendHealth.data.storage &&
-    typeof data.backendHealth.data.storage === "object"
-      ? (data.backendHealth.data.storage as Record<string, unknown>)
+    isRecord(data.backendHealth.data.storage)
+      ? data.backendHealth.data.storage
       : null;
   const cards = [
     [
@@ -92,6 +97,34 @@ export default async function OverviewPage() {
         title="Operational overview"
         description="Real account, job, storage, support, provider, and security signals from the Capinsta control plane."
       />
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            label: "Transcription",
+            detail: "Choose active caption provider and model",
+            href: "/admincapinsta11/transcription",
+            Icon: SlidersHorizontal,
+          },
+          {
+            label: "Access control",
+            detail: "Launch mode, beta approvals and permissions",
+            href: "/admincapinsta11/access-control",
+            Icon: KeyRound,
+          },
+        ].map(({ label, detail, href, Icon }) => (
+          <Link
+            key={href}
+            href={href}
+            className="flex items-center gap-3 rounded-md border-2 p-4 transition-colors hover:bg-muted"
+          >
+            <Icon className="size-5 text-primary" aria-hidden="true" />
+            <span>
+              <span className="block font-semibold">{label}</span>
+              <span className="text-xs text-muted-foreground">{detail}</span>
+            </span>
+          </Link>
+        ))}
+      </div>
       {data.degradedSources.length ? (
         <Alert className="mb-4 border-caution">
           <Activity aria-hidden="true" />
