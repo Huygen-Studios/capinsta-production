@@ -3,8 +3,10 @@ import logging
 import json
 import asyncio
 import base64
-import mimetypes
 import re
+import shutil
+import subprocess
+import tempfile
 import wave
 import time
 from typing import Any
@@ -347,29 +349,116 @@ def _gemini_client(api_key: str):
     return genai.Client(api_key=api_key)
 
 
+GEMINI_SUPPORTED_AUDIO_MIME_TYPES = {"audio/wav", "audio/mpeg", "audio/flac", "audio/ogg", "audio/aac"}
+
+
+def _sniff_audio_mime_type(audio_path: str) -> str | None:
+    try:
+        with open(audio_path, "rb") as file:
+            header = file.read(64)
+    except OSError:
+        return None
+
+    if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE":
+        return "audio/wav"
+    if header.startswith(b"ID3") or (len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0):
+        suffix = os.path.splitext(audio_path)[1].lower()
+        return "audio/aac" if suffix in {".aac", ".adts"} else "audio/mpeg"
+    if header.startswith(b"fLaC"):
+        return "audio/flac"
+    if header.startswith(b"OggS"):
+        return "audio/ogg"
+    return None
+
+
+def _looks_like_mp4_container(audio_path: str) -> bool:
+    try:
+        with open(audio_path, "rb") as file:
+            header = file.read(32)
+    except OSError:
+        return False
+    return b"ftyp" in header[:16] or os.path.splitext(audio_path)[1].lower() in {".mp4", ".m4a", ".mov"}
+
+
 def _audio_mime_type(audio_path: str) -> str:
-    guessed, _ = mimetypes.guess_type(audio_path)
-    if guessed in {
-        "audio/wav",
-        "audio/x-wav",
-        "audio/mpeg",
-        "audio/mp3",
-        "audio/aiff",
-        "audio/aac",
-        "audio/ogg",
-        "audio/flac",
-        "audio/m4a",
-        "audio/opus",
-    }:
-        if guessed == "audio/x-wav":
-            return "audio/wav"
-        if guessed == "audio/mpeg":
-            return "audio/mp3"
-        return guessed
-    
-    if audio_path.lower().endswith(".mp3"):
-        return "audio/mp3"
-    return "audio/wav"
+    mime_type = _sniff_audio_mime_type(audio_path)
+    if mime_type in GEMINI_SUPPORTED_AUDIO_MIME_TYPES:
+        return mime_type
+    if _looks_like_mp4_container(audio_path):
+        raise TranscriptionProviderError(
+            "gemini",
+            "invalid_request",
+            "unsupported audio container: extract or transcode to wav, mp3, flac, ogg, or aac before sending to Gemini",
+        )
+    raise TranscriptionProviderError(
+        "gemini",
+        "invalid_request",
+        "unsupported or unreadable audio format: expected wav, mp3, flac, ogg, or aac",
+    )
+
+
+def _transcode_gemini_audio_to_wav(audio_path: str) -> str:
+    ffmpeg = shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg")
+    if not ffmpeg:
+        raise TranscriptionProviderError(
+            "gemini",
+            "invalid_request",
+            "unsupported audio format and ffmpeg is unavailable for safe Gemini transcoding",
+        )
+
+    fd, output_path = tempfile.mkstemp(prefix="capinsta-gemini-", suffix=".wav")
+    os.close(fd)
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        audio_path,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        output_path,
+    ]
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        raise TranscriptionProviderError("gemini", "timeout", "timed out preparing audio for Gemini") from exc
+    except subprocess.CalledProcessError as exc:
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+        safe_detail = detail.splitlines()[-1][:180] if detail else "ffmpeg could not extract audio"
+        raise TranscriptionProviderError("gemini", "invalid_request", f"Gemini audio preparation failed: {safe_detail}") from exc
+    return output_path
+
+
+def _prepare_gemini_audio_file(audio_path: str) -> tuple[str, str, str | None]:
+    try:
+        return audio_path, _audio_mime_type(audio_path), None
+    except TranscriptionProviderError as exc:
+        if exc.category not in {"invalid_request"}:
+            raise
+
+    converted_path = _transcode_gemini_audio_to_wav(audio_path)
+    mime_type = _audio_mime_type(converted_path)
+    logger.info(
+        "gemini_audio_transcoded provider=gemini source_supported=false target_mime_type=%s file_size=%s",
+        mime_type,
+        os.path.getsize(converted_path),
+    )
+    return converted_path, mime_type, converted_path
 
 
 def _sanitize_provider_message(message: str | None) -> str:
@@ -775,27 +864,34 @@ GEMINI_TRANSCRIPTION_SCHEMA: dict[str, Any] = {
 
 
 def _gemini_audio_input(client: Any, audio_path: str) -> dict[str, Any]:
-    mime_type = _audio_mime_type(audio_path)
-    size_bytes = os.path.getsize(audio_path)
-    logger.info(
-        "gemini_audio_input provider=gemini model=%s mime_type=%s file_size=%s",
-        GEMINI_MODEL,
-        mime_type,
-        size_bytes,
-    )
-    if size_bytes < GEMINI_INLINE_AUDIO_LIMIT_BYTES:
-        with open(audio_path, "rb") as file:
-            return {
-                "type": "audio",
-                "data": base64.b64encode(file.read()).decode("utf-8"),
-                "mime_type": mime_type,
-            }
-    uploaded_file = client.files.upload(file=audio_path, config={"mime_type": mime_type})
-    return {
-        "type": "audio",
-        "uri": uploaded_file.uri,
-        "mime_type": getattr(uploaded_file, "mime_type", None) or mime_type,
-    }
+    prepared_path, mime_type, cleanup_path = _prepare_gemini_audio_file(audio_path)
+    try:
+        size_bytes = os.path.getsize(prepared_path)
+        logger.info(
+            "gemini_audio_input provider=gemini model=%s mime_type=%s file_size=%s",
+            GEMINI_MODEL,
+            mime_type,
+            size_bytes,
+        )
+        if size_bytes < GEMINI_INLINE_AUDIO_LIMIT_BYTES:
+            with open(prepared_path, "rb") as file:
+                return {
+                    "type": "audio",
+                    "data": base64.b64encode(file.read()).decode("utf-8"),
+                    "mime_type": mime_type,
+                }
+        uploaded_file = client.files.upload(file=prepared_path, config={"mime_type": mime_type})
+        return {
+            "type": "audio",
+            "uri": uploaded_file.uri,
+            "mime_type": getattr(uploaded_file, "mime_type", None) or mime_type,
+        }
+    finally:
+        if cleanup_path:
+            try:
+                os.remove(cleanup_path)
+            except OSError:
+                pass
 
 
 def _call_gemini(audio_path: str, language_mode: str) -> dict:
@@ -868,7 +964,12 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
 
 def _normalize_sarvam_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
     timestamps = payload.get("timestamps") or {}
+    timing_granularity = "word"
     words = timestamps.get("words") or []
+    if not words and timestamps.get("chunks"):
+        words = timestamps.get("chunks") or []
+        timing_granularity = "phrase"
+    preserve_phrase_timing = timing_granularity == "phrase" and len(words) > 1
     starts = timestamps.get("start_time_seconds") or []
     ends = timestamps.get("end_time_seconds") or []
     normalized: list[dict[str, Any]] = []
@@ -888,7 +989,9 @@ def _normalize_sarvam_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "end": end,
                 "score": float(payload.get("language_probability") or 0.0),
                 "provider": "sarvam",
-                "timing_source": "provider_word",
+                "timingGranularity": timing_granularity,
+                "timing_source": "provider_phrase" if timing_granularity == "phrase" else "provider_word",
+                "preservePhraseTiming": preserve_phrase_timing,
             }
         )
 
@@ -903,6 +1006,7 @@ def _call_sarvam(audio_path: str, language_mode: str) -> dict:
     language_code = SARVAM_LANGUAGE_CODES[language_mode]
     mode = "translit" if language_mode in CODE_MIXED_LANGUAGE_MODES else "transcribe"
 
+    upload_mime_type = _sniff_audio_mime_type(audio_path) or "application/octet-stream"
     with open(audio_path, "rb") as file:
         response = requests.post(
             SARVAM_URL,
@@ -913,7 +1017,7 @@ def _call_sarvam(audio_path: str, language_mode: str) -> dict:
                 "language_code": language_code,
                 "with_timestamps": "true",
             },
-            files={"file": (os.path.basename(audio_path), file, "audio/wav")},
+            files={"file": (os.path.basename(audio_path), file, upload_mime_type)},
             timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
         )
 

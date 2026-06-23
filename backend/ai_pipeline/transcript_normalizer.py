@@ -182,6 +182,9 @@ def _expand_compound_raw_word(raw_word: dict[str, Any]) -> list[dict[str, Any]]:
     start = _as_float(raw_word.get("start"))
     end = _as_float(raw_word.get("end"))
 
+    if raw_word.get("preservePhraseTiming"):
+        return [raw_word]
+
     if len(tokens) <= 1 or start is None or end is None or end <= start:
         return [raw_word]
 

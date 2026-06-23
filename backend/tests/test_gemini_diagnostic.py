@@ -1,4 +1,5 @@
 import json
+import wave
 
 import pytest
 
@@ -33,6 +34,15 @@ class FakeClient:
         self.files = FakeFiles()
 
 
+def _write_wav(path):
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\0\0" * 16000)
+    return path
+
+
 def test_text_probe_succeeds(capsys):
     client = FakeClient(lambda **kwargs: FakeInteraction("OK"))
 
@@ -52,7 +62,7 @@ def test_text_probe_failure_is_sanitized(capsys):
 
 def test_small_audio_probe_uses_inline_data(tmp_path):
     audio = tmp_path / "small.wav"
-    audio.write_bytes(b"RIFF" + b"\0" * 128)
+    _write_wav(audio)
     seen = {}
 
     def handler(**kwargs):
@@ -83,7 +93,7 @@ def test_small_audio_probe_uses_inline_data(tmp_path):
 
 def test_large_audio_probe_uses_files_api(tmp_path, monkeypatch):
     audio = tmp_path / "large.wav"
-    audio.write_bytes(b"RIFF" + b"\0" * 128)
+    _write_wav(audio)
     monkeypatch.setattr(diagnostic, "GEMINI_INLINE_AUDIO_LIMIT_BYTES", 16)
     seen = {}
 

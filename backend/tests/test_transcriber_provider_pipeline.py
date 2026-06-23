@@ -17,6 +17,16 @@ def _write_wav(path):
     return str(path)
 
 
+def _write_mp3_like(path):
+    path.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x21" + b"\0" * 64)
+    return str(path)
+
+
+def _write_mp4_like(path):
+    path.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\0" * 64)
+    return str(path)
+
+
 def _result(provider="gemini", text="hello world"):
     return {
         "text": text,
@@ -143,6 +153,63 @@ def test_gemini_uses_explicit_sdk_key_and_prefers_gemini_key(monkeypatch, tmp_pa
     assert "legacy-google-key" not in caplog.text
     assert "preferred-gemini-key" not in caplog.text
     assert "GOOGLE_API_KEY is ignored" in caplog.text
+
+
+def test_audio_mime_type_is_sniffed_from_bytes_not_extension(tmp_path):
+    wav_path = tmp_path / "audio.bin"
+    mp3_path = tmp_path / "audio.unknown"
+
+    _write_wav(wav_path)
+    _write_mp3_like(mp3_path)
+
+    assert transcriber._audio_mime_type(str(wav_path)) == "audio/wav"
+    assert transcriber._audio_mime_type(str(mp3_path)) == "audio/mpeg"
+
+
+def test_gemini_audio_input_uses_supported_mime_and_never_octet_stream(tmp_path):
+    audio_path = _write_mp3_like(tmp_path / "chunk.mp3")
+    payload = transcriber._gemini_audio_input(FakeGeminiClient(lambda **kwargs: None), audio_path)
+
+    assert payload["type"] == "audio"
+    assert payload["mime_type"] == "audio/mpeg"
+    assert payload["mime_type"] != "application/octet-stream"
+
+
+def test_gemini_audio_input_transcodes_mp4_container_before_upload(monkeypatch, tmp_path):
+    source_path = _write_mp4_like(tmp_path / "bad.mp4")
+    converted_path = _write_wav(tmp_path / "converted.wav")
+
+    monkeypatch.setattr(transcriber, "_transcode_gemini_audio_to_wav", lambda path: converted_path)
+
+    payload = transcriber._gemini_audio_input(FakeGeminiClient(lambda **kwargs: None), source_path)
+
+    assert payload["mime_type"] == "audio/wav"
+
+
+def test_sarvam_upload_mime_matches_mp3_bytes(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    seen = {}
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        seen["files"] = files
+        return FakeResponse(
+            payload={
+                "transcript": "hello",
+                "language_code": "en-IN",
+                "timestamps": {
+                    "words": ["hello"],
+                    "start_time_seconds": [0.0],
+                    "end_time_seconds": [0.4],
+                },
+            }
+        )
+
+    monkeypatch.setattr(transcriber.requests, "post", fake_post)
+    result = transcriber._call_sarvam(_write_mp3_like(tmp_path / "chunk.mp3"), "english")
+
+    assert result["provider"] == "sarvam"
+    assert seen["files"]["file"][2] == "audio/mpeg"
 
 
 @pytest.mark.parametrize("key", ["AQ.testAuthorizationKey1234567890", "AIzaSyA-test-key-format-only"])
