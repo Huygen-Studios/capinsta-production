@@ -373,9 +373,9 @@ export const CAPINSTA_CAPTION_PRESETS: CapinstaPresetDefinition[] = [
 		patch: {
 			...sourcePresetPatch({
 				source: {
-					fontFamily: "Helvetica Local",
-					bigFontFamily: "Helvetica Local",
-					smallFontFamily: "Helvetica Local",
+					fontFamily: "Poppins",
+					bigFontFamily: "Poppins",
+					smallFontFamily: "Poppins",
 					fontSize: 68,
 					fontWeight: 600,
 					textColor: "#FFFFFF",

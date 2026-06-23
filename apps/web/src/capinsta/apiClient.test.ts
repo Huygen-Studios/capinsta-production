@@ -35,15 +35,15 @@ describe("Capinsta API client", () => {
 		const job = await startCapinstaCaptionJob({
 			baseUrl: "http://127.0.0.1:8000",
 			file,
-			languageMode: "auto_mixed_indian",
+			languageMode: "auto",
+			captionOutput: "original",
 			fetchImpl: async (url, init) => {
 				expect(url).toBe("http://127.0.0.1:8000/api/jobs");
 				expect(init?.method).toBe("POST");
 				const body = init?.body;
 				expect(body).toBeInstanceOf(FormData);
-				expect((body as FormData).get("languageMode")).toBe(
-					"auto_mixed_indian",
-				);
+				expect((body as FormData).get("audioLanguage")).toBe("auto");
+				expect((body as FormData).get("captionOutput")).toBe("original");
 				const uploadedFile = (body as FormData).get("file") as File;
 				expect(uploadedFile.name).toBe("sample.mp4");
 				expect(uploadedFile.type).toBe("video/mp4");
@@ -67,7 +67,7 @@ describe("Capinsta API client", () => {
 			startCapinstaCaptionJob({
 				baseUrl: "/api/capinsta",
 				file,
-				languageMode: "auto_mixed_indian",
+				languageMode: "auto",
 				fetchImpl: async () =>
 					jsonResponse(
 						{

@@ -1,6 +1,13 @@
 /* Types for Huygen Caps */
 
-export type Language = "english" | "hinglish" | "telgish" | "auto_mixed_indian";
+export type Language =
+  | "auto"
+  | "english"
+  | "hindi"
+  | "telugu"
+  | "hinglish"
+  | "telgish"
+  | "auto_mixed_indian";
 export type ToolMode = "selection" | "razor" | "hand" | "zoom";
 export type LeftSidebarTab = "ai" | "media" | "text" | "subtitles" | "transcript" | "translate" | "templates";
 export type ExportFormat = "mp4" | "srt" | "json" | "ass" | "project";

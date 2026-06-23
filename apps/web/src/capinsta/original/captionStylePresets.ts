@@ -319,9 +319,9 @@ export const CAPTION_PRESET_REGISTRY: Record<
 		renderer: "apple_cinematic",
 		defaultStyleConfig: normalizeCaptionStyleConfig({
 			presetName: "Apple Cinematic",
-			fontFamily: "Helvetica Local",
-			bigFontFamily: "Helvetica Local",
-			smallFontFamily: "Helvetica Local",
+			fontFamily: "Poppins",
+			bigFontFamily: "Poppins",
+			smallFontFamily: "Poppins",
 			fontSize: 68,
 			fontWeight: 600,
 			textColor: "#FFFFFF",

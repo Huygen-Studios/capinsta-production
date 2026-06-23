@@ -10,37 +10,60 @@ except Exception:  # pragma: no cover - dependency fallback for partial installs
     _indic_transliterate = None
 
 
-CaptionLanguageMode = Literal["english", "hinglish", "telgish", "auto_mixed_indian"]
+CaptionLanguageMode = Literal["auto", "english", "hindi", "telugu", "hinglish", "telgish", "auto_mixed_indian"]
+CaptionOutputLanguage = Literal["original", "english", "hindi", "telugu", "hinglish", "telgish"]
 LanguageHint = Literal["english", "hindi", "telugu", "unknown"]
 
 SUPPORTED_LANGUAGE_MODES: tuple[CaptionLanguageMode, ...] = (
+    "auto",
     "english",
+    "hindi",
+    "telugu",
     "hinglish",
     "telgish",
     "auto_mixed_indian",
 )
+SUPPORTED_AUDIO_LANGUAGES: tuple[CaptionLanguageMode, ...] = (
+    "auto",
+    "english",
+    "hindi",
+    "telugu",
+    "hinglish",
+    "telgish",
+)
+SUPPORTED_CAPTION_OUTPUTS: tuple[CaptionOutputLanguage, ...] = (
+    "original",
+    "english",
+    "hindi",
+    "telugu",
+    "hinglish",
+    "telgish",
+)
 
-CODE_MIXED_LANGUAGE_MODES = {"hinglish", "telgish", "auto_mixed_indian"}
+CODE_MIXED_LANGUAGE_MODES = {"hinglish", "telgish", "auto", "auto_mixed_indian"}
 
 _LANGUAGE_ALIASES = {
-    "": "auto_mixed_indian",
-    "auto": "auto_mixed_indian",
-    "automixed": "auto_mixed_indian",
-    "autoindian": "auto_mixed_indian",
-    "mixed": "auto_mixed_indian",
-    "mixedindian": "auto_mixed_indian",
-    "auto_mixed": "auto_mixed_indian",
+    "": "auto",
+    "auto": "auto",
+    "automixed": "auto",
+    "autoindian": "auto",
+    "mixed": "auto",
+    "mixedindian": "auto",
+    "auto_mixed": "auto",
     "auto_mixed_indian": "auto_mixed_indian",
     "en": "english",
     "eng": "english",
     "english": "english",
-    "hi": "hinglish",
-    "hindi": "hinglish",
+    "hi": "hindi",
+    "hindi": "hindi",
     "hinglish": "hinglish",
-    "te": "telgish",
-    "telugu": "telgish",
+    "te": "telugu",
+    "telugu": "telugu",
     "telgish": "telgish",
     "teluglish": "telgish",
+    "tenglish": "telgish",
+    "te_en": "telgish",
+    "te-en": "telgish",
 }
 
 TELUGU_CAPABLE_PROVIDER_ERROR = (
@@ -117,13 +140,43 @@ COMMON_CANONICAL = {
 
 
 def normalize_language_mode(value: str | None) -> CaptionLanguageMode:
-    mode = (value or "auto_mixed_indian").strip().lower().replace("-", "_").replace(" ", "_")
+    mode = (value or "auto").strip().lower().replace("-", "_").replace(" ", "_")
     compact = mode.replace("_", "")
     normalized = _LANGUAGE_ALIASES.get(mode) or _LANGUAGE_ALIASES.get(compact)
     if normalized not in SUPPORTED_LANGUAGE_MODES:
         allowed = ", ".join(SUPPORTED_LANGUAGE_MODES)
         raise ValueError(f"Unsupported language mode '{value}'. Use one of: {allowed}.")
     return normalized  # type: ignore[return-value]
+
+
+def normalize_audio_language(value: str | None) -> CaptionLanguageMode:
+    normalized = normalize_language_mode(value)
+    if normalized == "auto_mixed_indian":
+        normalized = "auto"
+    if normalized not in SUPPORTED_AUDIO_LANGUAGES:
+        allowed = ", ".join(SUPPORTED_AUDIO_LANGUAGES)
+        raise ValueError(f"Unsupported audio language '{value}'. Use one of: {allowed}.")
+    return normalized
+
+
+def normalize_caption_output(value: str | None) -> CaptionOutputLanguage:
+    raw = (value or "original").strip().lower().replace("-", "_").replace(" ", "_")
+    if raw in {"", "original", "keep_original", "same", "source", "auto"}:
+        return "original"
+    normalized = _LANGUAGE_ALIASES.get(raw) or _LANGUAGE_ALIASES.get(raw.replace("_", ""))
+    if normalized == "auto":
+        return "original"
+    if normalized not in SUPPORTED_CAPTION_OUTPUTS:
+        allowed = ", ".join(SUPPORTED_CAPTION_OUTPUTS)
+        raise ValueError(f"Unsupported caption output '{value}'. Use one of: {allowed}.")
+    return normalized  # type: ignore[return-value]
+
+
+def transcription_language_mode(audio_language: str | None) -> CaptionLanguageMode:
+    normalized = normalize_audio_language(audio_language)
+    if normalized == "auto":
+        return "auto_mixed_indian"
+    return normalized
 
 
 def containsTeluguScript(text: str | None) -> bool:

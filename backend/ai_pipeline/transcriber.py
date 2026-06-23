@@ -4,6 +4,7 @@ import json
 import asyncio
 import base64
 import re
+import wave
 from typing import Any
 
 import requests
@@ -31,13 +32,17 @@ LANGUAGE_HINTS = {
     "telgish": "te",
     "teluglish": "te",
     "telugu": "te",
+    "auto": None,
     "auto_mixed_indian": None,
 }
 
 SARVAM_LANGUAGE_CODES = {
     "english": "en-IN",
+    "hindi": "hi-IN",
     "hinglish": "hi-IN",
+    "telugu": "te-IN",
     "telgish": "te-IN",
+    "auto": "te-IN",
     "auto_mixed_indian": "te-IN",
 }
 
@@ -47,10 +52,20 @@ GEMINI_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{
 
 
 SUPPORTED_STT_PROVIDERS = {"auto", "whisper", "groq_whisper", "openai_whisper", "sarvam", "gemini"}
+DEFAULT_STT_PROVIDER_ORDER = ("gemini", "sarvam", "groq_whisper", "openai_whisper")
 OPENAI_KEY_ERROR = "OpenAI API key is invalid or missing. Update OPENAI_API_KEY in the backend environment, then restart the server."
 SARVAM_KEY_ERROR = "Sarvam API key is invalid or missing. Update SARVAM_API_KEY in the backend environment, then restart the server."
 GROQ_KEY_ERROR = "Groq API key is invalid or missing. Update GROQ_API_KEY in the backend environment, then restart the server."
 GEMINI_KEY_ERROR = "Gemini API key is invalid or missing. Update GEMINI_API_KEY in the backend environment, then restart the server."
+
+
+class TranscriptionProviderError(RuntimeError):
+    def __init__(self, provider: str, category: str, message: str | None = None, status: int | None = None):
+        self.provider = provider
+        self.category = category
+        self.status = status
+        safe_message = message or category
+        super().__init__(safe_message)
 
 
 def get_stt_provider() -> str:
@@ -66,48 +81,69 @@ def get_stt_provider() -> str:
     return provider
 
 
+def _normalize_provider_name(provider: str | None) -> str:
+    normalized = (provider or "").strip().lower().replace("-", "_")
+    if normalized == "groq" or normalized == "whisper":
+        return "groq_whisper"
+    if normalized == "openai":
+        return "openai_whisper"
+    return normalized
+
+
+def _provider_order() -> list[str]:
+    raw = os.getenv("STT_PROVIDER_ORDER", ",".join(DEFAULT_STT_PROVIDER_ORDER))
+    ordered: list[str] = []
+    for value in raw.split(","):
+        provider = _normalize_provider_name(value)
+        if provider and provider in SUPPORTED_STT_PROVIDERS and provider != "auto" and provider not in ordered:
+            ordered.append(provider)
+    return ordered or list(DEFAULT_STT_PROVIDER_ORDER)
+
+
 def _has_real_key(env_name: str) -> bool:
     value = (os.environ.get(env_name) or "").strip()
     return bool(value and not value.startswith("your_") and "placeholder" not in value.lower())
 
 
+def _provider_key_available(provider: str) -> bool:
+    if provider == "gemini":
+        return _has_real_key("GEMINI_API_KEY") or _has_real_key("GOOGLE_API_KEY")
+    if provider == "sarvam":
+        return _has_real_key("SARVAM_API_KEY")
+    if provider == "groq_whisper":
+        return _has_real_key("GROQ_API_KEY")
+    if provider == "openai_whisper":
+        return _has_real_key("OPENAI_API_KEY")
+    return False
+
+
+def _configured_provider_sequence() -> list[str]:
+    provider = get_stt_provider()
+    if provider != "auto":
+        return [provider]
+    return _provider_order()
+
+
 def _resolve_provider(language_mode: str, requested_provider: str | None = None) -> str:
-    mode = normalize_language_mode(language_mode)
-    provider = (requested_provider or get_stt_provider()).strip().lower().replace("-", "_")
-    if provider == "whisper":
-        provider = "groq_whisper"
-    if provider == "groq":
-        provider = "groq_whisper"
-    if provider == "openai":
-        provider = "openai_whisper"
+    provider = _normalize_provider_name(requested_provider or get_stt_provider())
 
     if provider != "auto":
         return provider
 
-    if _has_real_key("GEMINI_API_KEY") or _has_real_key("GOOGLE_API_KEY") or _has_real_key("SARVAM_API_KEY"):
-        return "gemini"
-
-    if mode in CODE_MIXED_LANGUAGE_MODES:
-        if _has_real_key("SARVAM_API_KEY"):
-            return "sarvam"
-        if _has_real_key("OPENAI_API_KEY"):
-            return "openai_whisper"
-        if _has_real_key("GROQ_API_KEY"):
-            return "groq_whisper"
-        raise RuntimeError(TELUGU_CAPABLE_PROVIDER_ERROR)
-
-    if _has_real_key("GROQ_API_KEY"):
-        return "groq_whisper"
-    if _has_real_key("OPENAI_API_KEY"):
-        return "openai_whisper"
-    if _has_real_key("SARVAM_API_KEY"):
-        return "sarvam"
+    for candidate in _provider_order():
+        if _provider_key_available(candidate):
+            return candidate
     raise RuntimeError("Configure GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, or SARVAM_API_KEY for transcription.")
 
 
 def validate_transcription_config(language_mode: str) -> None:
     language_mode = normalize_language_mode(language_mode)
-    provider = _resolve_provider(language_mode)
+    providers = _configured_provider_sequence()
+    if get_stt_provider() == "auto":
+        if any(_provider_key_available(provider) for provider in providers):
+            return
+        raise RuntimeError("Configure GEMINI_API_KEY, SARVAM_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for transcription.")
+    provider = providers[0]
 
     if provider == "sarvam":
         if not _has_real_key("SARVAM_API_KEY"):
@@ -119,10 +155,7 @@ def validate_transcription_config(language_mode: str) -> None:
     if provider == "gemini":
         if _has_real_key("GEMINI_API_KEY") or _has_real_key("GOOGLE_API_KEY"):
             return
-        if _has_real_key("SARVAM_API_KEY"):
-            logger.warning("Gemini API key is missing; Sarvam fallback is configured and will be used.")
-            return
-        raise RuntimeError("STT_PROVIDER=gemini requires GEMINI_API_KEY or SARVAM_API_KEY fallback.")
+        raise RuntimeError("STT_PROVIDER=gemini requires GEMINI_API_KEY.")
 
     if provider == "openai_whisper":
         if not _has_real_key("OPENAI_API_KEY"):
@@ -150,13 +183,89 @@ def _as_timing_float(value: Any) -> float | None:
         return None
 
 
+def _audio_duration_seconds(audio_path: str) -> float | None:
+    try:
+        with wave.open(audio_path, "rb") as audio:
+            frames = audio.getnframes()
+            rate = audio.getframerate()
+            if frames > 0 and rate > 0:
+                return frames / float(rate)
+    except Exception:
+        return None
+    return None
+
+
 def _looks_like_auth_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(token in text for token in ("invalid_api_key", "invalid api key", "incorrect api key", "unauthorized", "401", "403"))
 
 
+def _failure_category(exc: Exception) -> tuple[str, int | None]:
+    if isinstance(exc, TranscriptionProviderError):
+        return exc.category, exc.status
+    if isinstance(exc, requests.Timeout):
+        return "timeout", None
+    if isinstance(exc, requests.ConnectionError):
+        return "connection", None
+    if _looks_like_auth_error(exc):
+        return "authentication", None
+    text = str(exc).lower()
+    if "429" in text or "quota" in text or "rate limit" in text or "rate_limit" in text:
+        return "rate_limit", 429
+    if "json" in text or "malformed" in text:
+        return "malformed_response", None
+    if "timestamp" in text or "word" in text:
+        return "invalid_timestamps", None
+    return "provider_error", None
+
+
+def _validate_transcription_result(result: dict, provider: str, audio_path: str) -> dict:
+    text = str(result.get("text") or "").strip()
+    if not text:
+        raise TranscriptionProviderError(provider, "empty_transcript", "empty transcript")
+
+    duration = _as_timing_float(result.get("duration")) or _audio_duration_seconds(audio_path)
+    words = result.get("words") or []
+    if not isinstance(words, list) or not words:
+        raise TranscriptionProviderError(provider, "invalid_timestamps", "missing word timestamps")
+
+    valid_words: list[dict[str, Any]] = []
+    last_start = -0.001
+    last_end = -0.001
+    max_reasonable_end = (duration + 5.0) if duration is not None else None
+    for raw_word in words:
+        if not isinstance(raw_word, dict):
+            continue
+        word = str(raw_word.get("word") or raw_word.get("text") or "").strip()
+        start = _as_timing_float(raw_word.get("start"))
+        end = _as_timing_float(raw_word.get("end"))
+        if not word or start is None or end is None or end <= start:
+            continue
+        if start + 0.001 < last_start or end + 0.001 < last_end:
+            raise TranscriptionProviderError(provider, "invalid_timestamps", "non-monotonic word timestamps")
+        if max_reasonable_end is not None and end > max_reasonable_end:
+            raise TranscriptionProviderError(provider, "invalid_timestamps", "word timestamps exceed audio duration")
+        valid_words.append(raw_word)
+        last_start = start
+        last_end = end
+
+    transcript_word_count = max(1, len(text.split()))
+    coverage = len(valid_words) / transcript_word_count
+    if len(valid_words) < 1 or (transcript_word_count >= 4 and coverage < 0.5):
+        raise TranscriptionProviderError(provider, "invalid_timestamps", "insufficient word timestamp coverage")
+
+    result["words"] = valid_words
+    if duration is not None:
+        result["duration"] = result.get("duration") or duration
+    return result
+
+
 def _gemini_api_key() -> str:
-    return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    gemini_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    google_key = (os.environ.get("GOOGLE_API_KEY") or "").strip()
+    if gemini_key and google_key:
+        logger.warning("Both GEMINI_API_KEY and GOOGLE_API_KEY are configured; using GEMINI_API_KEY.")
+    return gemini_key or google_key
 
 
 def _normalize_provider_result(result: dict, provider: str) -> dict:
@@ -338,7 +447,10 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
     )
     response = requests.post(
         GEMINI_URL_TEMPLATE.format(model=GEMINI_MODEL),
-        params={"key": api_key},
+        headers={
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        },
         json={
             "contents": [
                 {
@@ -358,31 +470,35 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
     )
 
     if response.status_code >= 400:
-        raw_detail = response.text[:500]
         try:
             payload = response.json()
             error = payload.get("error") or {}
-            provider_message = error.get("message") or raw_detail
             provider_code = error.get("status") or error.get("code")
         except (ValueError, json.JSONDecodeError):
-            provider_message = raw_detail
             provider_code = None
 
         if response.status_code in {401, 403} or str(provider_code).lower() in {"unauthenticated", "permission_denied", "invalid_api_key"}:
-            raise RuntimeError(GEMINI_KEY_ERROR)
+            raise TranscriptionProviderError("gemini", "authentication", GEMINI_KEY_ERROR, response.status_code)
         if response.status_code == 429:
-            raise RuntimeError(f"Gemini transcription rate or quota limit exceeded: {provider_message}")
-        code_text = f" ({provider_code})" if provider_code else ""
-        raise RuntimeError(f"Gemini transcription failed ({response.status_code}{code_text}): {provider_message}")
+            raise TranscriptionProviderError("gemini", "rate_limit", "Gemini transcription rate or quota limit exceeded.", response.status_code)
+        if response.status_code >= 500:
+            raise TranscriptionProviderError("gemini", "server_error", "Gemini transcription service returned a server error.", response.status_code)
+        raise TranscriptionProviderError("gemini", "provider_error", "Gemini transcription failed.", response.status_code)
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise TranscriptionProviderError("gemini", "malformed_response", "Gemini returned invalid JSON.") from exc
     candidates = payload.get("candidates") or []
     parts = (((candidates[0] or {}).get("content") or {}).get("parts") or []) if candidates else []
     text_response = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
     if not text_response:
-        raise RuntimeError("Gemini transcription returned an empty response.")
+        raise TranscriptionProviderError("gemini", "empty_transcript", "Gemini transcription returned an empty response.")
 
-    transcript_payload = _extract_json_object(text_response)
+    try:
+        transcript_payload = _extract_json_object(text_response)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise TranscriptionProviderError("gemini", "malformed_response", "Gemini returned malformed transcript JSON.") from exc
     return {
         "text": (transcript_payload.get("text") or "").strip(),
         "language": transcript_payload.get("language"),
@@ -540,40 +656,64 @@ def transcribe_audio(audio_path: str, language_mode: str = "english") -> dict:
     normalized_mode = normalize_language_mode(language_mode)
     validate_transcription_config(normalized_mode)
 
-    provider = _resolve_provider(normalized_mode)
-    logger.info(
-        "transcription_provider_selected provider=%s language_mode=%s audio_path=%s",
-        provider,
-        normalized_mode,
-        os.path.basename(audio_path),
-    )
-    if provider == "sarvam":
-        return _normalize_provider_result(_call_sarvam(audio_path, normalized_mode), provider)
-    if provider == "gemini":
-        try:
-            return _normalize_provider_result(_call_gemini(audio_path, normalized_mode), provider)
-        except Exception as exc:
-            if not _has_real_key("SARVAM_API_KEY"):
-                logger.warning(
-                    "Gemini transcription failed for %s and Sarvam fallback is not configured. error=%s",
-                    os.path.basename(audio_path),
-                    exc,
-                )
-                raise
-            logger.warning(
-                "Gemini transcription failed for %s; retrying with Sarvam fallback. error=%s",
-                os.path.basename(audio_path),
-                exc,
-            )
-            fallback = _normalize_provider_result(_call_sarvam(audio_path, normalized_mode), "sarvam")
-            fallback["fallback"] = True
-            fallback["fallback_from"] = "gemini"
-            fallback["primary_provider"] = "gemini"
-            return fallback
-    if provider == "openai_whisper":
-        return _normalize_provider_result(_call_openai_whisper(audio_path, normalized_mode), provider)
+    providers = _configured_provider_sequence()
+    failures: list[tuple[str, str, int | None]] = []
+    attempted: list[str] = []
 
-    return _normalize_provider_result(transcribe_chunk_with_retry(audio_path, language=normalized_mode), provider)
+    for attempt, provider in enumerate(providers, start=1):
+        if not _provider_key_available(provider):
+            failures.append((provider, "missing_key", None))
+            logger.warning(
+                "transcription_provider_failed provider=%s category=missing_key",
+                provider,
+            )
+            continue
+
+        logger.info(
+            "transcription_provider_attempt provider=%s attempt=%s",
+            provider,
+            attempt,
+        )
+        try:
+            result = _call_provider(provider, audio_path, normalized_mode)
+            normalized = _normalize_provider_result(result, provider)
+            validated = _validate_transcription_result(normalized, provider, audio_path)
+            if attempted:
+                validated["fallback"] = True
+                validated["fallback_from"] = attempted.copy()
+            logger.info(
+                "transcription_provider_succeeded provider=%s fallback_from=%s",
+                provider,
+                ",".join(attempted),
+            )
+            return validated
+        except Exception as exc:
+            category, status = _failure_category(exc)
+            failures.append((provider, category, status))
+            attempted.append(provider)
+            logger.warning(
+                "transcription_provider_failed provider=%s category=%s%s",
+                provider,
+                category,
+                f" status={status}" if status else "",
+            )
+
+    summary = ", ".join(
+        f"{provider}({category})" for provider, category, _status in failures
+    )
+    raise RuntimeError(f"All configured transcription providers failed: {summary}.")
+
+
+def _call_provider(provider: str, audio_path: str, normalized_mode: str) -> dict:
+    if provider == "gemini":
+        return _call_gemini(audio_path, normalized_mode)
+    if provider == "sarvam":
+        return _call_sarvam(audio_path, normalized_mode)
+    if provider == "openai_whisper":
+        return _call_openai_whisper(audio_path, normalized_mode)
+    if provider == "groq_whisper":
+        return transcribe_chunk_with_retry(audio_path, language=normalized_mode)
+    raise TranscriptionProviderError(provider, "unsupported_provider", "Unsupported transcription provider.")
 
 
 async def transcribe_sarvam_chunks_bounded(

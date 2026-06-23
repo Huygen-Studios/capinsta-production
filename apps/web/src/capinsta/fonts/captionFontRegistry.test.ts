@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { getCapinstaPresetStyle } from "@/capinsta/styles/presetRegistry";
 import {
@@ -54,18 +54,68 @@ describe("Capinsta caption font registry", () => {
 	test("every registered bundled face exists in public caption-fonts", () => {
 		for (const definition of CAPINSTA_FONT_REGISTRY) {
 			for (const fontFace of definition.faces) {
-				expect(
-					existsSync(
-						path.join(
-							process.cwd(),
-							"public",
-							"caption-fonts",
-							...fontFace.file.split("/"),
-						),
-					),
-				).toBe(true);
+				const filePath = path.join(
+					process.cwd(),
+					"public",
+					"caption-fonts",
+					...fontFace.file.split("/"),
+				);
+				expect(existsSync(filePath)).toBe(true);
+				expect(statSync(filePath).size).toBeGreaterThan(0);
+				expect([".ttf", ".otf", ".woff", ".woff2"]).toContain(
+					path.extname(filePath).toLocaleLowerCase(),
+				);
+
+				const bytes = readFileSync(filePath);
+				const signature = bytes.subarray(0, 4).toString("latin1");
+				expect([
+					"\u0000\u0001\u0000\u0000",
+					"OTTO",
+					"true",
+					"typ1",
+					"wOFF",
+					"wOF2",
+				]).toContain(signature);
 			}
 		}
+	});
+
+	test("high-value presets resolve to their intended exact browser face", () => {
+		const apple = getCapinstaPresetStyle("apple_cinematic");
+		const appleDefinition = resolveCapinstaFont(apple.text.fontFamily);
+		expect(apple.text.fontFamily).toBe("Poppins");
+		expect(apple.text.fontWeight).toBe(600);
+		expect(
+			resolveCapinstaFontFace({
+				definition: appleDefinition!,
+				weight: apple.text.fontWeight,
+				style: "normal",
+			})?.file,
+		).toBe("Poppins Font family/Poppins-SemiBold.ttf");
+
+		const mrBeast = getCapinstaPresetStyle("mrbeast_style");
+		const mrBeastDefinition = resolveCapinstaFont(mrBeast.text.fontFamily);
+		expect(mrBeast.text.fontWeight).toBe(900);
+		expect(
+			resolveCapinstaFontFace({
+				definition: mrBeastDefinition!,
+				weight: mrBeast.text.fontWeight,
+				style: "normal",
+			})?.file,
+		).toBe("KomikaAxis.ttf");
+
+		const editorial = getCapinstaPresetStyle("modern_minimalist_lockup");
+		const editorialDefinition = resolveCapinstaFont(
+			editorial.text.fontFamily,
+		);
+		expect(editorial.text.fontWeight).toBe(900);
+		expect(
+			resolveCapinstaFontFace({
+				definition: editorialDefinition!,
+				weight: editorial.text.fontWeight,
+				style: "normal",
+			})?.file,
+		).toBe("Montserrat fotn family/Montserrat-Black.ttf");
 	});
 
 	test("every preset font resolves to a bundled registry face", () => {

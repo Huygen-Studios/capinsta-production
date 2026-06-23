@@ -1,13 +1,9 @@
 export const LANGUAGES = [
-	{ code: "en", name: "English" },
-	{ code: "es", name: "Spanish" },
-	{ code: "it", name: "Italian" },
-	{ code: "fr", name: "French" },
-	{ code: "de", name: "German" },
-	{ code: "pt", name: "Portuguese" },
-	{ code: "ru", name: "Russian" },
-	{ code: "ja", name: "Japanese" },
-	{ code: "zh", name: "Chinese" },
+	{ code: "english", name: "English" },
+	{ code: "hindi", name: "Hindi" },
+	{ code: "telugu", name: "Telugu" },
+	{ code: "hinglish", name: "Hinglish" },
+	{ code: "telgish", name: "Telgish (Telugu + English)" },
 ] as const;
 
 export type Language = (typeof LANGUAGES)[number];

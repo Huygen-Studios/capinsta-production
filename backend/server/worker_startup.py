@@ -75,6 +75,7 @@ def start_pipeline_worker(
     job_id: str,
     file_path: str,
     language_mode: str,
+    caption_output: str = "original",
 ) -> Thread:
     cancel_event = Event()
 
@@ -85,6 +86,7 @@ def start_pipeline_worker(
                 job_id,
                 file_path,
                 language_mode,
+                caption_output=caption_output,
                 cancel_event=cancel_event,
             )
         except BaseException as error:

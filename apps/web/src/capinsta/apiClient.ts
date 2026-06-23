@@ -9,6 +9,7 @@ import type {
 	StartCapinstaCaptionJobInput,
 } from "./apiTypes";
 import type {
+	CapinstaCaptionOutput,
 	CapinstaLanguageMode,
 	CapinstaTimingSource,
 	CapinstaTranscriptV1,
@@ -92,6 +93,7 @@ export async function startCapinstaCaptionJob({
 	mediaAssetId,
 	projectId,
 	languageMode,
+	captionOutput = "original",
 	fetchImpl = fetch,
 	signal,
 }: StartCapinstaCaptionJobInput & {
@@ -100,7 +102,8 @@ export async function startCapinstaCaptionJob({
 }): Promise<CapinstaJobCreateResponse> {
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
 	const formData = new FormData();
-	formData.append("languageMode", languageMode);
+	formData.append("audioLanguage", languageMode);
+	formData.append("captionOutput", captionOutput);
 	formData.append("project_id", projectId);
 	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
 	else if (file) formData.append("file", file);
@@ -113,6 +116,7 @@ export async function startCapinstaCaptionJob({
 		mediaAssetId,
 		projectId,
 		languageMode,
+		captionOutput,
 	});
 
 	const endpoint = joinUrl(baseUrl, "/api/jobs");
@@ -191,14 +195,40 @@ function normalizeLanguageMode(
 	value: string | undefined,
 ): CapinstaLanguageMode {
 	if (
+		value === "auto" ||
 		value === "english" ||
+		value === "hindi" ||
+		value === "telugu" ||
 		value === "hinglish" ||
 		value === "telgish" ||
 		value === "auto_mixed_indian"
 	) {
 		return value;
 	}
-	return "auto_mixed_indian";
+	if (value === "tenglish" || value === "teluglish" || value === "te-en") {
+		return "telgish";
+	}
+	if (process.env.NODE_ENV === "development" && value) {
+		console.warn(`[Capinsta captions] Unsupported stored language "${value}" normalized to auto.`);
+	}
+	return "auto";
+}
+
+function normalizeCaptionOutput(value: string | undefined): CapinstaCaptionOutput {
+	if (
+		value === "original" ||
+		value === "english" ||
+		value === "hindi" ||
+		value === "telugu" ||
+		value === "hinglish" ||
+		value === "telgish"
+	) {
+		return value;
+	}
+	if (value === "tenglish" || value === "teluglish" || value === "te-en") {
+		return "telgish";
+	}
+	return "original";
 }
 
 function normalizeTimingSource(
@@ -466,6 +496,15 @@ export function normalizeCapinstaJobToTranscript({
 			mimeType: sourceAsset.mimeType,
 		},
 		languageMode: normalizeLanguageMode(job.languageMode || job.target_lang),
+		sourceLanguage: normalizeLanguageMode(job.transcript?.sourceLanguage),
+		detectedLanguage: normalizeLanguageMode(job.transcript?.detectedLanguage),
+		outputLanguage: normalizeCaptionOutput(job.transcript?.outputLanguage),
+		transformation:
+			job.transcript?.transformation === "translation" ||
+			job.transcript?.transformation === "transliteration" ||
+			job.transcript?.transformation === "script_conversion"
+				? job.transcript.transformation
+				: "none",
 		provider,
 		clips,
 		words,

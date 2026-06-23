@@ -28,7 +28,10 @@ import { normalizeCapinstaCaptionStyle } from "./styles/styleValidation"
 
 const TRANSCRIPT_VERSION = "capinsta.transcript.v1"
 const LANGUAGE_MODES = new Set<CapinstaLanguageMode>([
+  "auto",
   "english",
+  "hindi",
+  "telugu",
   "hinglish",
   "telgish",
   "auto_mixed_indian",
@@ -523,6 +526,10 @@ export function capinstaTranscriptToCaptionDocument(
     },
     durationSeconds: transcript.source.durationSeconds,
     languageMode: transcript.languageMode,
+    sourceLanguage: transcript.sourceLanguage,
+    detectedLanguage: transcript.detectedLanguage,
+    outputLanguage: transcript.outputLanguage,
+    transformation: transcript.transformation,
     stylePresetId,
     style: structuredClone(defaultStyle),
     clips,

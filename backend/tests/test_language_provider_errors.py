@@ -5,7 +5,9 @@ from ai_pipeline.transcriber import OPENAI_KEY_ERROR, _looks_like_auth_error
 def test_telugu_aliases_normalize_to_telgish():
     assert normalize_language_mode("telgish") == "telgish"
     assert normalize_language_mode("teluglish") == "telgish"
-    assert normalize_language_mode("telugu") == "telgish"
+    assert normalize_language_mode("tenglish") == "telgish"
+    assert normalize_language_mode("te-en") == "telgish"
+    assert normalize_language_mode("telugu") == "telugu"
 
 
 def test_openai_auth_error_detection_for_raw_provider_message():
