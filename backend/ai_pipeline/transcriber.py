@@ -615,8 +615,8 @@ def _derive_words_for_segment(text: str, start: float, end: float, provider: str
                 "start": round(max(0.0, word_start), 3),
                 "end": round(max(word_start + 0.001, word_end), 3),
                 "provider": provider,
-                "timing_source": "derived",
-                "timingSource": "derived",
+                "timing_source": "derived_from_segment",
+                "timingSource": "derived_from_segment",
             }
         )
         cursor = word_end
@@ -663,7 +663,7 @@ def _normalize_gemini_segments(payload: dict[str, Any]) -> tuple[list[dict[str, 
         raw_segments = []
 
     last_segment_end = -0.001
-    for raw_segment in raw_segments:
+    for seg_index, raw_segment in enumerate(raw_segments):
         if not isinstance(raw_segment, dict):
             continue
         text = str(raw_segment.get("text") or "").strip()
@@ -674,23 +674,30 @@ def _normalize_gemini_segments(payload: dict[str, Any]) -> tuple[list[dict[str, 
         start = max(0.0, start)
         end = max(start + 0.02, end)
         if start + 0.001 < last_segment_end:
-            raise TranscriptionProviderError("gemini", "response_error", "Gemini returned non-monotonic segment timestamps.")
+            raise TranscriptionProviderError("gemini", "response_error", f"non-monotonic timestamp at segment {seg_index}")
 
         segment_words_payload = {"words": raw_segment.get("words") or []}
         segment_words = _normalize_gemini_words(segment_words_payload)
         in_segment_words: list[dict[str, Any]] = []
         last_word_end = start - 0.001
-        for word in segment_words:
-            word_start = _as_timing_float(word.get("start"))
-            word_end = _as_timing_float(word.get("end"))
-            if word_start is None or word_end is None:
-                continue
-            if word_start + 0.001 < start or word_end > end + 0.001 or word_start + 0.001 < last_word_end:
-                in_segment_words = []
-                break
-            in_segment_words.append(word)
-            last_word_end = word_end
-        if not in_segment_words:
+        
+        has_valid_words = True
+        if not segment_words:
+            has_valid_words = False
+        else:
+            for word in segment_words:
+                word_start = _as_timing_float(word.get("start"))
+                word_end = _as_timing_float(word.get("end"))
+                if word_start is None or word_end is None:
+                    has_valid_words = False
+                    break
+                if word_start + 0.001 < start or word_end > end + 0.001 or word_start + 0.001 < last_word_end:
+                    has_valid_words = False
+                    break
+                in_segment_words.append(word)
+                last_word_end = word_end
+                
+        if not has_valid_words:
             in_segment_words = _derive_words_for_segment(text, start, end)
 
         segment = {
@@ -796,21 +803,51 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
                 {"type": "text", "text": _gemini_transcription_prompt(language_mode)},
                 _gemini_audio_input(client, audio_path),
             ],
-            response_format=GEMINI_TRANSCRIPTION_SCHEMA,
+            response_format={
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": GEMINI_TRANSCRIPTION_SCHEMA,
+            },
             timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
         )
     except Exception as exc:
         raise _classify_gemini_error(exc) from exc
 
-    text_response = str(getattr(interaction, "output_text", "") or "").strip()
+    text_response = getattr(interaction, "text", None)
+    if text_response is None:
+        text_response = getattr(interaction, "output_text", None)
+    
+    if not text_response and hasattr(interaction, "candidates") and interaction.candidates:
+        candidate = interaction.candidates[0]
+        if hasattr(candidate, "content") and hasattr(candidate.content, "parts") and candidate.content.parts:
+            text_response = candidate.content.parts[0].text
+
+    text_response = str(text_response or "").strip()
+    
+    logger.info("Gemini output preview: %r", text_response[:500])
+
     if not text_response:
-        raise TranscriptionProviderError("gemini", "empty_transcript", "Gemini transcription returned an empty response.")
+        raise TranscriptionProviderError("gemini", "empty_transcript", "empty output_text")
+
     try:
         transcript_payload = _extract_json_object(text_response)
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise TranscriptionProviderError("gemini", "response_error", "Gemini returned malformed transcript JSON.") from exc
-    segments, words = _normalize_gemini_segments(transcript_payload)
+    except json.JSONDecodeError as exc:
+        raise TranscriptionProviderError("gemini", "malformed_response", f"invalid JSON at character {exc.pos}") from exc
+    except ValueError as exc:
+        raise TranscriptionProviderError("gemini", "malformed_response", str(exc)) from exc
+
+    if "segments" not in transcript_payload or not isinstance(transcript_payload["segments"], list) or not transcript_payload["segments"]:
+        raise TranscriptionProviderError("gemini", "response_error", "response schema mismatch: missing segments")
+
+    try:
+        segments, words = _normalize_gemini_segments(transcript_payload)
+    except TranscriptionProviderError as exc:
+        raise exc
+
     transcript_text = " ".join(str(segment.get("text") or "").strip() for segment in segments).strip()
+    if not transcript_text:
+        raise TranscriptionProviderError("gemini", "empty_transcript", "no transcript text exists")
+        
     return {
         "text": transcript_text,
         "language": transcript_payload.get("language"),
