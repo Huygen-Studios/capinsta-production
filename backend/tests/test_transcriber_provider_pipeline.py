@@ -230,6 +230,80 @@ def test_sarvam_upload_mime_matches_mp3_bytes(monkeypatch, tmp_path):
     assert seen["files"]["file"][2] == "audio/mpeg"
 
 
+@pytest.mark.parametrize(
+    ("source_language", "output_language", "expected_mode", "expected_language_code"),
+    [
+        ("telugu", "original", "transcribe", "te-IN"),
+        ("telgish", "original", "translit", "te-IN"),
+        ("hinglish", "original", "translit", "hi-IN"),
+        ("auto_mixed_indian", "original", "codemix", "unknown"),
+        ("auto", "original", "codemix", "unknown"),
+        ("english", "original", "transcribe", "en-IN"),
+        ("telugu", "english", "translate", "te-IN"),
+    ],
+)
+def test_sarvam_request_options_follow_job_language_not_admin_fixture(
+    source_language,
+    output_language,
+    expected_mode,
+    expected_language_code,
+):
+    resolved = transcriber.resolve_sarvam_request_options(source_language, output_language)
+
+    assert resolved == {"mode": expected_mode, "language_code": expected_language_code}
+
+
+def test_sarvam_admin_provider_options_do_not_override_telgish_job(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    seen = {}
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        seen["url"] = url
+        seen["data"] = dict(data or {})
+        return FakeResponse(
+            payload={
+                "transcript": "idi rendu nimishalu",
+                "language_code": "te-IN",
+                "timestamps": {
+                    "words": ["idi", "rendu", "nimishalu"],
+                    "start_time_seconds": [0.0, 0.3, 0.8],
+                    "end_time_seconds": [0.2, 0.7, 1.2],
+                },
+                "request_id": "sarvam-req-1",
+            }
+        )
+
+    monkeypatch.setattr(transcriber.requests, "post", fake_post)
+    result = transcriber._call_sarvam(
+        _write_mp3_like(tmp_path / "chunk.mp3"),
+        "telgish",
+        {
+            "configuration_id": "cfg",
+            "provider": "sarvam",
+            "model": "saaras:v3",
+            "version": 11,
+            "provider_options": {
+                "mode": "transcribe",
+                "languageStrategy": "language_mode_mapping",
+            },
+            "timestamp_strategy": "provider_word",
+            "strict_provider": True,
+            "source_language": "telgish",
+            "output_language": "original",
+        },
+    )
+
+    assert seen["url"] == transcriber.SARVAM_URL
+    assert seen["data"]["model"] == "saaras:v3"
+    assert seen["data"]["mode"] == "translit"
+    assert seen["data"]["language_code"] == "te-IN"
+    assert seen["data"]["with_timestamps"] == "true"
+    assert result["providerMode"] == "translit"
+    assert result["providerLanguageCode"] == "te-IN"
+    assert result["providerRawText"] == "idi rendu nimishalu"
+
+
 def test_openai_whisper_uses_timeout_no_retries_model_and_actual_mime(monkeypatch, tmp_path):
     _clear_provider_env(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")

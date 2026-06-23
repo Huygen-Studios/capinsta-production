@@ -40,6 +40,7 @@ from ai_pipeline.language_modes import (
     normalize_language_mode,
     transcription_language_mode,
 )
+from ai_pipeline.transcriber import resolve_sarvam_request_options
 from ai_pipeline.timing import DEFAULT_PAUSE_SPLIT_THRESHOLD, build_timing_report, classify_caption_gaps, normalize_timing_source
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -522,6 +523,20 @@ async def create_job(
     except RuntimeError as exc:
         _log_stage(job_id, "request rejected", reason=str(exc), language_mode=normalized_mode)
         raise HTTPException(status_code=400, detail=str(exc))
+
+    transcription_snapshot_payload = transcription_snapshot.to_dict()
+    transcription_snapshot_payload["source_language"] = normalized_mode
+    transcription_snapshot_payload["sourceLanguage"] = normalized_mode
+    transcription_snapshot_payload["output_language"] = normalized_output_language
+    transcription_snapshot_payload["outputLanguage"] = normalized_output_language
+    if transcription_snapshot.provider == "sarvam":
+        sarvam_options = resolve_sarvam_request_options(normalized_mode, normalized_output_language)
+        transcription_snapshot_payload["provider_mode"] = sarvam_options["mode"]
+        transcription_snapshot_payload["providerMode"] = sarvam_options["mode"]
+        transcription_snapshot_payload["resolved_provider_mode"] = sarvam_options["mode"]
+        transcription_snapshot_payload["provider_language_code"] = sarvam_options["language_code"]
+        transcription_snapshot_payload["providerLanguageCode"] = sarvam_options["language_code"]
+        transcription_snapshot_payload["resolved_provider_language_code"] = sarvam_options["language_code"]
     
     file_path = str(UPLOAD_DIR / f"{job_id}_{filename}")
     media_access_mode = "legacy_upload_workspace"
@@ -616,8 +631,9 @@ async def create_job(
                 media_duration or None, media_asset_id, "Caption job queued.",
                 now_text, now_text, transcription_snapshot.provider,
                 transcription_snapshot.model, transcription_snapshot.version,
-                transcription_snapshot.timestamp_strategy, transcription_snapshot.provider_mode,
-                json.dumps(transcription_snapshot.to_dict(), ensure_ascii=False),
+                transcription_snapshot.timestamp_strategy,
+                transcription_snapshot_payload.get("provider_mode") or transcription_snapshot.provider_mode,
+                json.dumps(transcription_snapshot_payload, ensure_ascii=False),
             ),
         )
         await db.commit()
@@ -630,7 +646,7 @@ async def create_job(
         file_path=file_path,
         language_mode=normalized_mode,
         caption_output=normalized_output_language,
-        transcription_config_snapshot=transcription_snapshot.to_dict(),
+        transcription_config_snapshot=transcription_snapshot_payload,
     )
 
     _log_stage(job_id, "response returned", status="queued", bytes=bytes_written)

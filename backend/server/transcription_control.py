@@ -30,14 +30,24 @@ class TranscriptionConfigSnapshot:
     provider_options: dict[str, Any]
     timestamp_strategy: str
     strict_provider: bool = True
+    source_language: str | None = None
+    output_language: str | None = None
+    resolved_provider_mode: str | None = None
+    resolved_provider_language_code: str | None = None
 
     @property
     def provider_mode(self) -> str:
-        return str(self.provider_options.get("mode") or "transcribe")
+        return str(self.resolved_provider_mode or self.provider_options.get("mode") or "transcribe")
+
+    @property
+    def provider_language_code(self) -> str | None:
+        value = self.resolved_provider_language_code or self.provider_options.get("language_code") or self.provider_options.get("languageCode")
+        return str(value) if value else None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["provider_mode"] = self.provider_mode
+        payload["provider_language_code"] = self.provider_language_code
         return payload
 
 
@@ -257,6 +267,18 @@ def coerce_snapshot(value: TranscriptionConfigSnapshot | dict[str, Any] | str | 
             provider_options=dict(provider_options),
             timestamp_strategy=str(value["timestamp_strategy"] if "timestamp_strategy" in value else value["timestampStrategy"]),
             strict_provider=bool(value.get("strict_provider", value.get("strictProvider", True))),
+            source_language=value.get("source_language") or value.get("sourceLanguage"),
+            output_language=value.get("output_language") or value.get("outputLanguage"),
+            resolved_provider_mode=(
+                value.get("resolved_provider_mode")
+                or value.get("provider_mode")
+                or value.get("providerMode")
+            ),
+            resolved_provider_language_code=(
+                value.get("resolved_provider_language_code")
+                or value.get("provider_language_code")
+                or value.get("providerLanguageCode")
+            ),
         )
     except Exception:
         return None

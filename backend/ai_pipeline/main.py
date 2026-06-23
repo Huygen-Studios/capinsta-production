@@ -43,7 +43,12 @@ try:
     from server.transcription_control import coerce_snapshot
 except Exception:  # pragma: no cover - direct script execution fallback
     coerce_snapshot = lambda value: None
-from .language_modes import CODE_MIXED_LANGUAGE_MODES, normalize_caption_text, normalize_language_mode
+from .language_modes import (
+    CODE_MIXED_LANGUAGE_MODES,
+    normalize_caption_output,
+    normalize_caption_text,
+    normalize_language_mode,
+)
 from .output_transform import transform_segments_for_output
 from .transcript_normalizer import (
     TranscriptValidationError,
@@ -162,7 +167,7 @@ def run_pipeline(
 ) -> Dict[str, Any]:
     """Run transcription, normalization, alignment, and subtitle export."""
     language_mode = normalize_language_mode(user_target_lang)
-    output_language = caption_output or "original"
+    output_language = normalize_caption_output(caption_output)
     pipeline_logger = PipelineLogger(os.path.basename(video_path))
     pipeline_logger.start_run()
     audio_path = f"{os.path.splitext(video_path)[0]}_temp.mp3"
@@ -280,14 +285,21 @@ def run_pipeline(
             raw_text = transcription_result.get("text", "")
             clean_text = normalize_caption_text(raw_text, language_mode)
             chunk.raw_text = clean_text
-            chunk.asr_metadata = transcription_result
+            chunk.asr_metadata = {
+                **transcription_result,
+                "providerRawText": transcription_result.get("providerRawText") or raw_text,
+                "normalizedText": clean_text,
+                "displayText": clean_text,
+                "sourceLanguage": language_mode,
+                "outputLanguage": output_language,
+            }
             score = float(transcription_result.get("language_probability") or 1.0)
 
             if not clean_text.strip():
                 processed_chunks.append(chunk)
                 continue
 
-            if language_mode in CODE_MIXED_LANGUAGE_MODES:
+            if language_mode in CODE_MIXED_LANGUAGE_MODES or language_mode == "telugu":
                 chunk.language = language_mode
                 chunk.final_text = clean_text
                 chunk.score = score
@@ -369,7 +381,10 @@ def run_pipeline(
         emit_progress("romanizing", 70, "Romanizing and validating transcript text.")
 
         chunk_audit: list[dict[str, Any]] = []
-        if language_mode in CODE_MIXED_LANGUAGE_MODES:
+        use_provider_word_timing = language_mode in CODE_MIXED_LANGUAGE_MODES or (
+            language_mode == "telugu" and selected_provider == "sarvam"
+        )
+        if use_provider_word_timing:
             clamped_segments = build_word_timed_transcript_from_chunks(
                 processed_chunks,
                 language_mode,

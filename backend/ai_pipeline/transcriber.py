@@ -24,6 +24,7 @@ from .config import (
 from .language_modes import (
     CODE_MIXED_LANGUAGE_MODES,
     TELUGU_CAPABLE_PROVIDER_ERROR,
+    normalize_caption_output,
     normalize_language_mode,
 )
 try:
@@ -54,8 +55,8 @@ SARVAM_LANGUAGE_CODES = {
     "hinglish": "hi-IN",
     "telugu": "te-IN",
     "telgish": "te-IN",
-    "auto": "te-IN",
-    "auto_mixed_indian": "te-IN",
+    "auto": "unknown",
+    "auto_mixed_indian": "unknown",
 }
 
 SARVAM_URL = "https://api.sarvam.ai/speech-to-text"
@@ -1124,23 +1125,34 @@ def _normalize_sarvam_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized
 
 
-def _sarvam_mode_for_language(language_mode: str, provider_options: dict[str, Any] | None = None) -> tuple[str, str]:
-    options = provider_options or {}
-    requested_mode = str(options.get("mode") or "").strip().lower()
-    if requested_mode:
-        if requested_mode not in {"transcribe", "verbatim", "translit", "codemix"}:
-            raise TranscriptionProviderError("sarvam", "invalid_request", "Unsupported Sarvam mode.")
-        mode = requested_mode
-    elif language_mode in {"hinglish", "telgish"}:
+def resolve_sarvam_request_options(source_language: str | None, output_language: str | None = "original") -> dict[str, str]:
+    source = normalize_language_mode(source_language)
+    output = normalize_caption_output(output_language)
+    language_code = SARVAM_LANGUAGE_CODES.get(source)
+    if not language_code:
+        raise TranscriptionProviderError("sarvam", "invalid_request", "Unsupported Sarvam language mode.")
+
+    if output == "english" and source != "english":
+        mode = "translate"
+    elif source in {"hinglish", "telgish"}:
         mode = "translit"
-    elif language_mode == "auto_mixed_indian":
+    elif source in {"auto", "auto_mixed_indian"}:
         mode = "codemix"
     else:
         mode = "transcribe"
-    language_code = SARVAM_LANGUAGE_CODES.get(language_mode)
-    if not language_code:
-        raise TranscriptionProviderError("sarvam", "invalid_request", "Unsupported Sarvam language mode.")
-    return mode, language_code
+
+    return {"mode": mode, "language_code": language_code}
+
+
+def _sarvam_mode_for_language(
+    language_mode: str,
+    provider_options: dict[str, Any] | None = None,
+    output_language: str | None = "original",
+) -> tuple[str, str]:
+    # Provider options come from the global admin model configuration. They must
+    # not force every production job into the language used by the admin test.
+    resolved = resolve_sarvam_request_options(language_mode, output_language)
+    return resolved["mode"], resolved["language_code"]
 
 
 def _sarvam_error_category(status_code: int, provider_code: str | None) -> str:
@@ -1165,8 +1177,8 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
 
     snapshot = coerce_snapshot(transcription_config_snapshot)
     model = snapshot.model if snapshot else "saaras:v3"
-    provider_options = snapshot.provider_options if snapshot else None
-    mode, language_code = _sarvam_mode_for_language(language_mode, provider_options)
+    output_language = snapshot.output_language if snapshot and snapshot.output_language else "original"
+    mode, language_code = _sarvam_mode_for_language(language_mode, output_language=output_language)
 
     upload_mime_type = _sniff_audio_mime_type(audio_path) or "application/octet-stream"
     with open(audio_path, "rb") as file:
@@ -1205,20 +1217,29 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
         )
 
     payload = response.json()
+    provider_raw_text = (payload.get("transcript") or "").strip()
+    detected_language_code = payload.get("language_code")
     return {
-        "text": (payload.get("transcript") or "").strip(),
-        "language": payload.get("language_code"),
+        "text": provider_raw_text,
+        "language": detected_language_code,
         "duration": None,
         "segments": [],
         "words": _normalize_sarvam_words(payload),
         "provider": "sarvam",
         "model": model,
         "provider_mode": mode,
+        "provider_language_code": language_code,
         "provider_request_id": payload.get("request_id"),
         "request_id": payload.get("request_id"),
         "timestamp_strategy": "provider_word",
         "timestamp_capability": "native_provider_word",
         "language_probability": payload.get("language_probability"),
+        "providerRawText": provider_raw_text,
+        "providerMode": mode,
+        "providerLanguageCode": language_code,
+        "detectedLanguageCode": detected_language_code,
+        "normalizedText": provider_raw_text,
+        "displayText": provider_raw_text,
     }
 
 
