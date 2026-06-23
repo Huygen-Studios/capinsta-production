@@ -177,6 +177,28 @@ def test_gemini_http_status_classification(status, expected):
     assert "safe message" in str(classified)
 
 
+def test_gemini_raw_403_text_is_classified_as_permission_error():
+    exc = RuntimeError('HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/interactions "HTTP/1.1 403 Forbidden"')
+
+    classified = transcriber._classify_gemini_error(exc)
+
+    assert classified.category == "permission_or_blocked_key"
+    assert classified.status == 403
+
+
+def test_gemini_response_status_code_is_classified():
+    class Response:
+        status_code = 403
+
+    class ProviderError(RuntimeError):
+        response = Response()
+
+    classified = transcriber._classify_gemini_error(ProviderError("forbidden"))
+
+    assert classified.category == "permission_or_blocked_key"
+    assert classified.status == 403
+
+
 @pytest.mark.parametrize("status", [401, 403, 429])
 def test_gemini_http_failures_fall_back_to_sarvam(monkeypatch, tmp_path, status):
     _clear_provider_env(monkeypatch)

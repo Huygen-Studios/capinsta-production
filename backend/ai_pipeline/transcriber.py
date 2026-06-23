@@ -364,24 +364,69 @@ def _sanitize_provider_message(message: str | None) -> str:
     return text[:300]
 
 
+def _gemini_error_status(exc: Exception) -> int | None:
+    for attr in ("code", "status_code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        value = getattr(response, "status_code", None) or getattr(response, "status", None)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+
+    match = re.search(r"\b(400|401|403|404|429|5\d{2})\b", str(exc))
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _gemini_error_category(status: int | None) -> str:
+    if status == 400:
+        return "invalid_request"
+    if status == 401:
+        return "authentication"
+    if status == 403:
+        return "permission_or_blocked_key"
+    if status == 404:
+        return "endpoint_or_model_not_found"
+    if status == 429:
+        return "quota_or_rate_limit"
+    if status and status >= 500:
+        return "provider_unavailable"
+    return "response_error"
+
+
+def _gemini_provider_code(exc: Exception) -> str | None:
+    status_value = getattr(exc, "status", None)
+    if isinstance(status_value, str) and status_value:
+        return status_value
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        error = details.get("error")
+        if isinstance(error, dict):
+            code = error.get("status")
+            return str(code) if code else None
+        code = details.get("status")
+        return str(code) if code else None
+    return None
+
+
 def _classify_gemini_error(exc: Exception) -> TranscriptionProviderError:
-    if isinstance(exc, genai_errors.APIError):
-        status = getattr(exc, "code", None)
-        provider_code = str(getattr(exc, "status", "") or "") or None
-        message = _sanitize_provider_message(getattr(exc, "message", None) or str(exc))
-        category = "response_error"
-        if status == 400:
-            category = "invalid_request"
-        elif status == 401:
-            category = "authentication"
-        elif status == 403:
-            category = "permission_or_blocked_key"
-        elif status == 404:
-            category = "endpoint_or_model_not_found"
-        elif status == 429:
-            category = "quota_or_rate_limit"
-        elif status and status >= 500:
-            category = "provider_unavailable"
+    if isinstance(exc, (TimeoutError, requests.Timeout, requests.ConnectionError)):
+        return TranscriptionProviderError("gemini", "transport_error", "Gemini transport error.")
+
+    status = _gemini_error_status(exc)
+    provider_code = _gemini_provider_code(exc)
+    message = _sanitize_provider_message(getattr(exc, "message", None) or str(exc))
+    category = _gemini_error_category(status)
+
+    if status is not None:
         logger.warning(
             "gemini_request_failed provider=gemini model=%s status=%s google_code=%s message=%s",
             GEMINI_MODEL,
@@ -390,9 +435,23 @@ def _classify_gemini_error(exc: Exception) -> TranscriptionProviderError:
             message or "-",
         )
         return TranscriptionProviderError("gemini", category, message or category, status, provider_code=provider_code)
-    if isinstance(exc, (TimeoutError, requests.Timeout, requests.ConnectionError)):
-        return TranscriptionProviderError("gemini", "transport_error", "Gemini transport error.")
-    return TranscriptionProviderError("gemini", "response_error", _sanitize_provider_message(str(exc)) or "Gemini response error.")
+
+    if isinstance(exc, genai_errors.APIError):
+        logger.warning(
+            "gemini_request_failed provider=gemini model=%s status=%s google_code=%s message=%s",
+            GEMINI_MODEL,
+            status,
+            provider_code or "-",
+            message or "-",
+        )
+        return TranscriptionProviderError("gemini", category, message or category, status, provider_code=provider_code)
+
+    logger.warning(
+        "gemini_request_failed provider=gemini model=%s status=- google_code=- message=%s",
+        GEMINI_MODEL,
+        message or "-",
+    )
+    return TranscriptionProviderError("gemini", "response_error", message or "Gemini response error.")
 
 
 def _normalize_provider_result(result: dict, provider: str) -> dict:
