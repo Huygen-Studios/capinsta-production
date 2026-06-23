@@ -1,0 +1,293 @@
+import json
+import wave
+
+import pytest
+import requests
+
+import ai_pipeline.transcriber as transcriber
+
+
+def _write_wav(path):
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\0\0" * 16000)
+    return str(path)
+
+
+def _result(provider="gemini", text="hello world"):
+    return {
+        "text": text,
+        "language": "en",
+        "duration": 1.0,
+        "segments": [],
+        "words": [
+            {"word": "hello", "start": 0.0, "end": 0.4, "provider": provider},
+            {"word": "world", "start": 0.5, "end": 0.9, "provider": provider},
+        ],
+        "provider": provider,
+        "model": "test-model",
+    }
+
+
+def _clear_provider_env(monkeypatch):
+    for key in (
+        "STT_PROVIDER",
+        "STT_PROVIDER_ORDER",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "SARVAM_API_KEY",
+        "GROQ_API_KEY",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None, text=""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+def test_gemini_succeeds_and_no_fallback_runs(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    called = []
+
+    def fake_call(provider, audio_path, mode):
+        called.append(provider)
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "gemini"
+    assert "fallback" not in result
+    assert called == ["gemini"]
+
+
+def test_gemini_request_uses_header_not_query_and_prefers_gemini_key(monkeypatch, tmp_path, caplog):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "preferred-gemini-key")
+    monkeypatch.setenv("GOOGLE_API_KEY", "legacy-google-key")
+    seen = {}
+
+    def fake_post(url, **kwargs):
+        seen["url"] = url
+        seen.update(kwargs)
+        payload = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": json.dumps(
+                                    {
+                                        "text": "hello",
+                                        "language": "en",
+                                        "words": [{"word": "hello", "start": 0, "end": 0.5}],
+                                    }
+                                )
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        return FakeResponse(payload=payload)
+
+    monkeypatch.setattr(transcriber.requests, "post", fake_post)
+    result = transcriber._call_gemini(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "gemini"
+    assert seen["headers"]["x-goog-api-key"] == "preferred-gemini-key"
+    assert seen["headers"]["Content-Type"] == "application/json"
+    assert "params" not in seen
+    assert "preferred-gemini-key" not in seen["url"]
+    assert "legacy-google-key" not in caplog.text
+    assert "preferred-gemini-key" not in caplog.text
+    assert "Both GEMINI_API_KEY and GOOGLE_API_KEY" in caplog.text
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_gemini_http_failures_fall_back_to_sarvam(monkeypatch, tmp_path, status):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    calls = []
+
+    def fake_call(provider, audio_path, mode):
+        calls.append(provider)
+        if provider == "gemini":
+            category = "rate_limit" if status == 429 else "authentication"
+            raise transcriber.TranscriptionProviderError(provider, category, status=status)
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert calls == ["gemini", "sarvam"]
+    assert result["provider"] == "sarvam"
+    assert result["fallback"] is True
+    assert result["fallback_from"] == ["gemini"]
+
+
+def test_gemini_timeout_falls_back_to_sarvam(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+
+    def fake_call(provider, audio_path, mode):
+        if provider == "gemini":
+            raise requests.Timeout("slow")
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "sarvam"
+    assert result["fallback_from"] == ["gemini"]
+
+
+def test_gemini_invalid_json_falls_back_to_sarvam(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+
+    def fake_call(provider, audio_path, mode):
+        if provider == "gemini":
+            raise transcriber.TranscriptionProviderError(provider, "malformed_response")
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "sarvam"
+
+
+def test_gemini_text_without_valid_words_falls_back_to_sarvam(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+
+    def fake_call(provider, audio_path, mode):
+        if provider == "gemini":
+            return {"text": "hello world", "words": [], "provider": "gemini"}
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "sarvam"
+    assert result["fallback_from"] == ["gemini"]
+
+
+def test_gemini_and_sarvam_fail_then_groq_succeeds(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-secret")
+
+    def fake_call(provider, audio_path, mode):
+        if provider in {"gemini", "sarvam"}:
+            raise transcriber.TranscriptionProviderError(provider, "provider_error")
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "groq_whisper"
+    assert result["fallback_from"] == ["gemini", "sarvam"]
+
+
+def test_gemini_sarvam_and_groq_fail_then_openai_succeeds(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+
+    def fake_call(provider, audio_path, mode):
+        if provider != "openai_whisper":
+            raise transcriber.TranscriptionProviderError(provider, "provider_error")
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert result["provider"] == "openai_whisper"
+    assert result["fallback_from"] == ["gemini", "sarvam", "groq_whisper"]
+
+
+def test_missing_provider_keys_are_skipped(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    calls = []
+
+    def fake_call(provider, audio_path, mode):
+        calls.append(provider)
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert calls == ["openai_whisper"]
+    assert result["provider"] == "openai_whisper"
+
+
+def test_all_providers_fail_returns_sanitized_combined_error(monkeypatch, tmp_path, caplog):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "auto")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+
+    def fake_call(provider, audio_path, mode):
+        raise transcriber.TranscriptionProviderError(provider, "authentication", "secret gemini-secret")
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    message = str(exc_info.value)
+    assert "gemini(authentication)" in message
+    assert "sarvam(authentication)" in message
+    assert "groq_whisper(authentication)" in message
+    assert "openai_whisper(authentication)" in message
+    assert "gemini-secret" not in message
+    assert "gemini-secret" not in caplog.text
+
+
+def test_explicit_provider_remains_single_provider(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("STT_PROVIDER", "sarvam")
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
+    calls = []
+
+    def fake_call(provider, audio_path, mode):
+        calls.append(provider)
+        return _result(provider)
+
+    monkeypatch.setattr(transcriber, "_call_provider", fake_call)
+    result = transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
+
+    assert calls == ["sarvam"]
+    assert result["provider"] == "sarvam"

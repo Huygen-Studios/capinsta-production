@@ -3,10 +3,21 @@ import type { CapinstaCaptionStyleV1 } from "./styles/styleTypes"
 export type CapinstaTranscriptVersion = "capinsta.transcript.v1"
 
 export type CapinstaLanguageMode =
+  | "auto"
   | "english"
+  | "hindi"
+  | "telugu"
   | "hinglish"
   | "telgish"
   | "auto_mixed_indian"
+
+export type CapinstaCaptionOutput =
+  | "original"
+  | "english"
+  | "hindi"
+  | "telugu"
+  | "hinglish"
+  | "telgish"
 
 export type CapinstaTimingSource =
   | "provider"
@@ -28,7 +39,7 @@ export interface CapinstaProviderMetadataV1 {
   model?: string
   requestId?: string
   fallback?: boolean
-  fallbackFrom?: string
+  fallbackFrom?: string | string[]
 }
 
 export interface CapinstaTranscriptClipV1 {
@@ -93,6 +104,10 @@ export interface CapinstaTranscriptV1 {
   version: CapinstaTranscriptVersion
   source: CapinstaSourceAssetV1
   languageMode: CapinstaLanguageMode
+  sourceLanguage?: CapinstaLanguageMode
+  detectedLanguage?: CapinstaLanguageMode
+  outputLanguage?: CapinstaCaptionOutput
+  transformation?: "none" | "translation" | "transliteration" | "script_conversion"
   provider: CapinstaProviderMetadataV1
   clips: CapinstaTranscriptClipV1[]
   words: CapinstaTranscriptWordV1[]
@@ -157,10 +172,14 @@ export interface NeutralCaptionDocument {
     sourceAssetName: string
     provider: string
     providerFallback?: boolean
-    providerFallbackFrom?: string
+    providerFallbackFrom?: string | string[]
   }
   durationSeconds: number
   languageMode: CapinstaLanguageMode
+  sourceLanguage?: CapinstaLanguageMode
+  detectedLanguage?: CapinstaLanguageMode
+  outputLanguage?: CapinstaCaptionOutput
+  transformation?: "none" | "translation" | "transliteration" | "script_conversion"
   stylePresetId: string
   style?: CapinstaCaptionStyleV1
   clips: NeutralCaptionClip[]

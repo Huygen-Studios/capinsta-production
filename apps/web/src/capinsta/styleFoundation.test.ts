@@ -125,7 +125,7 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 		name: "Apple Cinematic",
 		description:
 			"Premium center-screen word reveals with opacity, upward motion, and blur.",
-		fontFamily: "Helvetica Local",
+		fontFamily: "Poppins",
 		fontSize: 68,
 		fontWeight: 600,
 		textColor: "#FFFFFF",

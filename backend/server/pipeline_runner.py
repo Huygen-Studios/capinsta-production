@@ -88,6 +88,7 @@ def run_pipeline_sync(
     video_path: str,
     target_lang: str,
     *,
+    caption_output: str = "original",
     cancel_event: Event | None = None,
 ):
     """
@@ -117,6 +118,7 @@ def run_pipeline_sync(
         result = run_pipeline(
             video_path=video_path,
             user_target_lang=target_lang,
+            caption_output=caption_output,
             progress_callback=on_progress
         )
 

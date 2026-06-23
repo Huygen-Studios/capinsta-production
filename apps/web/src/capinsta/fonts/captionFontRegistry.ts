@@ -83,20 +83,6 @@ export const CAPINSTA_FONT_REGISTRY: readonly CapinstaFontDefinition[] = [
 		],
 	},
 	{
-		id: "helvetica",
-		label: "Helvetica",
-		cssFamily: "Helvetica Local",
-		exportFamily: "Helvetica Local",
-		aliases: ["Helvetica", "Helvetica Neue", "SF Pro Display"],
-		faces: [
-			face("Helvetica font family/Helvetica Roman.ttf", 400),
-			face("Helvetica font family/Helvetica CE Bold.otf", 700),
-			face("Helvetica font family/Helvetica Black Condensed.otf", 900),
-			face("Helvetica font family/Helvetica RomanItalic.ttf", 400, "italic"),
-			face("Helvetica font family/Helvetica Bold Italic.ttf", 700, "italic"),
-		],
-	},
-	{
 		id: "losta-masta",
 		label: "Losta Masta",
 		cssFamily: "Losta Masta",

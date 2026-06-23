@@ -31,7 +31,14 @@ from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_align
 from ai_pipeline.sync.affine import retime_segments
 from ai_pipeline.sync.auto_sync import apply_auto_sync_if_confident
 from ai_pipeline.sync.high_quality import high_quality_alignment_status, run_high_quality_alignment
-from ai_pipeline.language_modes import SUPPORTED_LANGUAGE_MODES, normalize_language_mode
+from ai_pipeline.language_modes import (
+    SUPPORTED_AUDIO_LANGUAGES,
+    SUPPORTED_CAPTION_OUTPUTS,
+    normalize_audio_language,
+    normalize_caption_output,
+    normalize_language_mode,
+    transcription_language_mode,
+)
 from ai_pipeline.timing import DEFAULT_PAUSE_SPLIT_THRESHOLD, build_timing_report, classify_caption_gaps, normalize_timing_source
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -322,6 +329,10 @@ async def create_job(
     request: Request,
     languageMode: str = Form(None),
     target_lang: str = Form(None),
+    audioLanguage: str = Form(None),
+    sourceLanguage: str = Form(None),
+    captionOutput: str = Form(None),
+    outputLanguage: str = Form(None),
     project_id: str | None = Form(None),
     media_asset_id: str | None = Form(None),
     file: UploadFile | None = File(None),
@@ -331,7 +342,8 @@ async def create_job(
     await require_provider_enabled(os.getenv("STT_PROVIDER", "auto").strip().lower())
     await enforce_caption_quota(current_user().id)
     job_id = str(uuid.uuid4())
-    requested_mode = languageMode or target_lang or "auto_mixed_indian"
+    requested_audio_language = audioLanguage or sourceLanguage or languageMode or target_lang or "auto"
+    requested_output_language = captionOutput or outputLanguage or "original"
     if file is None and not media_asset_id:
         raise HTTPException(
             status_code=400,
@@ -340,18 +352,24 @@ async def create_job(
     _log_stage(
         job_id,
         "request received",
-        language_mode=requested_mode,
+        language_mode=requested_audio_language,
+        caption_output=requested_output_language,
         upload_filename=file.filename if file else None,
         media_asset_id=media_asset_id,
     )
 
     try:
-        normalized_mode = normalize_language_mode(requested_mode)
+        normalized_audio_language = normalize_audio_language(requested_audio_language)
+        normalized_output_language = normalize_caption_output(requested_output_language)
+        normalized_mode = transcription_language_mode(normalized_audio_language)
     except ValueError as exc:
         _log_stage(job_id, "request rejected", reason=str(exc))
         raise HTTPException(
             status_code=400,
-            detail=f"{exc} Supported modes: {', '.join(SUPPORTED_LANGUAGE_MODES)}.",
+            detail=(
+                f"{exc} Supported audio languages: {', '.join(SUPPORTED_AUDIO_LANGUAGES)}. "
+                f"Supported caption outputs: {', '.join(SUPPORTED_CAPTION_OUTPUTS)}."
+            ),
         )
 
     media_row = None
@@ -372,6 +390,7 @@ async def create_job(
         filename=filename,
         content_type=file.content_type if file else media_row["mime_type"],
         language_mode=normalized_mode,
+        caption_output=normalized_output_language,
     )
 
     try:
@@ -482,6 +501,7 @@ async def create_job(
         job_id=job_id,
         file_path=file_path,
         language_mode=normalized_mode,
+        caption_output=normalized_output_language,
     )
 
     _log_stage(job_id, "response returned", status="queued", bytes=bytes_written)

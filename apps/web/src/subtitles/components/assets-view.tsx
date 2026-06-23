@@ -29,6 +29,7 @@ import { useEditor } from "@/editor/use-editor";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
 import type { TranscriptionLanguage } from "@/transcription/types";
+import type { CapinstaCaptionOutput } from "@/capinsta/types";
 import type { SubtitleCue } from "@/subtitles/types";
 import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
 import { parseSubtitleFile } from "@/subtitles/parse";
@@ -182,8 +183,10 @@ function processingReducer(
 /* eslint-enable opencut/prefer-object-params */
 
 export function Captions() {
-	const [selectedLanguage, setSelectedLanguage] =
+	const [selectedAudioLanguage, setSelectedAudioLanguage] =
 		useState<TranscriptionLanguage>("auto");
+	const [selectedCaptionOutput, setSelectedCaptionOutput] =
+		useState<CapinstaCaptionOutput>("original");
 	const [captionJob, dispatchCaptionJob] = useReducer(
 		captionJobReducer,
 		IDLE_CAPTION_JOB_STATE,
@@ -433,7 +436,8 @@ export function Captions() {
 					: audioForCaptions.file,
 				mediaAssetId: selectedMediaAsset.serverAssetId,
 				projectId: editor.project.getActive().metadata.id,
-				languageMode: "auto_mixed_indian",
+				languageMode: selectedAudioLanguage,
+				captionOutput: selectedCaptionOutput,
 				signal: abortController.signal,
 			});
 			await editor.project.setCapinstaServerJobId({
@@ -670,7 +674,7 @@ export function Captions() {
 
 	const handleLanguageChange = ({ value }: { value: string }) => {
 		if (value === "auto") {
-			setSelectedLanguage("auto");
+			setSelectedAudioLanguage("auto");
 			return;
 		}
 
@@ -678,7 +682,20 @@ export function Captions() {
 			(language) => language.code === value,
 		);
 		if (!matchedLanguage) return;
-		setSelectedLanguage(matchedLanguage.code);
+		setSelectedAudioLanguage(matchedLanguage.code);
+	};
+
+	const handleCaptionOutputChange = ({ value }: { value: string }) => {
+		if (
+			value === "original" ||
+			value === "english" ||
+			value === "hindi" ||
+			value === "telugu" ||
+			value === "hinglish" ||
+			value === "telgish"
+		) {
+			setSelectedCaptionOutput(value);
+		}
 	};
 
 	const downloadSubtitles = () => {
@@ -712,6 +729,20 @@ export function Captions() {
 		isCaptionProcessing || captionJob.status === "done"
 			? captionJob.statusMessage
 			: null;
+	const languageName = (value: string) =>
+		value === "auto"
+			? "Auto detect"
+			: TRANSCRIPTION_LANGUAGES.find((language) => language.code === value)
+					?.name ?? value;
+	const outputStatus =
+		selectedCaptionOutput === "original"
+			? null
+			: selectedAudioLanguage === "auto"
+				? `Converting captions to ${languageName(selectedCaptionOutput)}`
+				: selectedCaptionOutput === "telgish" ||
+					  selectedCaptionOutput === "hinglish"
+					? `Converting ${languageName(selectedAudioLanguage)} captions to ${languageName(selectedCaptionOutput)}`
+					: `Translating ${languageName(selectedAudioLanguage)} captions to ${languageName(selectedCaptionOutput)}`;
 
 	return (
 		<PanelView
@@ -832,14 +863,14 @@ export function Captions() {
 								</Select>
 							</SectionField>
 						)}
-						<SectionField label="Language">
+						<SectionField label="Audio language">
 							<Select
-								value={selectedLanguage}
+								value={selectedAudioLanguage}
 								onValueChange={(value) => handleLanguageChange({ value })}
 								disabled={isProcessing}
 							>
 								<SelectTrigger>
-									<SelectValue placeholder="Select a language" />
+									<SelectValue placeholder="Select audio language" />
 								</SelectTrigger>
 								<SelectContent>
 									<SelectItem value="auto">Auto detect</SelectItem>
@@ -850,6 +881,34 @@ export function Captions() {
 									))}
 								</SelectContent>
 							</Select>
+							<p className="text-muted-foreground text-xs">
+								The language spoken in your video.
+							</p>
+						</SectionField>
+						<SectionField label="Caption output">
+							<Select
+								value={selectedCaptionOutput}
+								onValueChange={(value) => handleCaptionOutputChange({ value })}
+								disabled={isProcessing}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select caption output" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="original">Keep original</SelectItem>
+									{TRANSCRIPTION_LANGUAGES.map((language) => (
+										<SelectItem key={language.code} value={language.code}>
+											{language.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-muted-foreground text-xs">
+								Keep the original language, translate it, or convert it to Roman text.
+							</p>
+							{outputStatus ? (
+								<p className="text-muted-foreground text-xs">{outputStatus}</p>
+							) : null}
 						</SectionField>
 					</SectionFields>
 

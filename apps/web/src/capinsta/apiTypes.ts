@@ -1,5 +1,6 @@
 import type {
   CapinstaLanguageMode,
+  CapinstaCaptionOutput,
   CapinstaTimingSource,
   CapinstaTranscriptV1,
 } from "./types"
@@ -95,7 +96,11 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
   segments?: CapinstaApiSegment[] | null
   transcript?: {
     languageMode?: string
-    provider?: string | { name?: string; model?: string; fallback?: boolean; fallbackFrom?: string }
+    sourceLanguage?: string
+    detectedLanguage?: string
+    outputLanguage?: string
+    transformation?: string
+    provider?: string | { name?: string; model?: string; fallback?: boolean; fallbackFrom?: string | string[] }
     romanized?: boolean
     segments?: CapinstaApiSegment[]
     alignedWords?: CapinstaApiWord[]
@@ -111,7 +116,7 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
       }
       sync?: Record<string, unknown>
       transcription?: {
-        provider?: string | { name?: string; model?: string; fallback?: boolean; fallbackFrom?: string }
+        provider?: string | { name?: string; model?: string; fallback?: boolean; fallbackFrom?: string | string[] }
         fallback?: boolean
         fallbackFrom?: string[]
       }
@@ -128,6 +133,7 @@ export interface StartCapinstaCaptionJobInput {
   mediaAssetId?: string
   projectId: string
   languageMode: CapinstaLanguageMode
+  captionOutput?: CapinstaCaptionOutput
 }
 
 export interface CapinstaTranscriptNormalizeInput {

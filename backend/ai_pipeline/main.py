@@ -39,6 +39,7 @@ from .transcriber import (
     transcribe_sarvam_chunks_bounded,
 )
 from .language_modes import CODE_MIXED_LANGUAGE_MODES, normalize_caption_text, normalize_language_mode
+from .output_transform import transform_segments_for_output
 from .transcript_normalizer import (
     TranscriptValidationError,
     build_normalized_transcript,
@@ -150,10 +151,12 @@ def _log_caption_timing_debug(
 def run_pipeline(
     video_path: str,
     user_target_lang: str = "english",
+    caption_output: str = "original",
     progress_callback=None,
 ) -> Dict[str, Any]:
     """Run transcription, normalization, alignment, and subtitle export."""
     language_mode = normalize_language_mode(user_target_lang)
+    output_language = caption_output or "original"
     pipeline_logger = PipelineLogger(os.path.basename(video_path))
     pipeline_logger.start_run()
     audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
@@ -227,7 +230,11 @@ def run_pipeline(
             )
             transcription_providers.add(str(transcription_result.get("provider") or "unknown"))
             if transcription_result.get("fallback") and transcription_result.get("fallback_from"):
-                transcription_fallback_from.add(str(transcription_result.get("fallback_from")))
+                fallback_from = transcription_result.get("fallback_from")
+                if isinstance(fallback_from, list):
+                    transcription_fallback_from.update(str(provider) for provider in fallback_from)
+                else:
+                    transcription_fallback_from.add(str(fallback_from))
             raw_text = transcription_result.get("text", "")
             clean_text = normalize_caption_text(raw_text, language_mode)
             chunk.raw_text = clean_text
@@ -447,6 +454,21 @@ def run_pipeline(
         )
         timing_report = build_timing_report(clamped_segments, vad_report.get("silenceGaps") or [], sync_report)
 
+        original_segments = [dict(segment, words=[dict(word) for word in segment.get("words") or []]) for segment in clamped_segments]
+        emit_progress("normalizing", 91, "Applying caption output settings.")
+        try:
+            clamped_segments, transformation_report = transform_segments_for_output(
+                clamped_segments,
+                source_language=language_mode,
+                output_language=output_language,
+            )
+        except Exception as exc:
+            logger.exception("Caption output transformation failed.")
+            raise RuntimeError(f"Caption output transformation failed: {exc}") from exc
+        if transformation_report.get("transformation") != "none":
+            aligned_words = canonical_aligned_words_from_segments(clamped_segments)
+            timing_report = build_timing_report(clamped_segments, vad_report.get("silenceGaps") or [], sync_report)
+
         _stage_log("caption chunks generated", segment_count=len(clamped_segments))
         emit_progress("chunking", 92, "Preparing readable caption chunks.")
 
@@ -464,6 +486,11 @@ def run_pipeline(
         log_summary = pipeline_logger.get_summary()
         provider_name = ",".join(sorted(transcription_providers)) or "unknown"
         transcript = build_normalized_transcript(clamped_segments, language_mode, provider_name)
+        transcript["sourceLanguage"] = transformation_report.get("sourceLanguage") or language_mode
+        transcript["detectedLanguage"] = transformation_report.get("sourceLanguage") or language_mode
+        transcript["outputLanguage"] = transformation_report.get("outputLanguage") or output_language
+        transcript["transformation"] = transformation_report.get("transformation") or "none"
+        transcript["originalSegments"] = original_segments
         if provider_name == "gemini":
             transcript["provider"] = {"name": "gemini", "model": os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash")}
         elif provider_name == "sarvam" and transcription_fallback_from:
@@ -471,7 +498,13 @@ def run_pipeline(
                 "name": "sarvam",
                 "model": "saaras:v3",
                 "fallback": True,
-                "fallbackFrom": ",".join(sorted(transcription_fallback_from)),
+                "fallbackFrom": sorted(transcription_fallback_from),
+            }
+        elif transcription_fallback_from:
+            transcript["provider"] = {
+                "name": provider_name,
+                "fallback": True,
+                "fallbackFrom": sorted(transcription_fallback_from),
             }
         transcript["alignedWords"] = aligned_words
         transcript["metadata"] = {
@@ -481,6 +514,7 @@ def run_pipeline(
                 "fallback": bool(transcription_fallback_from),
                 "fallbackFrom": sorted(transcription_fallback_from),
             },
+            "output": transformation_report,
             "audio": {
                 "sampleRate": 16000,
                 "channels": 1,
