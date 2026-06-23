@@ -553,6 +553,13 @@ def transcribe_audio(audio_path: str, language_mode: str = "english") -> dict:
         try:
             return _normalize_provider_result(_call_gemini(audio_path, normalized_mode), provider)
         except Exception as exc:
+            if not _has_real_key("SARVAM_API_KEY"):
+                logger.warning(
+                    "Gemini transcription failed for %s and Sarvam fallback is not configured. error=%s",
+                    os.path.basename(audio_path),
+                    exc,
+                )
+                raise
             logger.warning(
                 "Gemini transcription failed for %s; retrying with Sarvam fallback. error=%s",
                 os.path.basename(audio_path),
