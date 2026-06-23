@@ -36,8 +36,8 @@ import uuid
 # These imports will trigger ai_pipeline logic
 from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
-from .api import admin, captions, health, jobs, export_jobs
-from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR
+from .api import admin, captions, health, jobs, export_jobs, media_assets, projects
+from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, validate_storage_startup
 from .auth import (
     AuthBoundaryError,
     authenticate_request,
@@ -47,7 +47,11 @@ from .auth import (
     set_current_user,
     validate_auth_startup,
 )
-from .operational_mirror import operational_mirror_loop, stop_operational_mirror
+from .operational_mirror import deleted_project_records_available, operational_mirror_loop, stop_operational_mirror
+from .storage_retention import (
+    stop_storage_retention,
+    storage_retention_loop,
+)
 from .runtime_policy import (
     ControlPlaneUnavailableError,
     InactiveAccountError,
@@ -62,6 +66,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # Startup: Initialize Database
     ensure_runtime_dirs()
+    validate_storage_startup()
     await init_db()
     try:
         validate_auth_startup()
@@ -72,6 +77,7 @@ async def lifespan(app: FastAPI):
         "control_plane_status status=%s",
         database_health["controlPlaneDatabase"],
     )
+    await deleted_project_records_available()
     recovered_exports = await export_jobs.recover_orphaned_export_jobs()
     if recovered_exports:
         logger.warning("export_jobs_recovered_orphaned count=%s", recovered_exports)
@@ -79,6 +85,9 @@ async def lifespan(app: FastAPI):
     if removed:
         logger.info("runtime_cleanup removed_files=%s", removed)
     cleanup_task = asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
+    storage_retention_task = asyncio.create_task(
+        storage_retention_loop(), name="storage-retention-cleanup"
+    )
     mirror_task = asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
     
     # Check for crucial runtime dependencies and API keys.
@@ -105,6 +114,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await stop_cleanup_task(cleanup_task)
+        await stop_storage_retention(storage_retention_task)
         await stop_operational_mirror()
         mirror_task.cancel()
         print("Shutting down the server...")
@@ -117,7 +127,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-PROTECTED_API_PREFIXES = ("/api/jobs", "/api/export/jobs", "/api/captions/jobs")
+PROTECTED_API_PREFIXES = (
+    "/api/jobs",
+    "/api/export/jobs",
+    "/api/captions/jobs",
+    "/api/media/assets",
+    "/api/projects",
+)
 
 
 @app.middleware("http")
@@ -223,6 +239,8 @@ app.include_router(health.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(export_jobs.router, prefix="/api")
 app.include_router(captions.router, prefix="/api")
+app.include_router(media_assets.router, prefix="/api")
+app.include_router(projects.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(admin.internal_router, prefix="/api")
 

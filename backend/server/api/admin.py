@@ -23,7 +23,8 @@ from ..operational_mirror import (
 from ..progress import manager
 from ..settings import EXPORT_DIR, UPLOAD_DIR
 from ..worker_startup import start_pipeline_worker
-from ..project_cleanup import ACTIVE_JOB_STATUSES, expire_project
+from ..project_cleanup import ACTIVE_JOB_STATUSES
+from ..project_deletion import delete_project_resources
 from ..runtime_policy import project_retention_state
 from . import export_jobs as export_runtime
 
@@ -442,9 +443,13 @@ async def cleanup_admin_project(
     retention_hold, _ = await project_retention_state(project_id)
     if retention_hold:
         raise HTTPException(status_code=409, detail="Remove the retention hold before cleanup")
-    removed = await expire_project(row["id"], db, reason="admin_cleanup")
-    await mirror_caption_job(row["id"])
-    result = {"ok": True, "removedFiles": removed, "correlationId": admin.correlation_id}
+    owned_project_id = row["project_id"] or row["id"]
+    deletion = await delete_project_resources(owned_project_id, row["user_id"])
+    result = {
+        "ok": True,
+        "removedFiles": deletion["removed"],
+        "correlationId": admin.correlation_id,
+    }
     await _remember_result(db, request, "project.cleanup", project_id, result)
     return result
 
@@ -459,12 +464,15 @@ async def execute_due_user_deletion(
     supplied = request.headers.get("x-capinsta-maintenance-secret", "")
     if len(expected) < 32 or not secrets.compare_digest(expected, supplied):
         raise HTTPException(status_code=401, detail="Unauthorized")
-    cursor = await db.execute("SELECT id, status FROM jobs WHERE user_id = ?", (user_id,))
+    cursor = await db.execute(
+        "SELECT id, project_id, status FROM jobs WHERE user_id = ?", (user_id,)
+    )
     rows = await cursor.fetchall()
     removed = 0
+    project_ids: set[str] = set()
     for row in rows:
-        if row["status"] in ACTIVE_JOB_STATUSES:
-            raise HTTPException(status_code=409, detail="User still has active jobs")
-        removed += await expire_project(row["id"], db, reason="scheduled_user_deletion")
-        await mirror_caption_job(row["id"])
-    return {"ok": True, "projects": len(rows), "removedFiles": removed}
+        project_ids.add(str(row["project_id"] or row["id"]))
+    for project_id in project_ids:
+        deletion = await delete_project_resources(project_id, user_id)
+        removed += int(deletion["removed"])
+    return {"ok": True, "projects": len(project_ids), "removedFiles": removed}

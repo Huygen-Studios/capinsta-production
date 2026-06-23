@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+from threading import Event
 from ai_pipeline.main import run_pipeline
 from .database import DB_PATH
 import aiosqlite
@@ -9,6 +10,10 @@ from .progress import manager
 from .operational_mirror import mirror_caption_job
 
 logger = logging.getLogger(__name__)
+
+
+class PipelineCancelled(RuntimeError):
+    pass
 
 
 def _log_stage(job_id: str, stage: str, **fields):
@@ -78,7 +83,13 @@ async def update_job_status(job_id: str, status: str, progress: int = None,
         await mirror_caption_job(job_id)
         return True
 
-def run_pipeline_sync(job_id: str, video_path: str, target_lang: str):
+def run_pipeline_sync(
+    job_id: str,
+    video_path: str,
+    target_lang: str,
+    *,
+    cancel_event: Event | None = None,
+):
     """
     Synchronous wrapper to run the pipeline.
     This runs in a separate thread with its own event loop.
@@ -87,9 +98,10 @@ def run_pipeline_sync(job_id: str, video_path: str, target_lang: str):
     asyncio.set_event_loop(loop)
     
     def on_progress(status: str, percent: int, details: str = ""):
+        if cancel_event and cancel_event.is_set():
+            raise PipelineCancelled("Caption generation was cancelled.")
         if loop.run_until_complete(is_job_cancelled(job_id)):
-            _log_stage(job_id, "progress skipped", requested_status=status, current_status="cancelled")
-            return
+            raise PipelineCancelled("Caption generation was cancelled.")
         # Update DB via this thread's own event loop
         updated = loop.run_until_complete(update_job_status(job_id, status, percent))
         if not updated:
@@ -142,6 +154,9 @@ def run_pipeline_sync(job_id: str, video_path: str, target_lang: str):
             loop.run_until_complete(manager.broadcast_progress(job_id, "failed", 0, err_msg))
             _log_stage(job_id, "response returned", status="failed", error=err_msg)
 
+    except PipelineCancelled:
+        _log_stage(job_id, "pipeline cancelled", status="cancelled")
+        return
     except Exception as e:
         logger.exception(f"Job {job_id} Pipeline crashed.")
         try:

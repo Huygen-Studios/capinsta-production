@@ -32,6 +32,8 @@ services:
         value: /tmp/huygen-caps/uploads
       - key: EXPORT_DIR
         value: /tmp/huygen-caps/exports
+      - key: MEDIA_DIR
+        value: /tmp/huygen-caps/media
       - key: DB_PATH
         value: /tmp/huygen-caps/database.sqlite
       - key: RUNTIME_CLEANUP_HOURS

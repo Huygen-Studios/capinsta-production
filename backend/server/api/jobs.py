@@ -18,8 +18,10 @@ import aiofiles
 from ..database import get_db, DB_PATH
 from ..models import JobResponse, JobDetailResponse
 from ..progress import manager
-from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, UPLOAD_DIR, ensure_runtime_dirs
+from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, MEDIA_DIR, UPLOAD_DIR, ensure_runtime_dirs
 from ..project_cleanup import ensure_project_available, heartbeat_project, iso_utc, project_expiry
+from ..storage_pressure import require_disk_capacity
+from .media_assets import get_owned_media_asset
 from ..worker_startup import start_pipeline_worker
 from ..auth import current_user, get_owned_job, verify_access_token
 from ..operational_mirror import mirror_caption_job
@@ -132,8 +134,40 @@ def _load_json(value: str | None, fallback: Any) -> Any:
         return fallback
 
 
-def _video_path_for_row(job_id: str, row: aiosqlite.Row) -> str:
+def _legacy_video_path_for_row(job_id: str, row: aiosqlite.Row) -> str:
     return str(UPLOAD_DIR / f"{job_id}_{row['filename']}")
+
+
+async def resolve_job_video_path(
+    db: aiosqlite.Connection, job_id: str, row: aiosqlite.Row
+) -> tuple[str, str]:
+    """Return the best available source media path and an internal access mode."""
+    media_asset_id = row["media_asset_id"] if "media_asset_id" in row.keys() else None
+    if media_asset_id:
+        cursor = await db.execute(
+            """
+            SELECT storage_path FROM media_assets
+            WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+            """,
+            (media_asset_id, current_user().id),
+        )
+        media_row = await cursor.fetchone()
+        if media_row and media_row["storage_path"]:
+            path = Path(str(media_row["storage_path"]))
+            try:
+                path.resolve().relative_to(MEDIA_DIR.resolve())
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "code": "invalid_media_storage_path",
+                        "message": "Media storage path is outside the approved root.",
+                    },
+                ) from exc
+            if path.is_file():
+                return str(path), "direct_media_path"
+    legacy_path = _legacy_video_path_for_row(job_id, row)
+    return legacy_path, "legacy_upload_workspace"
 
 
 def _flatten_word_debug(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -209,7 +243,7 @@ async def _persist_synced_segments(
     segments: list[dict[str, Any]],
     sync_report: dict[str, Any],
 ) -> dict[str, Any]:
-    video_path = _video_path_for_row(job_id, row)
+    video_path, _ = await resolve_job_video_path(db, job_id, row)
     audio_for_render = video_path if os.path.exists(video_path) else None
     srt = generate_srt(segments, audio_path=audio_for_render)
     vtt = generate_vtt(segments, audio_path=audio_for_render)
@@ -289,7 +323,8 @@ async def create_job(
     languageMode: str = Form(None),
     target_lang: str = Form(None),
     project_id: str | None = Form(None),
-    file: UploadFile = File(...)
+    media_asset_id: str | None = Form(None),
+    file: UploadFile | None = File(None),
 ):
     """Uploads a video and starts a background captioning job."""
     await require_feature("caption_generation_enabled", "Caption generation is temporarily unavailable.")
@@ -297,7 +332,18 @@ async def create_job(
     await enforce_caption_quota(current_user().id)
     job_id = str(uuid.uuid4())
     requested_mode = languageMode or target_lang or "auto_mixed_indian"
-    _log_stage(job_id, "request received", language_mode=requested_mode, upload_filename=file.filename)
+    if file is None and not media_asset_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a media asset id or an upload file.",
+        )
+    _log_stage(
+        job_id,
+        "request received",
+        language_mode=requested_mode,
+        upload_filename=file.filename if file else None,
+        media_asset_id=media_asset_id,
+    )
 
     try:
         normalized_mode = normalize_language_mode(requested_mode)
@@ -308,12 +354,23 @@ async def create_job(
             detail=f"{exc} Supported modes: {', '.join(SUPPORTED_LANGUAGE_MODES)}.",
         )
 
-    filename = _validate_upload_metadata(file)
+    media_row = None
+    if media_asset_id:
+        async with aiosqlite.connect(str(DB_PATH)) as media_db:
+            media_db.row_factory = aiosqlite.Row
+            media_row = await get_owned_media_asset(media_db, media_asset_id)
+        if project_id and media_row["project_id"] != project_id:
+            raise HTTPException(status_code=403, detail="Media asset ownership mismatch.")
+        project_id = str(media_row["project_id"])
+        filename = Path(str(media_row["original_name"])).name
+    else:
+        assert file is not None
+        filename = _validate_upload_metadata(file)
     _log_stage(
         job_id,
         "selected media found",
         filename=filename,
-        content_type=file.content_type,
+        content_type=file.content_type if file else media_row["mime_type"],
         language_mode=normalized_mode,
     )
 
@@ -325,34 +382,66 @@ async def create_job(
         _log_stage(job_id, "request rejected", reason=str(exc), language_mode=normalized_mode)
         raise HTTPException(status_code=400, detail=str(exc))
     
-    # Save file to disk
     file_path = str(UPLOAD_DIR / f"{job_id}_{filename}")
-    _log_stage(job_id, "file path resolved", file_path=file_path)
+    media_access_mode = "legacy_upload_workspace"
     max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
     bytes_written = 0
-    try:
-        async with aiofiles.open(file_path, 'wb') as out_file:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                bytes_written += len(chunk)
-                if bytes_written > max_bytes:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_SIZE_MB} MB.",
-                    )
-                await out_file.write(chunk)
-    except Exception as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-    finally:
-        await file.close()
+    if media_row is not None:
+        source_path = Path(str(media_row["storage_path"]))
+        try:
+            source_path.resolve().relative_to(MEDIA_DIR.resolve())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "invalid_media_storage_path",
+                    "message": "Media storage path is outside the approved root.",
+                },
+            ) from exc
+        if not source_path.is_file():
+            raise HTTPException(status_code=410, detail="Media asset has expired.")
+        file_path = str(source_path)
+        media_access_mode = "direct_media_path"
+        bytes_written = int(media_row["size_bytes"])
+    else:
+        assert file is not None
+        require_disk_capacity(
+            operation="upload",
+            required_bytes=int(file.size or 0),
+        )
+        temp_file_path = str(UPLOAD_DIR / f".{job_id}_{filename}.uploading")
+        try:
+            async with aiofiles.open(temp_file_path, 'wb') as out_file:
+                while True:
+                    chunk = await file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    bytes_written += len(chunk)
+                    if bytes_written > max_bytes:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_SIZE_MB} MB.",
+                        )
+                    await out_file.write(chunk)
+            os.replace(temp_file_path, file_path)
+        except Exception as e:
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+        finally:
+            await file.close()
 
-    _log_stage(job_id, "file saved", file_path=file_path, bytes=bytes_written)
+    _log_stage(
+        job_id,
+        "file saved",
+        file_path=file_path,
+        bytes=bytes_written,
+        media_access_mode=media_access_mode,
+    )
     media_duration = await _media_duration_seconds(file_path)
     try:
         await enforce_caption_quota(
@@ -360,7 +449,7 @@ async def create_job(
             media_duration if media_duration > 0 else None,
         )
     except HTTPException:
-        if os.path.exists(file_path):
+        if media_access_mode != "direct_media_path" and os.path.exists(file_path):
             os.remove(file_path)
         raise
 
@@ -373,14 +462,15 @@ async def create_job(
             """
             INSERT INTO jobs
                 (id, status, filename, target_lang, created_at, last_seen_at, expires_at,
-                 user_id, project_id, correlation_id, media_duration_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 user_id, project_id, correlation_id, media_duration_seconds,
+                 media_asset_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, "queued", filename, normalized_mode, now_text, now_text,
                 expires_text, current_user().id, project_id or job_id,
                 request.headers.get("x-correlation-id") or str(uuid.uuid4()),
-                media_duration or None,
+                media_duration or None, media_asset_id,
             ),
         )
         await db.commit()
@@ -616,7 +706,7 @@ async def apply_sync(job_id: str, request: SyncRequest, db: aiosqlite.Connection
 @router.post("/{job_id}/sync/auto")
 async def auto_sync(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     row = await get_owned_job(db, job_id)
-    video_path = _video_path_for_row(job_id, row)
+    video_path, _ = await resolve_job_video_path(db, job_id, row)
     if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Original media file not found for auto sync")
     segments = _load_json(row["segments_json"], [])
@@ -648,7 +738,7 @@ async def auto_sync(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
 @router.post("/{job_id}/sync/high-quality-align")
 async def high_quality_align(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     row = await get_owned_job(db, job_id)
-    video_path = _video_path_for_row(job_id, row)
+    video_path, _ = await resolve_job_video_path(db, job_id, row)
     if not os.path.exists(video_path):
         raise HTTPException(status_code=404, detail="Original media file not found for high quality alignment")
     segments = _load_json(row["segments_json"], [])
@@ -693,9 +783,10 @@ async def get_video(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     r = await get_owned_job(db, job_id)
     await ensure_project_available(r, db)
     
-    file_path = str(UPLOAD_DIR / f"{job_id}_{r['filename']}")
+    file_path, media_access_mode = await resolve_job_video_path(db, job_id, r)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Video file not found")
+    _log_stage(job_id, "video_stream_resolved", media_access_mode=media_access_mode)
     
     return FileResponse(file_path, media_type="video/mp4")
 
@@ -754,8 +845,8 @@ async def export_video(
         return _export_failure("validate_project", "Job not found.", response_format, 404)
     await ensure_project_available(r, db)
 
-    original_video_name = f"{job_id}_{r['filename']}"
-    original_video_path = str(UPLOAD_DIR / original_video_name)
+    original_video_path, media_access_mode = await resolve_job_video_path(db, job_id, r)
+    original_video_name = Path(original_video_path).name
     is_captions_only_export = export_mode in {
         "captions_only",
         "captions_only_solid_background",
@@ -777,6 +868,7 @@ async def export_video(
         render_mode=render_mode,
         export_mode=export_mode,
         media_path=original_video_path,
+        media_access_mode=media_access_mode,
         media_exists=os.path.exists(original_video_path),
         export_width=export_width,
         export_height=export_height,
@@ -917,7 +1009,7 @@ async def export_video(
             "ffprobe", "-v", "error",
             "-show_entries", "format=duration",
             "-of", "csv=p=0",
-            original_video_name,
+            original_video_path,
         ]
         probe_proc = await asyncio.create_subprocess_exec(
             *probe_cmd, cwd=str(UPLOAD_DIR),
@@ -931,7 +1023,7 @@ async def export_video(
     await manager.broadcast(job_id, {"status": "exporting", "percent": 1, "details": "Burning subtitles..."})
 
     ffmpeg_cmd = [
-        "ffmpeg", "-y", "-i", original_video_name,
+        "ffmpeg", "-y", "-i", original_video_path,
         "-vf", vf_string,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-c:a", "copy", "-progress", "pipe:1",

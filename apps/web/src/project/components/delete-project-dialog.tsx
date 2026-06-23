@@ -10,18 +10,25 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { useEffect, useState } from "react";
 
 export function DeleteProjectDialog({
 	isOpen,
 	onOpenChange,
 	onConfirm,
 	projectNames,
+	isDeleting = false,
 }: {
 	isOpen: boolean;
 	onOpenChange: (open: boolean) => void;
-	onConfirm: () => void;
+	onConfirm: () => void | Promise<void>;
 	projectNames: string[];
+	isDeleting?: boolean;
 }) {
+	const [confirmation, setConfirmation] = useState("");
+	useEffect(() => {
+		if (!isOpen) setConfirmation("");
+	}, [isOpen]);
 	const count = projectNames.length;
 	const isSingle = count === 1;
 	const singleName = isSingle ? projectNames[0] : null;
@@ -55,7 +62,8 @@ export function DeleteProjectDialog({
 						<AlertDescription>
 							This will permanently delete{" "}
 							{singleName ? `"${singleName}"` : `${count} projects`} and all
-							associated files.
+							associated media, captions, and exports. Anonymous operational
+							metadata remains for account and admin history.
 						</AlertDescription>
 					</Alert>
 					<div className="flex flex-col gap-3">
@@ -67,15 +75,26 @@ export function DeleteProjectDialog({
 							placeholder="DELETE"
 							size="lg"
 							variant="destructive"
+							value={confirmation}
+							onChange={(event) => setConfirmation(event.target.value)}
+							disabled={isDeleting}
 						/>
 					</div>
 				</DialogBody>
 				<DialogFooter>
-					<Button variant="outline" onClick={() => onOpenChange(false)}>
+					<Button
+						variant="outline"
+						onClick={() => onOpenChange(false)}
+						disabled={isDeleting}
+					>
 						Cancel
 					</Button>
-					<Button variant="destructive" onClick={onConfirm}>
-						Delete project
+					<Button
+						variant="destructive"
+						onClick={() => void onConfirm()}
+						disabled={confirmation !== "DELETE" || isDeleting}
+					>
+						{isDeleting ? "Deleting…" : "Delete project"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

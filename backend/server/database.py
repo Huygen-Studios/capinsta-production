@@ -91,6 +91,43 @@ async def init_db():
             except Exception:
                 pass
 
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS media_assets (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                original_name TEXT NOT NULL,
+                mime_type TEXT,
+                size_bytes INTEGER NOT NULL,
+                storage_path TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ready',
+                created_at TEXT NOT NULL,
+                last_accessed_at TEXT NOT NULL,
+                deleted_at TEXT
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_media_assets_project_owner
+            ON media_assets (project_id, user_id, deleted_at)
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS project_deletions (
+                project_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                requested_at TEXT NOT NULL,
+                completed_at TEXT,
+                error_code TEXT,
+                retained_metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+
         await db.execute('''
             CREATE TABLE IF NOT EXISTS export_jobs (
                 id TEXT PRIMARY KEY,
@@ -158,7 +195,7 @@ async def init_db():
         for column in (
             "project_id TEXT", "media_duration_seconds REAL", "started_at TEXT",
             "retry_count INTEGER DEFAULT 0", "retry_of_job_id TEXT",
-            "admin_retry_by TEXT", "correlation_id TEXT"
+            "admin_retry_by TEXT", "correlation_id TEXT", "media_asset_id TEXT"
         ):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")

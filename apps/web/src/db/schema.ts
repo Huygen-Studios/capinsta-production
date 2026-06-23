@@ -232,6 +232,46 @@ export const projectRegistry = pgTable(
 	],
 );
 
+export const deletedProjectRecords = pgTable(
+	"deleted_project_records",
+	{
+		projectId: text("project_id").primaryKey(),
+		ownerId: uuid("owner_id"),
+		projectCreatedAt: timestamp("project_created_at", { withTimezone: true }),
+		deletedAt: timestamp("deleted_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		sourceDurationSeconds: numeric("source_duration_seconds"),
+		sourceSizeBytes: bigint("source_size_bytes", { mode: "number" }),
+		captionLanguage: text("caption_language"),
+		captionWordCount: integer("caption_word_count").default(0).notNull(),
+		captionChunkCount: integer("caption_chunk_count").default(0).notNull(),
+		captionModel: text("caption_model"),
+		generationStatus: text("generation_status"),
+		generationProcessingSeconds: numeric("generation_processing_seconds"),
+		exportAttemptCount: integer("export_attempt_count").default(0).notNull(),
+		exportFormat: text("export_format"),
+		exportWidth: integer("export_width"),
+		exportHeight: integer("export_height"),
+		exportFps: integer("export_fps"),
+		exportDurationSeconds: numeric("export_duration_seconds"),
+		exportOutputSizeBytes: bigint("export_output_size_bytes", {
+			mode: "number",
+		}),
+		exportProcessingSeconds: numeric("export_processing_seconds"),
+		exportStatus: text("export_status"),
+		normalizedErrorCode: text("normalized_error_code"),
+		deletionStatus: text("deletion_status").default("completed").notNull(),
+	},
+	(table) => [
+		index("deleted_project_records_owner_deleted_idx").on(
+			table.ownerId,
+			table.deletedAt,
+		),
+		index("deleted_project_records_deleted_idx").on(table.deletedAt),
+	],
+);
+
 export const usageEvents = pgTable(
 	"usage_events",
 	{

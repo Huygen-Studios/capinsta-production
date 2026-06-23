@@ -28,6 +28,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+function formatBytes(value: unknown): string {
+  const bytes = typeof value === "number" ? value : Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const unit = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  return `${(bytes / 1024 ** unit).toFixed(unit > 1 ? 1 : 0)} ${units[unit]}`;
+}
+
 export default async function OverviewPage() {
   await requireAdminSession();
   const data = await getOverviewData();
@@ -39,6 +50,14 @@ export default async function OverviewPage() {
   const exportSuccess = exportTotal
     ? Math.round((Number(data.exports.succeeded || 0) / exportTotal) * 100)
     : 0;
+  const backendStorage =
+    data.backendHealth.data &&
+    typeof data.backendHealth.data === "object" &&
+    "storage" in data.backendHealth.data &&
+    data.backendHealth.data.storage &&
+    typeof data.backendHealth.data.storage === "object"
+      ? (data.backendHealth.data.storage as Record<string, unknown>)
+      : null;
   const cards = [
     [
       "Registered users",
@@ -151,6 +170,40 @@ export default async function OverviewPage() {
         </Card>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Server storage</CardTitle>
+            <CardDescription>
+              Aggregate usage only; private filenames and paths are excluded.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {[
+              ["Original media", "mediaAssetsBytes"],
+              ["Uploads", "uploadsBytes"],
+              ["Extracted audio", "extractedAudioBytes"],
+              ["Proxies", "proxiesBytes"],
+              ["Thumbnails / waveforms", "thumbnailsWaveformsBytes"],
+              ["Render temporary", "temporaryRenderBytes"],
+              ["Exports", "exportsBytes"],
+              ["Logs", "logsBytes"],
+              ["Orphaned", "orphanedBytes"],
+              ["Free disk", "diskFreeBytes"],
+            ].map(([label, key]) => (
+              <div key={key} className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="mt-1 font-mono text-sm font-semibold">
+                  {backendStorage ? formatBytes(backendStorage[key]) : "Unavailable"}
+                </p>
+              </div>
+            ))}
+            {backendStorage ? (
+              <Badge variant="outline" className="w-fit">
+                {String(backendStorage.diskPressure ?? "unknown")}
+              </Badge>
+            ) : null}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Provider health</CardTitle>

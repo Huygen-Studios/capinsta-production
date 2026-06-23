@@ -40,6 +40,8 @@ backend/storage/temp/
 backend/storage/exports/
 backend/storage/uploads/
 storage/
+!apps/web/src/services/storage/
+!apps/web/src/services/storage/**
 
 # Logs and test output
 *.log

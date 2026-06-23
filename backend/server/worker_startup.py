@@ -2,7 +2,7 @@ import asyncio
 import importlib
 import logging
 import traceback
-from threading import Thread
+from threading import Event, Lock, Thread
 from typing import Any
 
 import aiosqlite
@@ -11,6 +11,8 @@ from .database import DB_PATH
 from .progress import manager
 
 logger = logging.getLogger(__name__)
+_workers_lock = Lock()
+_workers: dict[str, tuple[Thread, Event]] = {}
 
 
 def format_worker_startup_error(error: BaseException) -> str:
@@ -74,10 +76,17 @@ def start_pipeline_worker(
     file_path: str,
     language_mode: str,
 ) -> Thread:
+    cancel_event = Event()
+
     def pipeline_thread_target() -> None:
         try:
             pipeline_runner = import_pipeline_runner()
-            pipeline_runner.run_pipeline_sync(job_id, file_path, language_mode)
+            pipeline_runner.run_pipeline_sync(
+                job_id,
+                file_path,
+                language_mode,
+                cancel_event=cancel_event,
+            )
         except BaseException as error:
             error_message = format_worker_startup_error(error)
             logger.error(
@@ -95,8 +104,32 @@ def start_pipeline_worker(
                 )
             except BaseException:
                 logger.exception("Failed to persist caption worker startup error")
+        finally:
+            with _workers_lock:
+                _workers.pop(job_id, None)
 
     thread = Thread(target=pipeline_thread_target)
     thread.daemon = True
+    with _workers_lock:
+        _workers[job_id] = (thread, cancel_event)
     thread.start()
     return thread
+
+
+async def cancel_pipeline_workers(
+    job_ids: list[str], *, timeout_seconds: float = 60.0
+) -> list[str]:
+    with _workers_lock:
+        workers = [
+            (job_id, *_workers[job_id])
+            for job_id in job_ids
+            if job_id in _workers
+        ]
+    for _, _, cancel_event in workers:
+        cancel_event.set()
+    timed_out: list[str] = []
+    for job_id, thread, _ in workers:
+        await asyncio.to_thread(thread.join, timeout_seconds)
+        if thread.is_alive():
+            timed_out.append(job_id)
+    return timed_out

@@ -119,7 +119,9 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
 
 export interface StartCapinstaCaptionJobInput {
   baseUrl: string
-  file: File
+  file?: File
+  mediaAssetId?: string
+  projectId: string
   languageMode: CapinstaLanguageMode
 }
 

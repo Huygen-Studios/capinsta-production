@@ -12,6 +12,7 @@ import {
 	readStorageQuotaStatus,
 } from "./quota";
 import type {
+	LegacyBrowserStorageRecoveryResult,
 	MediaAssetData,
 	StorageConfig,
 	SerializedProject,
@@ -23,6 +24,11 @@ import {
 } from "@/services/storage/migrations";
 import type { Bookmark, SceneTracks, TScene } from "@/timeline";
 import { roundMediaTime } from "@/wasm";
+import {
+	fetchProjectMediaAsset,
+	verifyProjectMediaAsset,
+} from "@/capinsta/mediaAssetApi";
+import { browserCacheRegistry } from "./browser-cache-registry";
 
 function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 	if (!Array.isArray(raw)) return [];
@@ -48,6 +54,14 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+export function shouldPersistMediaFileInBrowser({
+	serverAssetId,
+}: {
+	serverAssetId?: string;
+}): boolean {
+	return !serverAssetId;
 }
 
 class StorageService {
@@ -185,6 +199,15 @@ class StorageService {
 			key: project.metadata.id,
 			value: serializedProject,
 		});
+		await browserCacheRegistry.register({
+			id: `project:${project.metadata.id}`,
+			projectId: project.metadata.id,
+			assetType: "project_snapshot",
+			estimatedByteSize: new TextEncoder().encode(
+				JSON.stringify(serializedProject),
+			).byteLength,
+			evictable: false,
+		});
 	}
 
 	async loadProject({
@@ -196,6 +219,7 @@ class StorageService {
 		const serializedProject = await this.projectsAdapter.get(id);
 
 		if (!serializedProject) return null;
+		await browserCacheRegistry.touch(`project:${id}`);
 
 		if (
 			typeof serializedProject !== "object" ||
@@ -299,6 +323,9 @@ class StorageService {
 				updatedAt: new Date(serializedProject.metadata.updatedAt),
 			});
 		}
+		await browserCacheRegistry.cleanupOrphans(
+			new Set(metadata.map((project) => project.id)),
+		);
 
 		return metadata.sort(
 			(a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
@@ -307,6 +334,7 @@ class StorageService {
 
 	async deleteProject({ id }: { id: string }): Promise<void> {
 		await this.projectsAdapter.remove(id);
+		await browserCacheRegistry.deleteProject(id);
 	}
 
 	async saveMediaAsset({
@@ -337,16 +365,35 @@ class StorageService {
 			sourceAssetId: mediaAsset.sourceAssetId,
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
+			serverAssetId: mediaAsset.serverAssetId,
+			serverDownloadUrl: mediaAsset.serverDownloadUrl,
 		};
 
 		try {
-			await mediaAssetsAdapter.set({
-				key: mediaAsset.id,
-				value: mediaAsset.file,
-			});
+			if (
+				shouldPersistMediaFileInBrowser({
+					serverAssetId: mediaAsset.serverAssetId,
+				})
+			) {
+				await mediaAssetsAdapter.set({
+					key: mediaAsset.id,
+					value: mediaAsset.file,
+				});
+			} else {
+				// Remove legacy browser copies after a successful server upload.
+				await mediaAssetsAdapter.remove(mediaAsset.id);
+			}
 			await mediaMetadataAdapter.set({
 				key: mediaAsset.id,
 				value: metadata,
+			});
+			await browserCacheRegistry.register({
+				id: `media:${projectId}:${mediaAsset.id}`,
+				projectId,
+				assetType: "media_metadata",
+				estimatedByteSize: new TextEncoder().encode(JSON.stringify(metadata))
+					.byteLength,
+				evictable: false,
 			});
 		} catch (error) {
 			try {
@@ -375,12 +422,17 @@ class StorageService {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
 
-		const [file, metadata] = await Promise.all([
-			mediaAssetsAdapter.get(id),
-			mediaMetadataAdapter.get(id),
-		]);
+		const metadata = await mediaMetadataAdapter.get(id);
+		const storedFile = metadata?.serverAssetId
+			? null
+			: await mediaAssetsAdapter.get(id);
 
-		if (!file || !metadata) return null;
+		if (!metadata) return null;
+		await browserCacheRegistry.touch(`media:${projectId}:${id}`);
+		const file = metadata.serverAssetId
+			? await fetchProjectMediaAsset({ assetId: metadata.serverAssetId })
+			: storedFile;
+		if (!file) return null;
 
 		const restoredFile = new File([file], metadata.name, {
 			type:
@@ -430,6 +482,8 @@ class StorageService {
 			sourceAssetId: metadata.sourceAssetId,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
+			serverAssetId: metadata.serverAssetId,
+			serverDownloadUrl: metadata.serverDownloadUrl,
 		};
 	}
 
@@ -464,7 +518,6 @@ class StorageService {
 	}): Promise<void> {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
-
 		await Promise.all([
 			mediaAssetsAdapter.remove(id),
 			mediaMetadataAdapter.remove(id),
@@ -482,7 +535,116 @@ class StorageService {
 		await Promise.all([
 			mediaMetadataAdapter.clear(),
 			mediaAssetsAdapter.clear(),
+			browserCacheRegistry.deleteProject(projectId),
 		]);
+	}
+
+	async recoverLegacyBrowserStorage(): Promise<LegacyBrowserStorageRecoveryResult> {
+		await this.ensureMigrations();
+		const result: LegacyBrowserStorageRecoveryResult = {
+			scannedProjects: 0,
+			verifiedBackendAssets: 0,
+			removedBrowserDuplicates: 0,
+			requiresReimportProjects: [],
+			estimatedReclaimableBytes: 0,
+			reclaimedBytes: 0,
+			errors: [],
+		};
+		const requiringReimport = new Set<string>();
+		const projectIds = await this.projectsAdapter.list();
+		result.scannedProjects = projectIds.length;
+
+		for (const projectId of projectIds) {
+			const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
+				projectId,
+			});
+			const metadataIds = await mediaMetadataAdapter.list().catch(() => []);
+			const fileAdapters = [
+				...(OPFSAdapter.isSupported()
+					? [new OPFSAdapter(`media-files-${projectId}`)]
+					: []),
+				new IndexedDBFileAdapter({
+					dbName: `${this.config.mediaDb}-${projectId}-files`,
+					storeName: "media-files",
+					version: this.config.version,
+				}),
+			];
+
+			for (const assetId of metadataIds) {
+				const metadata = await mediaMetadataAdapter.get(assetId);
+				if (!metadata) continue;
+				let storedBytes = 0;
+				for (const adapter of fileAdapters) {
+					try {
+						const file = await adapter.get(assetId);
+						storedBytes += file?.size ?? 0;
+					} catch (error) {
+						result.errors.push({
+							projectId,
+							assetId,
+							message:
+								error instanceof Error ? error.message : "Unable to read browser media store.",
+						});
+					}
+				}
+				if (storedBytes <= 0) continue;
+
+				if (!metadata.serverAssetId) {
+					requiringReimport.add(projectId);
+					result.estimatedReclaimableBytes += storedBytes;
+					continue;
+				}
+
+				const backendExists = await verifyProjectMediaAsset({
+					assetId: metadata.serverAssetId,
+				}).catch(() => false);
+				if (!backendExists) {
+					requiringReimport.add(projectId);
+					result.estimatedReclaimableBytes += storedBytes;
+					continue;
+				}
+
+				result.verifiedBackendAssets += 1;
+				result.estimatedReclaimableBytes += storedBytes;
+				for (const adapter of fileAdapters) {
+					try {
+						await adapter.remove(assetId);
+					} catch (error) {
+						result.errors.push({
+							projectId,
+							assetId,
+							message:
+								error instanceof Error ? error.message : "Unable to remove browser media duplicate.",
+						});
+					}
+				}
+				if (metadata.thumbnailUrl?.startsWith("blob:")) {
+					URL.revokeObjectURL(metadata.thumbnailUrl);
+				}
+				await mediaMetadataAdapter.set({
+					key: assetId,
+					value: {
+						...metadata,
+						thumbnailUrl: metadata.thumbnailUrl?.startsWith("blob:")
+							? undefined
+							: metadata.thumbnailUrl,
+					},
+				});
+				await browserCacheRegistry.register({
+					id: `media:${projectId}:${assetId}`,
+					projectId,
+					assetType: "media_metadata",
+					estimatedByteSize: new TextEncoder().encode(JSON.stringify(metadata))
+						.byteLength,
+					evictable: false,
+				});
+				result.removedBrowserDuplicates += 1;
+				result.reclaimedBytes += storedBytes;
+			}
+		}
+
+		result.requiresReimportProjects = [...requiringReimport];
+		return result;
 	}
 
 	async clearAllData(): Promise<void> {

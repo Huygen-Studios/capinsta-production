@@ -9,6 +9,7 @@ import type {
 } from "@/project/types";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
 import { storageService } from "@/services/storage/service";
+import { deleteServerProject } from "@/capinsta/projectDeletionApi";
 import { toast } from "sonner";
 import { generateUUID } from "@/utils/id";
 import { UpdateProjectSettingsCommand } from "@/commands/project";
@@ -299,14 +300,13 @@ export class ProjectManager {
 		if (uniqueIds.length === 0) return;
 
 		try {
-			await Promise.all(
-				uniqueIds.map((id) =>
-					Promise.all([
-						storageService.deleteProjectMedia({ projectId: id }),
-						storageService.deleteProject({ id }),
-					]),
-				),
-			);
+			for (const id of uniqueIds) {
+				await deleteServerProject({ projectId: id });
+				await Promise.all([
+					storageService.deleteProjectMedia({ projectId: id }),
+					storageService.deleteProject({ id }),
+				]);
+			}
 
 			const idSet = new Set(uniqueIds);
 			this.savedProjects = this.savedProjects.filter(
@@ -325,6 +325,7 @@ export class ProjectManager {
 			this.notify();
 		} catch (error) {
 			console.error("Failed to delete projects:", error);
+			throw error;
 		}
 	}
 
@@ -742,7 +743,18 @@ export class ProjectManager {
 			targetCanvas: tempCanvas,
 		});
 
-		const thumbnailDataUrl = tempCanvas.toDataURL("image/png");
+		const thumbnailWidth = Math.min(320, tempCanvas.width);
+		const thumbnailHeight = Math.max(
+			1,
+			Math.round((tempCanvas.height / tempCanvas.width) * thumbnailWidth),
+		);
+		const thumbnailCanvas = document.createElement("canvas");
+		thumbnailCanvas.width = thumbnailWidth;
+		thumbnailCanvas.height = thumbnailHeight;
+		thumbnailCanvas
+			.getContext("2d")
+			?.drawImage(tempCanvas, 0, 0, thumbnailWidth, thumbnailHeight);
+		const thumbnailDataUrl = thumbnailCanvas.toDataURL("image/jpeg", 0.72);
 
 		await this.updateThumbnail({ thumbnail: thumbnailDataUrl });
 		return true;

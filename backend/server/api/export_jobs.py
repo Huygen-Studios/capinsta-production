@@ -28,13 +28,13 @@ from ..settings import (
     DB_PATH,
     MAX_CONCURRENT_EXPORTS,
     MAX_EXPORT_DURATION_SECONDS,
-    UPLOAD_DIR,
     ensure_runtime_dirs,
 )
-from .jobs import _public_export_stage, _resolve_export_dimensions
+from .jobs import _public_export_stage, _resolve_export_dimensions, resolve_job_video_path
 from ..auth import current_user, get_owned_job
 from ..operational_mirror import mirror_export_job
 from ..runtime_policy import enforce_export_quota, require_feature
+from ..storage_pressure import require_disk_capacity
 
 
 router = APIRouter(prefix="/export/jobs", tags=["export"])
@@ -46,6 +46,7 @@ ExportStatus = Literal["queued", "running", "completed", "failed", "cancelled", 
 _export_semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPORTS)
 _jobs_lock = asyncio.Lock()
 _jobs: dict[str, "ExportJobStatus"] = {}
+_export_tasks: dict[str, asyncio.Task[None]] = {}
 _EXPORT_JOB_COLUMNS = (
     "id",
     "source_job_id",
@@ -566,6 +567,12 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
             )
 
             output = Path(output_path)
+            async with _jobs_lock:
+                current_job = _jobs.get(export_job_id)
+                cancelled = current_job is not None and current_job.status == "cancelled"
+            if cancelled:
+                output.unlink(missing_ok=True)
+                return
             output_bytes = output.stat().st_size if output.exists() else 0
             if output_bytes <= 0:
                 raise ExportStageError("output_write", f"FFmpeg finished but output file is missing or empty: {output_path}")
@@ -723,6 +730,7 @@ async def start_export_job(
                 "correlationId": existing_job.correlation_id,
             }
     await require_feature("export_enabled", "Exports are temporarily unavailable.")
+    require_disk_capacity(operation="export")
     if duration_override is None and custom_duration is not None:
         duration_override = custom_duration
     if duration_source is None and duration_mode is not None:
@@ -752,7 +760,9 @@ async def start_export_job(
         )
     await ensure_project_available(row, db)
 
-    original_video_path = str(UPLOAD_DIR / f"{source_job_id}_{row['filename']}")
+    original_video_path, media_access_mode = await resolve_job_video_path(
+        db, source_job_id, row
+    )
     is_captions_only = export_mode in {
         "captions_only",
         "captions_only_solid_background",
@@ -763,7 +773,8 @@ async def start_export_job(
             {
                 "success": False,
                 "stage": "resolve_media",
-                "error": f"Source media file was not found for export: {original_video_path}",
+                "error": "Source media file was not found for export.",
+                "mediaAccessMode": media_access_mode,
             },
             status_code=404,
         )
@@ -795,6 +806,11 @@ async def start_export_job(
         render_mode=render_mode,
         original_video_path=original_video_path,
         composition_json=composition_json,
+    )
+    logger.info(
+        "export_source_media_resolved source_job_id=%s media_access_mode=%s",
+        source_job_id,
+        media_access_mode,
     )
 
     export_job_id = str(uuid.uuid4())
@@ -851,7 +867,9 @@ async def start_export_job(
         caption_chunks_count,
         EXPORT_DIR,
     )
-    asyncio.create_task(_run_export_job(export_job_id, request))
+    task = asyncio.create_task(_run_export_job(export_job_id, request))
+    _export_tasks[export_job_id] = task
+    task.add_done_callback(lambda _: _export_tasks.pop(export_job_id, None))
 
     return {
         "success": True,
@@ -860,6 +878,34 @@ async def start_export_job(
         "message": "Export started",
         "correlationId": queued_job.correlation_id,
     }
+
+
+async def cancel_project_exports(project_id: str) -> list[str]:
+    cancelled_ids: list[str] = []
+    tasks: list[asyncio.Task[None]] = []
+    async with _jobs_lock:
+        for job in _jobs.values():
+            if job.project_id != project_id or job.status not in {"queued", "running"}:
+                continue
+            job.status = "cancelled"
+            job.stage = "cancelled"
+            job.progress = -1
+            job.message = "Cancelled because the project was deleted."
+            job.error = "project_deleted"
+            job.updated_at = _utc_now()
+            cancelled_ids.append(job.id)
+            task = _export_tasks.get(job.id)
+            if task and not task.done():
+                tasks.append(task)
+    for export_id in cancelled_ids:
+        job = _jobs.get(export_id)
+        if job:
+            await _persist_job(job)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return cancelled_ids
 
 
 @router.get("")
