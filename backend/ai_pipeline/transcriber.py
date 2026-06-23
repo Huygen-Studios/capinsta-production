@@ -54,6 +54,7 @@ SARVAM_LANGUAGE_CODES = {
 
 SARVAM_URL = "https://api.sarvam.ai/speech-to-text"
 GEMINI_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+OPENAI_TRANSCRIPTION_MODEL = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip() or "whisper-1"
 GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
 
 
@@ -461,6 +462,19 @@ def _prepare_gemini_audio_file(audio_path: str) -> tuple[str, str, str | None]:
     return converted_path, mime_type, converted_path
 
 
+def _prepare_openai_audio_file(audio_path: str) -> tuple[str, str, str | None]:
+    mime_type = _sniff_audio_mime_type(audio_path)
+    if mime_type in GEMINI_SUPPORTED_AUDIO_MIME_TYPES:
+        return audio_path, mime_type, None
+
+    converted_path = _transcode_gemini_audio_to_wav(audio_path)
+    logger.info(
+        "openai_audio_transcoded provider=openai_whisper source_supported=false target_mime_type=audio/wav file_size=%s",
+        os.path.getsize(converted_path),
+    )
+    return converted_path, "audio/wav", converted_path
+
+
 def _sanitize_provider_message(message: str | None) -> str:
     text = str(message or "").strip()
     if not text:
@@ -636,27 +650,48 @@ def _call_openai_whisper(audio_path: str, language_mode: str) -> dict:
     if not api_key:
         raise RuntimeError("STT_PROVIDER=openai_whisper requires OPENAI_API_KEY.")
 
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(
+        api_key=api_key,
+        timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
+        max_retries=0,
+    )
     language_hint = LANGUAGE_HINTS.get(language_mode)
     prompt = WHISPER_PROMPTS.get(language_mode, "")
+    prepared_path, upload_mime_type, cleanup_path = _prepare_openai_audio_file(audio_path)
 
-    with open(audio_path, "rb") as file:
-        kwargs: dict[str, Any] = {
-            "file": file,
-            "model": "whisper-1",
-            "response_format": "verbose_json",
-            "timestamp_granularities": ["word", "segment"],
-        }
-        if language_hint:
-            kwargs["language"] = language_hint
-        if prompt:
-            kwargs["prompt"] = prompt
-        try:
-            transcription = client.audio.transcriptions.create(**kwargs)
-        except Exception as exc:
-            if _looks_like_auth_error(exc):
-                raise RuntimeError(OPENAI_KEY_ERROR) from exc
-            raise
+    try:
+        size_bytes = os.path.getsize(prepared_path)
+        logger.info(
+            "openai_audio_input provider=openai_whisper model=%s mime_type=%s file_size=%s",
+            OPENAI_TRANSCRIPTION_MODEL,
+            upload_mime_type,
+            size_bytes,
+        )
+        with open(prepared_path, "rb") as file:
+            kwargs: dict[str, Any] = {
+                "file": (os.path.basename(prepared_path), file, upload_mime_type),
+                "model": OPENAI_TRANSCRIPTION_MODEL,
+                "response_format": "verbose_json",
+                "timestamp_granularities": ["word", "segment"],
+                "temperature": 0,
+                "timeout": STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
+            }
+            if language_hint:
+                kwargs["language"] = language_hint
+            if prompt:
+                kwargs["prompt"] = prompt
+            try:
+                transcription = client.audio.transcriptions.create(**kwargs)
+            except Exception as exc:
+                if _looks_like_auth_error(exc):
+                    raise RuntimeError(OPENAI_KEY_ERROR) from exc
+                raise
+    finally:
+        if cleanup_path:
+            try:
+                os.remove(cleanup_path)
+            except OSError:
+                pass
 
     if hasattr(transcription, "model_dump"):
         payload = transcription.model_dump()
@@ -672,6 +707,7 @@ def _call_openai_whisper(audio_path: str, language_mode: str) -> dict:
         "segments": payload.get("segments") or [],
         "words": payload.get("words") or [],
         "provider": "openai_whisper",
+        "model": OPENAI_TRANSCRIPTION_MODEL,
     }
 
 

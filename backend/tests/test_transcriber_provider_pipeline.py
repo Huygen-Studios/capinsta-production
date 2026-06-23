@@ -95,6 +95,24 @@ class FakeGeminiClient:
         self.files = FakeFiles()
 
 
+class FakeOpenAITranscriptions:
+    def __init__(self, handler):
+        self.handler = handler
+
+    def create(self, **kwargs):
+        return self.handler(**kwargs)
+
+
+class FakeOpenAIAudio:
+    def __init__(self, handler):
+        self.transcriptions = FakeOpenAITranscriptions(handler)
+
+
+class FakeOpenAIClient:
+    def __init__(self, handler):
+        self.audio = FakeOpenAIAudio(handler)
+
+
 def test_gemini_succeeds_and_no_fallback_runs(monkeypatch, tmp_path):
     _clear_provider_env(monkeypatch)
     monkeypatch.setenv("STT_PROVIDER", "auto")
@@ -210,6 +228,76 @@ def test_sarvam_upload_mime_matches_mp3_bytes(monkeypatch, tmp_path):
 
     assert result["provider"] == "sarvam"
     assert seen["files"]["file"][2] == "audio/mpeg"
+
+
+def test_openai_whisper_uses_timeout_no_retries_model_and_actual_mime(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    seen = {"clients": []}
+
+    def fake_openai(**kwargs):
+        seen["clients"].append(kwargs)
+
+        def handler(**create_kwargs):
+            seen["create"] = create_kwargs
+            return {
+                "text": "hello",
+                "language": "en",
+                "duration": 1.0,
+                "segments": [{"start": 0, "end": 0.5, "text": "hello"}],
+                "words": [{"word": "hello", "start": 0.0, "end": 0.5}],
+            }
+
+        return FakeOpenAIClient(handler)
+
+    monkeypatch.setattr(transcriber, "OpenAI", fake_openai)
+    result = transcriber._call_openai_whisper(_write_mp3_like(tmp_path / "chunk.mp3"), "english")
+
+    assert result["provider"] == "openai_whisper"
+    assert result["model"] == transcriber.OPENAI_TRANSCRIPTION_MODEL
+    assert seen["clients"] == [
+        {
+            "api_key": "openai-secret",
+            "timeout": transcriber.STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
+            "max_retries": 0,
+        }
+    ]
+    assert seen["create"]["model"] == "whisper-1"
+    assert seen["create"]["response_format"] == "verbose_json"
+    assert seen["create"]["timestamp_granularities"] == ["word", "segment"]
+    assert seen["create"]["timeout"] == transcriber.STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS
+    assert seen["create"]["temperature"] == 0
+    assert seen["create"]["file"][2] == "audio/mpeg"
+
+
+def test_openai_whisper_transcodes_mp4_container_before_upload(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    source_path = _write_mp4_like(tmp_path / "bad.mp4")
+    converted_path = _write_wav(tmp_path / "converted.wav")
+    seen = {}
+
+    monkeypatch.setattr(transcriber, "_transcode_gemini_audio_to_wav", lambda path: converted_path)
+
+    def fake_openai(**kwargs):
+        def handler(**create_kwargs):
+            seen["create"] = create_kwargs
+            return {
+                "text": "hello",
+                "language": "en",
+                "duration": 1.0,
+                "segments": [{"start": 0, "end": 0.5, "text": "hello"}],
+                "words": [{"word": "hello", "start": 0.0, "end": 0.5}],
+            }
+
+        return FakeOpenAIClient(handler)
+
+    monkeypatch.setattr(transcriber, "OpenAI", fake_openai)
+    result = transcriber._call_openai_whisper(source_path, "english")
+
+    assert result["provider"] == "openai_whisper"
+    assert seen["create"]["file"][0] == "converted.wav"
+    assert seen["create"]["file"][2] == "audio/wav"
 
 
 @pytest.mark.parametrize("key", ["AQ.testAuthorizationKey1234567890", "AIzaSyA-test-key-format-only"])
