@@ -361,7 +361,14 @@ def _audio_mime_type(audio_path: str) -> str:
         "audio/m4a",
         "audio/opus",
     }:
-        return "audio/wav" if guessed == "audio/x-wav" else guessed
+        if guessed == "audio/x-wav":
+            return "audio/wav"
+        if guessed == "audio/mpeg":
+            return "audio/mp3"
+        return guessed
+    
+    if audio_path.lower().endswith(".mp3"):
+        return "audio/mp3"
     return "audio/wav"
 
 

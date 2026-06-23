@@ -35,7 +35,7 @@ class Chunk:
         self.asr_metadata = None
 
 def extract_audio(video_path: str, output_path: str) -> str:
-    """Extracts mono 16k PCM WAV audio for stable transcription and alignment."""
+    """Extracts mono 16k MP3 audio for stable transcription and alignment."""
     if not shutil.which(FFMPEG_BINARY) and not os.path.exists(FFMPEG_BINARY):
         raise RuntimeError("FFmpeg is not available. Install FFmpeg or set FFMPEG_PATH to the ffmpeg executable.")
 
@@ -44,7 +44,8 @@ def extract_audio(video_path: str, output_path: str) -> str:
         "-vn",
         "-ac", "1",
         "-ar", "16000",
-        "-c:a", "pcm_s16le",
+        "-c:a", "libmp3lame",
+        "-b:a", "64k",
         output_path,
         "-y"
     ]
@@ -167,8 +168,8 @@ def overlap_chunk(
     chunks = []
     for index, (start, end) in enumerate(ranges):
         seg = audio[round(start * 1000) : round(end * 1000)]
-        chunk_path = f"{audio_path}_chunk_{index}.wav"
-        seg.export(chunk_path, format="wav")
+        chunk_path = f"{audio_path}_chunk_{index}.mp3"
+        seg.export(chunk_path, format="mp3")
         chunks.append(Chunk(index=index, audio_path=chunk_path, start_time=start, end_time=end))
     return chunks
 

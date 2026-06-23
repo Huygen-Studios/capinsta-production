@@ -160,7 +160,7 @@ def run_pipeline(
     output_language = caption_output or "original"
     pipeline_logger = PipelineLogger(os.path.basename(video_path))
     pipeline_logger.start_run()
-    audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
+    audio_path = f"{os.path.splitext(video_path)[0]}_temp.mp3"
     chunks = []
     transcription_providers: set[str] = set()
     transcription_fallback_from: set[str] = set()
