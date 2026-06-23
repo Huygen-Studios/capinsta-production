@@ -428,7 +428,11 @@ export function Captions() {
 			console.debug("[Capinsta captions] Starting transcription request");
 			const startedJob = await startCapinstaCaptionJob({
 				baseUrl: capinstaApiBaseUrl,
-				file: audioForCaptions.file,
+				file: selectedMediaAsset.serverAssetId
+					? undefined
+					: audioForCaptions.file,
+				mediaAssetId: selectedMediaAsset.serverAssetId,
+				projectId: editor.project.getActive().metadata.id,
 				languageMode: "auto_mixed_indian",
 				signal: abortController.signal,
 			});

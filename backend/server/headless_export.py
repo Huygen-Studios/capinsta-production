@@ -23,6 +23,7 @@ from typing import Callable, Awaitable, Optional
 from .asyncio_compat import needs_proactor_thread, run_on_proactor_loop
 from .settings import (
     EXPORT_DIR,
+    TEMP_DIR,
     bundled_render_page_url,
     default_render_page_url,
     ensure_runtime_dirs,
@@ -1597,7 +1598,11 @@ async def export_headless(
         )
 
         async def run_checkpointed_export() -> str:
-            capture_root = Path(tempfile.mkdtemp(prefix=f"capinsta_capture_{job_id}_"))
+            capture_root = Path(
+                tempfile.mkdtemp(
+                    prefix=f"capinsta_capture_{job_id}_", dir=str(TEMP_DIR)
+                )
+            )
             checkpoint_path = capture_root / "checkpoint.json"
             capture_started = time.perf_counter()
             capture_attempts = max(1, min(2, _int_env("EXPORT_CAPTURE_CHUNK_ATTEMPTS", 2)))
@@ -2102,7 +2107,11 @@ async def export_headless(
                     f"{minimum_reduction_percent:.2f}%); using full-frame fallback.",
                 )
             performance.render_engine = RenderEngine.BROWSER_SPARSE.value
-            sparse_dir = Path(tempfile.mkdtemp(prefix=f"capinsta_sparse_{job_id}_"))
+            sparse_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f"capinsta_sparse_{job_id}_", dir=str(TEMP_DIR)
+                )
+            )
             frame_paths: list[Path] = []
             try:
                 capture_started = time.perf_counter()
@@ -2304,7 +2313,11 @@ async def export_headless(
         if is_captions_only and _bool_env("EXPORT_LEGACY_CAPTIONS_ONLY_DISK_PIPELINE", False):
             chunk_size = max(30, _int_env("EXPORT_CAPTIONS_ONLY_CHUNK_FRAMES", 240))
             chunk_retries = max(1, _int_env("EXPORT_CAPTIONS_ONLY_CHUNK_RETRIES", 3))
-            frame_dir = Path(tempfile.mkdtemp(prefix=f"huygen_frames_{job_id}_"))
+            frame_dir = Path(
+                tempfile.mkdtemp(
+                    prefix=f"huygen_frames_{job_id}_", dir=str(TEMP_DIR)
+                )
+            )
 
             async def delete_chunk_frames(start_frame: int, end_frame: int) -> None:
                 def _delete() -> None:

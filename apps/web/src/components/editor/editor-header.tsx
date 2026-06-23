@@ -56,6 +56,7 @@ function ProjectDropdown() {
 		"delete" | "rename" | "shortcuts" | "leave" | null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
 	const router = useRouter();
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
@@ -98,20 +99,21 @@ function ProjectDropdown() {
 	};
 
 	const handleDeleteProject = async () => {
-		if (activeProject) {
-			try {
-				await editor.project.deleteProjects({
-					ids: [activeProject.metadata.id],
-				});
-				router.push("/projects");
-			} catch (error) {
-				toast.error("Failed to delete project", {
-					description:
-						error instanceof Error ? error.message : "Please try again",
-				});
-			} finally {
-				setOpenDialog(null);
-			}
+		if (!activeProject || isDeleting) return;
+		setIsDeleting(true);
+		try {
+			await editor.project.deleteProjects({
+				ids: [activeProject.metadata.id],
+			});
+			setOpenDialog(null);
+			router.push("/projects");
+		} catch (error) {
+			toast.error("Failed to delete project", {
+				description:
+					error instanceof Error ? error.message : "Please try again",
+			});
+		} finally {
+			setIsDeleting(false);
 		}
 	};
 
@@ -166,6 +168,7 @@ function ProjectDropdown() {
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "delete" : null)}
 				onConfirm={handleDeleteProject}
 				projectNames={[activeProject?.metadata.name || ""]}
+				isDeleting={isDeleting}
 			/>
 			<ShortcutsDialog
 				isOpen={openDialog === "shortcuts"}

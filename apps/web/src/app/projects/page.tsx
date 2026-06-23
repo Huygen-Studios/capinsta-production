@@ -70,6 +70,7 @@ import { useExpiredProjectCleanup } from "@/capinsta/useExpiredProjectCleanup";
 import { AccountMenu } from "@/components/auth/account-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoStatic } from "@/components/logo";
+import { storageService } from "@/services/storage/service";
 const formatProjectDuration = ({
 	duration,
 }: {
@@ -88,6 +89,13 @@ const VIEW_MODE_OPTIONS = [
 	{ mode: "grid" as const, icon: GridViewIcon, label: "Grid view" },
 	{ mode: "list" as const, icon: LeftToRightListDashIcon, label: "List view" },
 ];
+
+function formatBytes(bytes: number): string {
+	if (bytes <= 0) return "0 MB";
+	const mb = bytes / (1024 * 1024);
+	if (mb < 1024) return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
+	return `${(mb / 1024).toFixed(2)} GB`;
+}
 
 export default function ProjectsPage() {
 	const { searchQuery, sortKey, sortOrder, viewMode } = useProjectsStore();
@@ -211,6 +219,7 @@ const SORT_LABELS: Record<TProjectSortKey, string> = {
 };
 
 function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
+	const [isRecoveringStorage, setIsRecoveringStorage] = useState(false);
 	const {
 		selectedProjectIds,
 		sortKey,
@@ -234,6 +243,34 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 			return;
 		}
 		clearSelectedProjects();
+	};
+
+	const handleRecoverStorage = async () => {
+		setIsRecoveringStorage(true);
+		try {
+			const result = await storageService.recoverLegacyBrowserStorage();
+			const message =
+				result.requiresReimportProjects.length > 0
+					? `Recovered ${formatBytes(result.reclaimedBytes)}. ${result.requiresReimportProjects.length} project(s) still need re-import because no verified backend media asset exists.`
+					: `Recovered ${formatBytes(result.reclaimedBytes)} from duplicate browser video storage.`;
+			toast.success("Storage recovery complete", {
+				description: `${message} Estimated reclaimable: ${formatBytes(result.estimatedReclaimableBytes)}.`,
+			});
+			if (result.errors.length > 0) {
+				toast.warning("Some storage entries could not be checked", {
+					description: `${result.errors.length} scoped item(s) failed; no unverified local-only media was deleted.`,
+				});
+			}
+		} catch (error) {
+			toast.error("Storage recovery failed", {
+				description:
+					error instanceof Error
+						? error.message
+						: "Please retry after refreshing the page.",
+			});
+		} finally {
+			setIsRecoveringStorage(false);
+		}
 	};
 
 	return (
@@ -308,7 +345,18 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 					))}
 				</div>
 			</div>
-			{selectedProjectCount > 0 ? <ProjectActions /> : null}
+			{selectedProjectCount > 0 ? (
+				<ProjectActions />
+			) : (
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={handleRecoverStorage}
+					disabled={isRecoveringStorage}
+				>
+					{isRecoveringStorage ? "Recovering…" : "Recover storage"}
+				</Button>
+			)}
 		</div>
 	);
 }
@@ -405,6 +453,7 @@ function ProjectActions() {
 	const editor = useEditor();
 	const { selectedProjectIds, clearSelectedProjects } = useProjectsStore();
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
 
 	const savedProjects = editor.project.getSavedProjects();
 	const selectedProjectNames = savedProjects
@@ -421,9 +470,14 @@ function ProjectActions() {
 	};
 
 	const handleDeleteConfirm = async () => {
-		await deleteProjects({ editor, ids: selectedProjectIds });
-		clearSelectedProjects();
-		setIsDeleteDialogOpen(false);
+		setIsDeleting(true);
+		try {
+			await deleteProjects({ editor, ids: selectedProjectIds });
+			clearSelectedProjects();
+			setIsDeleteDialogOpen(false);
+		} finally {
+			setIsDeleting(false);
+		}
 	};
 
 	const actionHandlers: Record<string, () => void> = {
@@ -474,6 +528,7 @@ function ProjectActions() {
 				onOpenChange={setIsDeleteDialogOpen}
 				projectNames={selectedProjectNames}
 				onConfirm={handleDeleteConfirm}
+				isDeleting={isDeleting}
 			/>
 		</>
 	);
@@ -558,6 +613,7 @@ function ProjectItem({
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 	const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
 	const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
 	const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false);
 	const editor = useEditor();
 	const durationLabel = formatProjectDuration({ duration: project.duration });
@@ -571,8 +627,13 @@ function ProjectItem({
 	const handleDeleteClick = () => setIsDeleteDialogOpen(true);
 	const handleInfoClick = () => setIsInfoDialogOpen(true);
 	const handleDeleteConfirm = async () => {
-		await deleteProjects({ editor, ids: [project.id] });
-		setIsDeleteDialogOpen(false);
+		setIsDeleting(true);
+		try {
+			await deleteProjects({ editor, ids: [project.id] });
+			setIsDeleteDialogOpen(false);
+		} finally {
+			setIsDeleting(false);
+		}
 	};
 
 	const handleCheckboxChange = ({
@@ -771,6 +832,7 @@ function ProjectItem({
 				onOpenChange={setIsDeleteDialogOpen}
 				projectNames={[project.name]}
 				onConfirm={handleDeleteConfirm}
+				isDeleting={isDeleting}
 			/>
 
 			<ProjectInfoDialog

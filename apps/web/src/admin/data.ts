@@ -9,6 +9,7 @@ import {
   adminRoles,
   adminSecurityEvents,
   captionJobs,
+  deletedProjectRecords,
   exportJobs,
   featureFlags,
   profiles,
@@ -292,8 +293,9 @@ export async function getAdminModuleRows({
         db.select({ total: count() }).from(exportJobs),
       );
     case "projects":
-      return pagedRows(
-        db
+      {
+        const [active, deleted, activeCount, deletedCount] = await Promise.all([
+          db
           .select({
             id: projectRegistry.projectId,
             owner: projectRegistry.userId,
@@ -303,11 +305,38 @@ export async function getAdminModuleRows({
             retentionHold: projectRegistry.retentionHold,
             updated: projectRegistry.updatedAt,
           })
-          .from(projectRegistry),
-        projectRegistry.updatedAt,
-        offset,
-        db.select({ total: count() }).from(projectRegistry),
-      );
+          .from(projectRegistry)
+          .orderBy(desc(projectRegistry.updatedAt))
+          .limit(PAGE_SIZE)
+          .offset(offset),
+          db
+            .select({
+              id: deletedProjectRecords.projectId,
+              owner: deletedProjectRecords.ownerId,
+              name: sql<string>`'Deleted project'`,
+              state: sql<string>`'deleted'`,
+              expires: sql<Date | null>`null`,
+              retentionHold: sql<boolean>`false`,
+              updated: deletedProjectRecords.deletedAt,
+            })
+            .from(deletedProjectRecords)
+            .orderBy(desc(deletedProjectRecords.deletedAt))
+            .limit(PAGE_SIZE)
+            .offset(offset),
+          db.select({ total: count() }).from(projectRegistry),
+          db.select({ total: count() }).from(deletedProjectRecords),
+        ]);
+        const rows = [...active, ...deleted]
+          .toSorted(
+            (left, right) =>
+              new Date(right.updated).getTime() - new Date(left.updated).getTime(),
+          )
+          .slice(0, PAGE_SIZE);
+        return {
+          rows: rows.map(serializeRow),
+          total: Number(activeCount[0]?.total ?? 0) + Number(deletedCount[0]?.total ?? 0),
+        };
+      }
     case "feedback":
       return pagedRows(
         db
@@ -468,6 +497,39 @@ export async function getAdminDetail({
         .from(projectRegistry)
         .where(eq(projectRegistry.projectId, id))
         .limit(1);
+      if (rows.length === 0) {
+        rows = await db
+          .select({
+            projectId: deletedProjectRecords.projectId,
+            ownerId: deletedProjectRecords.ownerId,
+            state: sql<string>`'deleted'`,
+            deletedAt: deletedProjectRecords.deletedAt,
+            sourceDurationSeconds: deletedProjectRecords.sourceDurationSeconds,
+            sourceSizeBytes: deletedProjectRecords.sourceSizeBytes,
+            captionLanguage: deletedProjectRecords.captionLanguage,
+            captionWordCount: deletedProjectRecords.captionWordCount,
+            captionChunkCount: deletedProjectRecords.captionChunkCount,
+            captionModel: deletedProjectRecords.captionModel,
+            generationStatus: deletedProjectRecords.generationStatus,
+            generationProcessingSeconds:
+              deletedProjectRecords.generationProcessingSeconds,
+            exportAttemptCount: deletedProjectRecords.exportAttemptCount,
+            exportFormat: deletedProjectRecords.exportFormat,
+            exportWidth: deletedProjectRecords.exportWidth,
+            exportHeight: deletedProjectRecords.exportHeight,
+            exportFps: deletedProjectRecords.exportFps,
+            exportDurationSeconds: deletedProjectRecords.exportDurationSeconds,
+            exportOutputSizeBytes: deletedProjectRecords.exportOutputSizeBytes,
+            exportProcessingSeconds:
+              deletedProjectRecords.exportProcessingSeconds,
+            exportStatus: deletedProjectRecords.exportStatus,
+            normalizedErrorCode: deletedProjectRecords.normalizedErrorCode,
+            deletionStatus: deletedProjectRecords.deletionStatus,
+          })
+          .from(deletedProjectRecords)
+          .where(eq(deletedProjectRecords.projectId, id))
+          .limit(1);
+      }
       break;
     case "feedback":
       rows = await db

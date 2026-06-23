@@ -40,7 +40,7 @@ def _stable_event_id(kind: str, record_id: str, updated_at: object) -> str:
     return hashlib.sha256(f"{kind}:{record_id}:{updated_at}".encode()).hexdigest()
 
 
-async def _enqueue(kind: str, record_id: str, payload: dict[str, Any]) -> None:
+async def _enqueue(kind: str, record_id: str, payload: dict[str, Any]) -> str:
     event_id = _stable_event_id(kind, record_id, payload.get("updated_at"))
     async with runtime_db(path=DB_PATH) as db:
         await db.execute(
@@ -53,6 +53,7 @@ async def _enqueue(kind: str, record_id: str, payload: dict[str, Any]) -> None:
             (event_id, kind, record_id, json.dumps(payload, ensure_ascii=False)),
         )
         await db.commit()
+    return event_id
 
 
 async def _write_caption(payload: dict[str, Any]) -> None:
@@ -225,19 +226,101 @@ async def _write_export(payload: dict[str, Any]) -> None:
         await connection.commit()
 
 
+async def _write_deleted_project(payload: dict[str, Any]) -> None:
+    database_url = _database_url()
+    if not database_url or psycopg is None:
+        raise RuntimeError("Operational PostgreSQL mirror is not configured")
+    async with await psycopg.AsyncConnection.connect(
+        database_url, connect_timeout=4
+    ) as connection:
+        async with connection.cursor() as cursor:
+            await cursor.execute(
+                """
+                INSERT INTO deleted_project_records (
+                  project_id, owner_id, project_created_at, deleted_at,
+                  source_duration_seconds, source_size_bytes, caption_language,
+                  caption_word_count, caption_chunk_count, caption_model,
+                  generation_status, generation_processing_seconds,
+                  export_attempt_count, export_format, export_width,
+                  export_height, export_fps, export_duration_seconds,
+                  export_output_size_bytes, export_processing_seconds,
+                  export_status, normalized_error_code, deletion_status
+                ) VALUES (
+                  %(project_id)s, %(owner_id)s::uuid, %(project_created_at)s,
+                  %(deleted_at)s, %(source_duration_seconds)s,
+                  %(source_size_bytes)s, %(caption_language)s,
+                  %(caption_word_count)s, %(caption_chunk_count)s,
+                  %(caption_model)s, %(generation_status)s,
+                  %(generation_processing_seconds)s, %(export_attempt_count)s,
+                  %(export_format)s, %(export_width)s, %(export_height)s,
+                  %(export_fps)s, %(export_duration_seconds)s,
+                  %(export_output_size_bytes)s, %(export_processing_seconds)s,
+                  %(export_status)s, %(normalized_error_code)s,
+                  %(deletion_status)s
+                )
+                ON CONFLICT (project_id) DO NOTHING
+                """,
+                payload,
+            )
+            await cursor.execute(
+                "DELETE FROM export_jobs WHERE project_id = %s",
+                (payload["project_id"],),
+            )
+            await cursor.execute(
+                "DELETE FROM caption_jobs WHERE project_id = %s",
+                (payload["project_id"],),
+            )
+            await cursor.execute(
+                "DELETE FROM project_registry WHERE project_id = %s",
+                (payload["project_id"],),
+            )
+        await connection.commit()
+
+
+async def deleted_project_records_available() -> bool:
+    database_url = _database_url()
+    if not database_url or psycopg is None:
+        logger.warning(
+            "deleted_project_records_check status=unavailable reason=postgres_not_configured"
+        )
+        return False
+    try:
+        async with await psycopg.AsyncConnection.connect(
+            database_url, connect_timeout=4
+        ) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT to_regclass('public.deleted_project_records') IS NOT NULL"
+                )
+                row = await cursor.fetchone()
+                available = bool(row and row[0])
+    except Exception:
+        logger.exception("deleted_project_records_check status=failed")
+        return False
+    if available:
+        logger.info("deleted_project_records_check status=ok")
+    else:
+        logger.warning(
+            "deleted_project_records_check status=missing action=apply_migration_before_project_deletion"
+        )
+    return available
+
+
 async def deliver_event(kind: str, payload: dict[str, Any]) -> None:
     if kind == "caption_job":
         await _write_caption(payload)
     elif kind == "export_job":
         await _write_export(payload)
+    elif kind == "deleted_project":
+        await _write_deleted_project(payload)
     else:
         raise ValueError(f"Unsupported operational event type: {kind}")
 
 
-async def mirror_event(kind: str, record_id: str, payload: dict[str, Any]) -> None:
+async def mirror_event(kind: str, record_id: str, payload: dict[str, Any]) -> str:
     # Durable local outbox first: runtime work never waits on PostgreSQL and an
     # abrupt mirror outage cannot silently lose the latest state.
-    await _enqueue(kind, record_id, payload)
+    return await _enqueue(kind, record_id, payload)
 
 
 async def caption_payload(job_id: str) -> dict[str, Any] | None:
@@ -360,17 +443,35 @@ async def mirror_export_job(export_job_id: str) -> None:
         )
 
 
-async def flush_operational_outbox(limit: int = 100) -> dict[str, int]:
+async def mirror_deleted_project(payload: dict[str, Any]) -> str:
+    return await mirror_event(
+        "deleted_project", str(payload["project_id"]), payload
+    )
+
+
+async def flush_operational_outbox(
+    limit: int = 100, *, event_id: str | None = None
+) -> dict[str, int]:
     delivered = failed = 0
     async with runtime_db(path=DB_PATH, row_factory=True) as db:
-        cursor = await db.execute(
-            """
-            SELECT * FROM operational_outbox
-            WHERE next_attempt_at <= CURRENT_TIMESTAMP
-            ORDER BY created_at LIMIT ?
-            """,
-            (limit,),
-        )
+        if event_id:
+            cursor = await db.execute(
+                """
+                SELECT * FROM operational_outbox
+                WHERE event_id = ? AND next_attempt_at <= CURRENT_TIMESTAMP
+                LIMIT 1
+                """,
+                (event_id,),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT * FROM operational_outbox
+                WHERE next_attempt_at <= CURRENT_TIMESTAMP
+                ORDER BY created_at LIMIT ?
+                """,
+                (limit,),
+            )
         rows = await cursor.fetchall()
     for row in rows:
         try:

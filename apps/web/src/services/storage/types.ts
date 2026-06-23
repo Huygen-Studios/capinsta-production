@@ -32,6 +32,18 @@ export interface MediaAssetData {
 	sourceAssetId?: string;
 	ephemeral?: boolean;
 	thumbnailUrl?: string;
+	serverAssetId?: string;
+	serverDownloadUrl?: string;
+}
+
+export interface LegacyBrowserStorageRecoveryResult {
+	scannedProjects: number;
+	verifiedBackendAssets: number;
+	removedBrowserDuplicates: number;
+	requiresReimportProjects: string[];
+	estimatedReclaimableBytes: number;
+	reclaimedBytes: number;
+	errors: Array<{ projectId: string; assetId?: string; message: string }>;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {

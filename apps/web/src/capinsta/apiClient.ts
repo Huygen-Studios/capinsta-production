@@ -89,6 +89,8 @@ export async function checkCapinstaHealth({
 export async function startCapinstaCaptionJob({
 	baseUrl,
 	file,
+	mediaAssetId,
+	projectId,
 	languageMode,
 	fetchImpl = fetch,
 	signal,
@@ -99,12 +101,17 @@ export async function startCapinstaCaptionJob({
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
 	const formData = new FormData();
 	formData.append("languageMode", languageMode);
-	formData.append("file", file);
+	formData.append("project_id", projectId);
+	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
+	else if (file) formData.append("file", file);
+	else throw new CapinstaApiError("Caption media is unavailable.");
 	console.debug("[Capinsta captions] Upload request", {
 		endpoint: "/api/jobs",
-		fileName: file.name,
-		fileType: file.type,
-		fileSize: file.size,
+		fileName: file?.name,
+		fileType: file?.type,
+		fileSize: file?.size,
+		mediaAssetId,
+		projectId,
 		languageMode,
 	});
 

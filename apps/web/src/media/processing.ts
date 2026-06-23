@@ -1,31 +1,11 @@
 import { toast } from "sonner";
 import { getMediaTypeFromFile } from "@/media/media-utils";
-import { formatStorageBytes } from "@/services/storage/quota";
-import { storageService } from "@/services/storage/service";
 import type { MediaAsset } from "@/media/types";
 import { readVideoFile } from "./mediabunny";
 import { renderThumbnailDataUrl } from "./thumbnail";
 import { getUnsupportedVideoDescription } from "./unsupported-video-description";
 
 export type ProcessedMediaAsset = Omit<MediaAsset, "id">;
-
-const getStorageLimitDescription = ({
-	fileSize,
-	availableBytes,
-}: {
-	fileSize: number;
-	availableBytes: number | null;
-}): string => {
-	const fileSizeLabel = formatStorageBytes({ bytes: fileSize });
-
-	if (availableBytes === null) {
-		return `File size is ${fileSizeLabel}.`;
-	}
-
-	return `File size is ${fileSizeLabel}, but only ${formatStorageBytes({
-		bytes: availableBytes,
-	})} is safely available in browser storage.`;
-};
 
 async function generateImageThumbnail({
 	imageFile,
@@ -88,20 +68,6 @@ export async function processMediaAssets({
 
 		if (!fileType) {
 			toast.error(`Unsupported file type: ${file.name}`);
-			continue;
-		}
-
-		const storageCheck = await storageService.canStoreFile({
-			size: file.size,
-		});
-
-		if (!storageCheck.canStore) {
-			toast.error(`Not enough browser storage for ${file.name}`, {
-				description: getStorageLimitDescription({
-					fileSize: file.size,
-					availableBytes: storageCheck.availableBytes,
-				}),
-			});
 			continue;
 		}
 
