@@ -37,6 +37,14 @@ class JobDetailResponse(BaseModel):
     target_lang: str
     languageMode: str
     error: Optional[str] = None
+    message: Optional[str] = None
+    details: Optional[str] = None
+    currentProvider: Optional[str] = None
+    currentChunk: Optional[int] = None
+    totalChunks: Optional[int] = None
+    heartbeatAt: Optional[str] = None
+    updatedAt: Optional[str] = None
+    elapsedSeconds: Optional[int] = None
     srt: Optional[str] = None
     vtt: Optional[str] = None
     segments: Optional[List[AlignedSegment]] = None

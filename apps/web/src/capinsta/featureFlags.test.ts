@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	getCapinstaApiBaseUrl,
+	getCapinstaJobPollIntervalMs,
 	getCapinstaJobTimeoutMs,
 	isCapinstaSampleImportEnabled,
 } from "./featureFlags";
@@ -9,7 +10,10 @@ function restoreEnv({
 	name,
 	value,
 }: {
-	name: "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT";
+	name:
+		| "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT"
+		| "NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS"
+		| "NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS";
 	value: string | undefined;
 }) {
 	if (value === undefined) {
@@ -68,5 +72,29 @@ describe("Capinsta feature flags", () => {
 			return;
 		}
 		process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS = previous;
+	});
+
+	test("defaults caption job timeout to backend-aligned ten minutes", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS;
+		delete process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS;
+
+		expect(getCapinstaJobTimeoutMs()).toBe(600000);
+
+		restoreEnv({
+			name: "NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS",
+			value: previous,
+		});
+	});
+
+	test("uses a configurable caption job poll interval", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS;
+		process.env.NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS = "750";
+
+		expect(getCapinstaJobPollIntervalMs()).toBe(750);
+
+		restoreEnv({
+			name: "NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS",
+			value: previous,
+		});
 	});
 });

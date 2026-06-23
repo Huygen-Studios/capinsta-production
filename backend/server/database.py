@@ -195,7 +195,9 @@ async def init_db():
         for column in (
             "project_id TEXT", "media_duration_seconds REAL", "started_at TEXT",
             "retry_count INTEGER DEFAULT 0", "retry_of_job_id TEXT",
-            "admin_retry_by TEXT", "correlation_id TEXT", "media_asset_id TEXT"
+            "admin_retry_by TEXT", "correlation_id TEXT", "media_asset_id TEXT",
+            "message TEXT", "heartbeat_at TEXT", "updated_at TEXT",
+            "current_provider TEXT", "current_chunk INTEGER", "total_chunks INTEGER",
         ):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")

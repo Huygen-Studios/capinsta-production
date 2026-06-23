@@ -6,6 +6,7 @@ import base64
 import mimetypes
 import re
 import wave
+import time
 from typing import Any
 
 import requests
@@ -52,6 +53,16 @@ SARVAM_LANGUAGE_CODES = {
 SARVAM_URL = "https://api.sarvam.ai/speech-to-text"
 GEMINI_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
 GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS = _env_int("STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS", 60, 5)
 
 
 SUPPORTED_STT_PROVIDERS = {"auto", "whisper", "groq_whisper", "openai_whisper", "sarvam", "gemini"}
@@ -786,7 +797,7 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
                 _gemini_audio_input(client, audio_path),
             ],
             response_format=GEMINI_TRANSCRIPTION_SCHEMA,
-            timeout=180,
+            timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
         )
     except Exception as exc:
         raise _classify_gemini_error(exc) from exc
@@ -859,7 +870,7 @@ def _call_sarvam(audio_path: str, language_mode: str) -> dict:
                 "with_timestamps": "true",
             },
             files={"file": (os.path.basename(audio_path), file, "audio/wav")},
-            timeout=120,
+            timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
         )
 
     if response.status_code >= 400:
@@ -952,7 +963,14 @@ def transcribe_chunk_with_retry(audio_path: str, language: str = "") -> dict:
     return result
 
 
-def transcribe_audio(audio_path: str, language_mode: str = "english") -> dict:
+def transcribe_audio(
+    audio_path: str,
+    language_mode: str = "english",
+    *,
+    progress_callback=None,
+    chunk_index: int | None = None,
+    total_chunks: int | None = None,
+) -> dict:
     """Provider abstraction for speech-to-text used by the pipeline."""
     normalized_mode = normalize_language_mode(language_mode)
     validate_transcription_config(normalized_mode)
@@ -971,35 +989,52 @@ def transcribe_audio(audio_path: str, language_mode: str = "english") -> dict:
             continue
 
         logger.info(
-            "transcription_provider_attempt provider=%s attempt=%s",
+            "transcription_provider_attempt provider=%s attempt=%s chunk=%s total_chunks=%s",
             provider,
             attempt,
+            chunk_index if chunk_index is not None else "-",
+            total_chunks if total_chunks is not None else "-",
         )
+        attempt_started = time.monotonic()
+        if progress_callback:
+            progress_callback("attempt", provider, None)
         try:
             result = _call_provider(provider, audio_path, normalized_mode)
+            elapsed_ms = int((time.monotonic() - attempt_started) * 1000)
             normalized = _normalize_provider_result(result, provider)
             validated = _validate_transcription_result(normalized, provider, audio_path)
             if attempted:
                 validated["fallback"] = True
                 validated["fallback_from"] = attempted.copy()
             logger.info(
-                "transcription_provider_succeeded provider=%s fallback_from=%s",
+                "transcription_provider_succeeded provider=%s fallback_from=%s chunk=%s total_chunks=%s duration_ms=%s",
                 provider,
                 ",".join(attempted),
+                chunk_index if chunk_index is not None else "-",
+                total_chunks if total_chunks is not None else "-",
+                elapsed_ms,
             )
+            if progress_callback:
+                progress_callback("succeeded", provider, None)
             return validated
         except Exception as exc:
+            elapsed_ms = int((time.monotonic() - attempt_started) * 1000)
             category, status = _failure_category(exc)
             failures.append((provider, category, status))
             attempted.append(provider)
             provider_code = getattr(exc, "provider_code", None)
             logger.warning(
-                "transcription_provider_failed provider=%s category=%s%s%s",
+                "transcription_provider_failed provider=%s category=%s%s%s chunk=%s total_chunks=%s duration_ms=%s",
                 provider,
                 category,
                 f" status={status}" if status else "",
                 f" provider_code={provider_code}" if provider_code else "",
+                chunk_index if chunk_index is not None else "-",
+                total_chunks if total_chunks is not None else "-",
+                elapsed_ms,
             )
+            if progress_callback:
+                progress_callback("failed", provider, category)
 
     summary = ", ".join(
         _failure_summary(provider, category, status) for provider, category, status in failures

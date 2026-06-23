@@ -91,6 +91,12 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
   error?: string | null
   message?: string | null
   details?: string | null
+  currentProvider?: string | null
+  currentChunk?: number | null
+  totalChunks?: number | null
+  heartbeatAt?: string | null
+  updatedAt?: string | null
+  elapsedSeconds?: number | null
   srt?: string | null
   vtt?: string | null
   segments?: CapinstaApiSegment[] | null

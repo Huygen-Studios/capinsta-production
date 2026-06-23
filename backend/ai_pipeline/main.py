@@ -34,6 +34,7 @@ from .timing import (
     detect_silence_gaps,
 )
 from .transcriber import (
+    _configured_provider_sequence,
     resolved_stt_provider,
     transcribe_audio,
     transcribe_sarvam_chunks_bounded,
@@ -221,12 +222,44 @@ def run_pipeline(
         for i, chunk in enumerate(chunks):
             chunk_pct = 18 + int((i / total_chunks) * 48)
             if parallel_results is None:
-                emit_progress("transcribing", chunk_pct, f"Processing chunk {i + 1}/{len(chunks)}.")
+                provider_order = _configured_provider_sequence()
+                provider_label = (provider_order[0] if provider_order else "provider").replace("_", " ").title()
+                emit_progress("transcribing", chunk_pct, f"Transcribing chunk {i + 1} of {len(chunks)} with {provider_label}.")
+
+            def on_provider_progress(event: str, provider: str, category: str | None = None):
+                provider_label = provider.replace("_", " ").title()
+                if event == "attempt":
+                    emit_progress(
+                        "transcribing",
+                        chunk_pct,
+                        f"Transcribing chunk {i + 1} of {len(chunks)} with {provider_label}.",
+                    )
+                elif event == "failed":
+                    fallback_order = _configured_provider_sequence()
+                    next_provider = None
+                    if provider in fallback_order:
+                        provider_position = fallback_order.index(provider)
+                        if provider_position + 1 < len(fallback_order):
+                            next_provider = fallback_order[provider_position + 1]
+                    if next_provider:
+                        next_label = next_provider.replace("_", " ").title()
+                        reason = "timed out" if category == "timeout" else "failed"
+                        emit_progress(
+                            "transcribing",
+                            chunk_pct,
+                            f"{provider_label} {reason}; trying {next_label} for chunk {i + 1} of {len(chunks)}.",
+                        )
 
             transcription_result = (
                 parallel_results[i]
                 if parallel_results is not None
-                else transcribe_audio(chunk.audio_path, language_mode=language_mode)
+                else transcribe_audio(
+                    chunk.audio_path,
+                    language_mode=language_mode,
+                    progress_callback=on_provider_progress,
+                    chunk_index=i + 1,
+                    total_chunks=len(chunks),
+                )
             )
             transcription_providers.add(str(transcription_result.get("provider") or "unknown"))
             if transcription_result.get("fallback") and transcription_result.get("fallback_from"):

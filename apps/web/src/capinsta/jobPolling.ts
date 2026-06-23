@@ -14,6 +14,9 @@ export interface CapinstaJobStatusHistoryEntry {
   timestamp: string
   progress?: number
   message?: string
+  provider?: string | null
+  currentChunk?: number | null
+  totalChunks?: number | null
 }
 
 export interface PollCapinstaJobOptions {
@@ -88,9 +91,27 @@ function formatStatusHistory(
     .map((entry) => {
       const progress =
         typeof entry.progress === "number" ? ` ${entry.progress}%` : ""
-      return `${entry.rawStatus || "(empty)"}(${entry.normalizedStatus})${progress}`
+      const chunk =
+        entry.currentChunk && entry.totalChunks
+          ? ` chunk ${entry.currentChunk}/${entry.totalChunks}`
+          : ""
+      const provider = entry.provider ? ` ${entry.provider}` : ""
+      const message = entry.message ? ` · ${entry.message}` : ""
+      return `${entry.rawStatus || "(empty)"}(${entry.normalizedStatus})${progress}${provider}${chunk}${message}`
     })
     .join(" -> ")
+}
+
+function historyEntryKey(entry: CapinstaJobStatusHistoryEntry): string {
+  return [
+    entry.rawStatus,
+    entry.normalizedStatus,
+    entry.progress ?? "",
+    entry.provider ?? "",
+    entry.currentChunk ?? "",
+    entry.totalChunks ?? "",
+    entry.message ?? "",
+  ].join("|")
 }
 
 function timeoutError({
@@ -114,7 +135,7 @@ export async function pollCapinstaJobUntilDone({
   jobId,
   intervalMs = 2000,
   maxAttempts = 300,
-  maxElapsedMs = 5 * 60 * 1000,
+  maxElapsedMs = 10 * 60 * 1000,
   fetchImpl = fetch,
   signal,
   sleep = defaultSleep,
@@ -133,7 +154,7 @@ export async function pollCapinstaJobUntilDone({
 
     const job = await getCapinstaJob({ baseUrl, jobId, fetchImpl, signal })
     const normalizedStatus = normalizeCapinstaJobStatus(job.status)
-    statusHistory.push({
+    const historyEntry: CapinstaJobStatusHistoryEntry = {
       jobId,
       rawStatus: String(job.status ?? ""),
       normalizedStatus,
@@ -142,8 +163,18 @@ export async function pollCapinstaJobUntilDone({
       ...((job.message || job.details) && {
         message: job.message || job.details || undefined,
       }),
-    })
-    onStatusHistory?.([...statusHistory])
+      provider: job.currentProvider ?? null,
+      currentChunk: job.currentChunk ?? null,
+      totalChunks: job.totalChunks ?? null,
+    }
+    const previous = statusHistory.at(-1)
+    if (!previous || historyEntryKey(previous) !== historyEntryKey(historyEntry)) {
+      statusHistory.push(historyEntry)
+      if (statusHistory.length > 50) {
+        statusHistory.splice(0, statusHistory.length - 50)
+      }
+      onStatusHistory?.([...statusHistory])
+    }
     console.debug("[Capinsta captions] Poll response", {
       jobId,
       status: job.status,

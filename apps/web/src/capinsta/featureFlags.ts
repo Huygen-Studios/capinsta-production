@@ -25,7 +25,14 @@ export function getCapinstaJobTimeoutMs(): number {
 	const raw = process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS || "";
 	const parsed = Number(raw);
 	if (Number.isFinite(parsed) && parsed > 0) return parsed;
-	return 2 * 60 * 1000;
+	return 10 * 60 * 1000;
+}
+
+export function getCapinstaJobPollIntervalMs(): number {
+	const raw = process.env.NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS || "";
+	const parsed = Number(raw);
+	if (Number.isFinite(parsed) && parsed > 0) return parsed;
+	return 2000;
 }
 
 export function isCapinstaDebugEnabled(): boolean {

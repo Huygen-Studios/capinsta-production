@@ -151,6 +151,33 @@ describe("Capinsta job polling", () => {
     ).rejects.toThrow(/Timed out waiting/)
   })
 
+  test("does not falsely fail at the old 120 second polling mark by default", async () => {
+    const originalNow = Date.now
+    const times = [0, 120_000]
+    Date.now = () => times.shift() ?? 120_000
+    try {
+      const result = await pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        intervalMs: 0,
+        sleep: async () => undefined,
+        fetchImpl: async () =>
+          jsonResponse({
+            job_id: "job-001",
+            status: "completed",
+            progress: 100,
+            filename: "sample.mp4",
+            languageMode: "english",
+            segments: [{ start: 0, end: 1, text: "Done", words: [] }],
+          }),
+      })
+
+      expect(result.status).toBe("completed")
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
   test("continues polling after an unknown status", async () => {
     const statuses = ["future_backend_stage", "completed"]
     const result = await pollCapinstaJobUntilDone({
@@ -172,7 +199,7 @@ describe("Capinsta job polling", () => {
     expect(result.status).toBe("completed")
   })
 
-  test("unknown status times out with status history", async () => {
+  test("unknown status times out with deduplicated status history", async () => {
     const historySnapshots: string[][] = []
     await expect(
       pollCapinstaJobUntilDone({
@@ -194,13 +221,69 @@ describe("Capinsta job polling", () => {
             details: "A future processing step",
           }),
       }),
-    ).rejects.toThrow(
-      /Status history: future_backend_stage\(unknown\) 55% -> future_backend_stage\(unknown\) 55%/,
-    )
+    ).rejects.toThrow(/Status history: future_backend_stage\(unknown\) 55%/)
+
+    expect(historySnapshots).toEqual([["future_backend_stage"]])
+  })
+
+  test("deduplicates unchanged running statuses but keeps meaningful changes", async () => {
+    const historySnapshots: string[][] = []
+    const responses = [
+      {
+        job_id: "job-001",
+        status: "transcribing",
+        progress: 42,
+        filename: "sample.mp4",
+        languageMode: "english",
+        message: "Transcribing chunk 2 of 2 with Gemini.",
+        currentProvider: "gemini",
+        currentChunk: 2,
+        totalChunks: 2,
+      },
+      {
+        job_id: "job-001",
+        status: "transcribing",
+        progress: 42,
+        filename: "sample.mp4",
+        languageMode: "english",
+        message: "Transcribing chunk 2 of 2 with Gemini.",
+        currentProvider: "gemini",
+        currentChunk: 2,
+        totalChunks: 2,
+      },
+      {
+        job_id: "job-001",
+        status: "transcribing",
+        progress: 42,
+        filename: "sample.mp4",
+        languageMode: "english",
+        message: "Gemini timed out; trying Sarvam for chunk 2 of 2.",
+        currentProvider: "sarvam",
+        currentChunk: 2,
+        totalChunks: 2,
+      },
+    ]
+
+    await expect(
+      pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        intervalMs: 0,
+        maxAttempts: 3,
+        maxElapsedMs: 60_000,
+        sleep: async () => undefined,
+        onStatusHistory: (history) =>
+          historySnapshots.push(history.map((entry) => entry.message ?? "")),
+        fetchImpl: async () => jsonResponse(responses.shift() ?? responses[0]),
+      }),
+    ).rejects.toThrow(/Status history:/)
 
     expect(historySnapshots).toEqual([
-      ["future_backend_stage"],
-      ["future_backend_stage", "future_backend_stage"],
+      ["Transcribing chunk 2 of 2 with Gemini."],
+      [
+        "Transcribing chunk 2 of 2 with Gemini.",
+        "Gemini timed out; trying Sarvam for chunk 2 of 2.",
+      ],
     ])
   })
 

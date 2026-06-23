@@ -44,6 +44,127 @@ from ai_pipeline.timing import DEFAULT_PAUSE_SPLIT_THRESHOLD, build_timing_repor
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 logger = logging.getLogger(__name__)
 
+
+RUNNING_JOB_STATUSES = {
+    "queued",
+    "pending",
+    "uploaded",
+    "extracting",
+    "processing",
+    "running",
+    "started",
+    "extracting_audio",
+    "transcribing",
+    "aligning",
+    "normalizing",
+    "romanizing",
+    "chunking",
+    "rendering",
+    "rendering_captions",
+    "finalizing",
+    "saving",
+    "generating_captions",
+}
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+CAPTION_JOB_STALE_SECONDS = _env_int("CAPTION_JOB_STALE_SECONDS", 120, 30)
+CAPTION_JOB_MAX_SECONDS = _env_int("CAPTION_JOB_MAX_SECONDS", 600, 60)
+
+
+def _parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _elapsed_seconds(row) -> int | None:
+    started = _parse_utc_timestamp(row["started_at"] if "started_at" in row.keys() else None)
+    if started is None:
+        started = _parse_utc_timestamp(row["created_at"] if "created_at" in row.keys() else None)
+    if started is None:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+
+
+async def _mark_stale_if_needed(row, db: aiosqlite.Connection):
+    status = str(row["status"] or "")
+    if status not in RUNNING_JOB_STATUSES:
+        return row
+    elapsed = _elapsed_seconds(row)
+    media_duration = 0.0
+    if "media_duration_seconds" in row.keys() and row["media_duration_seconds"] is not None:
+        try:
+            media_duration = max(0.0, float(row["media_duration_seconds"]))
+        except (TypeError, ValueError):
+            media_duration = 0.0
+    max_seconds = max(CAPTION_JOB_MAX_SECONDS, int(media_duration * 12))
+    if elapsed is not None and elapsed > max_seconds:
+        message = "Caption generation exceeded the backend processing limit. Please retry."
+        now_text = iso_utc(datetime.now(timezone.utc))
+        await db.execute(
+            """
+            UPDATE jobs
+            SET status = 'failed',
+                progress = -1,
+                error = ?,
+                message = ?,
+                completed_at = ?,
+                updated_at = ?
+            WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled')
+            """,
+            (message, message, now_text, now_text, row["id"]),
+        )
+        await db.commit()
+        logger.warning(
+            "caption_job_failed job_id=%s category=max_runtime elapsed_seconds=%s max_seconds=%s",
+            row["id"],
+            elapsed,
+            max_seconds,
+        )
+        await mirror_caption_job(row["id"])
+        return await get_owned_job(db, row["id"])
+
+    heartbeat = _parse_utc_timestamp(row["heartbeat_at"] if "heartbeat_at" in row.keys() else None)
+    if heartbeat is None:
+        heartbeat = _parse_utc_timestamp(row["updated_at"] if "updated_at" in row.keys() else None)
+    if heartbeat is None:
+        heartbeat = _parse_utc_timestamp(row["created_at"] if "created_at" in row.keys() else None)
+    if heartbeat is None:
+        return row
+    stale_for = (datetime.now(timezone.utc) - heartbeat).total_seconds()
+    if stale_for < CAPTION_JOB_STALE_SECONDS:
+        return row
+
+    message = "Caption generation stopped responding. Please retry."
+    now_text = iso_utc(datetime.now(timezone.utc))
+    await db.execute(
+        """
+        UPDATE jobs
+        SET status = 'failed',
+            progress = -1,
+            error = ?,
+            message = ?,
+            completed_at = ?,
+            updated_at = ?
+        WHERE id = ? AND status NOT IN ('completed', 'failed', 'cancelled')
+        """,
+        (message, message, now_text, now_text, row["id"]),
+    )
+    await db.commit()
+    logger.warning("caption_job_stale job_id=%s stale_seconds=%s", row["id"], int(stale_for))
+    await mirror_caption_job(row["id"])
+    return await get_owned_job(db, row["id"])
+
 ensure_runtime_dirs()
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".m4v"}
@@ -482,14 +603,15 @@ async def create_job(
             INSERT INTO jobs
                 (id, status, filename, target_lang, created_at, last_seen_at, expires_at,
                  user_id, project_id, correlation_id, media_duration_seconds,
-                 media_asset_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 media_asset_id, message, heartbeat_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, "queued", filename, normalized_mode, now_text, now_text,
                 expires_text, current_user().id, project_id or job_id,
                 request.headers.get("x-correlation-id") or str(uuid.uuid4()),
-                media_duration or None, media_asset_id,
+                media_duration or None, media_asset_id, "Caption job queued.",
+                now_text, now_text,
             ),
         )
         await db.commit()
@@ -545,6 +667,7 @@ async def list_jobs(db: aiosqlite.Connection = Depends(get_db)):
 async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
     """Get detailed state of a specific job, including output blocks."""
     r = await get_owned_job(db, job_id)
+    r = await _mark_stale_if_needed(r, db)
     await ensure_project_available(r, db)
         
     # Parse segments from JSON
@@ -569,6 +692,14 @@ async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
         target_lang=r['target_lang'],
         languageMode=_stored_language_mode(r['target_lang']),
         error=r['error'],
+        message=r["message"] if "message" in r.keys() else None,
+        details=r["message"] if "message" in r.keys() else None,
+        currentProvider=r["current_provider"] if "current_provider" in r.keys() else None,
+        currentChunk=r["current_chunk"] if "current_chunk" in r.keys() else None,
+        totalChunks=r["total_chunks"] if "total_chunks" in r.keys() else None,
+        heartbeatAt=r["heartbeat_at"] if "heartbeat_at" in r.keys() else None,
+        updatedAt=r["updated_at"] if "updated_at" in r.keys() else None,
+        elapsedSeconds=_elapsed_seconds(r),
         vtt=r['vtt_content'],
         srt=r['srt_content'],
         segments=segments,

@@ -138,6 +138,7 @@ def test_gemini_uses_explicit_sdk_key_and_prefers_gemini_key(monkeypatch, tmp_pa
     assert result["provider"] == "gemini"
     assert seen["keys"] == ["preferred-gemini-key"]
     assert seen["kwargs"]["model"] == transcriber.GEMINI_MODEL
+    assert seen["kwargs"]["timeout"] == transcriber.STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS
     assert "response_format" in seen["kwargs"]
     assert "legacy-google-key" not in caplog.text
     assert "preferred-gemini-key" not in caplog.text

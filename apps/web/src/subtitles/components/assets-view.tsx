@@ -43,6 +43,7 @@ import {
 } from "@/capinsta/captionJobState";
 import {
 	getCapinstaApiBaseUrl,
+	getCapinstaJobPollIntervalMs,
 	getCapinstaJobTimeoutMs,
 	isAiCaptionsEnabled,
 	isCapinstaDebugEnabled,
@@ -225,6 +226,7 @@ export function Captions() {
 	const isCapinstaDebug = isCapinstaDebugEnabled();
 	const capinstaApiBaseUrl = getCapinstaApiBaseUrl();
 	const capinstaJobTimeoutMs = getCapinstaJobTimeoutMs();
+	const capinstaJobPollIntervalMs = getCapinstaJobPollIntervalMs();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const captionCandidateAssets = useMemo(
 		() =>
@@ -453,6 +455,7 @@ export function Captions() {
 			const completedJob = await pollCapinstaJobUntilDone({
 				baseUrl: capinstaApiBaseUrl,
 				jobId: startedJob.job_id,
+				intervalMs: capinstaJobPollIntervalMs,
 				maxElapsedMs: capinstaJobTimeoutMs,
 				signal: abortController.signal,
 				onProgress: (job) => {
@@ -466,9 +469,12 @@ export function Captions() {
 					dispatchCaptionJob({
 						type: "progress",
 						status: progressState.status,
-						message: progress
-							? `${progressState.message} ${progress}%`
-							: progressState.message,
+						message:
+							job.message ||
+							job.details ||
+							(progress
+								? `${progressState.message} ${progress}%`
+								: progressState.message),
 						progressPercent: progress,
 						activeJobId: startedJob.job_id,
 					});
