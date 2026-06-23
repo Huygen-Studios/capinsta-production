@@ -330,7 +330,6 @@ function permissionFor(value: Mutation) {
 
 function isHighRisk(value: Mutation) {
 	if (value.action.startsWith("access.")) return true;
-	if (value.action.startsWith("transcription.config.")) return true;
 	return ![
 		"user.suspend",
 		"user.restore",

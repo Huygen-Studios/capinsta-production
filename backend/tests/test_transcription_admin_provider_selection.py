@@ -1,6 +1,7 @@
 import pytest
 
 import ai_pipeline.transcriber as transcriber
+from server import transcription_control
 
 
 def test_openai_whisper_request_uses_verbose_json_and_word_segments():
@@ -114,3 +115,19 @@ def test_strict_snapshot_never_tries_another_provider(monkeypatch, tmp_path):
 
     assert calls == [("openai", "gpt-4o-mini-transcribe")]
     assert "All configured transcription providers failed" not in str(exc.value)
+
+
+def test_production_no_active_db_config_bootstraps_from_existing_env(monkeypatch):
+    monkeypatch.setattr(transcription_control, "psycopg", None)
+    monkeypatch.setenv("NODE_ENV", "production")
+    monkeypatch.delenv("STT_PROVIDER", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "real-gemini-key")
+    monkeypatch.setenv("SARVAM_API_KEY", "real-sarvam-key")
+    transcription_control.invalidate_transcription_config_cache()
+
+    snapshot = transcription_control.active_transcription_config()
+
+    assert snapshot is not None
+    assert snapshot.configuration_id == "env-bootstrap"
+    assert snapshot.provider == "sarvam"
+    assert snapshot.model == "saaras:v3"

@@ -51,7 +51,9 @@ export default async function TranscriptionPage() {
 			? "healthy"
 			: serializedActive
 				? "untested"
-				: "unavailable");
+				: lastRequest[0]
+					? "backend env fallback"
+					: "save draft to test");
 	const last = lastRequest[0]
 		? `${lastRequest[0].provider ?? "provider"} ${lastRequest[0].model ?? ""} at ${lastRequest[0].completedAt?.toLocaleString() ?? "unknown time"}`
 		: null;

@@ -44,6 +44,16 @@ class TranscriptionConfigSnapshot:
 _CACHE: tuple[float, TranscriptionConfigSnapshot | None] = (0.0, None)
 _CACHE_TTL_SECONDS = 15.0
 _CIRCUITS: dict[tuple[str, str, int], dict[str, Any]] = {}
+_PLACEHOLDER_SECRET_TOKENS = (
+    "placeholder",
+    "your_api_key",
+    "your api key",
+    "your_",
+    "real key",
+    "remove it",
+    "example",
+    "changeme",
+)
 
 
 def _database_url() -> str:
@@ -54,17 +64,44 @@ def _production_mode() -> bool:
     return (os.getenv("ENVIRONMENT") or os.getenv("NODE_ENV") or "").lower() in {"production", "prod"}
 
 
+def _real_env_secret(name: str) -> bool:
+    cleaned = (os.getenv(name) or "").strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    if cleaned.startswith("<") and cleaned.endswith(">"):
+        return False
+    if set(cleaned) <= {"."}:
+        return False
+    return not any(token in lowered for token in _PLACEHOLDER_SECRET_TOKENS)
+
+
+def _auto_env_provider() -> tuple[str, str] | None:
+    if _real_env_secret("SARVAM_API_KEY"):
+        return "sarvam", "saaras:v3"
+    if _real_env_secret("GEMINI_API_KEY") or _real_env_secret("GOOGLE_API_KEY"):
+        return "gemini", os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+    if _real_env_secret("OPENAI_API_KEY"):
+        return "openai", os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip() or "whisper-1"
+    return None
+
+
 def _env_snapshot() -> TranscriptionConfigSnapshot | None:
     provider = (os.getenv("STT_PROVIDER") or "").strip().lower().replace("-", "_")
     if provider in {"", "auto"}:
-        return None
+        selected = _auto_env_provider()
+        if selected is None:
+            return None
+        provider, model = selected
+    else:
+        model = ""
     if provider in {"openai_whisper", "openai"}:
         provider = "openai"
-        model = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip() or "whisper-1"
+        model = model or os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip() or "whisper-1"
     elif provider == "gemini":
-        model = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+        model = model or os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
     elif provider == "sarvam":
-        model = "saaras:v3"
+        model = model or "saaras:v3"
     else:
         return None
     entry = catalog_entry(provider, model)
@@ -129,15 +166,19 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
                         """
                     )
                     row = cursor.fetchone()
-            snapshot = _snapshot_from_row(row) if row else None
+            snapshot = _snapshot_from_row(row) if row else _env_snapshot()
             _CACHE = (now, snapshot)
             return snapshot
         except Exception:
-            if _production_mode():
+            snapshot = _env_snapshot()
+            if _production_mode() and snapshot is None:
                 _CACHE = (now, None)
                 return None
+            if snapshot is not None:
+                _CACHE = (now, snapshot)
+                return snapshot
 
-    snapshot = None if _production_mode() else _env_snapshot()
+    snapshot = _env_snapshot()
     _CACHE = (now, snapshot)
     return snapshot
 

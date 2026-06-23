@@ -50,15 +50,16 @@ export function AdminTranscriptionControls({
 	lastProductionRequest: string | null;
 }) {
 	const drafts = configurations.filter((item) => item.status !== "active");
-	const [provider, setProvider] = useState<TranscriptionProvider>(active?.provider ?? "gemini");
+	const hasConfigurations = configurations.length > 0;
+	const [provider, setProvider] = useState<TranscriptionProvider>(active?.provider ?? "sarvam");
 	const models = useMemo(
 		() => TRANSCRIPTION_PROVIDER_CATALOG.filter((entry) => entry.provider === provider),
 		[provider],
 	);
-	const [model, setModel] = useState<string>(models[0]?.model ?? "gemini-3.5-flash");
+	const [model, setModel] = useState<string>(active?.model ?? "saaras:v3");
 	const selectedEntry = models.find((entry) => entry.model === model) ?? models[0];
 	const [sarvamMode, setSarvamMode] = useState("transcribe");
-	const [reason, setReason] = useState("");
+	const [reason, setReason] = useState("Initial Sarvam transcription setup");
 	const [confirmation, setConfirmation] = useState("");
 	const [selectedConfigId, setSelectedConfigId] = useState(active?.id ?? drafts[0]?.id ?? "");
 	const selectedConfig = configurations.find((item) => item.id === selectedConfigId) ?? null;
@@ -89,12 +90,12 @@ export function AdminTranscriptionControls({
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-						<div><Label>Provider</Label><p className="font-semibold">{active?.provider ?? "None"}</p></div>
-						<div><Label>Model</Label><p className="font-semibold">{active?.model ?? "Not configured"}</p></div>
-						<div><Label>Strategy</Label><p className="font-semibold">{active?.timestampStrategy ?? "Unavailable"}</p></div>
+						<div><Label>Provider</Label><p className="font-semibold">{active?.provider ?? "Backend env fallback"}</p></div>
+						<div><Label>Model</Label><p className="font-semibold">{active?.model ?? "Existing backend setting"}</p></div>
+						<div><Label>Strategy</Label><p className="font-semibold">{active?.timestampStrategy ?? "Bootstrap fallback"}</p></div>
 						<div><Label>Version</Label><p className="font-semibold">{active?.version ?? "-"}</p></div>
 						<div><Label>Health</Label><Badge variant="outline">{healthStatus}</Badge></div>
-						<div><Label>Last test</Label><p className="text-sm">{active?.testStatus ?? "untested"} {active?.testLatencyMs ? `(${active.testLatencyMs} ms)` : ""}</p></div>
+						<div><Label>Last test</Label><p className="text-sm">{active?.testStatus ?? "Save and test a draft"} {active?.testLatencyMs ? `(${active.testLatencyMs} ms)` : ""}</p></div>
 						<div><Label>Last production request</Label><p className="text-sm">{lastProductionRequest ?? "None recorded"}</p></div>
 						<div><Label>Last failure</Label><p className="text-sm">{active?.testErrorCode ?? "None recorded"}</p></div>
 					</CardContent>
@@ -103,15 +104,15 @@ export function AdminTranscriptionControls({
 				<Card className="border-2">
 					<CardHeader>
 						<CardTitle>Edit Draft</CardTitle>
-						<CardDescription>Create an allowlisted provider/model draft before testing and activation.</CardDescription>
+						<CardDescription>Step 1: save a Sarvam draft. Step 2: choose that saved draft on the right, test it, then activate it.</CardDescription>
 					</CardHeader>
 					<CardContent className="grid gap-4 md:grid-cols-2">
 						<div className="grid gap-2">
 							<Label>Provider</Label>
 							<Select value={provider} onValueChange={(value) => {
-								const next = isTranscriptionProvider(value) ? value : "gemini";
+								const next = isTranscriptionProvider(value) ? value : "sarvam";
 								setProvider(next);
-								setModel(TRANSCRIPTION_PROVIDER_CATALOG.find((entry) => entry.provider === next)?.model ?? "gemini-3.5-flash");
+								setModel(TRANSCRIPTION_PROVIDER_CATALOG.find((entry) => entry.provider === next)?.model ?? "saaras:v3");
 							}}>
 								<SelectTrigger><SelectValue /></SelectTrigger>
 								<SelectContent>
@@ -150,7 +151,8 @@ export function AdminTranscriptionControls({
 						) : null}
 						<div className="grid gap-2 md:col-span-2">
 							<Label>Reason</Label>
-							<Textarea value={reason} onChange={(event) => setReason(event.target.value)} />
+							<Textarea value={reason} onChange={(event) => setReason(event.target.value)} className="min-h-24" />
+							<p className="text-xs text-muted-foreground">This reason is used for save, test, and activation audit entries.</p>
 						</div>
 						<Button
 							disabled={isPending || reason.trim().length < 8}
@@ -175,14 +177,20 @@ export function AdminTranscriptionControls({
 					<CardDescription>Activation requires the selected exact draft version to pass a real audio test.</CardDescription>
 				</CardHeader>
 				<CardContent className="grid gap-4">
-					<Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
-						<SelectTrigger><SelectValue placeholder="Choose configuration" /></SelectTrigger>
-						<SelectContent>
-							{configurations.map((item) => (
-								<SelectItem key={item.id} value={item.id}>{item.provider} / {item.model} / v{item.version} / {item.status}</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+					{hasConfigurations ? (
+						<Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
+							<SelectTrigger><SelectValue placeholder="Choose saved draft" /></SelectTrigger>
+							<SelectContent>
+								{configurations.map((item) => (
+									<SelectItem key={item.id} value={item.id}>{item.provider} / {item.model} / v{item.version} / {item.status}</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					) : (
+						<div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+							No saved configuration yet. Save the Sarvam draft on the left first; it will appear here after the page refreshes.
+						</div>
+					)}
 					{selectedConfig ? (
 						<div className="grid gap-2 rounded-md border p-3 text-sm">
 							<p><strong>{selectedConfig.provider}</strong> {selectedConfig.model}</p>
@@ -202,7 +210,7 @@ export function AdminTranscriptionControls({
 							reason,
 						})}
 					>
-						<FlaskConical className="mr-2 size-4" /> Test configuration
+						<FlaskConical className="mr-2 size-4" /> {selectedConfig ? "Test configuration" : "Save a draft first"}
 					</Button>
 					<Button
 						disabled={isPending || !selectedConfig || selectedConfig.testStatus !== "passed" || confirmation !== "ACTIVATE" || reason.trim().length < 8}
