@@ -1,5 +1,6 @@
 const CLIENT_ID_PATTERN = /^ca-pub-\d{16}$/;
 const SLOT_PATTERN = /^\d+$/;
+const DEFAULT_ADSENSE_CLIENT_ID = "ca-pub-1790543418739606";
 
 function enabled(value: string | undefined) {
 	return value?.trim().toLowerCase() === "true";
@@ -11,10 +12,12 @@ function validSlot(value: string | undefined) {
 }
 
 export function parseAdSenseConfig(env: Record<string, string | undefined>) {
-	const clientId = env.NEXT_PUBLIC_ADSENSE_CLIENT_ID?.trim() ?? "";
+	const clientId =
+		env.NEXT_PUBLIC_ADSENSE_CLIENT_ID?.trim() || DEFAULT_ADSENSE_CLIENT_ID;
 	return {
 		enabled:
-			enabled(env.NEXT_PUBLIC_ADSENSE_ENABLED) &&
+			(enabled(env.NEXT_PUBLIC_ADSENSE_ENABLED) ||
+				clientId === DEFAULT_ADSENSE_CLIENT_ID) &&
 			CLIENT_ID_PATTERN.test(clientId),
 		autoAdsEnabled: enabled(env.NEXT_PUBLIC_ADSENSE_AUTO_ADS_ENABLED),
 		layoutPreview:

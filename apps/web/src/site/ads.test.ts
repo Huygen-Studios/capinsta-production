@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { parseAdSenseConfig } from "./ads";
 
 describe("AdSense configuration", () => {
-	test("is disabled by default", () => {
-		expect(parseAdSenseConfig({}).enabled).toBe(false);
+	test("uses the Capinsta publisher ID by default", () => {
+		const config = parseAdSenseConfig({});
+
+		expect(config.enabled).toBe(true);
+		expect(config.clientId).toBe("ca-pub-1790543418739606");
 	});
 
 	test("rejects enabled state without a valid client ID", () => {
