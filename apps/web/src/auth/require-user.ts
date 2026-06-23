@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { resolvePostAuthDestination } from "@/access/server";
 import { createClient } from "@/lib/supabase/server";
 import { isUiTestAuthBypassEnabled, signInPathFor } from "./routes";
 
@@ -20,5 +21,5 @@ export async function redirectAuthenticatedUser(destination = "/projects") {
 	const {
 		data: { user },
 	} = await supabase.auth.getUser();
-	if (user) redirect(destination);
+	if (user) redirect(await resolvePostAuthDestination(user.id, destination));
 }

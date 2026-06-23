@@ -39,6 +39,10 @@ from .transcriber import (
     transcribe_audio,
     transcribe_sarvam_chunks_bounded,
 )
+try:
+    from server.transcription_control import coerce_snapshot
+except Exception:  # pragma: no cover - direct script execution fallback
+    coerce_snapshot = lambda value: None
 from .language_modes import CODE_MIXED_LANGUAGE_MODES, normalize_caption_text, normalize_language_mode
 from .output_transform import transform_segments_for_output
 from .transcript_normalizer import (
@@ -153,6 +157,7 @@ def run_pipeline(
     video_path: str,
     user_target_lang: str = "english",
     caption_output: str = "original",
+    transcription_config_snapshot: dict[str, Any] | None = None,
     progress_callback=None,
 ) -> Dict[str, Any]:
     """Run transcription, normalization, alignment, and subtitle export."""
@@ -164,6 +169,7 @@ def run_pipeline(
     chunks = []
     transcription_providers: set[str] = set()
     transcription_fallback_from: set[str] = set()
+    active_snapshot = coerce_snapshot(transcription_config_snapshot)
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -202,11 +208,13 @@ def run_pipeline(
             apply_fade(chunk.audio_path)
 
         parallel_results: list[dict] | None = None
-        if resolved_stt_provider(language_mode) == "sarvam" and len(chunks) > 1:
+        selected_provider = active_snapshot.provider if active_snapshot else resolved_stt_provider(language_mode)
+        if selected_provider == "sarvam" and len(chunks) > 1:
             parallel_results = asyncio.run(
                 transcribe_sarvam_chunks_bounded(
                     [chunk.audio_path for chunk in chunks],
                     language_mode,
+                    transcription_config_snapshot=transcription_config_snapshot,
                     # The pipeline worker owns a separate event loop for DB and
                     # WebSocket progress. Calling that callback from inside this
                     # temporary Sarvam loop would nest run_until_complete().
@@ -222,7 +230,7 @@ def run_pipeline(
         for i, chunk in enumerate(chunks):
             chunk_pct = 18 + int((i / total_chunks) * 48)
             if parallel_results is None:
-                provider_order = _configured_provider_sequence()
+                provider_order = [active_snapshot.provider] if active_snapshot else _configured_provider_sequence()
                 provider_label = (provider_order[0] if provider_order else "provider").replace("_", " ").title()
                 emit_progress("transcribing", chunk_pct, f"Transcribing chunk {i + 1} of {len(chunks)} with {provider_label}.")
 
@@ -235,7 +243,7 @@ def run_pipeline(
                         f"Transcribing chunk {i + 1} of {len(chunks)} with {provider_label}.",
                     )
                 elif event == "failed":
-                    fallback_order = _configured_provider_sequence()
+                    fallback_order = [active_snapshot.provider] if active_snapshot else _configured_provider_sequence()
                     next_provider = None
                     if provider in fallback_order:
                         provider_position = fallback_order.index(provider)
@@ -259,6 +267,7 @@ def run_pipeline(
                     progress_callback=on_provider_progress,
                     chunk_index=i + 1,
                     total_chunks=len(chunks),
+                    transcription_config_snapshot=transcription_config_snapshot,
                 )
             )
             transcription_providers.add(str(transcription_result.get("provider") or "unknown"))
@@ -519,12 +528,24 @@ def run_pipeline(
         log_summary = pipeline_logger.get_summary()
         provider_name = ",".join(sorted(transcription_providers)) or "unknown"
         transcript = build_normalized_transcript(clamped_segments, language_mode, provider_name)
+        if active_snapshot:
+            transcript["transcriptionConfiguration"] = active_snapshot.to_dict()
+            transcript["provider"] = {
+                "name": active_snapshot.provider,
+                "model": active_snapshot.model,
+                "configurationVersion": active_snapshot.version,
+                "timestampStrategy": active_snapshot.timestamp_strategy,
+                "providerMode": active_snapshot.provider_mode,
+                "strictProvider": active_snapshot.strict_provider,
+            }
         transcript["sourceLanguage"] = transformation_report.get("sourceLanguage") or language_mode
         transcript["detectedLanguage"] = transformation_report.get("sourceLanguage") or language_mode
         transcript["outputLanguage"] = transformation_report.get("outputLanguage") or output_language
         transcript["transformation"] = transformation_report.get("transformation") or "none"
         transcript["originalSegments"] = original_segments
-        if provider_name == "gemini":
+        if active_snapshot:
+            pass
+        elif provider_name == "gemini":
             transcript["provider"] = {"name": "gemini", "model": os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash")}
         elif provider_name == "sarvam" and transcription_fallback_from:
             transcript["provider"] = {

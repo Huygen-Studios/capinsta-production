@@ -76,6 +76,7 @@ def start_pipeline_worker(
     file_path: str,
     language_mode: str,
     caption_output: str = "original",
+    transcription_config_snapshot: dict[str, Any] | None = None,
 ) -> Thread:
     cancel_event = Event()
 
@@ -87,6 +88,7 @@ def start_pipeline_worker(
                 file_path,
                 language_mode,
                 caption_output=caption_output,
+                transcription_config_snapshot=transcription_config_snapshot,
                 cancel_event=cancel_event,
             )
         except BaseException as error:

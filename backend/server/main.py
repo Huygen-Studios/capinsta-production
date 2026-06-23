@@ -55,9 +55,11 @@ from .storage_retention import (
 from .runtime_policy import (
     ControlPlaneUnavailableError,
     InactiveAccountError,
+    ProductAccessDeniedError,
     control_plane_health,
     control_plane_error_reason,
     require_active_account,
+    require_backend_capability,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,6 +153,7 @@ async def require_supabase_auth(request: Request, call_next):
     try:
         user = authenticate_request(request)
         await require_active_account(user)
+        await require_backend_capability(user, request.url.path)
     except AuthBoundaryError as exc:
         algorithm, key_id = request_token_metadata(request)
         log_auth_reject(
@@ -194,6 +197,24 @@ async def require_supabase_auth(request: Request, call_next):
                 "code": "control_plane_unavailable",
             },
             status_code=503,
+            headers={"X-Correlation-ID": correlation_id},
+        )
+    except ProductAccessDeniedError as exc:
+        logger.warning(
+            "auth_reject reason=%s method=%s path=%s correlation_id=%s",
+            exc.reason,
+            request.method,
+            request.url.path,
+            correlation_id,
+        )
+        detail = (
+            "Capinsta is temporarily unavailable"
+            if exc.reason == "maintenance_mode"
+            else "Product access denied"
+        )
+        return JSONResponse(
+            {"detail": detail, "code": exc.reason},
+            status_code=exc.status_code,
             headers={"X-Correlation-ID": correlation_id},
         )
     except Exception:

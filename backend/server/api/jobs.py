@@ -25,7 +25,8 @@ from .media_assets import get_owned_media_asset
 from ..worker_startup import start_pipeline_worker
 from ..auth import current_user, get_owned_job, verify_access_token
 from ..operational_mirror import mirror_caption_job
-from ..runtime_policy import enforce_caption_quota, require_feature, require_provider_enabled
+from ..runtime_policy import enforce_caption_quota, require_feature
+from ..transcription_control import assert_transcription_available
 from ai_pipeline.renderer import generate_srt, generate_vtt
 from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_aligned_words_from_segments
 from ai_pipeline.sync.affine import retime_segments
@@ -460,7 +461,7 @@ async def create_job(
 ):
     """Uploads a video and starts a background captioning job."""
     await require_feature("caption_generation_enabled", "Caption generation is temporarily unavailable.")
-    await require_provider_enabled(os.getenv("STT_PROVIDER", "auto").strip().lower())
+    transcription_snapshot = assert_transcription_available()
     await enforce_caption_quota(current_user().id)
     job_id = str(uuid.uuid4())
     requested_audio_language = audioLanguage or sourceLanguage or languageMode or target_lang or "auto"
@@ -603,15 +604,20 @@ async def create_job(
             INSERT INTO jobs
                 (id, status, filename, target_lang, created_at, last_seen_at, expires_at,
                  user_id, project_id, correlation_id, media_duration_seconds,
-                 media_asset_id, message, heartbeat_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 media_asset_id, message, heartbeat_at, updated_at,
+                 transcription_provider, transcription_model, transcription_config_version,
+                 timestamp_strategy, provider_mode, transcription_config_snapshot_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, "queued", filename, normalized_mode, now_text, now_text,
                 expires_text, current_user().id, project_id or job_id,
                 request.headers.get("x-correlation-id") or str(uuid.uuid4()),
                 media_duration or None, media_asset_id, "Caption job queued.",
-                now_text, now_text,
+                now_text, now_text, transcription_snapshot.provider,
+                transcription_snapshot.model, transcription_snapshot.version,
+                transcription_snapshot.timestamp_strategy, transcription_snapshot.provider_mode,
+                json.dumps(transcription_snapshot.to_dict(), ensure_ascii=False),
             ),
         )
         await db.commit()
@@ -624,6 +630,7 @@ async def create_job(
         file_path=file_path,
         language_mode=normalized_mode,
         caption_output=normalized_output_language,
+        transcription_config_snapshot=transcription_snapshot.to_dict(),
     )
 
     _log_stage(job_id, "response returned", status="queued", bytes=bytes_written)

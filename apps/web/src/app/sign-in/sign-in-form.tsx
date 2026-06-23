@@ -47,7 +47,7 @@ export function SignInForm({
 			setLoading(false);
 			return;
 		}
-		router.replace(redirectPath);
+		router.replace(`/auth/resolve?next=${encodeURIComponent(redirectPath)}`);
 		router.refresh();
 	};
 

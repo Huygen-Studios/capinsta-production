@@ -34,9 +34,9 @@ def test_gemini_derives_words_when_missing(monkeypatch, tmp_path):
     assert len(result["segments"]) == 1
     assert len(result["words"]) == 2
     assert result["words"][0]["word"] == "hello"
-    assert result["words"][0]["timing_source"] == "derived_from_segment"
+    assert result["words"][0]["timing_source"] == "provider_segment_derived"
     assert result["words"][1]["word"] == "world"
-    assert result["words"][1]["timing_source"] == "derived_from_segment"
+    assert result["words"][1]["timing_source"] == "provider_segment_derived"
 
 
 def test_gemini_fails_on_missing_segments(monkeypatch, tmp_path):
@@ -59,7 +59,7 @@ def test_gemini_fails_on_missing_segments(monkeypatch, tmp_path):
     with pytest.raises(transcriber.TranscriptionProviderError) as exc_info:
         transcriber._call_gemini(_write_wav(tmp_path / "a.wav"), "english")
     
-    assert exc_info.value.category == "response_error"
+    assert exc_info.value.category == "structured_output_invalid"
     assert "missing segments" in str(exc_info.value)
 
 

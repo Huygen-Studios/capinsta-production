@@ -246,6 +246,24 @@ export async function getAdminModuleRows({
             email: profiles.emailSnapshot,
             name: profiles.displayName,
             status: profiles.accountStatus,
+            productAccess: profiles.productAccessStatus,
+            accessExpires: profiles.productAccessExpiresAt,
+            authProvider: profiles.authProviderSnapshot,
+            emailVerified: sql<boolean>`${profiles.emailConfirmedAt} is not null`,
+            lastSignIn: profiles.lastSignInAt,
+            admin: sql<boolean>`exists (
+              select 1 from admin_role_members arm
+              where arm.user_id = ${profiles.userId} and arm.active = true
+            )`,
+            productRole: sql<string | null>`(
+              select ar.key from app_role_members arm
+              join app_roles ar on ar.id = arm.role_id
+              where arm.user_id = ${profiles.userId}
+                and arm.active = true
+                and (arm.expires_at is null or arm.expires_at > now())
+              order by ar.key desc
+              limit 1
+            )`,
             created: profiles.createdAt,
             lastSeen: profiles.lastSeenAt,
           })

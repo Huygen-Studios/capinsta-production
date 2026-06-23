@@ -26,6 +26,12 @@ from .language_modes import (
     TELUGU_CAPABLE_PROVIDER_ERROR,
     normalize_language_mode,
 )
+try:
+    from server.transcription_catalog import catalog_entry
+    from server.transcription_control import coerce_snapshot
+except Exception:  # pragma: no cover - direct script fallback
+    catalog_entry = lambda provider, model: None
+    coerce_snapshot = lambda value: None
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +82,12 @@ GROQ_KEY_ERROR = "Groq API key is invalid or missing. Update GROQ_API_KEY in the
 GEMINI_KEY_ERROR = "Gemini API key is invalid or missing. Update GEMINI_API_KEY in the backend environment, then restart the server."
 
 
+def _is_retryable_failure(category: str, status: int | None) -> bool:
+    if status in {429, 500, 503, 504}:
+        return True
+    return category in {"rate_limited", "quota_exhausted", "provider_unavailable", "timeout", "connection_failed"}
+
+
 class TranscriptionProviderError(RuntimeError):
     def __init__(
         self,
@@ -85,11 +97,15 @@ class TranscriptionProviderError(RuntimeError):
         status: int | None = None,
         *,
         provider_code: str | None = None,
+        request_id: str | None = None,
+        retryable: bool | None = None,
     ):
         self.provider = provider
         self.category = category
         self.status = status
         self.provider_code = provider_code
+        self.request_id = request_id
+        self.retryable = retryable if retryable is not None else _is_retryable_failure(category, status)
         safe_message = message or category
         super().__init__(safe_message)
 
@@ -161,7 +177,7 @@ def _provider_key_available(provider: str) -> bool:
         return _has_real_key("SARVAM_API_KEY")
     if provider == "groq_whisper":
         return _has_real_key("GROQ_API_KEY")
-    if provider == "openai_whisper":
+    if provider in {"openai_whisper", "openai"}:
         return _has_real_key("OPENAI_API_KEY")
     return False
 
@@ -255,51 +271,62 @@ def _failure_category(exc: Exception) -> tuple[str, int | None]:
     if isinstance(exc, requests.Timeout):
         return "timeout", None
     if isinstance(exc, requests.ConnectionError):
-        return "connection", None
+        return "connection_failed", None
     if _looks_like_auth_error(exc):
-        return "authentication", None
+        return "authentication_failed", None
     text = str(exc).lower()
     if "429" in text or "quota" in text or "rate limit" in text or "rate_limit" in text:
-        return "rate_limit", 429
+        return "rate_limited", 429
     if "json" in text or "malformed" in text:
-        return "malformed_response", None
+        return "structured_output_invalid", None
     if "timestamp" in text or "word" in text:
-        return "invalid_timestamps", None
-    return "provider_error", None
+        return "timestamps_invalid", None
+    return "unknown_provider_error", None
 
 
 def _failure_summary(provider: str, category: str, status: int | None) -> str:
     if provider == "gemini":
-        if category == "authentication":
+        if category in {"authentication", "authentication_failed"}:
             detail = f"HTTP {status}, invalid Gemini API key" if status else "invalid Gemini API key"
-            return f"gemini(authentication: {detail})"
-        if category == "permission_or_blocked_key":
+            return f"gemini(authentication_failed: {detail})"
+        if category in {"permission_or_blocked_key", "permission_denied"}:
             detail = f"HTTP {status}, API key blocked or permission denied" if status else "API key blocked or permission denied"
-            return f"gemini(permission_or_blocked_key: {detail})"
-        if category == "quota_or_rate_limit":
-            return f"gemini(quota_or_rate_limit{f': HTTP {status}' if status else ''})"
-        if category == "endpoint_or_model_not_found":
-            return f"gemini(endpoint_or_model_not_found{f': HTTP {status}' if status else ''})"
+            return f"gemini(permission_denied: {detail})"
+        if category in {"quota_or_rate_limit", "quota_exhausted", "rate_limited"}:
+            return f"gemini({category}{f': HTTP {status}' if status else ''})"
+        if category in {"endpoint_or_model_not_found", "model_not_found"}:
+            return f"gemini(model_not_found{f': HTTP {status}' if status else ''})"
         if category == "invalid_request":
             return f"gemini(invalid_request{f': HTTP {status}' if status else ''})"
         if category == "provider_unavailable":
             return f"gemini(provider_unavailable{f': HTTP {status}' if status else ''})"
-        if category == "transport_error":
-            return "gemini(transport_error)"
-        if category == "response_error":
-            return "gemini(response_error)"
+        if category in {"transport_error", "connection_failed"}:
+            return f"gemini({category})"
+        if category in {"response_error", "unknown_provider_error", "structured_output_invalid"}:
+            return f"gemini({category})"
     return f"{provider}({category}{f': HTTP {status}' if status else ''})"
 
 
-def _validate_transcription_result(result: dict, provider: str, audio_path: str) -> dict:
+def _validate_transcription_result(
+    result: dict,
+    provider: str,
+    audio_path: str,
+    *,
+    timestamp_strategy: str | None = None,
+) -> dict:
     text = str(result.get("text") or "").strip()
     if not text:
         raise TranscriptionProviderError(provider, "empty_transcript", "empty transcript")
 
     duration = _as_timing_float(result.get("duration")) or _audio_duration_seconds(audio_path)
     words = result.get("words") or []
+    if timestamp_strategy == "local_forced_alignment":
+        if duration is not None:
+            result["duration"] = result.get("duration") or duration
+        result["words"] = words if isinstance(words, list) else []
+        return result
     if not isinstance(words, list) or not words:
-        raise TranscriptionProviderError(provider, "invalid_timestamps", "missing word timestamps")
+        raise TranscriptionProviderError(provider, "timestamps_missing", "missing word timestamps")
 
     valid_words: list[dict[str, Any]] = []
     last_start = -0.001
@@ -314,17 +341,20 @@ def _validate_transcription_result(result: dict, provider: str, audio_path: str)
         if not word or start is None or end is None or end <= start:
             continue
         if start + 0.001 < last_start or end + 0.001 < last_end:
-            raise TranscriptionProviderError(provider, "invalid_timestamps", "non-monotonic word timestamps")
+            raise TranscriptionProviderError(provider, "timestamps_invalid", "non-monotonic word timestamps")
         if max_reasonable_end is not None and end > max_reasonable_end:
-            raise TranscriptionProviderError(provider, "invalid_timestamps", "word timestamps exceed audio duration")
+            raise TranscriptionProviderError(provider, "timestamps_invalid", "word timestamps exceed audio duration")
         valid_words.append(raw_word)
         last_start = start
         last_end = end
 
-    transcript_word_count = max(1, len(text.split()))
-    coverage = len(valid_words) / transcript_word_count
-    if len(valid_words) < 1 or (transcript_word_count >= 4 and coverage < 0.5):
-        raise TranscriptionProviderError(provider, "invalid_timestamps", "insufficient word timestamp coverage")
+    if len(valid_words) < 1:
+        raise TranscriptionProviderError(provider, "timestamps_invalid", "no valid word timestamps")
+    if provider != "sarvam":
+        transcript_word_count = max(1, len(text.split()))
+        coverage = len(valid_words) / transcript_word_count
+        if transcript_word_count >= 4 and coverage < 0.5:
+            raise TranscriptionProviderError(provider, "timestamps_invalid", "insufficient word timestamp coverage")
 
     result["words"] = valid_words
     if duration is not None:
@@ -511,16 +541,16 @@ def _gemini_error_category(status: int | None) -> str:
     if status == 400:
         return "invalid_request"
     if status == 401:
-        return "authentication"
+        return "authentication_failed"
     if status == 403:
-        return "permission_or_blocked_key"
+        return "permission_denied"
     if status == 404:
-        return "endpoint_or_model_not_found"
+        return "model_not_found"
     if status == 429:
-        return "quota_or_rate_limit"
+        return "rate_limited"
     if status and status >= 500:
         return "provider_unavailable"
-    return "response_error"
+    return "unknown_provider_error"
 
 
 def _gemini_provider_code(exc: Exception) -> str | None:
@@ -539,8 +569,10 @@ def _gemini_provider_code(exc: Exception) -> str | None:
 
 
 def _classify_gemini_error(exc: Exception) -> TranscriptionProviderError:
-    if isinstance(exc, (TimeoutError, requests.Timeout, requests.ConnectionError)):
-        return TranscriptionProviderError("gemini", "transport_error", "Gemini transport error.")
+    if isinstance(exc, (TimeoutError, requests.Timeout)):
+        return TranscriptionProviderError("gemini", "timeout", "Gemini request timed out.")
+    if isinstance(exc, requests.ConnectionError):
+        return TranscriptionProviderError("gemini", "connection_failed", "Gemini connection failed.")
 
     status = _gemini_error_status(exc)
     provider_code = _gemini_provider_code(exc)
@@ -572,7 +604,7 @@ def _classify_gemini_error(exc: Exception) -> TranscriptionProviderError:
         GEMINI_MODEL,
         message or "-",
     )
-    return TranscriptionProviderError("gemini", "response_error", message or "Gemini response error.")
+    return TranscriptionProviderError("gemini", "unknown_provider_error", message or "Gemini response error.")
 
 
 def _normalize_provider_result(result: dict, provider: str) -> dict:
@@ -645,11 +677,46 @@ def _call_groq(client, audio_path: str, prompt: str, language_hint: str | None,
     }
 
 
-def _call_openai_whisper(audio_path: str, language_mode: str) -> dict:
+def _openai_transcription_request_kwargs(
+    *,
+    file: Any,
+    filename: str,
+    mime_type: str,
+    model: str,
+    language_hint: str | None,
+    prompt: str,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "file": (filename, file, mime_type),
+        "model": model,
+        "temperature": 0,
+        "timeout": STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
+    }
+    if model == "whisper-1":
+        kwargs["response_format"] = "verbose_json"
+        kwargs["timestamp_granularities"] = ["word", "segment"]
+        if language_hint:
+            kwargs["language"] = language_hint
+        if prompt:
+            kwargs["prompt"] = prompt
+        return kwargs
+    if model in {"gpt-4o-mini-transcribe", "gpt-4o-transcribe"}:
+        kwargs["response_format"] = "json"
+        if language_hint:
+            kwargs["language"] = language_hint
+        if prompt:
+            kwargs["prompt"] = prompt
+        return kwargs
+    raise TranscriptionProviderError("openai", "unsupported_model", "Unsupported OpenAI transcription model.")
+
+
+def _call_openai_whisper(audio_path: str, language_mode: str, transcription_config_snapshot: Any = None) -> dict:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("STT_PROVIDER=openai_whisper requires OPENAI_API_KEY.")
 
+    snapshot = coerce_snapshot(transcription_config_snapshot)
+    model = snapshot.model if snapshot else OPENAI_TRANSCRIPTION_MODEL
     client = OpenAI(
         api_key=api_key,
         timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
@@ -663,23 +730,19 @@ def _call_openai_whisper(audio_path: str, language_mode: str) -> dict:
         size_bytes = os.path.getsize(prepared_path)
         logger.info(
             "openai_audio_input provider=openai_whisper model=%s mime_type=%s file_size=%s",
-            OPENAI_TRANSCRIPTION_MODEL,
+            model,
             upload_mime_type,
             size_bytes,
         )
         with open(prepared_path, "rb") as file:
-            kwargs: dict[str, Any] = {
-                "file": (os.path.basename(prepared_path), file, upload_mime_type),
-                "model": OPENAI_TRANSCRIPTION_MODEL,
-                "response_format": "verbose_json",
-                "timestamp_granularities": ["word", "segment"],
-                "temperature": 0,
-                "timeout": STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
-            }
-            if language_hint:
-                kwargs["language"] = language_hint
-            if prompt:
-                kwargs["prompt"] = prompt
+            kwargs = _openai_transcription_request_kwargs(
+                file=file,
+                filename=os.path.basename(prepared_path),
+                mime_type=upload_mime_type,
+                model=model,
+                language_hint=language_hint,
+                prompt=prompt,
+            )
             try:
                 transcription = client.audio.transcriptions.create(**kwargs)
             except Exception as exc:
@@ -706,8 +769,10 @@ def _call_openai_whisper(audio_path: str, language_mode: str) -> dict:
         "duration": payload.get("duration"),
         "segments": payload.get("segments") or [],
         "words": payload.get("words") or [],
-        "provider": "openai_whisper",
-        "model": OPENAI_TRANSCRIPTION_MODEL,
+        "provider": "openai" if snapshot else "openai_whisper",
+        "model": model,
+        "timestamp_strategy": "provider_word" if model == "whisper-1" else "local_forced_alignment",
+        "timestamp_capability": "native_provider_word" if model == "whisper-1" else "transcript_text",
     }
 
 
@@ -747,8 +812,8 @@ def _derive_words_for_segment(text: str, start: float, end: float, provider: str
                 "start": round(max(0.0, word_start), 3),
                 "end": round(max(word_start + 0.001, word_end), 3),
                 "provider": provider,
-                "timing_source": "derived_from_segment",
-                "timingSource": "derived_from_segment",
+                "timing_source": "provider_segment_derived",
+                "timingSource": "provider_segment_derived",
             }
         )
         cursor = word_end
@@ -779,8 +844,8 @@ def _normalize_gemini_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "score": _as_timing_float(raw_word.get("confidence")) or 0.0,
                 "confidence": _as_timing_float(raw_word.get("confidence")),
                 "provider": "gemini",
-                "timing_source": "provider_word",
-                "timingSource": "provider_word",
+                "timing_source": "provider_structured_word",
+                "timingSource": "provider_structured_word",
             }
         )
 
@@ -806,7 +871,7 @@ def _normalize_gemini_segments(payload: dict[str, Any]) -> tuple[list[dict[str, 
         start = max(0.0, start)
         end = max(start + 0.02, end)
         if start + 0.001 < last_segment_end:
-            raise TranscriptionProviderError("gemini", "response_error", f"non-monotonic timestamp at segment {seg_index}")
+            raise TranscriptionProviderError("gemini", "timestamps_invalid", f"non-monotonic timestamp at segment {seg_index}")
 
         segment_words_payload = {"words": raw_segment.get("words") or []}
         segment_words = _normalize_gemini_words(segment_words_payload)
@@ -899,13 +964,13 @@ GEMINI_TRANSCRIPTION_SCHEMA: dict[str, Any] = {
 }
 
 
-def _gemini_audio_input(client: Any, audio_path: str) -> dict[str, Any]:
+def _gemini_audio_input(client: Any, audio_path: str, *, model: str | None = None) -> dict[str, Any]:
     prepared_path, mime_type, cleanup_path = _prepare_gemini_audio_file(audio_path)
     try:
         size_bytes = os.path.getsize(prepared_path)
         logger.info(
             "gemini_audio_input provider=gemini model=%s mime_type=%s file_size=%s",
-            GEMINI_MODEL,
+            model or GEMINI_MODEL,
             mime_type,
             size_bytes,
         )
@@ -930,17 +995,19 @@ def _gemini_audio_input(client: Any, audio_path: str) -> dict[str, Any]:
                 pass
 
 
-def _call_gemini(audio_path: str, language_mode: str) -> dict:
+def _call_gemini(audio_path: str, language_mode: str, transcription_config_snapshot: Any = None) -> dict:
     api_key = _gemini_api_key()
     if not api_key:
         raise RuntimeError("STT_PROVIDER=gemini requires GEMINI_API_KEY.")
+    snapshot = coerce_snapshot(transcription_config_snapshot)
+    model = snapshot.model if snapshot else GEMINI_MODEL
     client = _gemini_client(api_key)
     try:
         interaction = client.interactions.create(
-            model=GEMINI_MODEL,
+            model=model,
             input=[
                 {"type": "text", "text": _gemini_transcription_prompt(language_mode)},
-                _gemini_audio_input(client, audio_path),
+                _gemini_audio_input(client, audio_path, model=model),
             ],
             response_format={
                 "type": "text",
@@ -971,12 +1038,12 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
     try:
         transcript_payload = _extract_json_object(text_response)
     except json.JSONDecodeError as exc:
-        raise TranscriptionProviderError("gemini", "malformed_response", f"invalid JSON at character {exc.pos}") from exc
+        raise TranscriptionProviderError("gemini", "structured_output_invalid", f"invalid JSON at character {exc.pos}") from exc
     except ValueError as exc:
-        raise TranscriptionProviderError("gemini", "malformed_response", str(exc)) from exc
+        raise TranscriptionProviderError("gemini", "structured_output_invalid", str(exc)) from exc
 
     if "segments" not in transcript_payload or not isinstance(transcript_payload["segments"], list) or not transcript_payload["segments"]:
-        raise TranscriptionProviderError("gemini", "response_error", "response schema mismatch: missing segments")
+        raise TranscriptionProviderError("gemini", "structured_output_invalid", "response schema mismatch: missing segments")
 
     try:
         segments, words = _normalize_gemini_segments(transcript_payload)
@@ -994,53 +1061,112 @@ def _call_gemini(audio_path: str, language_mode: str) -> dict:
         "segments": segments,
         "words": words,
         "provider": "gemini",
-        "model": GEMINI_MODEL,
+        "model": model,
+        "timestamp_strategy": "structured_word_validate",
+        "timestamp_capability": "structured_model_word_timestamps",
     }
 
 
 def _normalize_sarvam_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
     timestamps = payload.get("timestamps") or {}
+    if not isinstance(timestamps, dict):
+        raise TranscriptionProviderError("sarvam", "timestamps_missing", "Sarvam timestamps object is missing")
     timing_granularity = "word"
     words = timestamps.get("words") or []
     if not words and timestamps.get("chunks"):
         words = timestamps.get("chunks") or []
         timing_granularity = "phrase"
+    if not isinstance(words, list):
+        raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp words must be a list")
     preserve_phrase_timing = timing_granularity == "phrase" and len(words) > 1
     starts = timestamps.get("start_time_seconds") or []
     ends = timestamps.get("end_time_seconds") or []
+    if not isinstance(starts, list) or not isinstance(ends, list):
+        raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp starts/ends must be lists")
+    if len(words) != len(starts) or len(words) != len(ends):
+        raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp array lengths differ")
     normalized: list[dict[str, Any]] = []
+    last_start = -0.001
+    last_end = -0.001
 
     for i, word in enumerate(words):
         try:
             start = float(starts[i])
             end = float(ends[i])
         except (IndexError, TypeError, ValueError):
-            continue
+            raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp value is not numeric")
+        if not (start == start and end == end) or start in {float("inf"), float("-inf")} or end in {float("inf"), float("-inf")}:
+            raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp value is not finite")
         if end <= start:
-            continue
+            raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp end is not greater than start")
+        if start + 0.001 < last_start or end + 0.001 < last_end:
+            raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam word timestamps are not monotonic")
+        token = str(word).strip()
+        if not token:
+            raise TranscriptionProviderError("sarvam", "timestamps_invalid", "Sarvam timestamp word is empty")
         normalized.append(
             {
-                "word": str(word).strip(),
+                "word": token,
+                "displayWord": token,
                 "start": start,
                 "end": end,
                 "score": float(payload.get("language_probability") or 0.0),
                 "provider": "sarvam",
+                "model": "saaras:v3",
                 "timingGranularity": timing_granularity,
-                "timing_source": "provider_phrase" if timing_granularity == "phrase" else "provider_word",
+                "timing_source": "provider_segment_derived" if timing_granularity == "phrase" else "provider_native_word",
                 "preservePhraseTiming": preserve_phrase_timing,
             }
         )
+        last_start = start
+        last_end = end
 
     return normalized
 
 
-def _call_sarvam(audio_path: str, language_mode: str) -> dict:
+def _sarvam_mode_for_language(language_mode: str, provider_options: dict[str, Any] | None = None) -> tuple[str, str]:
+    options = provider_options or {}
+    requested_mode = str(options.get("mode") or "").strip().lower()
+    if requested_mode:
+        if requested_mode not in {"transcribe", "verbatim", "translit", "codemix"}:
+            raise TranscriptionProviderError("sarvam", "invalid_request", "Unsupported Sarvam mode.")
+        mode = requested_mode
+    elif language_mode in {"hinglish", "telgish"}:
+        mode = "translit"
+    elif language_mode == "auto_mixed_indian":
+        mode = "codemix"
+    else:
+        mode = "transcribe"
+    language_code = SARVAM_LANGUAGE_CODES.get(language_mode)
+    if not language_code:
+        raise TranscriptionProviderError("sarvam", "invalid_request", "Unsupported Sarvam language mode.")
+    return mode, language_code
+
+
+def _sarvam_error_category(status_code: int, provider_code: str | None) -> str:
+    code = str(provider_code or "").lower()
+    if status_code in {401, 403} or code in {"invalid_api_key", "unauthorized", "forbidden"}:
+        return "authentication_failed" if status_code == 401 else "permission_denied"
+    if status_code == 404:
+        return "model_not_found"
+    if status_code in {400, 422}:
+        return "invalid_request"
+    if status_code == 429:
+        return "rate_limited"
+    if status_code in {500, 503, 504}:
+        return "provider_unavailable"
+    return "unknown_provider_error"
+
+
+def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snapshot: Any = None) -> dict:
     api_key = os.environ.get("SARVAM_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("STT_PROVIDER=sarvam requires SARVAM_API_KEY.")
 
-    language_code = SARVAM_LANGUAGE_CODES[language_mode]
-    mode = "translit" if language_mode in CODE_MIXED_LANGUAGE_MODES else "transcribe"
+    snapshot = coerce_snapshot(transcription_config_snapshot)
+    model = snapshot.model if snapshot else "saaras:v3"
+    provider_options = snapshot.provider_options if snapshot else None
+    mode, language_code = _sarvam_mode_for_language(language_mode, provider_options)
 
     upload_mime_type = _sniff_audio_mime_type(audio_path) or "application/octet-stream"
     with open(audio_path, "rb") as file:
@@ -1048,7 +1174,7 @@ def _call_sarvam(audio_path: str, language_mode: str) -> dict:
             SARVAM_URL,
             headers={"api-subscription-key": api_key},
             data={
-                "model": "saaras:v3",
+                "model": model,
                 "mode": mode,
                 "language_code": language_code,
                 "with_timestamps": "true",
@@ -1068,18 +1194,15 @@ def _call_sarvam(audio_path: str, language_mode: str) -> dict:
             provider_message = raw_detail
             provider_code = None
 
-        if response.status_code in {401, 403} or str(provider_code).lower() in {"invalid_api_key", "unauthorized"}:
-            raise RuntimeError(SARVAM_KEY_ERROR)
-
-        if response.status_code == 429:
-            raise RuntimeError(
-                "Sarvam transcription rate limit exceeded. Wait and try again, "
-                "or switch STT_PROVIDER to openai_whisper/groq_whisper with a configured key. "
-                f"Provider message: {provider_message}"
-            )
-
-        code_text = f" ({provider_code})" if provider_code else ""
-        raise RuntimeError(f"Sarvam transcription failed ({response.status_code}{code_text}): {provider_message}")
+        category = _sarvam_error_category(response.status_code, provider_code)
+        raise TranscriptionProviderError(
+            "sarvam",
+            category,
+            _sanitize_provider_message(provider_message) or category,
+            response.status_code,
+            provider_code=provider_code,
+            request_id=response.headers.get("x-request-id") if hasattr(response, "headers") else None,
+        )
 
     payload = response.json()
     return {
@@ -1089,7 +1212,12 @@ def _call_sarvam(audio_path: str, language_mode: str) -> dict:
         "segments": [],
         "words": _normalize_sarvam_words(payload),
         "provider": "sarvam",
+        "model": model,
+        "provider_mode": mode,
+        "provider_request_id": payload.get("request_id"),
         "request_id": payload.get("request_id"),
+        "timestamp_strategy": "provider_word",
+        "timestamp_capability": "native_provider_word",
         "language_probability": payload.get("language_probability"),
     }
 
@@ -1154,12 +1282,20 @@ def transcribe_audio(
     progress_callback=None,
     chunk_index: int | None = None,
     total_chunks: int | None = None,
+    transcription_config_snapshot: Any = None,
 ) -> dict:
     """Provider abstraction for speech-to-text used by the pipeline."""
     normalized_mode = normalize_language_mode(language_mode)
-    validate_transcription_config(normalized_mode)
+    snapshot = coerce_snapshot(transcription_config_snapshot)
+    if snapshot:
+        entry = catalog_entry(snapshot.provider, snapshot.model)
+        if entry is None or entry.timestamp_strategy != snapshot.timestamp_strategy:
+            raise TranscriptionProviderError(snapshot.provider, "unsupported_model", "Unsupported transcription model.")
+        providers = [snapshot.provider]
+    else:
+        validate_transcription_config(normalized_mode)
+        providers = _configured_provider_sequence()
 
-    providers = _configured_provider_sequence()
     failures: list[tuple[str, str, int | None]] = []
     attempted: list[str] = []
 
@@ -1183,10 +1319,19 @@ def transcribe_audio(
         if progress_callback:
             progress_callback("attempt", provider, None)
         try:
-            result = _call_provider(provider, audio_path, normalized_mode)
+            result = (
+                _call_provider(provider, audio_path, normalized_mode, transcription_config_snapshot=snapshot)
+                if snapshot
+                else _call_provider(provider, audio_path, normalized_mode)
+            )
             elapsed_ms = int((time.monotonic() - attempt_started) * 1000)
             normalized = _normalize_provider_result(result, provider)
-            validated = _validate_transcription_result(normalized, provider, audio_path)
+            validated = _validate_transcription_result(
+                normalized,
+                provider,
+                audio_path,
+                timestamp_strategy=snapshot.timestamp_strategy if snapshot else normalized.get("timestamp_strategy"),
+            )
             if attempted:
                 validated["fallback"] = True
                 validated["fallback_from"] = attempted.copy()
@@ -1223,16 +1368,18 @@ def transcribe_audio(
     summary = ", ".join(
         _failure_summary(provider, category, status) for provider, category, status in failures
     )
+    if snapshot and snapshot.strict_provider:
+        raise RuntimeError("Caption generation is temporarily unavailable. Your upload is safe. Please retry shortly.")
     raise RuntimeError(f"All configured transcription providers failed: {summary}.")
 
 
-def _call_provider(provider: str, audio_path: str, normalized_mode: str) -> dict:
+def _call_provider(provider: str, audio_path: str, normalized_mode: str, *, transcription_config_snapshot: Any = None) -> dict:
     if provider == "gemini":
-        return _call_gemini(audio_path, normalized_mode)
+        return _call_gemini(audio_path, normalized_mode, transcription_config_snapshot)
     if provider == "sarvam":
-        return _call_sarvam(audio_path, normalized_mode)
-    if provider == "openai_whisper":
-        return _call_openai_whisper(audio_path, normalized_mode)
+        return _call_sarvam(audio_path, normalized_mode, transcription_config_snapshot)
+    if provider in {"openai_whisper", "openai"}:
+        return _call_openai_whisper(audio_path, normalized_mode, transcription_config_snapshot)
     if provider == "groq_whisper":
         return transcribe_chunk_with_retry(audio_path, language=normalized_mode)
     raise TranscriptionProviderError(provider, "unsupported_provider", "Unsupported transcription provider.")
@@ -1242,12 +1389,14 @@ async def transcribe_sarvam_chunks_bounded(
     audio_paths: list[str],
     language_mode: str,
     progress_callback=None,
+    transcription_config_snapshot: Any = None,
 ) -> list[dict]:
     """Run blocking Sarvam REST calls concurrently with a strict upper bound."""
     normalized_mode = normalize_language_mode(language_mode)
-    if _resolve_provider(normalized_mode) != "sarvam":
+    snapshot = coerce_snapshot(transcription_config_snapshot)
+    if (snapshot.provider if snapshot else _resolve_provider(normalized_mode)) != "sarvam":
         return [
-            transcribe_audio(audio_path, language_mode=normalized_mode)
+            transcribe_audio(audio_path, language_mode=normalized_mode, transcription_config_snapshot=transcription_config_snapshot)
             for audio_path in audio_paths
         ]
     try:
@@ -1262,11 +1411,15 @@ async def transcribe_sarvam_chunks_bounded(
     async def transcribe_one(index: int, audio_path: str) -> tuple[int, dict]:
         nonlocal completed
         async with semaphore:
-            result = await asyncio.to_thread(
-                transcribe_audio,
-                audio_path,
-                normalized_mode,
-            )
+            if snapshot:
+                result = await asyncio.to_thread(
+                    transcribe_audio,
+                    audio_path,
+                    normalized_mode,
+                    transcription_config_snapshot=transcription_config_snapshot,
+                )
+            else:
+                result = await asyncio.to_thread(transcribe_audio, audio_path, normalized_mode)
         async with completed_lock:
             completed += 1
             if progress_callback:

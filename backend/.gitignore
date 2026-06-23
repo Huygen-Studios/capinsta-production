@@ -46,6 +46,7 @@ logs/
 *.mkv
 *.webm
 *.wav
+!tests/fixtures/transcription-test.wav
 *.mp3
 *.srt
 *.ass

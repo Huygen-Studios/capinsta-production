@@ -10,6 +10,7 @@ from .database import DB_PATH
 import aiosqlite
 from .progress import manager
 from .operational_mirror import mirror_caption_job
+from .transcription_control import record_provider_failure, record_provider_success
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,27 @@ async def update_job_status(job_id: str, status: str, progress: int = None,
         if transcript is not None:
             updates.append("transcript_json = ?")
             params.append(json.dumps(transcript, ensure_ascii=False))
+            provider = transcript.get("provider") if isinstance(transcript, dict) else None
+            if isinstance(provider, dict):
+                updates.append("transcription_provider = COALESCE(transcription_provider, ?)")
+                params.append(provider.get("name"))
+                updates.append("transcription_model = COALESCE(transcription_model, ?)")
+                params.append(provider.get("model"))
+                updates.append("timestamp_strategy = COALESCE(timestamp_strategy, ?)")
+                params.append(provider.get("timestampStrategy"))
+                updates.append("provider_mode = COALESCE(provider_mode, ?)")
+                params.append(provider.get("providerMode"))
+                if provider.get("configurationVersion") is not None:
+                    updates.append("transcription_config_version = COALESCE(transcription_config_version, ?)")
+                    params.append(provider.get("configurationVersion"))
+            metadata = transcript.get("metadata") if isinstance(transcript, dict) else None
+            if isinstance(metadata, dict):
+                timing = metadata.get("timing")
+                if isinstance(timing, dict):
+                    report = timing.get("report")
+                    if isinstance(report, dict):
+                        updates.append("timing_source_summary_json = ?")
+                        params.append(json.dumps(report.get("timingSourceCounts") or {}, ensure_ascii=False))
             
         if status in ['completed', 'failed', 'cancelled']:
             updates.append("completed_at = CURRENT_TIMESTAMP")
@@ -156,6 +178,7 @@ def run_pipeline_sync(
     target_lang: str,
     *,
     caption_output: str = "original",
+    transcription_config_snapshot: dict | None = None,
     cancel_event: Event | None = None,
 ):
     """
@@ -188,6 +211,7 @@ def run_pipeline_sync(
             video_path=video_path,
             user_target_lang=target_lang,
             caption_output=caption_output,
+            transcription_config_snapshot=transcription_config_snapshot,
             progress_callback=on_progress
         )
 
@@ -208,6 +232,7 @@ def run_pipeline_sync(
             if not updated:
                 _log_stage(job_id, "completed broadcast skipped", current_status="cancelled")
                 return
+            record_provider_success(transcription_config_snapshot)
             loop.run_until_complete(
                 manager.broadcast_progress(job_id, "completed", 100, "Captioning finished successfully.")
             )
@@ -222,6 +247,7 @@ def run_pipeline_sync(
             if not updated:
                 _log_stage(job_id, "failed broadcast skipped", current_status="cancelled")
                 return
+            record_provider_failure(transcription_config_snapshot, retryable=True)
             loop.run_until_complete(manager.broadcast_progress(job_id, "failed", 0, err_msg))
             _log_stage(job_id, "response returned", status="failed", error=err_msg)
 
@@ -237,6 +263,7 @@ def run_pipeline_sync(
             updated = loop.run_until_complete(update_job_status(job_id, "failed", progress=-1, error=str(e)))
             if not updated:
                 return
+            record_provider_failure(transcription_config_snapshot, retryable=True)
         except Exception:
             logger.error(f"Job {job_id} Failed to update DB after crash")
         try:

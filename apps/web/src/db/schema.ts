@@ -31,6 +31,23 @@ export const profiles = pgTable(
 		displayName: text("display_name"),
 		emailSnapshot: text("email_snapshot"),
 		accountStatus: text("account_status").default("active").notNull(),
+		productAccessStatus: text("product_access_status")
+			.default("pending")
+			.notNull(),
+		productAccessApprovedAt: timestamp("product_access_approved_at", {
+			withTimezone: true,
+		}),
+		productAccessExpiresAt: timestamp("product_access_expires_at", {
+			withTimezone: true,
+		}),
+		productAccessUpdatedAt: timestamp("product_access_updated_at", {
+			withTimezone: true,
+		}),
+		productAccessUpdatedBy: uuid("product_access_updated_by"),
+		productAccessReason: text("product_access_reason"),
+		authProviderSnapshot: text("auth_provider_snapshot"),
+		emailConfirmedAt: timestamp("email_confirmed_at", { withTimezone: true }),
+		lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -52,7 +69,122 @@ export const profiles = pgTable(
 			table.accountStatus,
 			table.createdAt,
 		),
+		index("profiles_product_access_created_idx").on(
+			table.productAccessStatus,
+			table.createdAt,
+		),
+		index("profiles_product_access_expires_idx").on(
+			table.productAccessExpiresAt,
+		),
 		index("profiles_email_idx").on(table.emailSnapshot),
+	],
+);
+
+export const siteAccessPolicy = pgTable("site_access_policy", {
+	id: text("id").primaryKey().default("global"),
+	mode: text("mode").default("public").notNull(),
+	allowSignups: boolean("allow_signups").default(true).notNull(),
+	comingSoonMessage: text("coming_soon_message")
+		.default(
+			"Create your Capinsta account to join the private beta. We're inviting creators and editors in small groups while we improve timing, editing and export reliability.",
+		)
+		.notNull(),
+	maintenanceMessage: text("maintenance_message")
+		.default(
+			"We're making improvements to the application. Your account and projects remain safe.",
+		)
+		.notNull(),
+	version: integer("version").default(1).notNull(),
+	updatedBy: uuid("updated_by"),
+	updatedAt: timestamp("updated_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});
+
+export const appRoles = pgTable("app_roles", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	key: text("key").notNull().unique(),
+	name: text("name").notNull(),
+	description: text("description").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.defaultNow()
+		.notNull(),
+});
+
+export const appPermissions = pgTable("app_permissions", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	key: text("key").notNull().unique(),
+	description: text("description").notNull(),
+});
+
+export const appRolePermissions = pgTable(
+	"app_role_permissions",
+	{
+		roleId: uuid("role_id")
+			.notNull()
+			.references(() => appRoles.id, { onDelete: "cascade" }),
+		permissionId: uuid("permission_id")
+			.notNull()
+			.references(() => appPermissions.id, { onDelete: "cascade" }),
+	},
+	(table) => [primaryKey({ columns: [table.roleId, table.permissionId] })],
+);
+
+export const appRoleMembers = pgTable(
+	"app_role_members",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id").notNull(),
+		roleId: uuid("role_id")
+			.notNull()
+			.references(() => appRoles.id),
+		active: boolean("active").default(true).notNull(),
+		assignedBy: uuid("assigned_by"),
+		assignedAt: timestamp("assigned_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		revokedBy: uuid("revoked_by"),
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+		reason: text("reason").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("app_role_members_user_active_idx").on(table.userId, table.active),
+		index("app_role_members_expires_idx").on(table.expiresAt),
+		uniqueIndex("app_role_members_active_role_idx")
+			.on(table.userId, table.roleId)
+			.where(sql`${table.active} = true`),
+	],
+);
+
+export const appUserPermissionOverrides = pgTable(
+	"app_user_permission_overrides",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id").notNull(),
+		permissionId: uuid("permission_id")
+			.notNull()
+			.references(() => appPermissions.id),
+		effect: text("effect").notNull(),
+		active: boolean("active").default(true).notNull(),
+		assignedBy: uuid("assigned_by"),
+		assignedAt: timestamp("assigned_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		revokedBy: uuid("revoked_by"),
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+		reason: text("reason").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("app_permission_overrides_user_active_idx").on(
+			table.userId,
+			table.active,
+		),
+		index("app_permission_overrides_expires_idx").on(table.expiresAt),
+		uniqueIndex("app_permission_overrides_active_idx")
+			.on(table.userId, table.permissionId)
+			.where(sql`${table.active} = true`),
 	],
 );
 
@@ -119,6 +251,10 @@ export const captionJobs = pgTable(
 		sourceFilename: text("source_filename").notNull(),
 		language: text("language"),
 		provider: text("provider"),
+		transcriptionModel: text("transcription_model"),
+		transcriptionConfigVersion: integer("transcription_config_version"),
+		timestampStrategy: text("timestamp_strategy"),
+		providerMode: text("provider_mode"),
 		mediaDurationSeconds: numeric("media_duration_seconds"),
 		status: text("status").notNull(),
 		progress: integer("progress").default(0).notNull(),
@@ -132,6 +268,10 @@ export const captionJobs = pgTable(
 		retryOfJobId: text("retry_of_job_id"),
 		adminRetryBy: uuid("admin_retry_by"),
 		providerRequestId: text("provider_request_id"),
+		timingSourceSummary: jsonb("timing_source_summary")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
 		estimatedCost: numeric("estimated_cost", { precision: 12, scale: 6 }),
 		sanitizedErrorCode: text("sanitized_error_code"),
 		sanitizedErrorMessage: text("sanitized_error_message"),
@@ -334,6 +474,67 @@ export const providerHealthEvents = pgTable(
 			table.provider,
 			table.component,
 			table.checkedAt,
+		),
+	],
+);
+
+export const transcriptionConfigurations = pgTable(
+	"transcription_configurations",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		provider: text("provider").notNull(),
+		model: text("model").notNull(),
+		providerOptions: jsonb("provider_options")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
+		timestampStrategy: text("timestamp_strategy").notNull(),
+		strictProvider: boolean("strict_provider").default(true).notNull(),
+		status: text("status").default("draft").notNull(),
+		version: integer("version").default(1).notNull(),
+		testStatus: text("test_status").default("untested").notNull(),
+		testedAt: timestamp("tested_at", { withTimezone: true }),
+		testedBy: uuid("tested_by"),
+		testErrorCode: text("test_error_code"),
+		testLatencyMs: integer("test_latency_ms"),
+		activatedAt: timestamp("activated_at", { withTimezone: true }),
+		activatedBy: uuid("activated_by"),
+		activationReason: text("activation_reason"),
+		...auditColumns,
+	},
+	(table) => [
+		index("transcription_configurations_status_idx").on(
+			table.status,
+			table.updatedAt,
+		),
+		uniqueIndex("transcription_configurations_one_active_idx")
+			.on(table.status)
+			.where(sql`${table.status} = 'active'`),
+	],
+);
+
+export const transcriptionConfigurationVersions = pgTable(
+	"transcription_configuration_versions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		configurationId: uuid("configuration_id")
+			.notNull()
+			.references(() => transcriptionConfigurations.id, { onDelete: "cascade" }),
+		version: integer("version").notNull(),
+		action: text("action").notNull(),
+		beforeSnapshot: jsonb("before_snapshot").$type<unknown>(),
+		afterSnapshot: jsonb("after_snapshot").$type<unknown>().notNull(),
+		reason: text("reason").notNull(),
+		changedBy: uuid("changed_by"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("transcription_configuration_versions_config_idx").on(
+			table.configurationId,
+			table.version,
+			table.createdAt,
 		),
 	],
 );

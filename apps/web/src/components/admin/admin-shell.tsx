@@ -6,8 +6,10 @@ import {
   Gauge,
   LifeBuoy,
   LockKeyhole,
+  KeyRound,
   ScrollText,
   Shield,
+  SlidersHorizontal,
   Users,
   Video,
 } from "lucide-react";
@@ -21,6 +23,8 @@ import { AdminSignOut } from "./admin-sign-out";
 const navigation = [
   ["Overview", "overview", Gauge],
   ["Users", "users", Users],
+  ["Access control", "access-control", KeyRound],
+  ["Transcription", "transcription", SlidersHorizontal],
   ["Caption jobs", "caption-jobs", Clapperboard],
   ["Exports", "exports", Video],
   ["Projects", "projects", BriefcaseBusiness],

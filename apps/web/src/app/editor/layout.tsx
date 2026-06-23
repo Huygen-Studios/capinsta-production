@@ -1,4 +1,4 @@
-import { requireUser } from "@/auth/require-user";
+import { requireAppPermission } from "@/access/server";
 import { AuthStorageScope } from "@/components/auth/storage-scope";
 import type { Metadata } from "next";
 
@@ -15,6 +15,6 @@ export default async function EditorLayout({
 }: {
 	children: React.ReactNode;
 }) {
-	const user = await requireUser("/editor");
-	return <AuthStorageScope userId={user.id}>{children}</AuthStorageScope>;
+	const context = await requireAppPermission("editor.access", "/editor");
+	return <AuthStorageScope userId={context.userId}>{children}</AuthStorageScope>;
 }

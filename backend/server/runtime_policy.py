@@ -31,6 +31,13 @@ class InactiveAccountError(Exception):
     reason = "profile_suspended"
 
 
+class ProductAccessDeniedError(Exception):
+    def __init__(self, reason: str, status_code: int = 403):
+        self.reason = reason
+        self.status_code = status_code
+        super().__init__(reason)
+
+
 def control_plane_error_reason(error: ControlPlaneUnavailableError) -> str:
     cause = error.__cause__
     if getattr(cause, "sqlstate", None) == "28P01":
@@ -95,6 +102,111 @@ async def require_active_account(user: AuthenticatedUser) -> None:
         raise InactiveAccountError()
 
 
+def _permission_for_path(path: str) -> str:
+    if path.startswith("/api/projects"):
+        return "projects.access"
+    if path.startswith("/api/export/jobs"):
+        return "exports.access"
+    if path.startswith("/api/jobs") or path.startswith("/api/captions/jobs") or path.startswith("/api/media/assets"):
+        return "editor.access"
+    return "app.access"
+
+
+async def effective_app_permissions(user_id: str) -> set[str]:
+    rows = await _query_all(
+        """
+        SELECT p.key
+        FROM app_role_members m
+        JOIN app_role_permissions rp ON rp.role_id = m.role_id
+        JOIN app_permissions p ON p.id = rp.permission_id
+        WHERE m.user_id = %s::uuid
+          AND m.active = true
+          AND (m.expires_at IS NULL OR m.expires_at > now())
+        UNION
+        SELECT p.key
+        FROM app_user_permission_overrides o
+        JOIN app_permissions p ON p.id = o.permission_id
+        WHERE o.user_id = %s::uuid
+          AND o.active = true
+          AND o.effect = 'allow'
+          AND (o.expires_at IS NULL OR o.expires_at > now())
+        EXCEPT
+        SELECT p.key
+        FROM app_user_permission_overrides o
+        JOIN app_permissions p ON p.id = o.permission_id
+        WHERE o.user_id = %s::uuid
+          AND o.active = true
+          AND o.effect = 'deny'
+          AND (o.expires_at IS NULL OR o.expires_at > now())
+        """,
+        (user_id, user_id, user_id),
+    )
+    return {str(row[0]) for row in rows}
+
+
+async def is_super_admin(user_id: str) -> bool:
+    row = await _query_one(
+        """
+        SELECT 1
+        FROM admin_role_members m
+        JOIN admin_roles r ON r.id = m.role_id
+        JOIN profiles p ON p.user_id = m.user_id
+        WHERE m.user_id = %s::uuid
+          AND m.active = true
+          AND r.key = 'super_admin'
+          AND p.account_status = 'active'
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    return row is not None
+
+
+async def require_backend_capability(user: AuthenticatedUser, request_path: str) -> None:
+    row = await _query_one(
+        """
+        SELECT product_access_status, product_access_expires_at
+        FROM profiles
+        WHERE user_id = %s::uuid
+        """,
+        (user.id,),
+    )
+    if row is None:
+        raise ProductAccessDeniedError("product_access_pending")
+    product_status = row[0]
+    expires_at = row[1]
+    if product_status == "revoked":
+        raise ProductAccessDeniedError("product_access_revoked")
+    if expires_at is not None:
+        expired = await _query_one("SELECT %s::timestamptz <= now()", (expires_at,))
+        if expired and bool(expired[0]):
+            raise ProductAccessDeniedError("product_access_expired")
+
+    policy = await _query_one(
+        "SELECT mode FROM site_access_policy WHERE id = 'global'",
+    )
+    mode = "public" if policy is None else str(policy[0])
+    permission = _permission_for_path(request_path)
+    permissions = await effective_app_permissions(user.id)
+    super_admin = await is_super_admin(user.id)
+
+    if super_admin:
+        return
+    if mode == "maintenance":
+        if "maintenance.bypass" in permissions:
+            return
+        raise ProductAccessDeniedError("maintenance_mode", 503)
+    if mode == "coming_soon":
+        if product_status == "approved" or permission in permissions or "app.access" in permissions:
+            return
+        raise ProductAccessDeniedError("product_access_pending")
+    if mode == "public":
+        if product_status == "revoked":
+            raise ProductAccessDeniedError("product_access_revoked")
+        return
+    raise ProductAccessDeniedError("control_plane_unavailable", 503)
+
+
 async def _execute(query: str, params: tuple = ()) -> None:
     url = database_url()
     if not url or psycopg is None:
@@ -107,6 +219,23 @@ async def _execute(query: str, params: tuple = ()) -> None:
                 await cursor.execute(query, params)
             await connection.commit()
     except Exception as exc:
+        raise ControlPlaneUnavailableError() from exc
+
+
+async def _query_all(query: str, params: tuple = ()):
+    url = database_url()
+    if not url or psycopg is None:
+        if _allow_without_control_plane():
+            return []
+        raise ControlPlaneUnavailableError()
+    try:
+        async with await psycopg.AsyncConnection.connect(url, connect_timeout=3) as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(query, params)
+                return await cursor.fetchall()
+    except Exception as exc:
+        if _allow_without_control_plane():
+            return []
         raise ControlPlaneUnavailableError() from exc
 
 

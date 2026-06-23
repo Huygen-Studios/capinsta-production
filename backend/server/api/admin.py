@@ -3,6 +3,7 @@ import json
 import os
 import secrets
 import shutil
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,13 +27,32 @@ from ..worker_startup import start_pipeline_worker
 from ..project_cleanup import ACTIVE_JOB_STATUSES
 from ..project_deletion import delete_project_resources
 from ..runtime_policy import project_retention_state
+from ..transcription_catalog import public_catalog, validate_catalog_selection
+from ..transcription_control import (
+    TranscriptionConfigSnapshot,
+    bundled_test_audio_path,
+    circuit_state,
+    invalidate_transcription_config_cache,
+)
 from . import export_jobs as export_runtime
+from ai_pipeline.transcriber import TranscriptionProviderError, is_real_secret, transcribe_audio
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 internal_router = APIRouter(prefix="/internal/admin", tags=["internal-admin"])
 
 
 class ReasonRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+class TranscriptionTestRequest(BaseModel):
+    configurationId: str = Field(min_length=1, max_length=100)
+    provider: str = Field(min_length=1, max_length=30)
+    model: str = Field(min_length=1, max_length=120)
+    version: int = Field(ge=1)
+    timestampStrategy: str = Field(min_length=1, max_length=80)
+    strictProvider: bool = True
+    providerOptions: dict = Field(default_factory=dict)
     reason: str = Field(min_length=8, max_length=1000)
 
 
@@ -416,6 +436,94 @@ async def reconcile_operations(body: ReasonRequest, request: Request):
     admin = require_backend_admin_permission(request, "system.manage_providers")
     report = await reconcile_runtime_jobs()
     return {"ok": True, "report": report, "correlationId": admin.correlation_id}
+
+
+@router.get("/transcription/catalog")
+async def transcription_catalog(request: Request):
+    admin = require_backend_admin_permission(request, "system.read")
+    return {"items": public_catalog(), "correlationId": admin.correlation_id}
+
+
+@router.post("/transcription/cache/invalidate")
+async def transcription_cache_invalidate(body: ReasonRequest, request: Request):
+    admin = require_backend_admin_permission(request, "system.manage_providers")
+    invalidate_transcription_config_cache()
+    return {"ok": True, "correlationId": admin.correlation_id}
+
+
+@router.post("/transcription/test")
+async def transcription_test_config(body: TranscriptionTestRequest, request: Request):
+    admin = require_backend_admin_permission(request, "system.manage_providers")
+    try:
+        entry = validate_catalog_selection(
+            body.provider,
+            body.model,
+            body.timestampStrategy,
+            body.providerOptions,
+        )
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "category": str(exc),
+            "retryable": False,
+            "correlationId": admin.correlation_id,
+        }
+    secret = os.getenv(entry.required_secret, "")
+    if not is_real_secret(secret):
+        return {
+            "ok": False,
+            "category": "authentication_failed",
+            "retryable": False,
+            "correlationId": admin.correlation_id,
+        }
+    snapshot = TranscriptionConfigSnapshot(
+        configuration_id=body.configurationId,
+        provider=entry.provider,
+        model=entry.model,
+        version=body.version,
+        provider_options=dict(body.providerOptions or {}),
+        timestamp_strategy=entry.timestamp_strategy,
+        strict_provider=True,
+    )
+    started = time.monotonic()
+    try:
+        result = transcribe_audio(
+            bundled_test_audio_path(),
+            language_mode="english",
+            transcription_config_snapshot=snapshot.to_dict(),
+        )
+        latency_ms = int((time.monotonic() - started) * 1000)
+        word_count = len(result.get("words") or [])
+        if not str(result.get("text") or "").strip():
+            raise TranscriptionProviderError(entry.provider, "empty_transcript", "empty transcript")
+        if entry.timestamp_strategy != "local_forced_alignment" and word_count < 1:
+            raise TranscriptionProviderError(entry.provider, "timestamps_missing", "missing timestamps")
+        return {
+            "ok": True,
+            "category": None,
+            "latencyMs": latency_ms,
+            "wordCount": word_count,
+            "providerRequestId": result.get("provider_request_id") or result.get("request_id"),
+            "circuit": circuit_state(snapshot),
+            "correlationId": admin.correlation_id,
+        }
+    except TranscriptionProviderError as exc:
+        return {
+            "ok": False,
+            "category": exc.category,
+            "httpStatus": exc.status,
+            "providerCode": exc.provider_code,
+            "providerRequestId": exc.request_id,
+            "retryable": exc.retryable,
+            "correlationId": admin.correlation_id,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "category": "unknown_provider_error",
+            "retryable": False,
+            "correlationId": admin.correlation_id,
+        }
 
 
 @router.post("/projects/{project_id}/cleanup")

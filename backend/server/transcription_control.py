@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import time
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Any
+
+from fastapi import HTTPException
+
+from .settings import DB_PATH
+from .transcription_catalog import catalog_entry, validate_catalog_selection
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover
+    psycopg = None
+    dict_row = None
+
+
+@dataclass(frozen=True)
+class TranscriptionConfigSnapshot:
+    configuration_id: str
+    provider: str
+    model: str
+    version: int
+    provider_options: dict[str, Any]
+    timestamp_strategy: str
+    strict_provider: bool = True
+
+    @property
+    def provider_mode(self) -> str:
+        return str(self.provider_options.get("mode") or "transcribe")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["provider_mode"] = self.provider_mode
+        return payload
+
+
+_CACHE: tuple[float, TranscriptionConfigSnapshot | None] = (0.0, None)
+_CACHE_TTL_SECONDS = 15.0
+_CIRCUITS: dict[tuple[str, str, int], dict[str, Any]] = {}
+
+
+def _database_url() -> str:
+    return (os.getenv("ADMIN_DATABASE_URL") or os.getenv("DATABASE_URL") or "").strip()
+
+
+def _production_mode() -> bool:
+    return (os.getenv("ENVIRONMENT") or os.getenv("NODE_ENV") or "").lower() in {"production", "prod"}
+
+
+def _env_snapshot() -> TranscriptionConfigSnapshot | None:
+    provider = (os.getenv("STT_PROVIDER") or "").strip().lower().replace("-", "_")
+    if provider in {"", "auto"}:
+        return None
+    if provider in {"openai_whisper", "openai"}:
+        provider = "openai"
+        model = os.getenv("OPENAI_TRANSCRIPTION_MODEL", "whisper-1").strip() or "whisper-1"
+    elif provider == "gemini":
+        model = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+    elif provider == "sarvam":
+        model = "saaras:v3"
+    else:
+        return None
+    entry = catalog_entry(provider, model)
+    if entry is None:
+        return None
+    options = {"mode": "transcribe", "languageStrategy": "language_mode_mapping"} if provider == "sarvam" else {}
+    return TranscriptionConfigSnapshot(
+        configuration_id="env-bootstrap",
+        provider=provider,
+        model=model,
+        version=0,
+        provider_options=options,
+        timestamp_strategy=entry.timestamp_strategy,
+        strict_provider=True,
+    )
+
+
+def invalidate_transcription_config_cache() -> None:
+    global _CACHE
+    _CACHE = (0.0, None)
+
+
+def _snapshot_from_row(row: dict[str, Any]) -> TranscriptionConfigSnapshot:
+    provider_options = row.get("provider_options") or {}
+    if isinstance(provider_options, str):
+        provider_options = json.loads(provider_options or "{}")
+    validate_catalog_selection(
+        str(row["provider"]),
+        str(row["model"]),
+        str(row["timestamp_strategy"]),
+        provider_options,
+    )
+    return TranscriptionConfigSnapshot(
+        configuration_id=str(row["id"]),
+        provider=str(row["provider"]),
+        model=str(row["model"]),
+        version=int(row["version"]),
+        provider_options=dict(provider_options),
+        timestamp_strategy=str(row["timestamp_strategy"]),
+        strict_provider=bool(row.get("strict_provider", True)),
+    )
+
+
+def active_transcription_config() -> TranscriptionConfigSnapshot | None:
+    global _CACHE
+    now = time.monotonic()
+    if now - _CACHE[0] < _CACHE_TTL_SECONDS:
+        return _CACHE[1]
+
+    database_url = _database_url()
+    if database_url and psycopg is not None:
+        try:
+            with psycopg.connect(database_url, row_factory=dict_row, connect_timeout=4) as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, provider, model, provider_options, timestamp_strategy,
+                               strict_provider, version
+                        FROM transcription_configurations
+                        WHERE status = 'active'
+                        LIMIT 1
+                        """
+                    )
+                    row = cursor.fetchone()
+            snapshot = _snapshot_from_row(row) if row else None
+            _CACHE = (now, snapshot)
+            return snapshot
+        except Exception:
+            if _production_mode():
+                _CACHE = (now, None)
+                return None
+
+    snapshot = None if _production_mode() else _env_snapshot()
+    _CACHE = (now, snapshot)
+    return snapshot
+
+
+def _circuit_key(snapshot: TranscriptionConfigSnapshot) -> tuple[str, str, int]:
+    return (snapshot.provider, snapshot.model, snapshot.version)
+
+
+def circuit_state(snapshot: TranscriptionConfigSnapshot) -> dict[str, Any]:
+    state = _CIRCUITS.get(_circuit_key(snapshot))
+    if not state:
+        return {"status": "healthy", "open": False}
+    opened_until = float(state.get("opened_until") or 0)
+    if opened_until and opened_until > time.monotonic():
+        return {
+            "status": "degraded",
+            "open": True,
+            "failureCount": int(state.get("failures") or 0),
+            "retryAfterSeconds": max(1, int(opened_until - time.monotonic())),
+        }
+    return {"status": "healthy", "open": False, "failureCount": int(state.get("failures") or 0)}
+
+
+def assert_transcription_available() -> TranscriptionConfigSnapshot:
+    snapshot = active_transcription_config()
+    if snapshot is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Caption generation is temporarily unavailable. Your upload is safe. Please retry shortly.",
+        )
+    if circuit_state(snapshot).get("open"):
+        raise HTTPException(
+            status_code=503,
+            detail="Caption generation is temporarily unavailable. Your upload is safe. Please retry shortly.",
+        )
+    return snapshot
+
+
+def record_provider_success(snapshot: TranscriptionConfigSnapshot | dict[str, Any] | None) -> None:
+    parsed = coerce_snapshot(snapshot)
+    if not parsed:
+        return
+    _CIRCUITS.pop(_circuit_key(parsed), None)
+
+
+def record_provider_failure(snapshot: TranscriptionConfigSnapshot | dict[str, Any] | None, *, retryable: bool) -> None:
+    parsed = coerce_snapshot(snapshot)
+    if not parsed or not retryable:
+        return
+    key = _circuit_key(parsed)
+    state = _CIRCUITS.setdefault(key, {"failures": 0, "opened_until": 0})
+    state["failures"] = int(state.get("failures") or 0) + 1
+    threshold = max(1, int(os.getenv("TRANSCRIPTION_CIRCUIT_FAILURE_THRESHOLD", "3")))
+    if state["failures"] >= threshold:
+        cooldown = max(10, int(os.getenv("TRANSCRIPTION_CIRCUIT_COOLDOWN_SECONDS", "120")))
+        state["opened_until"] = time.monotonic() + cooldown
+
+
+def coerce_snapshot(value: TranscriptionConfigSnapshot | dict[str, Any] | str | None) -> TranscriptionConfigSnapshot | None:
+    if value is None:
+        return None
+    if isinstance(value, TranscriptionConfigSnapshot):
+        return value
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    try:
+        provider_options = value.get("provider_options") or value.get("providerOptions") or {}
+        return TranscriptionConfigSnapshot(
+            configuration_id=str(value.get("configuration_id") or value.get("configurationId") or "unknown"),
+            provider=str(value["provider"]),
+            model=str(value["model"]),
+            version=int(value.get("version") or value.get("configuration_version") or 0),
+            provider_options=dict(provider_options),
+            timestamp_strategy=str(value["timestamp_strategy"] if "timestamp_strategy" in value else value["timestampStrategy"]),
+            strict_provider=bool(value.get("strict_provider", value.get("strictProvider", True))),
+        )
+    except Exception:
+        return None
+
+
+def persist_snapshot_to_runtime_db(job_id: str, snapshot: TranscriptionConfigSnapshot) -> None:
+    payload = snapshot.to_dict()
+    with sqlite3.connect(str(DB_PATH)) as connection:
+        connection.execute(
+            """
+            UPDATE jobs
+            SET transcription_provider = ?,
+                transcription_model = ?,
+                transcription_config_version = ?,
+                timestamp_strategy = ?,
+                provider_mode = ?,
+                transcription_config_snapshot_json = ?
+            WHERE id = ?
+            """,
+            (
+                snapshot.provider,
+                snapshot.model,
+                snapshot.version,
+                snapshot.timestamp_strategy,
+                snapshot.provider_mode,
+                json.dumps(payload, ensure_ascii=False),
+                job_id,
+            ),
+        )
+        connection.commit()
+
+
+def bundled_test_audio_path() -> str:
+    fixture = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "transcription-test.wav"
+    if fixture.exists():
+        return str(fixture)
+    generated = Path(os.getenv("CAPINSTA_TEST_AUDIO_PATH", "")) if os.getenv("CAPINSTA_TEST_AUDIO_PATH") else None
+    if generated and generated.exists():
+        return str(generated)
+    raise FileNotFoundError("transcription_test_audio_missing")

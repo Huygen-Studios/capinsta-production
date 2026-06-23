@@ -15,6 +15,7 @@ const PROTECTED_PREFIXES = [
 	"/dashboard",
 	"/account",
 	"/settings",
+	"/render",
 ] as const;
 
 export function isProtectedPath(pathname: string): boolean {

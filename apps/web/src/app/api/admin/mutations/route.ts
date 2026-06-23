@@ -2,7 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { invalidateSiteAccessPolicy } from "@/access/server";
 import { recordAdminAuditEvent } from "@/admin/audit";
+import { adminBackendFetch } from "@/admin/backend";
 import {
 	requireAdminPermission,
 	requireRecentMfaForSensitiveAction,
@@ -19,19 +21,46 @@ import {
 	adminRoleMembers,
 	adminRoles,
 	adminSecurityEvents,
+	appPermissions,
+	appRoleMembers,
+	appRoles,
+	appUserPermissionOverrides,
 	featureFlags,
 	featureFlagVersions,
 	profiles,
 	projectRegistry,
 	supportCaseEvents,
 	supportCases,
+	siteAccessPolicy,
 	systemSettings,
+	transcriptionConfigurationVersions,
+	transcriptionConfigurations,
 	userQuotas,
 } from "@/db/schema";
 import { webEnv } from "@/env/web";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import {
+	defaultProviderOptions,
+	getTranscriptionCatalogEntry,
+} from "@/transcription/provider-catalog";
 
 const reason = z.string().trim().min(8).max(1000);
+const appRoleKey = z.enum(["member", "developer"]);
+const appPermissionKey = z.enum([
+	"app.access",
+	"projects.access",
+	"editor.access",
+	"exports.access",
+	"render.access",
+	"internal.diagnostics.access",
+	"maintenance.bypass",
+]);
+const expiration = z
+	.string()
+	.datetime()
+	.nullable()
+	.optional()
+	.transform((value) => (value ? new Date(value) : null));
 const roleKey = z.enum([
 	"super_admin",
 	"operations",
@@ -46,6 +75,8 @@ const quotaSchema = z.object({
 	maxConcurrentCaptionJobs: z.number().int().min(1).max(100),
 	maxConcurrentExportJobs: z.number().int().min(1).max(100),
 });
+const transcriptionProvider = z.enum(["gemini", "openai", "sarvam"]);
+const transcriptionProviderOptions = z.record(z.string(), z.unknown()).optional();
 
 const schema = z.discriminatedUnion("action", [
 	z.object({ action: z.literal("user.suspend"), targetId: z.uuid(), reason }),
@@ -150,6 +181,106 @@ const schema = z.discriminatedUnion("action", [
 		value: z.number().int().min(0).max(100000),
 		reason,
 	}),
+	z.object({
+		action: z.literal("access.user.approve"),
+		targetId: z.uuid(),
+		expiresAt: expiration,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.user.pending"),
+		targetId: z.uuid(),
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.user.revoke"),
+		targetId: z.uuid(),
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.user.expiry.update"),
+		targetId: z.uuid(),
+		expiresAt: expiration,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.role.assign"),
+		targetId: z.uuid(),
+		role: appRoleKey,
+		expiresAt: expiration,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.role.revoke"),
+		targetId: z.uuid(),
+		role: appRoleKey,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.permission.allow"),
+		targetId: z.uuid(),
+		permission: appPermissionKey,
+		expiresAt: expiration,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.permission.deny"),
+		targetId: z.uuid(),
+		permission: appPermissionKey,
+		expiresAt: expiration,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.permission.remove"),
+		targetId: z.uuid(),
+		permission: appPermissionKey,
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.site_mode.update"),
+		targetId: z.literal("global"),
+		mode: z.enum(["coming_soon", "maintenance", "public"]),
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.signup_policy.update"),
+		targetId: z.literal("global"),
+		allowSignups: z.boolean(),
+		reason,
+	}),
+	z.object({
+		action: z.literal("access.messages.update"),
+		targetId: z.literal("global"),
+		comingSoonMessage: z.string().trim().min(20).max(1000).optional(),
+		maintenanceMessage: z.string().trim().min(20).max(1000).optional(),
+		reason,
+	}),
+	z.object({
+		action: z.literal("transcription.config.create_draft"),
+		targetId: z.literal("new"),
+		provider: transcriptionProvider,
+		model: z.string().trim().min(1).max(120),
+		providerOptions: transcriptionProviderOptions,
+		reason,
+	}),
+	z.object({
+		action: z.literal("transcription.config.test"),
+		targetId: z.uuid(),
+		version: z.number().int().min(1),
+		reason,
+	}),
+	z.object({
+		action: z.literal("transcription.config.activate"),
+		targetId: z.uuid(),
+		version: z.number().int().min(1),
+		confirmation: z.literal("ACTIVATE"),
+		reason,
+	}),
+	z.object({
+		action: z.literal("transcription.config.deactivate"),
+		targetId: z.uuid(),
+		reason,
+	}),
 ]);
 
 type Mutation = z.infer<typeof schema>;
@@ -169,10 +300,27 @@ function permissionFor(value: Mutation) {
 		return "security.reset_admin_mfa" as const;
 	if (value.action === "quota.update" || value.action === "setting.update")
 		return "system.manage_limits" as const;
+	if (value.action === "access.site_mode.update")
+		return "access.manage_site_mode" as const;
+	if (
+		value.action === "access.signup_policy.update" ||
+		value.action === "access.messages.update"
+	)
+		return "access.manage_site_mode" as const;
+	if (
+		value.action === "access.role.assign" ||
+		value.action === "access.role.revoke" ||
+		value.action.startsWith("access.permission.")
+	)
+		return "access.manage_permissions" as const;
+	if (value.action.startsWith("access.user."))
+		return "access.manage_users" as const;
 	if (value.action.startsWith("feature_flag."))
 		return "feature_flags.manage" as const;
 	if (value.action === "security.unblock")
 		return "security.unblock_ip" as const;
+	if (value.action.startsWith("transcription.config."))
+		return "system.manage_providers" as const;
 	if (value.action === "project.retention")
 		return "projects.extend_retention" as const;
 	return value.action === "support.update" && value.assigneeUserId !== undefined
@@ -181,6 +329,8 @@ function permissionFor(value: Mutation) {
 }
 
 function isHighRisk(value: Mutation) {
+	if (value.action.startsWith("access.")) return true;
+	if (value.action.startsWith("transcription.config.")) return true;
 	return ![
 		"user.suspend",
 		"user.restore",
@@ -207,6 +357,10 @@ async function ensureRecoveryAdminRemains(targetId: string) {
 	`);
 	if (!row || Number(row.count) < 1)
 		throw new Error("final_super_admin_protected");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
 export async function POST(request: Request) {
@@ -485,6 +639,378 @@ export async function POST(request: Request) {
 						},
 					})
 					.returning();
+			} else if (
+				value.action === "access.user.approve" ||
+				value.action === "access.user.pending" ||
+				value.action === "access.user.revoke" ||
+				value.action === "access.user.expiry.update"
+			) {
+				if (value.targetId === context!.userId && value.action !== "access.user.expiry.update")
+					throw new Error("self_access_change_denied");
+				[beforeValue] = await tx
+					.select()
+					.from(profiles)
+					.where(eq(profiles.userId, value.targetId))
+					.limit(1);
+				if (!beforeValue) throw new Error("target_not_found");
+				const status =
+					value.action === "access.user.approve"
+						? "approved"
+						: value.action === "access.user.pending"
+							? "pending"
+							: value.action === "access.user.revoke"
+								? "revoked"
+								: undefined;
+				[afterValue] = await tx
+					.update(profiles)
+					.set({
+						...(status ? { productAccessStatus: status } : {}),
+						productAccessApprovedAt:
+							status === "approved" ? new Date() : undefined,
+						productAccessExpiresAt:
+							value.action === "access.user.approve" ||
+							value.action === "access.user.expiry.update"
+								? value.expiresAt
+								: null,
+						productAccessUpdatedAt: new Date(),
+						productAccessUpdatedBy: context!.userId,
+						productAccessReason: value.reason,
+						updatedAt: new Date(),
+					})
+					.where(eq(profiles.userId, value.targetId))
+					.returning();
+			} else if (
+				value.action === "access.role.assign" ||
+				value.action === "access.role.revoke"
+			) {
+				if (value.targetId === context!.userId)
+					throw new Error("self_role_change_denied");
+				const [role] = await tx
+					.select()
+					.from(appRoles)
+					.where(eq(appRoles.key, value.role))
+					.limit(1);
+				if (!role) throw new Error("unsupported_role");
+				if (value.action === "access.role.assign") {
+					const active = await tx
+						.select()
+						.from(appRoleMembers)
+						.where(
+							and(
+								eq(appRoleMembers.userId, value.targetId),
+								eq(appRoleMembers.roleId, role.id),
+								eq(appRoleMembers.active, true),
+							),
+						);
+					if (active.length) throw new Error("duplicate_active_membership");
+					beforeValue = active;
+					[afterValue] = await tx
+						.insert(appRoleMembers)
+						.values({
+							userId: value.targetId,
+							roleId: role.id,
+							assignedBy: context!.userId,
+							reason: value.reason,
+							expiresAt: value.expiresAt,
+						})
+						.returning();
+				} else {
+					const [membership] = await tx
+						.select()
+						.from(appRoleMembers)
+						.where(
+							and(
+								eq(appRoleMembers.userId, value.targetId),
+								eq(appRoleMembers.roleId, role.id),
+								eq(appRoleMembers.active, true),
+							),
+						)
+						.limit(1);
+					if (!membership) throw new Error("active_membership_not_found");
+					beforeValue = membership;
+					[afterValue] = await tx
+						.update(appRoleMembers)
+						.set({
+							active: false,
+							revokedBy: context!.userId,
+							revokedAt: new Date(),
+							reason: value.reason,
+						})
+						.where(eq(appRoleMembers.id, membership.id))
+						.returning();
+				}
+			} else if (
+				value.action === "access.permission.allow" ||
+				value.action === "access.permission.deny" ||
+				value.action === "access.permission.remove"
+			) {
+				if (value.targetId === context!.userId)
+					throw new Error("self_permission_change_denied");
+				const [permission] = await tx
+					.select()
+					.from(appPermissions)
+					.where(eq(appPermissions.key, value.permission))
+					.limit(1);
+				if (!permission) throw new Error("unsupported_permission");
+				const [currentOverride] = await tx
+					.select()
+					.from(appUserPermissionOverrides)
+					.where(
+						and(
+							eq(appUserPermissionOverrides.userId, value.targetId),
+							eq(appUserPermissionOverrides.permissionId, permission.id),
+							eq(appUserPermissionOverrides.active, true),
+						),
+					)
+					.limit(1);
+				beforeValue = currentOverride ?? null;
+				if (currentOverride) {
+					await tx
+						.update(appUserPermissionOverrides)
+						.set({
+							active: false,
+							revokedBy: context!.userId,
+							revokedAt: new Date(),
+						})
+						.where(eq(appUserPermissionOverrides.id, currentOverride.id));
+				}
+				if (value.action === "access.permission.remove") {
+					afterValue = null;
+				} else {
+					[afterValue] = await tx
+						.insert(appUserPermissionOverrides)
+						.values({
+							userId: value.targetId,
+							permissionId: permission.id,
+							effect:
+								value.action === "access.permission.allow" ? "allow" : "deny",
+							assignedBy: context!.userId,
+							reason: value.reason,
+							expiresAt: value.expiresAt,
+						})
+						.returning();
+				}
+			} else if (
+				value.action === "access.site_mode.update" ||
+				value.action === "access.signup_policy.update" ||
+				value.action === "access.messages.update"
+			) {
+				[beforeValue] = await tx
+					.select()
+					.from(siteAccessPolicy)
+					.where(eq(siteAccessPolicy.id, "global"))
+					.limit(1);
+				const update =
+					value.action === "access.site_mode.update"
+						? { mode: value.mode }
+						: value.action === "access.signup_policy.update"
+							? { allowSignups: value.allowSignups }
+							: {
+									...(value.comingSoonMessage
+										? { comingSoonMessage: value.comingSoonMessage }
+										: {}),
+									...(value.maintenanceMessage
+										? { maintenanceMessage: value.maintenanceMessage }
+										: {}),
+								};
+				[afterValue] = await tx
+					.insert(siteAccessPolicy)
+					.values({
+						id: "global",
+						mode:
+							value.action === "access.site_mode.update"
+								? value.mode
+								: "public",
+						allowSignups:
+							value.action === "access.signup_policy.update"
+								? value.allowSignups
+								: true,
+						updatedBy: context!.userId,
+					})
+					.onConflictDoUpdate({
+						target: siteAccessPolicy.id,
+						set: {
+							...update,
+							version: sql`${siteAccessPolicy.version} + 1`,
+							updatedBy: context!.userId,
+							updatedAt: new Date(),
+						},
+					})
+					.returning();
+			} else if (value.action === "transcription.config.create_draft") {
+				const entry = getTranscriptionCatalogEntry({
+					provider: value.provider,
+					model: value.model,
+				});
+				if (!entry) throw new Error("unsupported_model");
+				const providerOptions =
+					value.provider === "sarvam"
+						? { ...defaultProviderOptions(value.provider), ...(value.providerOptions ?? {}) }
+						: {};
+				const supportedProviderModes: readonly string[] = entry.supportedProviderModes;
+				if (
+					value.provider === "sarvam" &&
+					!supportedProviderModes.includes(String(providerOptions.mode ?? "transcribe"))
+				)
+					throw new Error("invalid_provider_options");
+				beforeValue = null;
+				const [created] = await tx
+					.insert(transcriptionConfigurations)
+					.values({
+						provider: value.provider,
+						model: value.model,
+						providerOptions,
+						timestampStrategy: entry.timestampStrategy,
+						strictProvider: true,
+						status: "draft",
+						testStatus: "untested",
+					})
+					.returning();
+				afterValue = created;
+				await tx.insert(transcriptionConfigurationVersions).values({
+					configurationId: created.id,
+					version: created.version,
+					action: "create_draft",
+					beforeSnapshot: beforeValue,
+					afterSnapshot: created,
+					reason: value.reason,
+					changedBy: context!.userId,
+				});
+			} else if (value.action === "transcription.config.test") {
+				const [current] = await tx
+					.select()
+					.from(transcriptionConfigurations)
+					.where(eq(transcriptionConfigurations.id, value.targetId))
+					.limit(1);
+				if (!current) throw new Error("target_not_found");
+				if (current.version !== value.version) throw new Error("stale_configuration");
+				const entry = getTranscriptionCatalogEntry({
+					provider: current.provider,
+					model: current.model,
+				});
+				if (!entry || entry.timestampStrategy !== current.timestampStrategy)
+					throw new Error("unsupported_model");
+				beforeValue = current;
+				const response = await adminBackendFetch({
+					path: "/api/admin/transcription/test",
+					permission: "system.manage_providers",
+					init: {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							configurationId: current.id,
+							provider: current.provider,
+							model: current.model,
+							version: current.version,
+							timestampStrategy: current.timestampStrategy,
+							strictProvider: current.strictProvider,
+							providerOptions: current.providerOptions,
+							reason: value.reason,
+						}),
+					},
+				});
+				const rawTestResult: unknown = await response.json().catch(() => null);
+				const testResult = isRecord(rawTestResult) ? rawTestResult : null;
+				if (!response.ok || !testResult) throw new Error("provider_test_failed");
+				const testPassed = testResult.ok === true;
+				const testCategory =
+					typeof testResult.category === "string"
+						? testResult.category
+						: "unknown_provider_error";
+				const latencyMs =
+					typeof testResult.latencyMs === "number" ? testResult.latencyMs : null;
+				const [tested] = await tx
+					.update(transcriptionConfigurations)
+					.set({
+						status: testPassed ? "draft" : "failed_test",
+						testStatus: testPassed ? "passed" : "failed",
+						testedAt: new Date(),
+						testedBy: context!.userId,
+						testErrorCode: testPassed ? null : testCategory,
+						testLatencyMs: latencyMs,
+						updatedAt: new Date(),
+					})
+					.where(eq(transcriptionConfigurations.id, current.id))
+					.returning();
+				afterValue = tested;
+				await tx.insert(transcriptionConfigurationVersions).values({
+					configurationId: current.id,
+					version: current.version,
+					action: "test",
+					beforeSnapshot: beforeValue,
+					afterSnapshot: { configuration: tested, test: testResult },
+					reason: value.reason,
+					changedBy: context!.userId,
+				});
+			} else if (value.action === "transcription.config.activate") {
+				const [current] = await tx
+					.select()
+					.from(transcriptionConfigurations)
+					.where(eq(transcriptionConfigurations.id, value.targetId))
+					.limit(1);
+				if (!current) throw new Error("target_not_found");
+				if (current.version !== value.version) throw new Error("stale_configuration");
+				if (current.testStatus !== "passed") throw new Error("untested_configuration");
+				const entry = getTranscriptionCatalogEntry({
+					provider: current.provider,
+					model: current.model,
+				});
+				if (!entry || entry.timestampStrategy !== current.timestampStrategy)
+					throw new Error("unsupported_model");
+				beforeValue = current;
+				await tx
+					.update(transcriptionConfigurations)
+					.set({ status: "inactive", updatedAt: new Date() })
+					.where(eq(transcriptionConfigurations.status, "active"));
+				const [activated] = await tx
+					.update(transcriptionConfigurations)
+					.set({
+						status: "active",
+						version: sql`${transcriptionConfigurations.version} + 1`,
+						activatedAt: new Date(),
+						activatedBy: context!.userId,
+						activationReason: value.reason,
+						updatedAt: new Date(),
+					})
+					.where(eq(transcriptionConfigurations.id, current.id))
+					.returning();
+				afterValue = activated;
+				await tx.insert(transcriptionConfigurationVersions).values({
+					configurationId: current.id,
+					version: activated.version,
+					action: "activate",
+					beforeSnapshot: beforeValue,
+					afterSnapshot: activated,
+					reason: value.reason,
+					changedBy: context!.userId,
+				});
+			} else if (value.action === "transcription.config.deactivate") {
+				const [current] = await tx
+					.select()
+					.from(transcriptionConfigurations)
+					.where(eq(transcriptionConfigurations.id, value.targetId))
+					.limit(1);
+				if (!current) throw new Error("target_not_found");
+				beforeValue = current;
+				const [deactivated] = await tx
+					.update(transcriptionConfigurations)
+					.set({
+						status: "inactive",
+						version: sql`${transcriptionConfigurations.version} + 1`,
+						updatedAt: new Date(),
+					})
+					.where(eq(transcriptionConfigurations.id, current.id))
+					.returning();
+				afterValue = deactivated;
+				await tx.insert(transcriptionConfigurationVersions).values({
+					configurationId: current.id,
+					version: deactivated.version,
+					action: "deactivate",
+					beforeSnapshot: beforeValue,
+					afterSnapshot: deactivated,
+					reason: value.reason,
+					changedBy: context!.userId,
+				});
 			} else if (value.action === "security.unblock") {
 				const [securityEvent] = await tx
 					.select()
@@ -628,7 +1154,8 @@ export async function POST(request: Request) {
 		if (
 			value.action === "user.suspend" ||
 			value.action === "user.sessions.revoke" ||
-			value.action === "admin.role.revoke"
+			value.action === "admin.role.revoke" ||
+			value.action === "access.user.revoke"
 		) {
 			await revokeSupabaseSessions(value.targetId);
 		}
@@ -649,6 +1176,33 @@ export async function POST(request: Request) {
 		) {
 			revalidatePath("/admincapinsta11/feature-flags");
 			revalidatePath("/sign-up");
+		}
+		if (value.action.startsWith("access.")) {
+			invalidateSiteAccessPolicy();
+			revalidatePath("/");
+			revalidatePath("/admincapinsta11/access-control");
+			revalidatePath("/admincapinsta11/users");
+			revalidatePath(`/admincapinsta11/users/${value.targetId}`);
+		}
+		if (value.action.startsWith("transcription.config.")) {
+			revalidatePath("/admincapinsta11/transcription");
+			if (
+				value.action === "transcription.config.activate" ||
+				value.action === "transcription.config.deactivate"
+			) {
+				await adminBackendFetch({
+					path: "/api/admin/transcription/cache/invalidate",
+					permission: "system.manage_providers",
+					init: {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"Idempotency-Key": crypto.randomUUID(),
+						},
+						body: JSON.stringify({ reason: value.reason }),
+					},
+				}).catch(() => null);
+			}
 		}
 		return NextResponse.json({ ok: true, correlationId, after: afterValue });
 	} catch (error) {

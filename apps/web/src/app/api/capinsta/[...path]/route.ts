@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { appPermissionForPath, requireApiPermission } from "@/access/server";
 import { capinstaBackendUrl } from "@/capinsta/proxy-url";
 import {
 	buildProxyRequestHeaders,
@@ -18,6 +19,12 @@ async function proxy(
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
 	const { path } = await params;
+	const requestPath = `/${path.join("/")}`;
+	const denial = await requireApiPermission(
+		appPermissionForPath(`/api/capinsta${requestPath}`),
+		`/api/capinsta${requestPath}`,
+	);
+	if (denial) return denial;
 	const incoming = new URL(request.url);
 	const target = capinstaBackendUrl({
 		backendBaseUrl: webEnv.BACKEND_INTERNAL_URL,

@@ -28,6 +28,10 @@ export const ADMIN_PERMISSIONS = [
   "security.unblock_ip",
   "security.reset_admin_mfa",
   "audit.read",
+  "access.read",
+  "access.manage_users",
+  "access.manage_permissions",
+  "access.manage_site_mode",
 ] as const;
 
 export type AdminPermission = (typeof ADMIN_PERMISSIONS)[number];
@@ -53,6 +57,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly AdminPermission[]> = {
     "exports.delete_output",
     "system.read",
     "feature_flags.read",
+    "access.read",
   ],
   support: [
     "users.read",

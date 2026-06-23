@@ -22,7 +22,14 @@ export function AdminMutationPanel({
   description,
   confirmText,
 }: {
-  action: "user.suspend" | "user.restore" | "security.unblock";
+  action:
+    | "user.suspend"
+    | "user.restore"
+    | "security.unblock"
+    | "access.user.approve"
+    | "access.user.pending"
+    | "access.user.revoke"
+    | "access.site_mode.update";
   targetId: string;
   title: string;
   description: string;

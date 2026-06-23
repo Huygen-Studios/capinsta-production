@@ -319,9 +319,9 @@ def test_placeholder_values_are_treated_as_missing(value):
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
-        (401, "authentication"),
-        (403, "permission_or_blocked_key"),
-        (429, "quota_or_rate_limit"),
+        (401, "authentication_failed"),
+        (403, "permission_denied"),
+        (429, "rate_limited"),
     ],
 )
 def test_gemini_http_status_classification(status, expected):
@@ -338,7 +338,7 @@ def test_gemini_raw_403_text_is_classified_as_permission_error():
 
     classified = transcriber._classify_gemini_error(exc)
 
-    assert classified.category == "permission_or_blocked_key"
+    assert classified.category == "permission_denied"
     assert classified.status == 403
 
 
@@ -351,7 +351,7 @@ def test_gemini_response_status_code_is_classified():
 
     classified = transcriber._classify_gemini_error(ProviderError("forbidden"))
 
-    assert classified.category == "permission_or_blocked_key"
+    assert classified.category == "permission_denied"
     assert classified.status == 403
 
 
@@ -525,7 +525,7 @@ def test_all_providers_fail_returns_sanitized_combined_error(monkeypatch, tmp_pa
         transcriber.transcribe_audio(_write_wav(tmp_path / "a.wav"), "english")
 
     message = str(exc_info.value)
-    assert "gemini(authentication: invalid Gemini API key)" in message
+    assert "gemini(authentication_failed: invalid Gemini API key)" in message
     assert "sarvam(authentication)" in message
     assert "groq_whisper(authentication)" in message
     assert "openai_whisper(authentication)" in message

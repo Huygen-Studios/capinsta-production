@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { resolvePostAuthDestination } from "@/access/server";
 import { isSafeInternalPath } from "@/auth/routes";
 import { createClient } from "@/lib/supabase/server";
 
+// eslint-disable-next-line opencut/prefer-object-params
 export function getTrustedPublicOrigin(
 	request: Request,
 	siteUrlEnv = process.env.NEXT_PUBLIC_SITE_URL,
@@ -61,11 +63,18 @@ export async function GET(request: Request) {
 	if (code) {
 		const supabase = await createClient();
 		const { error } = await supabase.auth.exchangeCodeForSession(code);
-		if (!error) return NextResponse.redirect(new URL(next, publicOrigin));
+		if (!error) {
+			const {
+				data: { user },
+			} = await supabase.auth.getUser();
+			const destination = user
+				? await resolvePostAuthDestination(user.id, next)
+				: next;
+			return NextResponse.redirect(new URL(destination, publicOrigin));
+		}
 	}
 	const errorUrl = new URL("/sign-in", publicOrigin);
 	errorUrl.searchParams.set("error", "callback");
 	errorUrl.searchParams.set("redirect", next);
 	return NextResponse.redirect(errorUrl);
 }
-

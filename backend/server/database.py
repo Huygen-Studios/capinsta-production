@@ -1,5 +1,6 @@
 import os
 from contextlib import asynccontextmanager
+import os
 
 import aiosqlite
 
@@ -198,6 +199,11 @@ async def init_db():
             "admin_retry_by TEXT", "correlation_id TEXT", "media_asset_id TEXT",
             "message TEXT", "heartbeat_at TEXT", "updated_at TEXT",
             "current_provider TEXT", "current_chunk INTEGER", "total_chunks INTEGER",
+            "transcription_provider TEXT", "transcription_model TEXT",
+            "transcription_config_version INTEGER", "timestamp_strategy TEXT",
+            "provider_mode TEXT", "provider_request_id TEXT",
+            "timing_source_summary_json TEXT",
+            "transcription_config_snapshot_json TEXT",
         ):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")

@@ -1,7 +1,7 @@
 import { isSafeInternalPath } from "@/auth/routes";
 import { SignUpForm } from "./sign-up-form";
 import { redirectAuthenticatedUser } from "@/auth/require-user";
-import { isRuntimeFlagEnabled } from "@/admin/runtime-config";
+import { getSiteAccessPolicy } from "@/access/server";
 
 export default async function SignUpPage({
 	searchParams,
@@ -11,10 +11,7 @@ export default async function SignUpPage({
 	const params = await searchParams;
 	const redirectPath = isSafeInternalPath(params.redirect);
 	await redirectAuthenticatedUser(redirectPath);
-	const registrationEnabled = await isRuntimeFlagEnabled({
-		key: "registration_enabled",
-		fallback: true,
-	});
+	const registrationEnabled = (await getSiteAccessPolicy()).allowSignups;
 	return (
 		<SignUpForm
 			redirectPath={redirectPath}

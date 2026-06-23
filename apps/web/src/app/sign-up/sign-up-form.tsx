@@ -67,7 +67,7 @@ export function SignUpForm({
       setLoading(false);
       return;
     }
-    router.replace(redirectPath);
+    router.replace(`/auth/resolve?next=${encodeURIComponent(redirectPath)}`);
     router.refresh();
   };
 

@@ -72,6 +72,31 @@ export async function AdminDetailPage({
           deletionScheduled={Boolean(record.scheduledDeletionAt)}
         />
       ) : null}
+      {module === "users" && context.permissions.has("access.manage_users") ? (
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <AdminMutationPanel
+            action="access.user.approve"
+            targetId={id}
+            title="Approve product access"
+            description="Allows this active account to enter product pages when the current site mode permits it. This does not grant admin access."
+            confirmText={id}
+          />
+          <AdminMutationPanel
+            action="access.user.pending"
+            targetId={id}
+            title="Restore to pending"
+            description="Returns this account to pending private-beta access without changing account lifecycle status."
+            confirmText={id}
+          />
+          <AdminMutationPanel
+            action="access.user.revoke"
+            targetId={id}
+            title="Revoke product access"
+            description="Immediately denies product access and revokes Supabase sessions without deleting projects or account data."
+            confirmText={id}
+          />
+        </div>
+      ) : null}
       {module === "caption-jobs" ? (
         <AdminOperationPanel
           targetId={id}
