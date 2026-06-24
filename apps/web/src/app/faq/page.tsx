@@ -86,7 +86,7 @@ export default function FaqPage() {
 						{faqs.map((item) => (
 							<div
 								key={item.q}
-								className="rounded-2xl border-2 border-ink bg-background p-6"
+								className="border-2 border-foreground bg-background p-6"
 							>
 								<dt className="text-base font-semibold">{item.q}</dt>
 								<dd className="mt-2 text-muted-foreground text-sm leading-relaxed">

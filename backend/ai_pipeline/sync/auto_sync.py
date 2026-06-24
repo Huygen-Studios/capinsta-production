@@ -120,8 +120,10 @@ def estimate_global_shift_and_skew(
     duration_seconds: float | None = None,
     max_shift_seconds: float = 2.0,
     skew_candidates: list[float] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> SyncPassResult:
-    frame_step = max(0.005, _float_env("AUTO_SYNC_FRAME_STEP_SECONDS", 0.02))
+    config = config or {}
+    frame_step = max(0.005, float(config.get("frameStepSeconds") or _float_env("AUTO_SYNC_FRAME_STEP_SECONDS", 0.02)))
     duration = max(_segment_duration(segments, duration_seconds), float(duration_seconds or 0))
     speech = build_speech_activity_from_vad(audio_path, frame_step=frame_step)
     speech_activity = speech["activity"]
@@ -138,8 +140,8 @@ def estimate_global_shift_and_skew(
         "improvement": 0.0,
     }
 
-    allow_skew = _bool_env("AUTO_SYNC_ALLOW_SKEW", True)
-    max_skew_delta = abs(_float_env("AUTO_SYNC_MAX_SKEW_DELTA", 0.035))
+    allow_skew = bool(config.get("allowSkew")) if "allowSkew" in config else _bool_env("AUTO_SYNC_ALLOW_SKEW", True)
+    max_skew_delta = abs(float(config.get("maxSkewDelta") or _float_env("AUTO_SYNC_MAX_SKEW_DELTA", 0.035)))
     for skew in candidates:
         if not allow_skew and abs(skew - 1.0) > 1e-9:
             continue
@@ -185,7 +187,13 @@ def apply_auto_sync_if_confident(
     max_estimated_ratio = float(config.get("maxEstimatedWordRatio") or _float_env("AUTO_SYNC_MAX_ESTIMATED_WORD_RATIO", 0.70))
 
     try:
-        estimate = estimate_global_shift_and_skew(segments, audio_path, duration_seconds, max_shift)
+        estimate = estimate_global_shift_and_skew(
+            segments,
+            audio_path,
+            duration_seconds,
+            max_shift,
+            config=config,
+        )
     except Exception as exc:
         report = SyncReport(applied=False, reason="auto sync failed", warnings=[f"{type(exc).__name__}: {exc}"]).to_dict()
         return SyncPassResult(copy.deepcopy(segments), report)

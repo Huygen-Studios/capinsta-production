@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { BRAND } from "@/site/brand";
 import { BasePage } from "@/app/base-page";
-import Link from "next/link";
 
 export const metadata: Metadata = {
 	title: "Contact",
@@ -53,7 +52,7 @@ export default function ContactPage() {
 					{CONTACT_CATEGORIES.map((cat) => (
 						<div
 							key={cat.label}
-							className="rounded-2xl border-2 border-ink bg-background p-6"
+							className="border-2 border-foreground bg-background p-6"
 						>
 							<h3 className="text-base font-semibold">{cat.label}</h3>
 							<p className="mt-1 text-muted-foreground text-sm">
@@ -62,7 +61,7 @@ export default function ContactPage() {
 							<p className="mt-2 text-sm">
 								<a
 									href={`mailto:${cat.email}?subject=${encodeURIComponent(cat.label + " — " + BRAND.productName)}`}
-									className="text-brand font-medium hover:underline"
+									className="font-medium text-primary hover:underline"
 								>
 									{cat.email}
 								</a>

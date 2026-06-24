@@ -4,35 +4,35 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/utils/ui";
 
 const buttonVariants = cva(
-	"inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap rounded-sm border border-transparent text-sm font-bold transition-[transform,box-shadow,background-color,color,border-color] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary/35 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+	"inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap rounded-none border-2 border-border text-sm font-bold transition-[transform,box-shadow,background-color,color,border-color] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary/35 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:translate-x-0 disabled:translate-y-0 disabled:opacity-50 disabled:shadow-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: {
 				default:
-					"border-black bg-primary text-primary-foreground shadow-[3px_3px_0_var(--secondary)] hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--secondary)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_#000]",
-				background: "border-border bg-background text-foreground hover:bg-accent",
+					"border-border bg-primary text-primary-foreground shadow-[3px_3px_0_var(--cap-shadow-color)] hover:-translate-x-px hover:-translate-y-px hover:shadow-[4px_4px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_var(--cap-shadow-color)]",
+				background: "border-border bg-background text-foreground shadow-[2px_2px_0_var(--cap-shadow-color)] hover:bg-accent hover:-translate-x-px hover:-translate-y-px",
 				destructive:
-					"border-black bg-destructive text-destructive-foreground shadow-[2px_2px_0_#000] hover:-translate-y-0.5",
+					"border-border bg-destructive text-destructive-foreground shadow-[2px_2px_0_var(--cap-shadow-color)] hover:-translate-x-px hover:-translate-y-px",
 				"destructive-foreground":
-					"border border-destructive bg-background hover:bg-destructive/15 text-destructive",
+					"border-2 border-destructive bg-background hover:bg-destructive/15 text-destructive shadow-[2px_2px_0_var(--cap-shadow-color)]",
 				caution: "text-caution hover:bg-caution/10",
 				outline:
-					"border border-border bg-background text-foreground hover:border-primary hover:bg-accent",
+					"border-2 border-border bg-background text-foreground shadow-[2px_2px_0_var(--cap-shadow-color)] hover:border-primary hover:bg-accent hover:-translate-x-px hover:-translate-y-px",
 				secondary:
-					"bg-secondary text-secondary-foreground border border-secondary-border",
+					"bg-secondary text-secondary-foreground border-2 border-secondary-border shadow-[2px_2px_0_var(--cap-shadow-color)] hover:-translate-x-px hover:-translate-y-px",
 				text: "border-0 bg-transparent rounded-none opacity-100 hover:opacity-75",
-				ghost: "border border-transparent bg-transparent text-foreground hover:border-border hover:bg-accent",
+				ghost: "border-2 border-transparent bg-transparent text-foreground shadow-none hover:border-border hover:bg-accent",
 				link: "text-primary underline-offset-4 hover:underline !p-0 !h-auto",
 				brutal:
-					"rounded-sm border-2 border-[var(--cap-outline)] bg-[var(--cap-purple-600)] text-white shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
+					"rounded-none border-2 border-[var(--cap-outline)] bg-[var(--cap-purple-bright)] text-white shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-x-px hover:-translate-y-px hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
 				lime:
-					"rounded-sm border-2 border-[var(--cap-outline)] bg-[var(--cap-lime)] text-[#111] shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
+					"rounded-none border-2 border-[var(--cap-outline)] bg-[var(--cap-purple-bright)] text-white shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-x-px hover:-translate-y-px hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
 			},
 			size: {
 				default: "h-9 px-4 py-2",
-				sm: "h-7 p-1 px-2.5 text-sm rounded-sm",
+				sm: "h-8 p-1 px-2.5 text-sm rounded-none",
 				lg: "h-10 p-5 px-6",
-				icon: "size-7 rounded-sm",
+				icon: "size-8 rounded-none",
 				text: "p-0",
 			},
 		},

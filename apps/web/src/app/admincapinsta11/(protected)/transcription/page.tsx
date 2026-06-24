@@ -90,7 +90,7 @@ function TranscriptionLoadError({ correlationId }: { correlationId: string }) {
 				title="Transcription"
 				description="Administrator-controlled caption transcription provider and model selection."
 			/>
-			<section className="border-2 border-foreground bg-background p-6 shadow-[6px_6px_0_#8b2cff]">
+			<section className="border-2 border-foreground bg-background p-6 shadow-[6px_6px_0_var(--cap-shadow-color)]">
 				<p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-primary">
 					Configuration error
 				</p>
@@ -114,7 +114,7 @@ function TranscriptionLoadError({ correlationId }: { correlationId: string }) {
 				<div className="mt-5 flex flex-wrap gap-3">
 					<a
 						href="/admincapinsta11/transcription"
-						className="border-2 border-black bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow-[4px_4px_0_#8b2cff]"
+						className="border-2 border-foreground bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow-[4px_4px_0_var(--cap-shadow-color)]"
 					>
 						Retry
 					</a>

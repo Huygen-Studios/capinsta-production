@@ -54,7 +54,7 @@ const DialogContent = React.forwardRef<
 		<DialogPrimitive.Content
 			ref={ref}
 			className={cn(
-				"bg-popover fixed top-[50%] left-[50%] z-250 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] rounded-sm border-2 shadow-[5px_5px_0_#000] duration-200",
+				"bg-popover fixed top-[50%] left-[50%] z-250 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] rounded-none border-2 shadow-[8px_8px_0_var(--cap-shadow-color)] duration-200",
 				className,
 			)}
 			onCloseAutoFocus={(e) => {
@@ -78,7 +78,7 @@ const DialogHeader = ({
 	...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
 	<div
-		className={cn("flex flex-col space-y-2 text-left border-b p-6", className)}
+		className={cn("flex flex-col space-y-2 text-left border-b-2 p-6", className)}
 		{...props}
 	/>
 );
@@ -98,7 +98,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
 	<div
 		className={cn(
-			"flex gap-3 flex-col-reverse sm:flex-row sm:justify-end p-6 py-5 border-t",
+			"flex gap-3 flex-col-reverse sm:flex-row sm:justify-end p-6 py-5 border-t-2",
 			className,
 		)}
 		{...props}
@@ -113,7 +113,7 @@ const DialogTitle = React.forwardRef<
 	<DialogPrimitive.Title
 		ref={ref}
 		className={cn(
-			"text-lg leading-none font-semibold tracking-tight",
+			"font-display text-lg leading-none font-black tracking-normal",
 			className,
 		)}
 		{...props}

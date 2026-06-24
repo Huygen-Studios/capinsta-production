@@ -3,21 +3,24 @@ import Script from "next/script";
 import type { Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
-import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData, viewportTheme } from "./metadata";
 import { webEnv } from "@/env/web";
-import { Inter, Urbanist } from "next/font/google";
+import { Archivo_Black, Space_Grotesk } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
 import { RouteCookieConsent } from "@/components/route-cookie-consent";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
 import { GoogleAnalyticsProvider } from "@/components/analytics/google-analytics-provider";
 
-const siteFont = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const displayFont = Urbanist({
+const siteFont = Space_Grotesk({
 	subsets: ["latin"],
-	variable: "--font-urbanist",
-	weight: ["500", "600", "700", "800", "900"],
+	variable: "--font-space-grotesk",
+	weight: ["400", "500", "600", "700"],
+});
+const displayFont = Archivo_Black({
+	subsets: ["latin"],
+	variable: "--font-archivo-black",
+	weight: "400",
 });
 
 export const metadata = baseMetaData;

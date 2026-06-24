@@ -4,6 +4,11 @@ import {
 	listAdminTranscriptionConfigurations,
 	transcriptionPipelineOptionsColumnExists,
 } from "./transcription-config-db";
+import { DEFAULT_PIPELINE_OPTIONS, mergePipelineOptions } from "@/transcription/provider-catalog";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
 
 function legacyConfigRow(overrides: Record<string, unknown> = {}) {
 	return {
@@ -76,5 +81,26 @@ describe("admin transcription configuration db compatibility", () => {
 		expect(config?.pipelineOptions.timingSourcePolicy).toBe(
 			"native_then_forced",
 		);
+	});
+
+	test("deep merges partial pipeline option edits", () => {
+		const merged = mergePipelineOptions(
+			DEFAULT_PIPELINE_OPTIONS,
+			{
+				timingSourcePolicy: "native_required",
+				captionChunking: { maxWords: 3 },
+				autoSync: { enabled: true, maxShiftSeconds: 0.5 },
+				__proto__: { polluted: true },
+			},
+		);
+
+		expect(merged.timingSourcePolicy).toBe("native_required");
+		const captionChunking = merged.captionChunking;
+		const autoSync = merged.autoSync;
+		expect(isRecord(captionChunking) ? captionChunking.maxWords : undefined).toBe(3);
+		expect(isRecord(captionChunking) ? captionChunking.maxCharacters : undefined).toBe(36);
+		expect(isRecord(autoSync) ? autoSync.enabled : undefined).toBe(true);
+		expect(isRecord(autoSync) ? autoSync.minScore : undefined).toBe(0.58);
+		expect(Object.prototype).not.toHaveProperty("polluted");
 	});
 });

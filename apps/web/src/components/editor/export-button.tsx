@@ -96,7 +96,7 @@ export function ExportButton() {
 			<button
 				type="button"
 				className={cn(
-					"flex h-9 items-center gap-2 rounded-lg border-2 border-[var(--cap-outline)] bg-[var(--cap-lime)] px-4 text-sm font-black text-[#111] shadow-[3px_3px_0_var(--cap-shadow-color)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_var(--cap-shadow-color)]",
+					"flex h-9 items-center gap-2 border-2 border-foreground bg-primary px-4 text-sm font-black text-primary-foreground shadow-[3px_3px_0_var(--cap-shadow-color)] transition-[transform,box-shadow] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_var(--cap-shadow-color)]",
 					hasProject ? "cursor-pointer" : "cursor-not-allowed opacity-50",
 				)}
 				onClick={hasProject ? () => setIsOpen(true) : undefined}
@@ -400,7 +400,7 @@ function ExportDialog({
 								</div>
 							</OptionSection>
 
-							<div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/15 p-3 md:col-span-2">
+							<div className="flex items-center justify-between gap-4 border-2 border-border bg-muted/15 p-3 md:col-span-2">
 								<div>
 									<p className="text-sm font-medium">Include original audio</p>
 									<p className="mt-0.5 text-xs text-muted-foreground">
@@ -474,7 +474,7 @@ function ChoiceButton({
 			aria-pressed={selected}
 			onClick={onClick}
 			className={cn(
-				"flex h-9 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
+				"flex h-9 items-center justify-center gap-1.5 border-2 px-2 text-xs font-medium transition-colors",
 				selected
 					? "border-primary bg-primary/10 text-foreground"
 					: "border-border bg-background text-muted-foreground hover:bg-accent/50 hover:text-foreground",

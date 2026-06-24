@@ -221,3 +221,28 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 	},
 	performance: { providerTimeoutSeconds: 60, sarvamMaxConcurrency: 2, alignmentRetries: 3 },
 } as const;
+
+type PlainObject = { readonly [key: string]: unknown };
+
+function isPlainObject(value: unknown): value is PlainObject {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+// eslint-disable-next-line opencut/prefer-object-params
+export function mergePipelineOptions(
+	base: PlainObject = DEFAULT_PIPELINE_OPTIONS,
+	overrides: PlainObject = {},
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = { ...base };
+	for (const [key, value] of Object.entries(overrides)) {
+		if (key === "__proto__" || key === "constructor" || key === "prototype") {
+			continue;
+		}
+		const baseValue = merged[key];
+		merged[key] =
+			isPlainObject(baseValue) && isPlainObject(value)
+				? mergePipelineOptions(baseValue, value)
+				: value;
+	}
+	return merged;
+}

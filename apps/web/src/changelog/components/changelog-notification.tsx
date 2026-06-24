@@ -42,13 +42,14 @@ export function ChangelogNotification() {
 			// ignore
 		}
 
-		setRelease(latest);
+		const timer = window.setTimeout(() => setRelease(latest), 0);
+		return () => window.clearTimeout(timer);
 	}, []);
 
 	if (!release) return null;
 
 	return (
-		<div className="fixed bottom-5 left-5 z-50 flex w-72 flex-col gap-3 rounded-xl border bg-card p-4 shadow-lg">
+		<div className="fixed bottom-5 left-5 z-50 flex w-72 flex-col gap-3 border-2 border-foreground bg-card p-4 shadow-[4px_4px_0_var(--cap-shadow-color)]">
 			<div className="flex items-start justify-between gap-2">
 				<div className="flex flex-col gap-1">
 					<span className="text-sm font-semibold leading-snug">

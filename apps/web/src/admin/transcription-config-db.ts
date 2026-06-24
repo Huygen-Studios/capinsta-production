@@ -1,5 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
-import { DEFAULT_PIPELINE_OPTIONS } from "@/transcription/provider-catalog";
+import { DEFAULT_PIPELINE_OPTIONS, mergePipelineOptions } from "@/transcription/provider-catalog";
+
+/* eslint-disable opencut/prefer-object-params */
 
 type QueryExecutor = {
 	execute(query: SQL<unknown>): Promise<unknown>;
@@ -27,20 +29,29 @@ export type AdminTranscriptionConfigurationRecord = {
 	updatedAt: Date;
 };
 
-function rowsFrom(result: unknown): Record<string, unknown>[] {
-	if (Array.isArray(result)) return result as Record<string, unknown>[];
-	if (result && typeof result === "object" && "rows" in result) {
-		const rows = (result as { rows?: unknown }).rows;
-		if (Array.isArray(rows)) return rows as Record<string, unknown>[];
-	}
-	if (result && typeof (result as Iterable<unknown>)[Symbol.iterator] === "function") {
-		return Array.from(result as Iterable<Record<string, unknown>>);
-	}
-	return [];
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isIterable(value: unknown): value is Iterable<unknown> {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		Symbol.iterator in value &&
+		typeof value[Symbol.iterator] === "function"
+	);
+}
+
+function rowsFrom(result: unknown): Record<string, unknown>[] {
+	if (Array.isArray(result)) return result.filter(isRecord);
+	if (isRecord(result)) {
+		const rows = result.rows;
+		if (Array.isArray(rows)) return rows.filter(isRecord);
+	}
+	if (isIterable(result)) {
+		return Array.from(result).filter(isRecord);
+	}
+	return [];
 }
 
 function toDate(value: unknown): Date | null {
@@ -58,10 +69,10 @@ function coerceConfig(row: Record<string, unknown>): AdminTranscriptionConfigura
 		provider: String(row.provider),
 		model: String(row.model),
 		providerOptions: isRecord(row.providerOptions) ? row.providerOptions : {},
-		pipelineOptions: {
-			...DEFAULT_PIPELINE_OPTIONS,
-			...(isRecord(row.pipelineOptions) ? row.pipelineOptions : {}),
-		},
+		pipelineOptions: mergePipelineOptions(
+			DEFAULT_PIPELINE_OPTIONS,
+			isRecord(row.pipelineOptions) ? row.pipelineOptions : {},
+		),
 		timestampStrategy: String(row.timestampStrategy),
 		strictProvider: row.strictProvider !== false,
 		status: String(row.status),

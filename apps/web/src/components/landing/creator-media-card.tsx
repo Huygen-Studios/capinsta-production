@@ -29,7 +29,7 @@ export function CreatorMediaCard({
 	return (
 		<figure
 			className={cn(
-				"cap-brutal-card group relative min-w-0 overflow-hidden bg-black transition-transform duration-200 hover:-translate-y-1 hover:shadow-[7px_7px_0_#111]",
+				"cap-brutal-card group relative min-w-0 overflow-hidden bg-background transition-transform duration-200 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[7px_7px_0_var(--cap-shadow-color)]",
 				aspectClasses[media.aspectRatio],
 				className,
 			)}
@@ -60,11 +60,11 @@ export function CreatorMediaCard({
 			<div className="absolute inset-x-3 bottom-3 text-center">
 				<span
 					className={cn(
-						"inline-block max-w-full rotate-[-1deg] border-2 border-black px-3 py-1.5 text-base font-black uppercase leading-none shadow-[3px_3px_0_#111] sm:text-lg",
-						media.accent === "purple" && "bg-[var(--cap-purple-400)] text-white",
-						media.accent === "pink" && "bg-[var(--cap-pink)] text-black",
+						"inline-block max-w-full rotate-[-1deg] border-2 border-foreground px-3 py-1.5 text-base font-black uppercase leading-none shadow-[3px_3px_0_var(--cap-shadow-color)] sm:text-lg",
+						media.accent === "purple" && "bg-secondary text-secondary-foreground",
+						media.accent === "pink" && "bg-primary text-primary-foreground",
 						(!media.accent || media.accent === "lime") &&
-							"bg-[var(--cap-lime)] text-black",
+							"bg-primary text-primary-foreground",
 					)}
 				>
 					{media.caption}

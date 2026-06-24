@@ -34,21 +34,32 @@ class Chunk:
         self.alignment = None
         self.asr_metadata = None
 
-def extract_audio(video_path: str, output_path: str) -> str:
-    """Extracts mono 16k MP3 audio for stable transcription and alignment."""
+def extract_audio(
+    video_path: str,
+    output_path: str,
+    *,
+    sample_rate: int = 16000,
+    channels: int = 1,
+    codec: str = "libmp3lame",
+    bitrate_kbps: int | None = 64,
+) -> str:
+    """Extract mono audio for transcription and alignment."""
     if not shutil.which(FFMPEG_BINARY) and not os.path.exists(FFMPEG_BINARY):
         raise RuntimeError("FFmpeg is not available. Install FFmpeg or set FFMPEG_PATH to the ffmpeg executable.")
 
     ffmpeg_cmd = [
         FFMPEG_BINARY, "-i", video_path,
         "-vn",
-        "-ac", "1",
-        "-ar", "16000",
-        "-c:a", "libmp3lame",
-        "-b:a", "64k",
+        "-ac", str(max(1, min(int(channels), 2))),
+        "-ar", str(max(8000, min(int(sample_rate), 48000))),
+        "-c:a", codec or "libmp3lame",
+    ]
+    if bitrate_kbps:
+        ffmpeg_cmd.extend(["-b:a", f"{int(bitrate_kbps)}k"])
+    ffmpeg_cmd.extend([
         output_path,
         "-y"
-    ]
+    ])
     try:
         subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as exc:
@@ -123,28 +134,39 @@ def overlap_chunk(
     profile: str = "balanced",
     mode: str = "normal",
     speech_segments: list[dict] | None = None,
+    *,
+    vad_enabled: bool | None = None,
+    target_seconds: float | None = None,
+    max_seconds: float | None = None,
+    padding_seconds: float | None = None,
+    legacy_seconds: float | None = None,
+    legacy_overlap_seconds: float | None = None,
 ) -> list[Chunk]:
     """Split at VAD pauses when available, otherwise use legacy overlap chunks."""
     audio = AudioSegment.from_file(audio_path)
     dur_seconds = len(audio) / 1000.0
     
     if mode == 'strict':
-        size = CHUNK_SIZE_STRICT
-        overlap = CHUNK_OVERLAP_STRICT
+        size = legacy_seconds if legacy_seconds is not None else CHUNK_SIZE_STRICT
+        overlap = legacy_overlap_seconds if legacy_overlap_seconds is not None else CHUNK_OVERLAP_STRICT
     else:
-        size = CHUNK_SIZE_NORMAL
-        overlap = CHUNK_OVERLAP_NORMAL
+        size = legacy_seconds if legacy_seconds is not None else CHUNK_SIZE_NORMAL
+        overlap = legacy_overlap_seconds if legacy_overlap_seconds is not None else CHUNK_OVERLAP_NORMAL
         
-    vad_enabled = os.getenv("VAD_CHUNKING_ENABLED", "true").strip().lower() == "true"
+    use_vad = (
+        os.getenv("VAD_CHUNKING_ENABLED", "true").strip().lower() == "true"
+        if vad_enabled is None
+        else bool(vad_enabled)
+    )
     ranges = (
         build_vad_chunk_ranges(
             speech_segments or [],
             dur_seconds,
-            target_seconds=_float_env("VAD_TARGET_CHUNK_SECONDS", 15.0),
-            max_seconds=_float_env("VAD_MAX_CHUNK_SECONDS", 25.0),
-            padding_seconds=_float_env("VAD_CHUNK_PADDING_SECONDS", 0.08),
+            target_seconds=target_seconds if target_seconds is not None else _float_env("VAD_TARGET_CHUNK_SECONDS", 15.0),
+            max_seconds=max_seconds if max_seconds is not None else _float_env("VAD_MAX_CHUNK_SECONDS", 25.0),
+            padding_seconds=padding_seconds if padding_seconds is not None else _float_env("VAD_CHUNK_PADDING_SECONDS", 0.08),
         )
-        if vad_enabled and speech_segments
+        if use_vad and speech_segments
         else []
     )
     if not ranges:

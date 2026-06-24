@@ -1,8 +1,9 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect, @typescript-eslint/no-unsafe-type-assertion */
+
 import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { BRAND } from "@/site/brand";
 
 /** Augment Window so we can attach a consent-reopen helper safely. */
 declare global {
@@ -83,7 +84,7 @@ export function readConsent(): ConsentState {
 	return readStoredConsent() ?? DEFAULT_DENIED;
 }
 
-let hydratedRef: { current: ConsentState } = { current: DEFAULT_DENIED };
+const hydratedRef: { current: ConsentState } = { current: DEFAULT_DENIED };
 
 export function useCookieConsent() {
 	const [state, setState] = useState<ConsentState>(hydratedRef.current);
@@ -170,7 +171,7 @@ export function CookieConsentBanner() {
 			aria-live="polite"
 			className="fixed inset-x-0 bottom-0 z-[100] p-4"
 		>
-			<div className="mx-auto max-w-3xl rounded-2xl border-2 border-ink bg-background p-6 shadow-brut-lg">
+			<div className="mx-auto max-w-3xl border-2 border-foreground bg-background p-6 shadow-[6px_6px_0_var(--cap-shadow-color)]">
 				<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 					<div className="text-sm text-muted-foreground">
 						<p className="font-semibold text-foreground">
@@ -180,7 +181,7 @@ export function CookieConsentBanner() {
 							We use necessary storage to run the editor. With your permission, we
 							also use analytics and advertising cookies. You can change your choice
 							at any time. Read our{" "}
-							<a href="/cookies" className="text-brand underline dark:text-violet-300">
+							<a href="/cookies" className="text-primary underline">
 								Cookie Policy
 							</a>
 							.
@@ -198,7 +199,7 @@ export function CookieConsentBanner() {
 						<Button
 							size="sm"
 							onClick={acceptAll}
-							className="bg-brand text-brand-foreground font-semibold hover:bg-brand-strong"
+							className="bg-primary text-primary-foreground font-semibold hover:bg-primary/90"
 						>
 							Accept all
 							</Button>

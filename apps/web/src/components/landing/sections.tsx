@@ -77,9 +77,9 @@ export function FeaturesSection() {
 					{features.map((f) => (
 						<div
 							key={f.title}
-							className="group cap-brutal-card p-6 transition-transform hover:-translate-y-1 hover:shadow-[6px_6px_0_#111]"
+							className="group cap-brutal-card p-6 transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)]"
 						>
-							<div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand/10 text-brand">
+							<div className="mb-4 flex h-12 w-12 items-center justify-center border-2 border-foreground bg-primary text-primary-foreground">
 								<HugeiconsIcon icon={f.icon} className="size-6" />
 							</div>
 							<h3 className="text-lg font-semibold">{f.title}</h3>
@@ -131,7 +131,7 @@ const steps = [
 
 export function HowItWorksSection() {
 	return (
-		<section id="how-it-works" className="how-it-works scroll-mt-20 border-y-2 border-black bg-[var(--cap-lime)] text-[#111]">
+		<section id="how-it-works" className="how-it-works scroll-mt-20 border-y-2 border-foreground bg-primary text-primary-foreground">
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="text-center mb-16">
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -145,7 +145,7 @@ export function HowItWorksSection() {
 				<div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
 					{steps.map((s, i) => (
 						<div key={s.step} className="relative flex flex-col items-start">
-							<span className="mb-4 flex h-10 w-10 items-center justify-center rounded-full border-2 border-ink bg-brand text-brand-foreground text-sm font-bold">
+							<span className="mb-4 flex h-10 w-10 items-center justify-center border-2 border-foreground bg-background text-sm font-bold text-foreground">
 								{s.step}
 							</span>
 							<h3 className="text-lg font-semibold">{s.title}</h3>
@@ -192,29 +192,29 @@ export function CaptionWorkflowsSection() {
 								"Word-level timing preserves language switching",
 							].map((item) => (
 								<li key={item} className="flex items-start gap-3">
-									<HugeiconsIcon icon={CheckmarkCircle02Icon} className="mt-0.5 size-5 shrink-0 text-brand" />
+									<HugeiconsIcon icon={CheckmarkCircle02Icon} className="mt-0.5 size-5 shrink-0 text-primary" />
 									<span className="text-muted-foreground text-sm">{item}</span>
 								</li>
 							))}
 						</ul>
 					</div>
 					<div className="flex items-center justify-center">
-						<div className="rounded-2xl border-2 border-ink bg-background p-8 shadow-brut-lg">
+						<div className="border-2 border-foreground bg-background p-8 shadow-[6px_6px_0_var(--cap-shadow-color)]">
 							<div className="space-y-3 text-center">
 								<p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
 									Preview
 								</p>
 								<p className="text-xl font-bold">
 									<span className="text-muted-foreground">So </span>
-									<span className="bg-brand/20 px-1 rounded font-extrabold text-brand">
+									<span className="bg-primary/20 px-1 font-extrabold text-primary">
 										basically
 									</span>
 									<span className="text-muted-foreground"> main </span>
-									<span className="bg-brand/20 px-1 rounded font-extrabold text-brand">
+									<span className="bg-primary/20 px-1 font-extrabold text-primary">
 										yeh
 									</span>
 									<span className="text-muted-foreground"> hai ki </span>
-									<span className="bg-brand/20 px-1 rounded font-extrabold text-brand">
+									<span className="bg-primary/20 px-1 font-extrabold text-primary">
 										captioning
 									</span>
 								</p>
@@ -258,7 +258,7 @@ export function EditingExportSection() {
 					].map((item) => (
 						<div
 							key={item.title}
-							className="rounded-2xl border-2 border-ink bg-background p-6 shadow-brut"
+							className="border-2 border-foreground bg-background p-6 shadow-[4px_4px_0_var(--cap-shadow-color)]"
 						>
 							<h3 className="text-lg font-semibold">{item.title}</h3>
 							<p className="mt-3 text-muted-foreground text-sm leading-relaxed">
@@ -281,7 +281,7 @@ export function PrivacySection() {
 		<section>
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="mx-auto max-w-3xl text-center">
-					<div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10 text-brand">
+					<div className="mb-6 inline-flex h-16 w-16 items-center justify-center border-2 border-foreground bg-primary text-primary-foreground">
 						<HugeiconsIcon icon={Shield02Icon} className="size-8" />
 					</div>
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
@@ -362,7 +362,7 @@ export function FaqSection() {
 				</div>
 				<dl className="space-y-6">
 					{faqItems.map((item) => (
-						<div key={item.q} className="rounded-2xl border-2 border-ink bg-background p-6">
+						<div key={item.q} className="border-2 border-foreground bg-background p-6">
 							<dt className="text-base font-semibold">{item.q}</dt>
 							<dd className="mt-2 text-muted-foreground text-sm leading-relaxed">
 								{item.a}
@@ -383,7 +383,7 @@ export function FinalCtaSection() {
 	return (
 			<section>
 				<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
-					<div className="rounded-2xl border-2 border-ink bg-background p-12 shadow-brut-lg text-center sm:p-16">
+					<div className="border-2 border-foreground bg-background p-12 text-center shadow-[6px_6px_0_var(--cap-shadow-color)] sm:p-16">
 						<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
 							Ready to caption your next video?
 						</h2>
@@ -394,7 +394,7 @@ export function FinalCtaSection() {
 						<Link href={ROUTES.projects}>
 							<Button
 								size="lg"
-								className="mt-8 shadow-brut bg-brand text-brand-foreground text-base font-bold px-8 py-6 hover:bg-brand-strong transition-colors"
+								className="mt-8 bg-primary px-8 py-6 text-base font-bold text-primary-foreground shadow-[4px_4px_0_var(--cap-shadow-color)] transition-colors hover:bg-primary/90"
 							>
 								Start Captioning
 								<ArrowRight className="ml-2 size-5" />

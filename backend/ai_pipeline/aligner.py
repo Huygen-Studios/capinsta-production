@@ -1072,12 +1072,24 @@ def _fallback_align_segments(tokens: list[Any]) -> list[dict[str, Any]]:
 
 
 @with_retry(max_retries=RETRY_ALIGN)
-def align_text(tokens: list[Any], audio_path: str, model_id: str) -> list[dict[str, Any]]:
-    provider = (os.getenv("ALIGNMENT_PROVIDER", "auto") or "auto").strip().lower()
-    whisperx_enabled = _env_bool("ENABLE_WHISPERX", False)
+def align_text(
+    tokens: list[Any],
+    audio_path: str,
+    model_id: str,
+    *,
+    allow_fallback: bool = True,
+    enable_whisperx: bool | None = None,
+    provider: str | None = None,
+) -> list[dict[str, Any]]:
+    provider = (provider or os.getenv("ALIGNMENT_PROVIDER", "auto") or "auto").strip().lower()
+    whisperx_enabled = _env_bool("ENABLE_WHISPERX", False) if enable_whisperx is None else bool(enable_whisperx)
     if provider in {"none", "provider", "silero_vad_only", "stable_ts"} or (
         provider == "auto" and not whisperx_enabled
     ):
+        if not allow_fallback:
+            raise RuntimeError(
+                "Real forced alignment is unavailable. Enable WhisperX or choose a provider/model with native word timestamps."
+            )
         logger.info(
             "WhisperX alignment skipped provider=%s enable_whisperx=%s. Using deterministic timing fallback.",
             provider,
@@ -1134,6 +1146,10 @@ def align_text(tokens: list[Any], audio_path: str, model_id: str) -> list[dict[s
                     word["timingSource"] = word["timing_source"]
         return aligned_segments
     except Exception as exc:
+        if not allow_fallback:
+            raise RuntimeError(
+                f"Real forced alignment failed with {model_id}: {exc}"
+            ) from exc
         logger.warning(
             "WhisperX alignment unavailable or failed for %s with %s: %s. "
             "Using deterministic interpolated word timestamps.",

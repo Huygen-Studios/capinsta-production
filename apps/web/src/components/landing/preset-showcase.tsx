@@ -41,7 +41,7 @@ export function PresetShowcase({ compact = false }: { compact?: boolean }) {
 			<div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
 				<div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
 					<div>
-						<p className="font-black uppercase tracking-[0.2em] text-[var(--cap-lime)]">
+						<p className="font-black uppercase tracking-[0.2em] text-primary">
 							Real Capinsta presets
 						</p>
 						<h2 className="mt-3 max-w-3xl text-4xl font-black leading-[0.95] tracking-tight sm:text-5xl">
@@ -51,7 +51,7 @@ export function PresetShowcase({ compact = false }: { compact?: boolean }) {
 					{!compact && (
 						<Link
 							href={ROUTES.captionPresets}
-							className="cap-focus w-fit border-b-2 border-[var(--cap-lime)] pb-1 font-bold text-[var(--cap-lime)]"
+							className="cap-focus w-fit border-b-2 border-primary pb-1 font-bold text-primary"
 						>
 							Explore every preset →
 						</Link>
@@ -64,7 +64,7 @@ export function PresetShowcase({ compact = false }: { compact?: boolean }) {
 							key={preset.id}
 							className={`group ${index % 2 ? "lg:translate-y-8" : ""}`}
 						>
-							<div className="relative aspect-square overflow-hidden rounded-xl border-2 border-black bg-black shadow-[4px_4px_0_var(--cap-lime)] transition-transform group-hover:-translate-y-1">
+							<div className="relative aspect-square overflow-hidden border-2 border-foreground bg-background shadow-[4px_4px_0_var(--cap-shadow-color)] transition-transform group-hover:-translate-x-0.5 group-hover:-translate-y-0.5">
 								<Image
 									src={posters[index % posters.length]}
 									alt={`${preset.name} caption preset preview`}

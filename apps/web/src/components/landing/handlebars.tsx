@@ -144,10 +144,10 @@ export function Handlebars({ children }: HandlebarsProps) {
 				className="relative mt-0.5"
 				style={{ transform: `rotate(-${HANDLEBARS_ROTATE_DEG}deg)` }}
 			>
-				<div className="absolute inset-0 z-10 flex size-full justify-between rounded-2xl border border-yellow-500">
+				<div className="absolute inset-0 z-10 flex size-full justify-between border border-primary">
 					<div
 						ref={leftHandleRef}
-						className="bg-background absolute left-0 z-20 flex h-full w-7 cursor-ew-resize touch-none items-center justify-center rounded-full border border-yellow-500 select-none"
+						className="absolute left-0 z-20 flex h-full w-7 cursor-ew-resize touch-none select-none items-center justify-center rounded-full border border-primary bg-background"
 						style={{
 							translate: `${leftHandle}px 0`,
 						}}
@@ -161,12 +161,12 @@ export function Handlebars({ children }: HandlebarsProps) {
 							dragRef.current.initialPosition = leftHandlePositionRef.current;
 						}}
 					>
-						<div className="h-8 w-2 rounded-full bg-yellow-500" />
+						<div className="h-8 w-2 rounded-full bg-primary" />
 					</div>
 
 					<div
 						ref={rightHandleRef}
-						className="bg-background absolute z-20 flex h-full w-7 cursor-ew-resize touch-none items-center justify-center rounded-full border border-yellow-500 select-none"
+						className="absolute z-20 flex h-full w-7 cursor-ew-resize touch-none select-none items-center justify-center rounded-full border border-primary bg-background"
 						style={{
 							left: hasMeasuredWidth
 								? `${RIGHT_HANDLE_LEFT_OFFSET_PX}px`
@@ -184,12 +184,12 @@ export function Handlebars({ children }: HandlebarsProps) {
 							dragRef.current.initialPosition = rightHandlePositionRef.current;
 						}}
 					>
-						<div className="h-8 w-2 rounded-full bg-yellow-500" />
+						<div className="h-8 w-2 rounded-full bg-primary" />
 					</div>
 				</div>
 
 				<span
-					className="relative z-0 inline-flex size-full items-center justify-center rounded-2xl px-9 will-change-auto"
+					className="relative z-0 inline-flex size-full items-center justify-center px-9 will-change-auto"
 					style={{
 						mask: textMask,
 						WebkitMask: textMask,

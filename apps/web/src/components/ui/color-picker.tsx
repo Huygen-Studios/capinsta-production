@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/set-state-in-effect, @typescript-eslint/no-unsafe-type-assertion */
+
 import { type ComponentProps, forwardRef, useEffect, useRef, useState } from "react";
 import { cn } from "@/utils/ui";
 import { Input } from "./input";
@@ -545,7 +547,7 @@ const ColorCircle = ({
 }) => (
 	<div
 		className={cn(
-			"pointer-events-none absolute rounded-full border-3 border-white shadow-lg",
+			"pointer-events-none absolute rounded-full border-3 border-white shadow-[2px_2px_0_var(--cap-shadow-color)]",
 			size === "sm" ? "size-3" : "size-4",
 		)}
 		style={{

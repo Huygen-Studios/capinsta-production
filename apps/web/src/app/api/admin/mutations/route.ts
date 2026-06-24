@@ -47,6 +47,7 @@ import {
 	DEFAULT_PIPELINE_OPTIONS,
 	defaultProviderOptions,
 	getTranscriptionCatalogEntry,
+	mergePipelineOptions,
 } from "@/transcription/provider-catalog";
 
 const reason = z.string().trim().min(8).max(1000);
@@ -874,10 +875,10 @@ export async function POST(request: Request) {
 					value.provider === "sarvam"
 						? { ...defaultProviderOptions(value.provider), ...(value.providerOptions ?? {}) }
 						: {};
-				const resolvedPipelineOptions = {
-					...DEFAULT_PIPELINE_OPTIONS,
-					...(value.pipelineOptions ?? {}),
-				};
+				const resolvedPipelineOptions = mergePipelineOptions(
+					DEFAULT_PIPELINE_OPTIONS,
+					value.pipelineOptions ?? {},
+				);
 				const supportedProviderModes: readonly string[] = entry.supportedProviderModes;
 				if (
 					value.provider === "sarvam" &&

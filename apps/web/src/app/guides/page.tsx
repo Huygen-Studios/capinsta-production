@@ -64,7 +64,7 @@ export default function GuidesPage() {
 					<Link
 						key={guide.slug}
 						href={`/guides/${guide.slug}`}
-						className="block rounded-2xl border-2 border-ink bg-background p-6 transition-transform hover:-translate-y-0.5 hover:shadow-brut"
+						className="block border-2 border-foreground bg-background p-6 transition-transform hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--cap-shadow-color)]"
 					>
 						<h2 className="text-lg font-semibold">{guide.title}</h2>
 						<p className="mt-1 text-muted-foreground text-sm leading-relaxed">

@@ -224,24 +224,55 @@ def run_pipeline(
     try:
         _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
         emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")
-        extract_audio(video_path, audio_path)
+        audio_options = pipeline_config.audio
+        ffmpeg_codec = "pcm_s16le" if audio_options.codec == "pcm_s16le" else "libmp3lame"
+        if audio_options.codec == "pcm_s16le":
+            audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
+        extract_audio(
+            video_path,
+            audio_path,
+            sample_rate=audio_options.sampleRate,
+            channels=audio_options.channels,
+            codec=ffmpeg_codec,
+            bitrate_kbps=audio_options.bitrateKbps,
+        )
         _stage_log("audio extraction completed", audio_path=audio_path, language_mode=language_mode)
 
         emit_progress("normalizing", 10, "Estimating audio quality.")
         metrics = measure_audio_quality(audio_path)
         timing_provider_status = alignment_provider_status()
-        transcript_aligner = TranscriptAligner()
+        transcript_aligner = TranscriptAligner(
+            enable_silero_vad=pipeline_config.vad.sileroEnabled,
+            enable_stable_ts=pipeline_config.alignment.stableTsEnabled,
+            enable_whisperx=pipeline_config.alignment.whisperxEnabled,
+            pause_threshold=pipeline_config.vad.pauseThresholdSeconds,
+        )
         timing_provider_status["transcriptAligner"] = transcript_aligner.status()
-        vad_report = detect_silence_gaps(audio_path, min_silence=transcript_aligner.pause_threshold)
+        vad_report = detect_silence_gaps(
+            audio_path,
+            min_silence=transcript_aligner.pause_threshold,
+            threshold_db=(
+                f"{pipeline_config.vad.silenceThresholdDb}dB"
+                if pipeline_config.vad.silenceThresholdDb is not None
+                else None
+            ),
+        )
         adaptive_thresholds_dict = adaptive_thresholds(metrics["snr_db"], metrics["speech_rate"])
         logger.info(f"Adaptive Thresholds Applied: {adaptive_thresholds_dict}")
 
         emit_progress("normalizing", 15, "Chunking audio for transcription.")
         is_strict = metrics["snr_db"] < 10.0
+        chunking_options = pipeline_config.audioChunking
         chunks = overlap_chunk(
             audio_path,
             mode="strict" if is_strict else "normal",
             speech_segments=vad_report.get("speechSegments") or [],
+            vad_enabled=chunking_options.vadEnabled,
+            target_seconds=chunking_options.targetSeconds,
+            max_seconds=chunking_options.maxSeconds,
+            padding_seconds=chunking_options.paddingSeconds,
+            legacy_seconds=chunking_options.legacyStrictSeconds if is_strict else chunking_options.legacyNormalSeconds,
+            legacy_overlap_seconds=chunking_options.legacyStrictOverlapSeconds if is_strict else chunking_options.legacyNormalOverlapSeconds,
         )
         total_chunks = max(len(chunks), 1)
         processed_chunks = []
@@ -250,7 +281,7 @@ def run_pipeline(
         _stage_log("transcription started", chunk_count=len(chunks), language_mode=language_mode)
 
         for chunk in chunks:
-            apply_fade(chunk.audio_path)
+            apply_fade(chunk.audio_path, fade_ms=pipeline_config.audioChunking.fadeMs)
 
         parallel_results: list[dict] | None = None
         selected_provider = active_snapshot.provider if active_snapshot else resolved_stt_provider(language_mode)
@@ -480,7 +511,14 @@ def run_pipeline(
 
             emit_progress("normalizing", 85, "Aligning every visible word.")
             try:
-                aligned_segments = align_text(prompt_segments_with_time, audio_path, MODEL_ALIGN_EN)
+                aligned_segments = align_text(
+                    prompt_segments_with_time,
+                    audio_path,
+                    MODEL_ALIGN_EN,
+                    allow_fallback=pipeline_config.timingSourcePolicy == "estimated_debug_only",
+                    enable_whisperx=pipeline_config.alignment.whisperxEnabled,
+                    provider=pipeline_config.alignment.provider,
+                )
             except Exception as e:
                 logger.error(f"Alignment fully failed: {e}. Cannot generate timestamps.")
                 raise
@@ -517,7 +555,20 @@ def run_pipeline(
 
         emit_progress("normalizing", 89, "Running caption sync engine.")
         try:
-            stable_result = apply_stable_refinement(clamped_segments, audio_path, language_mode)
+            stable_result = apply_stable_refinement(
+                clamped_segments,
+                audio_path,
+                language_mode,
+                config={
+                    "enabled": pipeline_config.alignment.stableTsEnabled,
+                    "model": pipeline_config.alignment.stableTsModel,
+                    "device": pipeline_config.alignment.stableTsDevice,
+                    "minMatchCoverage": pipeline_config.alignment.stableTsMinMatchCoverage,
+                    "minWordRatio": pipeline_config.alignment.stableTsMinWordRatio,
+                    "maxWordRatio": pipeline_config.alignment.stableTsMaxWordRatio,
+                    "allowOrderFallback": pipeline_config.alignment.allowStableTsOrderFallback,
+                },
+            )
             clamped_segments = stable_result.segments
         except Exception as exc:
             logger.warning("stable-ts sync refinement failed safely: %s", exc)
@@ -528,6 +579,16 @@ def run_pipeline(
                 clamped_segments,
                 audio_path,
                 duration_seconds=vad_report.get("audioDuration"),
+                config={
+                    "enabled": pipeline_config.autoSync.enabled,
+                    "frameStepSeconds": pipeline_config.autoSync.frameStepSeconds,
+                    "maxShiftSeconds": pipeline_config.autoSync.maxShiftSeconds,
+                    "minScore": pipeline_config.autoSync.minScore,
+                    "minImprovement": pipeline_config.autoSync.minImprovement,
+                    "maxEstimatedWordRatio": pipeline_config.autoSync.maxEstimatedWordRatio,
+                    "allowSkew": pipeline_config.autoSync.allowSkew,
+                    "maxSkewDelta": pipeline_config.autoSync.maxSkewDelta,
+                },
             )
             clamped_segments = auto_sync_result.segments
         except Exception as exc:
@@ -646,9 +707,9 @@ def run_pipeline(
             },
             "output": transformation_report,
             "audio": {
-                "sampleRate": 16000,
-                "channels": 1,
-                "format": "wav",
+                "sampleRate": audio_options.sampleRate,
+                "channels": audio_options.channels,
+                "format": "wav" if audio_options.codec == "pcm_s16le" else "mp3",
                 "extractedAudioPath": os.path.basename(audio_path),
                 "duration": vad_report.get("audioDuration"),
             },

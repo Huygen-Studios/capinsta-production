@@ -12,7 +12,7 @@ export default function NotFound() {
 	return (
 		<main className="marketing-theme flex min-h-screen flex-col items-center justify-center bg-background px-4 text-center">
 			<section className="cap-brutal-card max-w-xl p-8 sm:p-12">
-			<p className="text-sm font-bold uppercase tracking-widest text-brand">
+			<p className="text-sm font-bold uppercase tracking-widest text-primary">
 				404
 			</p>
 			<h1 className="mt-4 text-4xl font-extrabold tracking-tight sm:text-5xl">

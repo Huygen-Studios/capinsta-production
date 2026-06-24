@@ -100,9 +100,15 @@ def _extract_words_from_result(result: Any) -> list[dict[str, Any]]:
     return words
 
 
-def transcribe_stable_words(audio_path: str, language_mode: str) -> list[dict[str, Any]]:
-    model_name = os.getenv("STABLE_TS_MODEL", "base").strip() or "base"
-    device = os.getenv("STABLE_TS_DEVICE", "auto").strip() or "auto"
+def transcribe_stable_words(
+    audio_path: str,
+    language_mode: str,
+    *,
+    model_name: str | None = None,
+    device: str | None = None,
+) -> list[dict[str, Any]]:
+    model_name = (model_name or os.getenv("STABLE_TS_MODEL", "base")).strip() or "base"
+    device = (device or os.getenv("STABLE_TS_DEVICE", "auto")).strip() or "auto"
     model = load_stable_ts_model(model_name, device)
     kwargs: dict[str, Any] = {"word_timestamps": True}
     language = _language_hint(language_mode)
@@ -120,9 +126,12 @@ def force_align_provider_words(
     segments: list[dict[str, Any]],
     audio_path: str,
     language_mode: str,
+    *,
+    model_name: str | None = None,
+    device: str | None = None,
 ) -> list[dict[str, Any]]:
-    model_name = os.getenv("STABLE_TS_MODEL", "base").strip() or "base"
-    device = os.getenv("STABLE_TS_DEVICE", "auto").strip() or "auto"
+    model_name = (model_name or os.getenv("STABLE_TS_MODEL", "base")).strip() or "base"
+    device = (device or os.getenv("STABLE_TS_DEVICE", "auto")).strip() or "auto"
     model = load_stable_ts_model(model_name, device)
     language = _language_hint(language_mode)
     align_input: list[dict[str, Any]] = []
@@ -253,10 +262,23 @@ def apply_stable_refinement(
         return SyncPassResult(next_segments, base_report)
 
     try:
-        stable_words = force_align_provider_words(next_segments, audio_path, language_mode)
+        model_name = str(config.get("model") or os.getenv("STABLE_TS_MODEL", "base") or "base")
+        device = str(config.get("device") or os.getenv("STABLE_TS_DEVICE", "auto") or "auto")
+        stable_words = force_align_provider_words(
+            next_segments,
+            audio_path,
+            language_mode,
+            model_name=model_name,
+            device=device,
+        )
         stable_mode = "forced_align"
         if not stable_words:
-            stable_words = transcribe_stable_words(audio_path, language_mode)
+            stable_words = transcribe_stable_words(
+                audio_path,
+                language_mode,
+                model_name=model_name,
+                device=device,
+            )
             stable_mode = "transcribe"
     except Exception as exc:
         base_report["reason"] = "stable-ts failed"
@@ -282,7 +304,8 @@ def apply_stable_refinement(
         base_report.update({"applied": applied > 0, "appliedWords": applied, "reason": "token match timing transfer"})
         return SyncPassResult(next_segments, base_report)
 
-    if min_ratio <= ratio <= max_ratio:
+    allow_order_fallback = bool(config.get("allowOrderFallback")) if "allowOrderFallback" in config else True
+    if allow_order_fallback and min_ratio <= ratio <= max_ratio:
         count = min(len(provider_words), len(stable_words))
         order_matches = {idx: idx for idx in range(count)}
         applied = _apply_matched_timings(next_segments, rows, stable_words, order_matches, "stable_ts_order_adjusted")
@@ -295,5 +318,9 @@ def apply_stable_refinement(
         })
         return SyncPassResult(next_segments, base_report)
 
-    base_report["reason"] = f"token coverage {coverage:.3f} below threshold"
+    base_report["reason"] = (
+        f"token coverage {coverage:.3f} below threshold"
+        if allow_order_fallback
+        else f"token coverage {coverage:.3f} below threshold and order fallback is disabled"
+    )
     return SyncPassResult(next_segments, base_report)

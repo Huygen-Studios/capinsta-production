@@ -35,20 +35,20 @@ export function AuthShell({
 }
 
 export const authInputClass =
-	"mt-2 h-11 w-full rounded-lg border-2 border-border bg-input px-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-3 focus:ring-primary/20 disabled:opacity-60";
+	"mt-2 h-11 w-full border-2 border-border bg-input px-3 text-sm text-foreground shadow-[2px_2px_0_var(--cap-shadow-color)] outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-3 focus:ring-primary/20 disabled:opacity-60 disabled:shadow-none";
 
 export const primaryAuthButtonClass =
-	"flex h-11 w-full items-center justify-center rounded-lg border-2 border-[var(--cap-outline)] bg-[var(--cap-lime)] px-4 text-sm font-black text-[#111] shadow-[3px_3px_0_var(--cap-shadow-color)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60";
+	"flex h-11 w-full items-center justify-center border-2 border-foreground bg-primary px-4 text-sm font-black text-primary-foreground shadow-[3px_3px_0_var(--cap-shadow-color)] transition-[transform,box-shadow] hover:-translate-x-0.5 hover:-translate-y-0.5 active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_var(--cap-shadow-color)] disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none";
 
 export const secondaryAuthButtonClass =
-	"flex h-11 w-full items-center justify-center gap-3 rounded-lg border-2 border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60";
+	"flex h-11 w-full items-center justify-center gap-3 border-2 border-border bg-card px-4 text-sm font-semibold text-foreground shadow-[2px_2px_0_var(--cap-shadow-color)] transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none";
 
 export function AuthError({ message }: { message: string | null }) {
 	if (!message) return null;
 	return (
 		<div
 			role="alert"
-			className="rounded-lg border-2 border-destructive/60 bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
+			className="border-2 border-destructive/60 bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
 		>
 			{message}
 		</div>
