@@ -90,6 +90,22 @@ const VIEW_MODE_OPTIONS = [
 	{ mode: "list" as const, icon: LeftToRightListDashIcon, label: "List view" },
 ];
 
+const PROJECT_ACCENTS = [
+	"var(--neo-pink)",
+	"var(--neo-blue)",
+	"var(--neo-teal)",
+	"var(--neo-yellow)",
+	"var(--neo-coral)",
+] as const;
+
+function projectAccent(projectId: string): string {
+	const total = Array.from(projectId).reduce(
+		(sum, char) => sum + char.charCodeAt(0),
+		0,
+	);
+	return PROJECT_ACCENTS[total % PROJECT_ACCENTS.length] ?? PROJECT_ACCENTS[0];
+}
+
 function formatBytes(bytes: number): string {
 	if (bytes <= 0) return "0 MB";
 	const mb = bytes / (1024 * 1024);
@@ -153,7 +169,7 @@ function ProjectsHeader() {
 	const { viewMode, isHydrated, setViewMode } = useProjectsStore();
 
 	return (
-		<header className="sticky top-0 z-20 flex flex-col gap-2 border-b-2 border-border bg-background px-4 sm:px-8">
+		<header className="sticky top-0 z-20 flex flex-col gap-2 border-b-2 border-border bg-card px-4 shadow-[0_3px_0_var(--shadow-strong)] sm:px-8">
 			<div className="flex items-center justify-between h-16 pt-2">
 				<div className="flex min-w-0 items-center gap-4">
 					<Link href="/" aria-label="Capinsta home" className="hidden sm:block">
@@ -177,7 +193,11 @@ function ProjectsHeader() {
 						</BreadcrumbList>
 					</Breadcrumb>
 
-					<div className="hidden h-10 items-center rounded-lg border-2 border-border bg-card p-1 shadow-[2px_2px_0_color-mix(in_srgb,var(--primary)_35%,transparent)] md:flex">
+					<h1 className="hidden text-2xl font-black tracking-tight lg:block">
+						Projects
+					</h1>
+
+					<div className="hidden h-10 items-center rounded-sm border-2 border-border bg-background p-1 shadow-[2px_2px_0_var(--shadow-strong)] md:flex">
 						{VIEW_MODE_OPTIONS.map(({ mode, icon, label }) => (
 							<Button
 								key={mode}
@@ -274,7 +294,7 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 	};
 
 	return (
-		<div className="sticky top-16 z-10 mx-4 flex h-14 items-center justify-between border-b border-border bg-background px-2 pt-1">
+		<div className="sticky top-16 z-10 mx-4 flex h-14 items-center justify-between border-b-2 border-border bg-background px-2 pt-1">
 			<div className="flex items-center gap-2">
 				<Label
 					className="flex items-center gap-3 cursor-pointer px-2"
@@ -650,8 +670,12 @@ function ProjectItem({
 		setProjectSelected({ projectId: project.id, isSelected: checked });
 	};
 
+	const accent = projectAccent(project.id);
 	const gridContent = (
-		<Card className="project-card overflow-hidden rounded-sm border-2 border-border bg-card p-0 shadow-[3px_3px_0_#000] transition-[transform,box-shadow,border-color] duration-150 group-hover:-translate-y-1 group-hover:border-primary group-hover:shadow-[5px_5px_0_var(--secondary)] group-focus-within:border-primary">
+		<Card
+			className="project-card overflow-hidden rounded-sm border-2 border-border bg-card p-0 shadow-[4px_4px_0_var(--shadow-strong)] transition-[transform,box-shadow,border-color] duration-150 group-hover:-translate-y-1 group-hover:border-primary group-hover:shadow-[6px_6px_0_var(--shadow-strong)] group-focus-within:border-primary"
+			style={{ borderTopColor: accent, borderTopWidth: 8 }}
+		>
 			<div className="relative aspect-video border-b-2 border-border bg-muted">
 				<div className="absolute inset-0">
 					{project.thumbnail ? (
@@ -669,14 +693,14 @@ function ProjectItem({
 				</div>
 
 				{durationLabel && (
-					<div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs font-semibold px-2 py-1 rounded-sm">
+					<div className="absolute bottom-2 right-2 rounded-sm border border-[var(--neo-black)] bg-[var(--neo-black)] px-2 py-1 text-xs font-bold text-[#F7F3EA]">
 						{durationLabel}
 					</div>
 				)}
 			</div>
 
 			<CardContent className="flex min-h-24 flex-col gap-2 px-4 py-3">
-				<h3 className="group-hover:text-foreground/90 line-clamp-2 text-sm leading-snug font-medium">
+				<h3 className="group-hover:text-foreground/90 line-clamp-2 text-sm font-black leading-snug">
 					{project.name}
 				</h3>
 				<div className="text-muted-foreground flex items-center gap-1.5 text-xs">
@@ -722,9 +746,10 @@ function ProjectItem({
 		<div
 			className={`flex items-center gap-4 rounded-sm border-2 px-4 py-2.5 transition-colors ${
 				isSelected
-					? "border-primary bg-primary/10 shadow-[2px_2px_0_#000]"
+					? "border-primary bg-primary/15 shadow-[2px_2px_0_var(--shadow-strong)]"
 					: "border-border bg-card hover:border-primary/60 hover:bg-accent/40"
 			}`}
+			style={{ borderLeftColor: accent, borderLeftWidth: 8 }}
 		>
 			<Checkbox
 				checked={isSelected}
@@ -989,7 +1014,7 @@ function ProjectsSkeleton() {
 			{skeletonIds.map((skeletonId) => (
 				<Card
 					key={skeletonId}
-					className="overflow-hidden border-2 border-border bg-card p-0 shadow-[3px_3px_0_color-mix(in_srgb,var(--primary)_20%,transparent)]"
+					className="overflow-hidden border-2 border-border bg-card p-0 shadow-[4px_4px_0_var(--shadow-strong)]"
 				>
 					<div className="bg-muted relative aspect-video">
 						<div className="absolute inset-0">
@@ -1031,7 +1056,7 @@ function EmptyState() {
 
 	if (savedProjects.length > 0) {
 		return (
-			<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-5 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--secondary)]">
+			<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-5 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--shadow-strong)]">
 				<div className="flex flex-col items-center gap-8">
 					<HugeiconsIcon
 						icon={Search01Icon}
@@ -1045,7 +1070,7 @@ function EmptyState() {
 						</p>
 					</div>
 				</div>
-				<Button
+			<Button
 					onClick={() => setSearchQuery({ query: "" })}
 					variant="outline"
 					size="lg"
@@ -1057,7 +1082,7 @@ function EmptyState() {
 	}
 
 	return (
-		<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-6 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--secondary)]">
+		<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-6 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--shadow-strong)]">
 			<div className="flex flex-col items-center gap-2">
 				<div className="bg-accent flex size-16 items-center justify-center rounded-sm border">
 					<HugeiconsIcon

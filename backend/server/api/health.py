@@ -26,6 +26,7 @@ from .export_jobs import export_job_metrics
 from ..auth import auth_health_status
 from ..runtime_policy import control_plane_health
 from ..storage_pressure import read_disk_pressure
+from ..transcription_control import active_transcription_config, transcription_database_status
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -45,6 +46,7 @@ class HealthResponse(BaseModel):
     supabaseAuth: str = "unknown"
     controlPlaneDatabase: str = "unknown"
     jwtMode: str = "unknown"
+    transcription: dict[str, object] = Field(default_factory=dict)
 
 def _has_key(name: str) -> bool:
     return is_real_secret(os.getenv(name))
@@ -197,10 +199,13 @@ async def health_payload() -> HealthResponse:
 
     auth_status = auth_health_status()
     database_status = await control_plane_health()
+    active_transcription = active_transcription_config()
+    transcription_status = transcription_database_status()
     overall_status = (
         "ok"
         if auth_status["supabaseAuth"] == "healthy"
         and database_status["controlPlaneDatabase"] == "healthy"
+        and transcription_status.get("category") not in {"database_unreachable", "database_authentication_failed", "database_schema_missing"}
         else "degraded"
     )
     return HealthResponse(
@@ -222,6 +227,12 @@ async def health_payload() -> HealthResponse:
         message=" ".join(warnings) if warnings else None,
         **auth_status,
         **database_status,
+        transcription={
+            **transcription_status,
+            "activeProvider": active_transcription.provider if active_transcription else None,
+            "activeModel": active_transcription.model if active_transcription else None,
+            "activeTimestampStrategy": active_transcription.timestamp_strategy if active_transcription else None,
+        },
     )
 
 
@@ -268,10 +279,27 @@ def timing_health_payload() -> dict[str, object]:
     from ai_pipeline.timing import alignment_provider_status
 
     payload = alignment_provider_status()
+    active = active_transcription_config()
+    transcription_status = transcription_database_status()
     worker_import = check_pipeline_worker_import()
     payload["captionWorkerImport"] = bool(worker_import.get("ok"))
     payload["captionWorkerImportError"] = worker_import.get("error")
-    payload["status"] = "ok" if payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and worker_import.get("ok") else "degraded"
+    active_requires_alignment = active is not None and active.timestamp_strategy == "local_forced_alignment"
+    payload["activeConfiguration"] = {
+        "provider": active.provider if active else None,
+        "model": active.model if active else None,
+        "timestampStrategy": active.timestamp_strategy if active else None,
+        "requiresForcedAlignment": active_requires_alignment,
+    }
+    payload["transcriptionDatabase"] = transcription_status
+    payload["status"] = (
+        "ok"
+        if payload["ffmpegAvailable"]
+        and payload["ffprobeAvailable"]
+        and worker_import.get("ok")
+        and (not active_requires_alignment or payload.get("realForcedAlignmentAvailable"))
+        else "degraded"
+    )
     payload["pauseSplitThreshold"] = float(os.getenv("PAUSE_SPLIT_THRESHOLD", "0.30") or 0.30)
     payload["defaultGlobalCaptionOffset"] = float(os.getenv("DEFAULT_GLOBAL_CAPTION_OFFSET", "0") or 0)
     return payload

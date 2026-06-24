@@ -145,13 +145,32 @@ def _chunks_have_provider_words(chunks: list[Any]) -> bool:
         if not isinstance(words, list) or not words:
             return False
         for word in words:
+            if bool((word or {}).get("preservePhraseTiming")):
+                return False
             source = str(
                 (word or {}).get("timingSource")
                 or (word or {}).get("timing_source")
                 or ""
             ).lower()
-            if any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "fallback")):
+            if "structured" in source:
                 return False
+            if any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "phrase", "fallback")):
+                return False
+    return True
+
+
+def _chunks_have_any_provider_words(chunks: list[Any]) -> bool:
+    text_chunks = [chunk for chunk in chunks if str(getattr(chunk, "final_text", "") or getattr(chunk, "raw_text", "") or "").strip()]
+    if not text_chunks:
+        return False
+    for chunk in text_chunks:
+        metadata = getattr(chunk, "asr_metadata", None) or {}
+        basis = str(metadata.get("timestamp_basis") or metadata.get("timestampBasis") or "").lower()
+        if basis == "none":
+            return False
+        words = metadata.get("words") or []
+        if not isinstance(words, list) or not words:
+            return False
     return True
 
 
@@ -453,9 +472,19 @@ def run_pipeline(
 
         chunk_audit: list[dict[str, Any]] = []
         has_provider_word_timing = _chunks_have_provider_words(processed_chunks)
+        has_any_provider_word_timing = _chunks_have_any_provider_words(processed_chunks)
         use_provider_word_timing = (
             pipeline_config.timingSourcePolicy != "forced"
-            and has_provider_word_timing
+            and (
+                has_provider_word_timing
+                or (
+                    has_any_provider_word_timing
+                    and (
+                        pipeline_config.timingSourcePolicy == "estimated_debug_only"
+                        or pipeline_config.quality.allowEstimatedWords
+                    )
+                )
+            )
         )
         if pipeline_config.timingSourcePolicy == "native_required" and not has_provider_word_timing:
             raise TranscriptValidationError(

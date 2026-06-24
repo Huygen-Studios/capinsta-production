@@ -8,6 +8,7 @@ import {
 	captionJobs,
 	providerHealthEvents,
 } from "@/db/schema";
+import { webEnv } from "@/env/web";
 import { isTranscriptionProvider } from "@/transcription/provider-catalog";
 
 export default async function TranscriptionPage() {
@@ -17,8 +18,9 @@ export default async function TranscriptionPage() {
 	let lastRequest:
 		| { completedAt: Date | null; provider: string | null; model: string | null }[]
 		| [];
+	let timingHealth: Record<string, unknown> | null = null;
 	try {
-		[configs, health, lastRequest] = await Promise.all([
+		[configs, health, lastRequest, timingHealth] = await Promise.all([
 			listAdminTranscriptionConfigurations(db, 20),
 			db
 				.select({ status: providerHealthEvents.status })
@@ -36,6 +38,9 @@ export default async function TranscriptionPage() {
 				.where(sql`${captionJobs.status} in ('completed','succeeded')`)
 				.orderBy(desc(captionJobs.completedAt))
 				.limit(1),
+			fetch(`${webEnv.BACKEND_INTERNAL_URL}/health/timing`, {
+				cache: "no-store",
+			}).then((response) => response.ok ? response.json() : null).catch(() => null),
 		]);
 	} catch (error) {
 		const correlationId = crypto.randomUUID();
@@ -61,9 +66,11 @@ export default async function TranscriptionPage() {
 			? "healthy"
 			: serializedActive
 				? "untested"
-				: lastRequest[0]
-					? "backend env fallback"
-					: "save draft to test");
+				: serializedConfigs.length
+					? "database_draft_only"
+					: lastRequest[0]
+						? "env_fallback_no_active_database_configuration"
+						: "database_no_configuration");
 	const last = lastRequest[0]
 		? `${lastRequest[0].provider ?? "provider"} ${lastRequest[0].model ?? ""} at ${lastRequest[0].completedAt?.toLocaleString() ?? "unknown time"}`
 		: null;
@@ -77,6 +84,7 @@ export default async function TranscriptionPage() {
 				active={serializedActive}
 				configurations={serializedConfigs}
 				healthStatus={healthStatus}
+				timingHealth={timingHealth}
 				lastProductionRequest={last}
 			/>
 		</>

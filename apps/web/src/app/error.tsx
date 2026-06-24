@@ -16,8 +16,8 @@ export default function ErrorPage({
 	}, [error]);
 
 	return (
-		<main className="flex min-h-screen items-center justify-center bg-black p-4 text-foreground">
-			<section className="max-w-lg border-2 border-foreground bg-card p-8 text-center shadow-[8px_8px_0_var(--cap-shadow-color)]">
+		<main className="flex min-h-screen items-center justify-center bg-background bg-grid-paper p-4 text-foreground">
+			<section className="max-w-lg rounded-sm border-2 border-border bg-card p-8 text-center shadow-[6px_6px_0_var(--shadow-strong)]">
 				<p className="font-display text-sm uppercase tracking-[.18em] text-primary">Something went wrong</p>
 				<h1 className="font-display mt-4 text-4xl font-black">Capinsta hit an unexpected error.</h1>
 				<p className="mt-4 text-muted-foreground">

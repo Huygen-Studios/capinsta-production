@@ -28,10 +28,11 @@ from .language_modes import (
     normalize_language_mode,
 )
 try:
-    from server.transcription_catalog import catalog_entry
+    from server.transcription_catalog import catalog_entry, model_runtime_availability
     from server.transcription_control import coerce_snapshot
 except Exception:  # pragma: no cover - direct script fallback
     catalog_entry = lambda provider, model: None
+    model_runtime_availability = lambda entry: {"productionReady": True}
     coerce_snapshot = lambda value: None
 
 logger = logging.getLogger(__name__)
@@ -1072,9 +1073,9 @@ def _call_gemini(audio_path: str, language_mode: str, transcription_config_snaps
         "words": words,
         "provider": "gemini",
         "model": model,
-        "timestamp_strategy": "structured_word_validate",
-        "timestamp_capability": "structured_model_word_timestamps",
-        "timestamp_basis": "chunk_local",
+        "timestamp_strategy": "local_forced_alignment",
+        "timestamp_capability": "transcript_text_requires_forced_alignment",
+        "timestamp_basis": "none",
     }
 
 
@@ -1326,6 +1327,13 @@ def transcribe_audio(
         entry = catalog_entry(snapshot.provider, snapshot.model)
         if entry is None or entry.timestamp_strategy != snapshot.timestamp_strategy:
             raise TranscriptionProviderError(snapshot.provider, "unsupported_model", "Unsupported transcription model.")
+        availability = model_runtime_availability(entry)
+        if not availability.get("productionReady"):
+            raise TranscriptionProviderError(
+                snapshot.provider,
+                availability.get("reason") or "model_unavailable",
+                availability.get("message") or "Provider/model is unavailable.",
+            )
         providers = [snapshot.provider]
     else:
         validate_transcription_config(normalized_mode)

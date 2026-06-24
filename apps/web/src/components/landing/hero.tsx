@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ROUTES } from "@/site/brand";
 import {
@@ -10,7 +10,7 @@ import {
 const media: MarketingMediaDefinition[] = [
 	{
 		poster: "/marketing/creator-vertical.webp",
-		alt: "Creator recording a vertical video in a purple-lit studio",
+		alt: "Creator recording a vertical video in a colorful studio",
 		aspectRatio: "9/16",
 		caption: "Make every word hit",
 		accent: "lime",
@@ -20,7 +20,7 @@ const media: MarketingMediaDefinition[] = [
 		alt: "Two video creators reviewing an edit together",
 		aspectRatio: "16/9",
 		caption: "Edit captions together",
-		accent: "purple",
+		accent: "blue",
 	},
 	{
 		poster: "/marketing/creator-square.webp",
@@ -34,20 +34,16 @@ const media: MarketingMediaDefinition[] = [
 		alt: "Vertical creator video with animated caption styling",
 		aspectRatio: "9/16",
 		caption: "Ready for reels",
-		accent: "purple",
+		accent: "teal",
 	},
 ];
 
 export function Hero() {
 	return (
 		<section className="relative min-h-[calc(100svh-4rem)] overflow-hidden border-b-2 border-black bg-[var(--cap-paper)]">
-			<div className="pointer-events-none absolute inset-0 opacity-25 [background-image:linear-gradient(#750beb_1px,transparent_1px),linear-gradient(90deg,#750beb_1px,transparent_1px)] [background-size:42px_42px]" />
+			<div className="pointer-events-none absolute inset-0 opacity-25 [background-image:linear-gradient(var(--border)_1px,transparent_1px),linear-gradient(90deg,var(--border)_1px,transparent_1px)] [background-size:42px_42px]" />
 			<div className="relative mx-auto grid min-h-[calc(100svh-4rem)] max-w-[1500px] items-center gap-12 px-4 py-12 sm:px-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8 lg:py-16">
 				<div className="relative z-10">
-					<div className="inline-flex rotate-[-1deg] items-center gap-2 border-2 border-foreground bg-primary px-3 py-2 text-sm font-black uppercase text-primary-foreground shadow-[3px_3px_0_var(--cap-shadow-color)]">
-						<Sparkles className="size-4" aria-hidden />
-						Browser-based caption studio
-					</div>
 					<h1 className="mt-7 max-w-3xl text-[clamp(3.2rem,7vw,7.5rem)] font-black leading-[0.82] tracking-[-0.055em] text-foreground">
 						Turn any video into{" "}
 						<span className="text-primary">animated captions.</span>

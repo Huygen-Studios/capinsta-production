@@ -11,7 +11,7 @@ export default function GlobalError({
 		<html lang="en">
 			<body className="bg-background text-foreground">
 				<main className="flex min-h-screen items-center justify-center p-6 text-center">
-					<div className="border-2 border-foreground bg-card p-8 shadow-[8px_8px_0_var(--cap-shadow-color)]">
+					<div className="rounded-sm border-2 border-border bg-card p-8 shadow-[6px_6px_0_var(--shadow-strong)]">
 						<p className="text-xs font-black uppercase tracking-[.18em] text-primary">Something went wrong</p>
 						<h1 className="mt-4 text-3xl font-black">Capinsta could not load.</h1>
 						<p className="mt-3 text-muted-foreground">Please retry the application.</p>
@@ -23,7 +23,7 @@ export default function GlobalError({
 						<button
 							type="button"
 							onClick={reset}
-							className="mt-6 border-2 border-foreground bg-primary px-5 py-3 font-bold text-primary-foreground shadow-[4px_4px_0_var(--cap-shadow-color)] transition-[transform,box-shadow] hover:-translate-x-0.5 hover:-translate-y-0.5 active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_var(--cap-shadow-color)]"
+							className="mt-6 rounded-sm border-2 border-[var(--neo-black)] bg-primary px-5 py-3 font-black text-primary-foreground shadow-[4px_4px_0_var(--shadow-strong)] transition-[transform,box-shadow] active:translate-x-0.5 active:translate-y-0.5 active:shadow-none"
 						>
 							Try again
 						</button>

@@ -106,7 +106,7 @@ def _provider_declared_timestamp_basis(metadata: dict[str, Any]) -> str | None:
 
 def _is_estimated_timing_source(value: Any) -> bool:
     source = str(value or "").lower()
-    return any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "fallback"))
+    return any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "fallback", "structured", "low_confidence"))
 
 
 def _provider_time_warnings(raw_words: list[dict[str, Any]], chunk: Chunk, basis: str) -> list[str]:
@@ -172,7 +172,7 @@ def _normalize_word(raw_word: dict[str, Any], language_mode: str) -> dict[str, A
     if raw_word.get("timing_source"):
         normalized["timing_source"] = raw_word["timing_source"]
         source = str(raw_word["timing_source"]).lower()
-        if any(marker in source for marker in ("interpolated", "estimated", "synthetic", "fallback")):
+        if any(marker in source for marker in ("interpolated", "estimated", "synthetic", "fallback", "structured", "segment_derived", "low_confidence")):
             normalized["timingNeedsReview"] = True
             normalized["timingReviewRequired"] = True
             normalized["timingWarning"] = "Word timing is estimated; sync cannot be guaranteed. Use High Quality Alignment."

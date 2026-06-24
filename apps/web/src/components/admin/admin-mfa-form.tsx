@@ -66,8 +66,8 @@ export function AdminMfaForm() {
   }
 
   return (
-    <main className="grid min-h-svh place-items-center p-6">
-      <Card className="w-full max-w-lg border-2 shadow-[5px_5px_0_color-mix(in_srgb,var(--primary)_65%,transparent)]">
+    <main className="grid min-h-svh place-items-center bg-background bg-grid-paper p-6">
+      <Card className="w-full max-w-lg border-2 shadow-[5px_5px_0_var(--shadow-strong)]">
         <CardHeader>
           <ShieldCheck className="mb-3 text-primary" aria-hidden="true" />
           <CardTitle className="font-display text-2xl">
@@ -82,7 +82,7 @@ export function AdminMfaForm() {
         <CardContent className="flex flex-col gap-5">
           {!setup && !error ? <Skeleton className="h-48 w-full" /> : null}
           {setup?.mode === "enroll" && setup.qrCode ? (
-            <div className="flex flex-col items-center gap-3 rounded-md border bg-white p-4 text-black">
+            <div className="flex flex-col items-center gap-3 rounded-sm border-2 border-border bg-card p-4 text-foreground">
               <Image
                 src={setup.qrCode}
                 alt="TOTP enrollment QR code"

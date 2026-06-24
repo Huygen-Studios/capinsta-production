@@ -6,7 +6,8 @@ import {
 	signInPathFor,
 	isUiTestAuthBypassEnabled,
 } from "./routes";
-import { GET, getTrustedPublicOrigin } from "../app/auth/callback/route";
+import { GET } from "../app/auth/callback/route";
+import { getTrustedPublicOrigin } from "./trusted-origin";
 
 mock.module("@/lib/supabase/server", () => {
 	return {

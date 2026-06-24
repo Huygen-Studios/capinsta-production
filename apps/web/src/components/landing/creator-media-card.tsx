@@ -8,7 +8,7 @@ export interface MarketingMediaDefinition {
 	webm?: string;
 	mp4?: string;
 	caption: string;
-	accent?: "lime" | "purple" | "pink";
+	accent?: "lime" | "pink" | "blue" | "teal" | "yellow";
 }
 
 const aspectClasses = {
@@ -61,8 +61,10 @@ export function CreatorMediaCard({
 				<span
 					className={cn(
 						"inline-block max-w-full rotate-[-1deg] border-2 border-foreground px-3 py-1.5 text-base font-black uppercase leading-none shadow-[3px_3px_0_var(--cap-shadow-color)] sm:text-lg",
-						media.accent === "purple" && "bg-secondary text-secondary-foreground",
-						media.accent === "pink" && "bg-primary text-primary-foreground",
+						media.accent === "blue" && "bg-[var(--neo-blue)] text-[var(--neo-black)]",
+						media.accent === "teal" && "bg-[var(--neo-teal)] text-[var(--neo-black)]",
+						media.accent === "yellow" && "bg-[var(--neo-yellow)] text-[var(--neo-black)]",
+						media.accent === "pink" && "bg-[var(--neo-pink)] text-[var(--neo-black)]",
 						(!media.accent || media.accent === "lime") &&
 							"bg-primary text-primary-foreground",
 					)}

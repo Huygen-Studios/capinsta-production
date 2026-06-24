@@ -33,15 +33,15 @@ TRANSCRIPTION_PROVIDER_CATALOG: tuple[CatalogEntry, ...] = (
         "gemini-3.5-flash",
         "Gemini 3.5 Flash",
         True,
-        "Structured model timestamps with local validation",
-        "structured_word_validate",
+        "Transcript text with Capinsta local word alignment",
+        "local_forced_alignment",
         "GEMINI_API_KEY",
         ("application/json",),
         2_000_000_000,
         600,
         LANGUAGE_MODES,
         ("transcribe",),
-        False,
+        True,
         (429, 500, 503, 504),
     ),
     CatalogEntry(
@@ -49,15 +49,15 @@ TRANSCRIPTION_PROVIDER_CATALOG: tuple[CatalogEntry, ...] = (
         "gemini-2.5-flash",
         "Gemini 2.5 Flash",
         True,
-        "Structured model timestamps with local validation",
-        "structured_word_validate",
+        "Transcript text with Capinsta local word alignment",
+        "local_forced_alignment",
         "GEMINI_API_KEY",
         ("application/json",),
         2_000_000_000,
         600,
         LANGUAGE_MODES,
         ("transcribe",),
-        False,
+        True,
         (429, 500, 503, 504),
     ),
     CatalogEntry(
@@ -151,6 +151,38 @@ def validate_catalog_selection(provider: str, model: str, timestamp_strategy: st
     return entry
 
 
+def forced_alignment_ready() -> tuple[bool, list[str]]:
+    from ai_pipeline.timing import alignment_provider_status
+
+    status = alignment_provider_status()
+    return (
+        bool(status.get("realForcedAlignmentAvailable")),
+        [str(reason) for reason in (status.get("forcedAlignmentUnavailableReasons") or [])],
+    )
+
+
+def model_runtime_availability(entry: CatalogEntry) -> dict:
+    if not entry.enabled:
+        return {
+            "productionReady": False,
+            "reason": "model_disabled",
+            "message": "This provider/model is disabled.",
+        }
+    if not entry.local_alignment_required:
+        return {
+            "productionReady": True,
+            "reason": None,
+            "message": None,
+        }
+    ready, reasons = forced_alignment_ready()
+    return {
+        "productionReady": ready,
+        "reason": None if ready else "forced_alignment_unavailable",
+        "message": None if ready else "Requires forced alignment - backend aligner unavailable.",
+        "unavailableReasons": reasons,
+    }
+
+
 def public_catalog() -> list[dict]:
     return [
         {
@@ -168,6 +200,7 @@ def public_catalog() -> list[dict]:
             "supportedProviderModes": list(entry.supported_provider_modes),
             "localAlignmentRequired": entry.local_alignment_required,
             "retryableHttpStatuses": list(entry.retryable_http_statuses),
+            **model_runtime_availability(entry),
         }
         for entry in TRANSCRIPTION_PROVIDER_CATALOG
     ]

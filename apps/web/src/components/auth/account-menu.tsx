@@ -77,7 +77,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 							className="size-7 rounded-full object-cover"
 						/>
 					) : (
-						<span className="flex size-7 items-center justify-center rounded-full bg-violet-600/20 text-violet-300">
+						<span className="flex size-7 items-center justify-center rounded-full border-2 border-[var(--neo-black)] bg-[var(--neo-blue)] text-[var(--neo-black)]">
 							<UserRound className="size-4" />
 						</span>
 					)}

@@ -37,7 +37,7 @@ const DialogOverlay = React.forwardRef<
 		<DialogPrimitive.Overlay
 			ref={ref}
 			className={cn(
-				"fixed inset-0 z-250 bg-black/70",
+				"fixed inset-0 z-250 bg-black/45",
 			className,
 		)}
 		{...props}
@@ -54,7 +54,7 @@ const DialogContent = React.forwardRef<
 		<DialogPrimitive.Content
 			ref={ref}
 			className={cn(
-				"bg-popover fixed top-[50%] left-[50%] z-250 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] rounded-none border-2 shadow-[8px_8px_0_var(--cap-shadow-color)] duration-200",
+				"fixed top-[50%] left-[50%] z-250 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] rounded-sm border-2 border-border bg-popover shadow-[6px_6px_0_var(--shadow-strong)] duration-200",
 				className,
 			)}
 			onCloseAutoFocus={(e) => {
@@ -78,7 +78,7 @@ const DialogHeader = ({
 	...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
 	<div
-		className={cn("flex flex-col space-y-2 text-left border-b-2 p-6", className)}
+		className={cn("flex flex-col space-y-2 border-b p-6 text-left", className)}
 		{...props}
 	/>
 );
@@ -98,7 +98,7 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
 	<div
 		className={cn(
-			"flex gap-3 flex-col-reverse sm:flex-row sm:justify-end p-6 py-5 border-t-2",
+			"flex flex-col-reverse gap-3 border-t p-6 py-5 sm:flex-row sm:justify-end",
 			className,
 		)}
 		{...props}
@@ -113,7 +113,7 @@ const DialogTitle = React.forwardRef<
 	<DialogPrimitive.Title
 		ref={ref}
 		className={cn(
-			"font-display text-lg leading-none font-black tracking-normal",
+			"font-display text-lg leading-none font-semibold tracking-normal",
 			className,
 		)}
 		{...props}

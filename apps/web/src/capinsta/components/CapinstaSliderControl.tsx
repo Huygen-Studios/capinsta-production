@@ -36,7 +36,7 @@ export function CapinstaSliderControl({
 				</span>
 				{scrubbable && !mixed ? (
 					<ScrubbableNumberField
-						className="h-7 w-28"
+						className="h-7 w-32"
 						icon="↔"
 						label={label}
 						value={displayValue}

@@ -421,7 +421,7 @@ function PreviewCanvas({
 	return (
 		<PreviewViewportProvider value={viewport}>
 			<div className="flex size-full min-h-0 min-w-0 flex-col">
-				<div className="flex min-h-0 min-w-0 flex-1 p-2 pb-0">
+				<div className="flex min-h-0 min-w-0 flex-1 bg-background p-2 pb-0">
 					<ContextMenu>
 						<ContextMenuTrigger asChild>
 							<div
@@ -430,7 +430,7 @@ function PreviewCanvas({
 							>
 								<div
 									ref={canvasMountRef}
-									className="absolute block border"
+									className="absolute block border-2 border-[var(--neo-black)] shadow-[4px_4px_0_var(--shadow-strong)]"
 									style={{
 										left: viewport.sceneLeft,
 										top: viewport.sceneTop,

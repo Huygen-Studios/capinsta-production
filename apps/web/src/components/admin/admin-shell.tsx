@@ -43,10 +43,10 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="admin-shell grid min-h-svh grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="border-b bg-sidebar lg:sticky lg:top-0 lg:h-svh lg:border-b-0 lg:border-r">
+    <div className="admin-shell grid min-h-svh grid-cols-1 bg-background lg:grid-cols-[252px_minmax(0,1fr)]">
+      <aside className="border-b-2 border-border bg-sidebar lg:sticky lg:top-0 lg:h-svh lg:border-b-0 lg:border-r-2">
         <div className="flex h-16 items-center gap-3 px-5">
-          <div className="grid size-9 place-items-center rounded-md border bg-primary text-primary-foreground shadow-[2px_2px_0_var(--foreground)]">
+          <div className="grid size-9 place-items-center rounded-sm border-2 border-[var(--neo-black)] bg-primary text-primary-foreground shadow-[3px_3px_0_var(--shadow-strong)]">
             <LockKeyhole aria-hidden="true" />
           </div>
           <div>
@@ -65,7 +65,7 @@ export function AdminShell({
             <Link
               key={href}
               href={`/admincapinsta11/${href}`}
-              className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-2 focus-visible:outline-primary"
+              className="flex items-center gap-3 rounded-sm border-2 border-transparent px-3 py-2 text-sm font-bold text-muted-foreground transition-colors hover:border-border hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-2 focus-visible:outline-primary"
             >
               <Icon aria-hidden="true" className="size-4" />
               {label}
@@ -74,7 +74,7 @@ export function AdminShell({
         </nav>
       </aside>
       <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
+        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-4 border-b-2 border-border bg-card px-4 shadow-[0_3px_0_var(--shadow-strong)] md:px-6">
           <form action="/admincapinsta11/users" className="max-w-lg flex-1">
             <Input
               name="q"

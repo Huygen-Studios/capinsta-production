@@ -314,6 +314,65 @@ const transcriptionConfigurationReturning = {
 
 type Mutation = z.infer<typeof schema>;
 
+function safeMutationError(error: unknown) {
+	const raw = error instanceof Error ? error.message : "mutation_failed";
+	const allowedCodes = new Set([
+		"unsupported_model",
+		"invalid_provider_options",
+		"stale_configuration",
+		"untested_configuration",
+		"target_not_found",
+		"provider_test_failed",
+		"forced_alignment_unavailable",
+	]);
+	const normalized = raw.toLowerCase();
+	const code = allowedCodes.has(raw)
+		? raw
+		: normalized.includes("relation") || normalized.includes("column")
+			? "database_schema_missing"
+			: normalized.includes("duplicate") || normalized.includes("constraint")
+				? "database_constraint"
+				: "mutation_failed";
+	const messages: Record<string, string> = {
+		unsupported_model: "The selected provider/model is not supported.",
+		invalid_provider_options: "The selected provider options are invalid.",
+		stale_configuration: "This configuration version is stale. Refresh and choose the latest saved version.",
+		untested_configuration: "This exact configuration version must pass a real-audio test before activation.",
+		target_not_found: "The selected configuration could not be found.",
+		provider_test_failed: "The backend provider test failed.",
+		forced_alignment_unavailable: "This model requires forced alignment, but the backend aligner is unavailable.",
+		database_schema_missing: "The transcription configuration database schema is missing or out of date.",
+		database_constraint: "The database rejected the configuration change.",
+		mutation_failed: "The operation could not be completed.",
+	};
+	return {
+		code,
+		error: messages[code] ?? messages.mutation_failed,
+	};
+}
+
+function withTranscriptionMetadata(
+	{
+		action,
+		after,
+		context,
+	}: {
+		action: string;
+		after: unknown;
+		context: AdminContext | undefined;
+	},
+) {
+	if (!action.startsWith("transcription.config.") || !isRecord(after)) {
+		return after;
+	}
+	return {
+		...after,
+		createdBy: context?.userId ?? null,
+		activationEligibility:
+			after.status === "draft" && after.testStatus === "passed",
+	};
+}
+
 function permissionFor(value: Mutation) {
 	if (value.action === "user.suspend") return "users.suspend" as const;
 	if (value.action === "user.restore") return "users.restore" as const;
@@ -358,6 +417,7 @@ function permissionFor(value: Mutation) {
 }
 
 function isHighRisk(value: Mutation) {
+	if (value.action.startsWith("transcription.config.")) return false;
 	if (value.action.startsWith("access.")) return true;
 	return ![
 		"user.suspend",
@@ -428,6 +488,13 @@ export async function POST(request: Request) {
 	try {
 		context = await requireAdminPermission(permissionFor(value));
 		if (isHighRisk(value)) await requireRecentMfaForSensitiveAction();
+		if (
+			value.action === "transcription.config.test" ||
+			value.action === "transcription.config.activate" ||
+			value.action === "transcription.config.deactivate"
+		) {
+			await requireRecentMfaForSensitiveAction();
+		}
 		if (
 			(value.action === "admin.role.assign" ||
 				value.action === "admin.role.revoke") &&
@@ -904,7 +971,12 @@ export async function POST(request: Request) {
 					.insert(transcriptionConfigurations)
 					.values(values)
 					.returning(transcriptionConfigurationReturning);
-				afterValue = { ...created, pipelineOptions: resolvedPipelineOptions };
+				afterValue = {
+					...created,
+					pipelineOptions: resolvedPipelineOptions,
+					createdBy: context!.userId,
+					activationEligibility: false,
+				};
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: created.id,
 					version: created.version,
@@ -924,6 +996,18 @@ export async function POST(request: Request) {
 				});
 				if (!entry || entry.timestampStrategy !== current.timestampStrategy)
 					throw new Error("unsupported_model");
+				if (entry.localAlignmentRequired) {
+					const timingResponse = await adminBackendFetch({
+						path: "/health/timing",
+						permission: "system.manage_providers",
+					});
+					const timingPayload = (await timingResponse.json().catch(() => null)) as unknown;
+					const realForcedAlignmentAvailable =
+						isRecord(timingPayload) && timingPayload.realForcedAlignmentAvailable === true;
+					if (!timingResponse.ok || !realForcedAlignmentAvailable) {
+						throw new Error("forced_alignment_unavailable");
+					}
+				}
 				beforeValue = current;
 				const response = await adminBackendFetch({
 					path: "/api/admin/transcription/test",
@@ -967,7 +1051,12 @@ export async function POST(request: Request) {
 					})
 					.where(eq(transcriptionConfigurations.id, current.id))
 					.returning(transcriptionConfigurationReturning);
-				afterValue = { ...tested, pipelineOptions: current.pipelineOptions };
+				afterValue = {
+					...tested,
+					pipelineOptions: current.pipelineOptions,
+					createdBy: context!.userId,
+					activationEligibility: tested.testStatus === "passed",
+				};
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: current.id,
 					version: current.version,
@@ -988,6 +1077,18 @@ export async function POST(request: Request) {
 				});
 				if (!entry || entry.timestampStrategy !== current.timestampStrategy)
 					throw new Error("unsupported_model");
+				if (entry.localAlignmentRequired) {
+					const timingResponse = await adminBackendFetch({
+						path: "/health/timing",
+						permission: "system.manage_providers",
+					});
+					const timingPayload = (await timingResponse.json().catch(() => null)) as unknown;
+					const realForcedAlignmentAvailable =
+						isRecord(timingPayload) && timingPayload.realForcedAlignmentAvailable === true;
+					if (!timingResponse.ok || !realForcedAlignmentAvailable) {
+						throw new Error("forced_alignment_unavailable");
+					}
+				}
 				beforeValue = current;
 				await tx
 					.update(transcriptionConfigurations)
@@ -1005,7 +1106,12 @@ export async function POST(request: Request) {
 					})
 					.where(eq(transcriptionConfigurations.id, current.id))
 					.returning(transcriptionConfigurationReturning);
-				afterValue = { ...activated, pipelineOptions: current.pipelineOptions };
+				afterValue = {
+					...activated,
+					pipelineOptions: current.pipelineOptions,
+					createdBy: context!.userId,
+					activationEligibility: true,
+				};
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: current.id,
 					version: activated.version,
@@ -1028,7 +1134,12 @@ export async function POST(request: Request) {
 					})
 					.where(eq(transcriptionConfigurations.id, current.id))
 					.returning(transcriptionConfigurationReturning);
-				afterValue = { ...deactivated, pipelineOptions: current.pipelineOptions };
+				afterValue = {
+					...deactivated,
+					pipelineOptions: current.pipelineOptions,
+					createdBy: context!.userId,
+					activationEligibility: false,
+				};
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: current.id,
 					version: deactivated.version,
@@ -1231,7 +1342,15 @@ export async function POST(request: Request) {
 				}).catch(() => null);
 			}
 		}
-		return NextResponse.json({ ok: true, correlationId, after: afterValue });
+		return NextResponse.json({
+			ok: true,
+			correlationId,
+			after: withTranscriptionMetadata({
+				action: value.action,
+				after: afterValue,
+				context,
+			}),
+		});
 	} catch (error) {
 		if (error instanceof RecentMfaRequiredError) {
 			return NextResponse.json(
@@ -1255,9 +1374,6 @@ export async function POST(request: Request) {
 				error instanceof Error ? error.message.slice(0, 80) : "mutation_failed",
 			severity: "high",
 		});
-		return NextResponse.json(
-			{ error: "The operation could not be completed." },
-			{ status: 400 },
-		);
+		return NextResponse.json(safeMutationError(error), { status: 400 });
 	}
 }

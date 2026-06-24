@@ -76,7 +76,7 @@ def _extract_whisperx_words(aligned_segments: list[dict[str, Any]]) -> list[dict
             if not isinstance(word, dict):
                 continue
             source = str(word.get("timingSource") or word.get("timing_source") or "").lower()
-            if source != "whisperx":
+            if source not in {"whisperx", "whisperx_forced"}:
                 continue
             if word.get("start") is None or word.get("end") is None:
                 continue
@@ -143,7 +143,7 @@ def _run_whisperx_alignment(
                     **aligned_word_quality(segments),
                 },
             )
-        transferred_segments, match_report = _apply_external_word_timings(segments, whisper_words, source="whisperx_forced_align")
+        transferred_segments, match_report = _apply_external_word_timings(segments, whisper_words, source="whisperx_forced")
         if not match_report.get("appliedWords"):
             return SyncPassResult(
                 copy.deepcopy(segments),

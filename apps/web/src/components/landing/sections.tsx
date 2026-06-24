@@ -308,13 +308,13 @@ export function PrivacySection() {
 
 export function WhyFreeSection() {
 	return (
-		<section className="border-t-2 border-black bg-[var(--cap-purple-600)] text-white">
+		<section className="border-y-2 border-black bg-[var(--card-dark,var(--neo-black))] text-[#F7F3EA]">
 			<div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
 				<div className="mx-auto max-w-3xl text-center">
 					<h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
 						Free during public beta
 					</h2>
-					<p className="mt-6 text-lg leading-relaxed opacity-90">
+					<p className="mt-6 text-lg leading-relaxed text-[#BBB7AE]">
 						{BRAND.productName} is currently free while we learn from creators
 						during public beta. It is built and maintained by {BRAND.parentCompany}.
 					</p>

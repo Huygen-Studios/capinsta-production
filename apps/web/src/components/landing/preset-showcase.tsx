@@ -37,7 +37,7 @@ const previewWords = ["Make it pop", "Watch this", "Cinematic", "Smooth motion",
 export function PresetShowcase({ compact = false }: { compact?: boolean }) {
 	const presets = getPublicPresetOrder();
 	return (
-		<section id="caption-styles" className="overflow-hidden bg-[var(--cap-purple-950)] text-white">
+		<section id="caption-styles" className="overflow-hidden border-y-2 border-border bg-[var(--card-dark,var(--neo-black))] text-[#F7F3EA]">
 			<div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
 				<div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
 					<div>
@@ -79,7 +79,7 @@ export function PresetShowcase({ compact = false }: { compact?: boolean }) {
 								</div>
 							</div>
 							<h3 className="mt-4 text-base font-black">{preset.name}</h3>
-							<p className="mt-1 text-sm leading-snug text-white/70">
+							<p className="mt-1 text-sm leading-snug text-[#BBB7AE]">
 								{preset.description}
 							</p>
 						</article>

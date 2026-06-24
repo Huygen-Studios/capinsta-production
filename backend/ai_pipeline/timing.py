@@ -12,6 +12,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_PAUSE_SPLIT_THRESHOLD = float(os.getenv("PAUSE_SPLIT_THRESHOLD", "0.30") or 0.30)
+PRODUCTION_INVALID_TIMING_SOURCES = {
+    "provider_structured_estimate",
+    "estimated",
+    "interpolated",
+    "segment_derived",
+    "deterministic_fallback",
+    "synthetic",
+    "low_confidence_interpolated",
+}
 
 
 def _round_time(value: float) -> float:
@@ -29,8 +38,13 @@ def alignment_provider_status() -> dict[str, Any]:
     stable_ts_enabled = os.getenv("ENABLE_STABLE_TS", "false").strip().lower() == "true"
     silero_enabled = os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true"
     whisperx_available = _module_available("whisperx")
+    torch_available = _module_available("torch")
+    torchaudio_available = _module_available("torchaudio")
+    librosa_available = _module_available("librosa")
     stable_ts_available = _module_available("stable_whisper", "stable_ts")
     silero_available = _module_available("silero_vad") or _module_available("torch")
+    ffmpeg_available = bool(shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg"))
+    ffprobe_available = bool(shutil.which("ffprobe"))
 
     selected = "provider"
     if provider == "whisperx" or (provider == "auto" and whisperx_enabled and whisperx_available):
@@ -40,6 +54,44 @@ def alignment_provider_status() -> dict[str, Any]:
     elif provider == "silero_vad_only" or (silero_enabled and silero_available):
         selected = "silero_vad_only"
 
+    whisperx_ready = (
+        whisperx_enabled
+        and whisperx_available
+        and torch_available
+        and torchaudio_available
+        and librosa_available
+        and ffmpeg_available
+        and ffprobe_available
+    )
+    stable_ts_ready = stable_ts_enabled and stable_ts_available and torch_available and ffmpeg_available and ffprobe_available
+    real_forced_alignment_available = (
+        (selected == "whisperx" and whisperx_ready)
+        or (selected == "stable_ts" and stable_ts_ready)
+    )
+    unavailable_reasons: list[str] = []
+    if provider in {"auto", "whisperx"} and whisperx_enabled:
+        for name, available in (
+            ("whisperx", whisperx_available),
+            ("torch", torch_available),
+            ("torchaudio", torchaudio_available),
+            ("librosa", librosa_available),
+            ("ffmpeg", ffmpeg_available),
+            ("ffprobe", ffprobe_available),
+        ):
+            if not available:
+                unavailable_reasons.append(f"{name}_missing")
+    if provider in {"auto", "stable_ts"} and stable_ts_enabled:
+        for name, available in (
+            ("stable_ts", stable_ts_available),
+            ("torch", torch_available),
+            ("ffmpeg", ffmpeg_available),
+            ("ffprobe", ffprobe_available),
+        ):
+            if not available:
+                unavailable_reasons.append(f"{name}_missing")
+    if not whisperx_enabled and not stable_ts_enabled:
+        unavailable_reasons.append("forced_alignment_disabled")
+
     return {
         "alignmentProvider": provider,
         "selectedProvider": selected,
@@ -47,10 +99,16 @@ def alignment_provider_status() -> dict[str, Any]:
         "stableTsEnabled": stable_ts_enabled,
         "sileroVadEnabled": silero_enabled,
         "whisperxAvailable": whisperx_available,
+        "torchAvailable": torch_available,
+        "torchaudioAvailable": torchaudio_available,
+        "librosaAvailable": librosa_available,
         "stableTsAvailable": stable_ts_available,
         "sileroVadAvailable": silero_available,
-        "ffmpegAvailable": bool(shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg")),
-        "ffprobeAvailable": bool(shutil.which("ffprobe")),
+        "ffmpegAvailable": ffmpeg_available,
+        "ffprobeAvailable": ffprobe_available,
+        "realForcedAlignmentAvailable": real_forced_alignment_available,
+        "forcedAlignmentUnavailableReasons": sorted(set(unavailable_reasons)),
+        "modelCacheDir": os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or os.path.expanduser("~/.cache/huggingface"),
     }
 
 
@@ -222,20 +280,32 @@ def detect_silence_gaps(audio_path: str, min_silence: float | None = None, thres
 
 def normalize_timing_source(raw_source: Any, provider: str | None = None) -> str:
     source = str(raw_source or "").lower()
-    provider_text = str(provider or "").lower()
-    combined = f"{source} {provider_text}"
-    if "manual" in combined:
-        return "manual"
-    if any(marker in combined for marker in ("interpolated", "estimated", "synthetic", "fallback", "low_confidence")):
+    if "manual" in source:
+        return "manual_adjustment_from_real"
+    if "provider_structured" in source:
+        return "provider_structured_estimate"
+    if "segment_derived" in source:
+        return "segment_derived"
+    if "deterministic" in source:
+        return "deterministic_fallback"
+    if "low_confidence" in source:
+        return "low_confidence_interpolated"
+    if "interpolated" in source:
+        return "interpolated"
+    if "synthetic" in source:
+        return "synthetic"
+    if "estimated" in source or "fallback" in source:
         return "estimated"
-    if "whisperx" in combined or "forced_align" in combined:
-        return "whisperx"
-    if "stable" in combined:
-        return "stable_ts"
-    if "vad" in combined or "pause_preserved" in combined:
-        return "vad_adjusted"
-    if "provider" in combined or provider_text:
-        return "provider"
+    if "whisperx" in source or "whisperx_forced" in source:
+        return "whisperx_forced"
+    if "stable_ts_forced" in source:
+        return "stable_ts_forced"
+    if "stable_ts_order" in source or "stable_ts_adjusted" in source:
+        return "interpolated"
+    if "provider_native" in source or source == "provider_word":
+        return "provider_native"
+    if "vad" in source or "pause_preserved" in source:
+        return "manual_adjustment_from_real"
     return "estimated"
 
 
@@ -252,8 +322,8 @@ def annotate_word_timing_sources(segments: list[dict[str, Any]]) -> list[dict[st
             word["timing_source"] = source
             word["timingSource"] = detailed_source or source
             word["timingSourceCategory"] = source
-            if source == "estimated":
-                word["timing_warning"] = word.get("timing_warning") or "Estimated word timing; alignment provider did not return a real timestamp."
+        if source in PRODUCTION_INVALID_TIMING_SOURCES:
+            word["timing_warning"] = word.get("timing_warning") or "Estimated word timing; alignment provider did not return a real timestamp."
     return segments
 
 
@@ -279,7 +349,7 @@ def build_timing_report(
             word.get("provider"),
         )
         source_counts[source] += 1
-        if source == "estimated":
+        if source in PRODUCTION_INVALID_TIMING_SOURCES:
             estimated_words += 1
         start = word.get("start")
         end = word.get("end")

@@ -3,7 +3,7 @@ import pytest
 from ai_pipeline.audio import Chunk
 from ai_pipeline.aligner import align_text
 from ai_pipeline.sync import stable_refine
-from ai_pipeline.main import _chunks_have_provider_words
+from ai_pipeline.main import _chunks_have_any_provider_words, _chunks_have_provider_words
 from ai_pipeline.sync.aligned_words import build_segments_from_aligned_words
 from ai_pipeline.audio import build_vad_chunk_ranges
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
@@ -105,6 +105,37 @@ def test_estimated_segment_derived_words_are_not_counted_as_native():
     assert _chunks_have_provider_words([chunk]) is False
     with pytest.raises(TranscriptValidationError):
         build_word_timed_transcript_from_chunks([chunk], "english")
+
+
+def test_preserved_phrase_timing_words_are_not_counted_as_native():
+    chunk = _chunk(
+        [
+            {
+                "word": "hello",
+                "start": 0.0,
+                "end": 2.0,
+                "timing_source": "provider_native_word",
+                "preservePhraseTiming": True,
+            },
+        ]
+    )
+    assert _chunks_have_provider_words([chunk]) is False
+    assert _chunks_have_any_provider_words([chunk]) is True
+
+
+def test_structured_model_timestamps_are_not_counted_as_native():
+    chunk = _chunk(
+        [
+            {
+                "word": "hello",
+                "start": 0.0,
+                "end": 0.4,
+                "timing_source": "provider_structured_word",
+            },
+        ]
+    )
+    assert _chunks_have_provider_words([chunk]) is False
+    assert _chunks_have_any_provider_words([chunk]) is True
 
 
 def test_estimated_debug_policy_marks_estimated_words():

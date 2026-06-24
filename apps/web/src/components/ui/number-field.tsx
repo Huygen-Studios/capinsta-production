@@ -370,7 +370,7 @@ function ScrubbableNumberField({
 	return (
 		<div
 			className={cn(
-				"scrubbable-number-field flex h-8 w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-input text-sm transition-colors",
+				"scrubbable-number-field flex h-8 w-full min-w-0 items-stretch overflow-hidden rounded-sm border-2 border-border bg-input text-sm transition-colors",
 				"focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/15",
 				isScrubbing && "border-primary bg-primary/10 ring-2 ring-primary/20",
 				disabled && "pointer-events-none opacity-50",
@@ -384,7 +384,7 @@ function ScrubbableNumberField({
 					disabled={disabled}
 					aria-label={`Scrub ${label ?? "value"}`}
 					title="Drag horizontally to adjust. Shift is faster; Alt is more precise."
-					className="scrubbable-number-field__handle grid min-w-8 shrink-0 cursor-ew-resize select-none place-items-center border-r border-border px-2 text-xs font-semibold text-muted-foreground hover:bg-primary/10 hover:text-primary"
+					className="scrubbable-number-field__handle grid min-w-8 shrink-0 cursor-ew-resize select-none place-items-center border-r-2 border-border px-2 text-xs font-semibold text-muted-foreground hover:bg-primary/20 hover:text-foreground"
 					onDoubleClick={onReset}
 					{...scrubHandlers}
 				>
@@ -392,7 +392,7 @@ function ScrubbableNumberField({
 				</button>
 			)}
 
-			<div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-stretch">
+			<div className="grid min-w-0 flex-1 grid-cols-[minmax(3.5rem,1fr)_minmax(2.35rem,auto)] items-stretch">
 				<input
 					type={allowExpressions ? "text" : "number"}
 					inputMode="decimal"
@@ -416,7 +416,7 @@ function ScrubbableNumberField({
 							? undefined
 							: `${currentNumericValue}${unitText ? ` ${unitText}` : ""}`
 					}
-					className="scrubbable-number-field__input min-w-0 cursor-ew-resize bg-transparent px-2.5 text-sm tabular-nums leading-none text-foreground outline-none [appearance:textfield] selection:bg-primary/30 focus:cursor-text [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+					className="scrubbable-number-field__input min-w-0 cursor-ew-resize bg-transparent px-2.5 text-right text-sm tabular-nums leading-none text-foreground outline-none [appearance:textfield] selection:bg-primary/30 focus:cursor-text [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 					onMouseDown={(event) => {
 						onMouseDown?.(event);
 					}}
@@ -469,7 +469,7 @@ function ScrubbableNumberField({
 					<span
 						aria-hidden="true"
 						className={cn(
-							"scrubbable-number-field__unit grid min-w-8 shrink-0 select-none place-items-center border-l border-border bg-accent/60 px-2 text-xs tabular-nums text-muted-foreground",
+							"scrubbable-number-field__unit grid min-w-9 shrink-0 select-none place-items-center border-l-2 border-border bg-muted px-2 text-xs font-semibold tabular-nums text-muted-foreground",
 							suffixClassName,
 						)}
 					>

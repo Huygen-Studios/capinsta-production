@@ -1060,8 +1060,8 @@ def _fallback_align_segments(tokens: list[Any]) -> list[dict[str, Any]]:
                         "start": _round_time(start + index * word_duration),
                         "end": _round_time(start + (index + 1) * word_duration),
                         "score": 0.45,
-                        "timing_source": "interpolated_no_whisperx",
-                        "timingSource": "interpolated_no_whisperx",
+                        "timing_source": "deterministic_fallback",
+                        "timingSource": "deterministic_fallback",
                     }
                     for index, word in enumerate(words)
                 ],
@@ -1141,7 +1141,7 @@ def align_text(
         for segment in aligned_segments:
             for word in segment.get("words") or []:
                 if not word.get("timing_source"):
-                    word["timing_source"] = "whisperx"
+                    word["timing_source"] = "whisperx_forced"
                 if not word.get("timingSource"):
                     word["timingSource"] = word["timing_source"]
         return aligned_segments

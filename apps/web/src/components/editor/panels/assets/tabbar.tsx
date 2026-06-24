@@ -61,11 +61,11 @@ export function TabBar() {
 									size="icon"
 									aria-label={tab.label}
 									className={cn(
-										"shrink-0 rounded-md border border-transparent transition-[transform,background-color,border-color,color]",
+										"shrink-0 rounded-sm border-2 border-transparent transition-[transform,background-color,border-color,color]",
 										"h-8 w-8",
 										activeTab === tabKey
-											? "!border-primary !bg-primary/15 !text-primary shadow-[2px_2px_0_color-mix(in_srgb,var(--primary)_55%,transparent)]"
-											: "text-muted-foreground hover:border-border hover:bg-accent",
+											? "!border-[var(--neo-black)] !bg-primary !text-primary-foreground shadow-[2px_2px_0_var(--shadow-strong)]"
+											: "text-muted-foreground hover:border-border hover:bg-muted",
 									)}
 									onClick={() => setActiveTab(tabKey)}
 								>

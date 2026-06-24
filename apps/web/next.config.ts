@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { withBotId } from "botid/next/config";
 import { withContentCollections } from "@content-collections/next";
+
+const appDir = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
 	compiler: {
@@ -21,7 +25,15 @@ const nextConfig: NextConfig = {
 	},
 	// Prevent Turbopack from scanning Windows reserved device names
 	turbopack: {
+		root: appDir,
 		resolveAlias: {},
+	},
+	webpack: (config) => {
+		config.experiments = {
+			...config.experiments,
+			asyncWebAssembly: true,
+		};
+		return config;
 	},
 	images: {
 		remotePatterns: [

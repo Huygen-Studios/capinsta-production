@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -11,8 +12,10 @@ from typing import Any
 from fastapi import HTTPException
 
 from .settings import DB_PATH
-from .transcription_catalog import catalog_entry, validate_catalog_selection
+from .transcription_catalog import catalog_entry, model_runtime_availability, validate_catalog_selection
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
+
+logger = logging.getLogger(__name__)
 
 try:
     import psycopg
@@ -71,6 +74,11 @@ _PLACEHOLDER_SECRET_TOKENS = (
     "example",
     "changeme",
 )
+_LAST_DB_STATUS: dict[str, Any] = {
+    "category": "unknown",
+    "databaseConfigured": False,
+    "fallback": False,
+}
 
 
 def _database_url() -> str:
@@ -138,6 +146,53 @@ def _env_snapshot() -> TranscriptionConfigSnapshot | None:
     )
 
 
+def _classify_database_exception(exc: Exception) -> str:
+    text = str(exc).lower()
+    if "password authentication failed" in text or "authentication failed" in text:
+        return "database_authentication_failed"
+    if "relation" in text or "column" in text or "does not exist" in text or "undefinedtable" in text:
+        return "database_schema_missing"
+    return "database_unreachable"
+
+
+def _set_db_status(**values: Any) -> None:
+    global _LAST_DB_STATUS
+    _LAST_DB_STATUS = {
+        "category": values.get("category", "unknown"),
+        "databaseConfigured": bool(values.get("databaseConfigured")),
+        "fallback": bool(values.get("fallback")),
+        "activeConfigurationId": values.get("activeConfigurationId"),
+        "activeProvider": values.get("activeProvider"),
+        "activeModel": values.get("activeModel"),
+        "draftCount": values.get("draftCount"),
+        "reason": values.get("reason"),
+    }
+
+
+def transcription_database_status() -> dict[str, Any]:
+    return dict(_LAST_DB_STATUS)
+
+
+def _configuration_counts(database_url: str) -> dict[str, int]:
+    with psycopg.connect(database_url, row_factory=dict_row, connect_timeout=4) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    count(*)::int AS total,
+                    count(*) FILTER (WHERE status = 'active')::int AS active,
+                    count(*) FILTER (WHERE status <> 'active')::int AS draft
+                FROM transcription_configurations
+                """
+            )
+            row = cursor.fetchone() or {}
+            return {
+                "total": int(row.get("total") or 0),
+                "active": int(row.get("active") or 0),
+                "draft": int(row.get("draft") or 0),
+            }
+
+
 def invalidate_transcription_config_cache() -> None:
     global _CACHE
     _CACHE = (0.0, None)
@@ -185,10 +240,44 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
                 if "pipeline_options" not in str(exc):
                     raise
                 row = _active_config_row(database_url, include_pipeline_options=False)
-            snapshot = _snapshot_from_row(row) if row else _env_snapshot()
+            if row:
+                snapshot = _snapshot_from_row(row)
+                _set_db_status(
+                    category="database_active_configuration",
+                    databaseConfigured=True,
+                    fallback=False,
+                    activeConfigurationId=snapshot.configuration_id,
+                    activeProvider=snapshot.provider,
+                    activeModel=snapshot.model,
+                )
+            else:
+                counts = _configuration_counts(database_url)
+                env = _env_snapshot()
+                category = "database_draft_only" if counts["total"] else "database_no_active_configuration"
+                _set_db_status(
+                    category=category,
+                    databaseConfigured=True,
+                    fallback=env is not None,
+                    draftCount=counts["draft"],
+                    reason="env_fallback" if env is not None else None,
+                )
+                snapshot = env
             _CACHE = (now, snapshot)
             return snapshot
-        except Exception:
+        except Exception as exc:
+            category = _classify_database_exception(exc)
+            env = _env_snapshot()
+            _set_db_status(
+                category=category,
+                databaseConfigured=True,
+                fallback=env is not None,
+                reason="env_fallback" if env is not None else None,
+            )
+            logger.warning(
+                "transcription_config_database_fallback category=%s fallback=%s",
+                category,
+                bool(env),
+            )
             snapshot = _env_snapshot()
             if _production_mode() and snapshot is None:
                 _CACHE = (now, None)
@@ -196,8 +285,16 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
             if snapshot is not None:
                 _CACHE = (now, snapshot)
                 return snapshot
+            _CACHE = (now, None)
+            return None
 
     snapshot = _env_snapshot()
+    _set_db_status(
+        category="env_fallback" if snapshot is not None else "database_unreachable",
+        databaseConfigured=bool(database_url),
+        fallback=snapshot is not None,
+        reason="database_not_configured" if not database_url else "psycopg_unavailable",
+    )
     _CACHE = (now, snapshot)
     return snapshot
 
@@ -244,6 +341,14 @@ def assert_transcription_available() -> TranscriptionConfigSnapshot:
             status_code=503,
             detail="Caption generation is temporarily unavailable. Your upload is safe. Please retry shortly.",
         )
+    entry = catalog_entry(snapshot.provider, snapshot.model)
+    if entry is not None:
+        availability = model_runtime_availability(entry)
+        if not availability.get("productionReady"):
+            raise HTTPException(
+                status_code=503,
+                detail=availability.get("message") or "Caption generation is temporarily unavailable.",
+            )
     if circuit_state(snapshot).get("open"):
         raise HTTPException(
             status_code=503,

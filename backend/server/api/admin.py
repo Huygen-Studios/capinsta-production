@@ -27,7 +27,7 @@ from ..worker_startup import start_pipeline_worker
 from ..project_cleanup import ACTIVE_JOB_STATUSES
 from ..project_deletion import delete_project_resources
 from ..runtime_policy import project_retention_state
-from ..transcription_catalog import public_catalog, validate_catalog_selection
+from ..transcription_catalog import model_runtime_availability, public_catalog, validate_catalog_selection
 from ..transcription_control import (
     TranscriptionConfigSnapshot,
     bundled_test_audio_path,
@@ -467,6 +467,15 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
         return {
             "ok": False,
             "category": str(exc),
+            "retryable": False,
+            "correlationId": admin.correlation_id,
+        }
+    availability = model_runtime_availability(entry)
+    if not availability.get("productionReady"):
+        return {
+            "ok": False,
+            "category": availability.get("reason") or "model_unavailable",
+            "message": availability.get("message") or "Provider/model is unavailable.",
             "retryable": False,
             "correlationId": admin.correlation_id,
         }

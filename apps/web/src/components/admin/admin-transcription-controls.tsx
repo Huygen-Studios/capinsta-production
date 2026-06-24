@@ -3,6 +3,7 @@
 /* eslint-disable opencut/prefer-object-params, @typescript-eslint/no-unsafe-type-assertion */
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, CircleAlert, FlaskConical, Power, Save } from "lucide-react";
 import { DEFAULT_PIPELINE_OPTIONS, TRANSCRIPTION_PROVIDER_CATALOG, defaultProviderOptions, isTranscriptionProvider, mergePipelineOptions, type TranscriptionProvider } from "@/transcription/provider-catalog";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,19 @@ type Configuration = {
 	testedAt: Date | string | null;
 	activatedAt: Date | string | null;
 	activationReason: string | null;
+	createdAt?: Date | string | null;
+	updatedAt?: Date | string | null;
+	createdBy?: string | null;
+	activationEligibility?: boolean;
+};
+
+type MutationResponse = {
+	ok?: boolean;
+	after?: unknown;
+	error?: string;
+	code?: string;
+	stepUp?: string;
+	correlationId?: string;
 };
 
 async function mutate(body: Record<string, unknown>) {
@@ -36,8 +50,18 @@ async function mutate(body: Record<string, unknown>) {
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 	});
-	const payload = await response.json().catch(() => null);
-	if (!response.ok) throw new Error(payload?.error ?? "The operation could not be completed.");
+	const payload = (await response.json().catch(() => null)) as MutationResponse | null;
+	if (!response.ok) {
+		const message = [payload?.error, payload?.code]
+			.filter(Boolean)
+			.join(" ")
+			.trim();
+		const error = new Error(message || "The operation could not be completed.");
+		if (payload && typeof payload === "object" && "stepUp" in payload) {
+			Object.assign(error, { stepUp: String(payload.stepUp) });
+		}
+		throw error;
+	}
 	return payload;
 }
 
@@ -81,19 +105,34 @@ function numericInputValue(value: unknown, fallback: number) {
 	return String(numberValue(value, fallback));
 }
 
+function isConfiguration(value: unknown): value is Configuration {
+	return !!value && typeof value === "object" && "id" in value && "provider" in value && "model" in value;
+}
+
+function configurationLabel(config: Pick<Configuration, "provider" | "model">) {
+	const entry = TRANSCRIPTION_PROVIDER_CATALOG.find(
+		(item) => item.provider === config.provider && item.model === config.model,
+	);
+	return entry?.displayName ?? `${config.provider} ${config.model}`;
+}
+
 export function AdminTranscriptionControls({
 	active,
 	configurations,
 	healthStatus,
+	timingHealth,
 	lastProductionRequest,
 }: {
 	active: Configuration | null;
 	configurations: Configuration[];
 	healthStatus: string;
+	timingHealth: Record<string, unknown> | null;
 	lastProductionRequest: string | null;
 }) {
-	const drafts = configurations.filter((item) => item.status !== "active");
-	const hasConfigurations = configurations.length > 0;
+	const router = useRouter();
+	const [savedConfigurations, setSavedConfigurations] = useState<Configuration[]>(configurations);
+	const drafts = savedConfigurations.filter((item) => item.status !== "active");
+	const hasConfigurations = savedConfigurations.length > 0;
 	const [provider, setProvider] = useState<TranscriptionProvider>(active?.provider ?? "sarvam");
 	const models = useMemo(
 		() => TRANSCRIPTION_PROVIDER_CATALOG.filter((entry) => entry.provider === provider),
@@ -108,21 +147,56 @@ export function AdminTranscriptionControls({
 			active?.pipelineOptions ?? {},
 		),
 	);
-	const [reason, setReason] = useState("Initial Sarvam transcription setup");
+	const [reason, setReason] = useState("Initial transcription setup");
 	const [confirmation, setConfirmation] = useState("");
 	const [selectedConfigId, setSelectedConfigId] = useState(active?.id ?? drafts[0]?.id ?? "");
-	const selectedConfig = configurations.find((item) => item.id === selectedConfigId) ?? null;
+	const selectedConfig = savedConfigurations.find((item) => item.id === selectedConfigId) ?? null;
 	const [message, setMessage] = useState<string | null>(null);
 	const [isPending, startTransition] = useTransition();
+	const currentDraftLabel = selectedEntry?.displayName ?? `${provider} ${model}`;
+	const realForcedAlignmentAvailable = timingHealth?.realForcedAlignmentAvailable === true;
+	const selectedModelUnavailable =
+		selectedEntry?.localAlignmentRequired === true && !realForcedAlignmentAvailable;
+	const selectedConfigEntry = selectedConfig
+		? TRANSCRIPTION_PROVIDER_CATALOG.find(
+			(entry) => entry.provider === selectedConfig.provider && entry.model === selectedConfig.model,
+		)
+		: null;
+	const selectedConfigUnavailable =
+		selectedConfigEntry?.localAlignmentRequired === true && !realForcedAlignmentAvailable;
+	const forcedAlignmentReason = Array.isArray(timingHealth?.forcedAlignmentUnavailableReasons)
+		? timingHealth.forcedAlignmentUnavailableReasons.join(", ")
+		: "backend aligner unavailable";
 
 	const run = (body: Record<string, unknown>) => {
 		setMessage(null);
 		startTransition(async () => {
 			try {
-				await mutate(body);
-				setMessage("Saved. Refreshing current admin data.");
-				window.location.reload();
+				const payload = (await mutate(body)) as MutationResponse;
+				if (isConfiguration(payload.after)) {
+					const saved = payload.after;
+					setSavedConfigurations((current) => {
+						const withoutSaved = current.filter((item) => item.id !== saved.id);
+						return [saved, ...withoutSaved];
+					});
+					setSelectedConfigId(saved.id);
+				}
+				if (body.action === "transcription.config.create_draft") {
+					setMessage("Draft saved. The exact saved version is ready to test.");
+				} else if (body.action === "transcription.config.test") {
+					setMessage("Test result saved for the selected configuration version.");
+				} else if (body.action === "transcription.config.activate") {
+					setMessage("Configuration activated for new caption jobs.");
+				} else {
+					setMessage("Configuration updated.");
+				}
+				router.refresh();
 			} catch (error) {
+				if (error instanceof Error && "stepUp" in error && typeof error.stepUp === "string") {
+					setMessage("A fresh MFA verification is required before this action can continue.");
+					router.push(error.stepUp);
+					return;
+				}
 				setMessage(error instanceof Error ? error.message : "The operation could not be completed.");
 			}
 		});
@@ -165,15 +239,20 @@ export function AdminTranscriptionControls({
 				<Card className="border-2">
 					<CardHeader>
 						<CardTitle>Edit Draft</CardTitle>
-						<CardDescription>Step 1: save a Sarvam draft. Step 2: choose that saved draft on the right, test it, then activate it.</CardDescription>
+						<CardDescription>Step 1: save the current provider/model draft. Step 2: test that exact saved version, then activate it.</CardDescription>
 					</CardHeader>
 					<CardContent className="grid gap-4 md:grid-cols-2">
 						<div className="grid gap-2">
 							<Label>Provider</Label>
 							<Select value={provider} onValueChange={(value) => {
 								const next = isTranscriptionProvider(value) ? value : "sarvam";
+								const nextModel = TRANSCRIPTION_PROVIDER_CATALOG.find((entry) => entry.provider === next)?.model ?? "saaras:v3";
 								setProvider(next);
-								setModel(TRANSCRIPTION_PROVIDER_CATALOG.find((entry) => entry.provider === next)?.model ?? "saaras:v3");
+								setModel(nextModel);
+								const matchingDraft = savedConfigurations.find(
+									(item) => item.provider === next && item.model === nextModel && item.status !== "active",
+								);
+								setSelectedConfigId(matchingDraft?.id ?? "");
 							}}>
 								<SelectTrigger><SelectValue /></SelectTrigger>
 								<SelectContent>
@@ -185,7 +264,13 @@ export function AdminTranscriptionControls({
 						</div>
 						<div className="grid gap-2">
 							<Label>Model</Label>
-							<Select value={model} onValueChange={setModel}>
+							<Select value={model} onValueChange={(nextModel) => {
+								setModel(nextModel);
+								const matchingDraft = savedConfigurations.find(
+									(item) => item.provider === provider && item.model === nextModel && item.status !== "active",
+								);
+								setSelectedConfigId(matchingDraft?.id ?? "");
+							}}>
 								<SelectTrigger><SelectValue /></SelectTrigger>
 								<SelectContent>
 									{models.map((entry) => <SelectItem key={entry.model} value={entry.model}>{entry.displayName}</SelectItem>)}
@@ -195,6 +280,13 @@ export function AdminTranscriptionControls({
 						<div className="md:col-span-2">
 							<Label>Timestamp capability</Label>
 							<p className="text-sm text-muted-foreground">{selectedEntry?.timestampCapability}</p>
+							{selectedEntry?.localAlignmentRequired ? (
+								<p className="mt-1 text-xs text-caution">
+									{selectedModelUnavailable
+										? `Requires forced alignment - backend aligner unavailable (${forcedAlignmentReason}).`
+										: "Backend forced alignment is available for this model."}
+								</p>
+							) : null}
 						</div>
 						{provider === "sarvam" ? (
 							<div className="grid gap-2">
@@ -518,7 +610,7 @@ export function AdminTranscriptionControls({
 								reason,
 							})}
 						>
-							<Save className="mr-2 size-4" /> Save draft
+							<Save className="mr-2 size-4" /> {isPending ? "Saving..." : "Save draft"}
 						</Button>
 					</CardContent>
 				</Card>
@@ -534,22 +626,29 @@ export function AdminTranscriptionControls({
 						<Select value={selectedConfigId} onValueChange={setSelectedConfigId}>
 							<SelectTrigger><SelectValue placeholder="Choose saved draft" /></SelectTrigger>
 							<SelectContent>
-								{configurations.map((item) => (
-									<SelectItem key={item.id} value={item.id}>{item.provider} / {item.model} / v{item.version} / {item.status}</SelectItem>
+								{savedConfigurations.map((item) => (
+									<SelectItem key={item.id} value={item.id}>{configurationLabel(item)} / v{item.version} / {item.status}</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
 					) : (
 						<div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-							No saved configuration yet. Save the Sarvam draft on the left first; it will appear here after the page refreshes.
+							No saved {currentDraftLabel} configuration yet. Save the current draft first; it will appear here immediately after persistence succeeds.
 						</div>
 					)}
 					{selectedConfig ? (
 						<div className="grid gap-2 rounded-md border p-3 text-sm">
-							<p><strong>{selectedConfig.provider}</strong> {selectedConfig.model}</p>
+							<p><strong>{configurationLabel(selectedConfig)}</strong></p>
+							<p>Configuration ID: {selectedConfig.id}</p>
 							<p>{selectedConfig.timestampStrategy}</p>
 							<p>Timing policy: {String(selectedConfig.pipelineOptions?.timingSourcePolicy ?? "native_then_forced")}</p>
 							<p>Test: {selectedConfig.testStatus}{selectedConfig.testErrorCode ? ` (${selectedConfig.testErrorCode})` : ""}</p>
+							<p>Version: {selectedConfig.version}</p>
+							{selectedConfigUnavailable ? (
+								<p className="font-semibold text-destructive">
+									Requires forced alignment - backend aligner unavailable.
+								</p>
+							) : null}
 							<details className="mt-2">
 								<summary className="cursor-pointer font-semibold">Resolved configuration preview</summary>
 								<pre className="mt-2 max-h-72 overflow-auto rounded-sm border bg-muted p-2 text-xs">{JSON.stringify(selectedConfig.pipelineOptions ?? DEFAULT_PIPELINE_OPTIONS, null, 2)}</pre>
@@ -560,7 +659,7 @@ export function AdminTranscriptionControls({
 					<Input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="ACTIVATE" />
 					<Button
 						variant="outline"
-						disabled={isPending || !selectedConfig || reason.trim().length < 8}
+						disabled={isPending || !selectedConfig || selectedConfigUnavailable || reason.trim().length < 8}
 						onClick={() => selectedConfig && run({
 							action: "transcription.config.test",
 							targetId: selectedConfig.id,
@@ -571,7 +670,7 @@ export function AdminTranscriptionControls({
 						<FlaskConical className="mr-2 size-4" /> {selectedConfig ? "Test configuration" : "Save a draft first"}
 					</Button>
 					<Button
-						disabled={isPending || !selectedConfig || selectedConfig.testStatus !== "passed" || confirmation !== "ACTIVATE" || reason.trim().length < 8}
+						disabled={isPending || !selectedConfig || selectedConfigUnavailable || selectedConfig.testStatus !== "passed" || confirmation !== "ACTIVATE" || reason.trim().length < 8}
 						onClick={() => selectedConfig && run({
 							action: "transcription.config.activate",
 							targetId: selectedConfig.id,

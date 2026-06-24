@@ -4,7 +4,7 @@ import {
 	listAdminTranscriptionConfigurations,
 	transcriptionPipelineOptionsColumnExists,
 } from "./transcription-config-db";
-import { DEFAULT_PIPELINE_OPTIONS, mergePipelineOptions } from "@/transcription/provider-catalog";
+import { DEFAULT_PIPELINE_OPTIONS, TRANSCRIPTION_PROVIDER_CATALOG, mergePipelineOptions } from "@/transcription/provider-catalog";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
@@ -102,5 +102,17 @@ describe("admin transcription configuration db compatibility", () => {
 		expect(isRecord(autoSync) ? autoSync.enabled : undefined).toBe(true);
 		expect(isRecord(autoSync) ? autoSync.minScore : undefined).toBe(0.58);
 		expect(Object.prototype).not.toHaveProperty("polluted");
+	});
+
+	test("Gemini catalog entries require real local alignment", () => {
+		const geminiEntries = TRANSCRIPTION_PROVIDER_CATALOG.filter(
+			(entry) => entry.provider === "gemini",
+		);
+
+		expect(geminiEntries.length).toBeGreaterThan(0);
+		for (const entry of geminiEntries) {
+			expect(entry.timestampStrategy).toBe("local_forced_alignment");
+			expect(entry.localAlignmentRequired).toBe(true);
+		}
 	});
 });

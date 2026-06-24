@@ -10,7 +10,6 @@ import {
 	Film,
 	Layers3,
 	RotateCcw,
-	Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -96,7 +95,7 @@ export function ExportButton() {
 			<button
 				type="button"
 				className={cn(
-					"flex h-9 items-center gap-2 border-2 border-foreground bg-primary px-4 text-sm font-black text-primary-foreground shadow-[3px_3px_0_var(--cap-shadow-color)] transition-[transform,box-shadow] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_var(--cap-shadow-color)]",
+					"flex h-9 items-center gap-2 rounded-sm border-2 border-[var(--neo-black)] bg-primary px-4 text-sm font-black text-primary-foreground shadow-[4px_4px_0_var(--shadow-strong)] transition hover:bg-[var(--neo-yellow)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none",
 					hasProject ? "cursor-pointer" : "cursor-not-allowed opacity-50",
 				)}
 				onClick={hasProject ? () => setIsOpen(true) : undefined}
@@ -235,7 +234,7 @@ function ExportDialog({
 								type="button"
 								aria-disabled="true"
 								onClick={() => toast.info(FULL_VIDEO_COMING_SOON)}
-								className="group relative flex min-h-32 cursor-not-allowed flex-col items-start rounded-sm border border-border/70 bg-muted/20 p-4 text-left opacity-65 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-muted-foreground/30"
+								className="group relative flex min-h-32 cursor-not-allowed flex-col items-start rounded-sm border-2 border-border bg-muted/20 p-4 text-left opacity-70 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-muted-foreground/30"
 							>
 								<div className="mb-4 flex w-full items-start justify-between gap-3">
 									<span className="rounded-sm border bg-background p-2">
@@ -251,13 +250,12 @@ function ExportDialog({
 								</span>
 							</button>
 
-							<div className="relative flex min-h-32 flex-col items-start rounded-sm border border-primary bg-primary/5 p-4 text-left shadow-[3px_3px_0_#000]">
+							<div className="relative flex min-h-32 flex-col items-start rounded-sm border-2 border-primary bg-primary/10 p-4 text-left shadow-[4px_4px_0_var(--shadow-strong)]">
 								<div className="mb-4 flex w-full items-start justify-between gap-3">
-									<span className="rounded-sm border border-primary bg-primary/15 p-2">
-										<Layers3 className="size-5 text-primary" />
+									<span className="rounded-sm border-2 border-border bg-primary p-2 text-primary-foreground">
+										<Layers3 className="size-5" />
 									</span>
-									<span className="flex items-center gap-1 rounded-sm bg-primary px-2.5 py-1 text-[11px] font-bold text-primary-foreground">
-										<Sparkles className="size-3" />
+									<span className="rounded-sm border border-[var(--neo-black)] bg-[var(--neo-yellow)] px-2.5 py-1 text-[11px] font-black text-[var(--neo-black)]">
 										Recommended
 									</span>
 								</div>

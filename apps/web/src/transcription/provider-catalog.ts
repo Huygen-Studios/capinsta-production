@@ -21,6 +21,9 @@ export type TranscriptionCatalogEntry = {
 	supportedProviderModes: ProviderMode[];
 	localAlignmentRequired: boolean;
 	retryableHttpStatuses: number[];
+	productionReady?: boolean;
+	reason?: string | null;
+	message?: string | null;
 };
 
 export const TRANSCRIPTION_PROVIDER_CATALOG = [
@@ -29,15 +32,15 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		model: "gemini-3.5-flash",
 		displayName: "Gemini 3.5 Flash",
 		enabled: true,
-		timestampCapability: "Structured model timestamps with local validation",
-		timestampStrategy: "structured_word_validate",
+		timestampCapability: "Transcript text with Capinsta local word alignment",
+		timestampStrategy: "local_forced_alignment",
 		requiredSecret: "GEMINI_API_KEY",
 		supportedResponseFormats: ["application/json"],
 		maxInputBytes: 2_000_000_000,
 		maxChunkDurationSeconds: 600,
 		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
 		supportedProviderModes: ["transcribe"],
-		localAlignmentRequired: false,
+		localAlignmentRequired: true,
 		retryableHttpStatuses: [429, 500, 503, 504],
 	},
 	{
@@ -45,15 +48,15 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		model: "gemini-2.5-flash",
 		displayName: "Gemini 2.5 Flash",
 		enabled: true,
-		timestampCapability: "Structured model timestamps with local validation",
-		timestampStrategy: "structured_word_validate",
+		timestampCapability: "Transcript text with Capinsta local word alignment",
+		timestampStrategy: "local_forced_alignment",
 		requiredSecret: "GEMINI_API_KEY",
 		supportedResponseFormats: ["application/json"],
 		maxInputBytes: 2_000_000_000,
 		maxChunkDurationSeconds: 600,
 		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
 		supportedProviderModes: ["transcribe"],
-		localAlignmentRequired: false,
+		localAlignmentRequired: true,
 		retryableHttpStatuses: [429, 500, 503, 504],
 	},
 	{

@@ -8,155 +8,185 @@
 @plugin "tailwindcss-animate";
 
 :root {
-  --cap-black: #000000;
-  --cap-paper: #ffffff;
-  --cap-purple-dark: #471396;
-  --cap-purple-bright: #b13bff;
-  --cap-yellow: #000000;
-  --cap-purple-950: #000000;
-  --cap-purple-800: #471396;
-  --cap-purple-600: #b13bff;
-  --cap-purple-400: #b13bff;
-  --cap-purple-200: #b13bff;
-  --cap-pink: #b13bff;
-  --cap-muted: #ebe6df;
-  --cap-success: #15803d;
-  --cap-destructive: #dc2626;
-  --cap-focus: #b13bff;
-  --cap-outline: #000000;
-  --cap-shadow-color: #471396;
-  --cap-marketing-surface: #ffffff;
-  --cap-marketing-muted: #ebe6df;
-  --cap-marketing-text-muted: #57534e;
+  --cap-black: var(--neo-black);
+  --neo-green: #B7FF22;
+  --neo-pink: #FF90E8;
+  --neo-blue: #91A7FF;
+  --neo-teal: #2EC4B6;
+  --neo-yellow: #FFD166;
+  --neo-coral: #FF7058;
+  --neo-lavender: #B5A7FF;
+  --neo-black: #0A0A0A;
+  --app-bg: #EEECE5;
+  --surface: #FFFDF7;
+  --surface-raised: #FFFFFF;
+  --surface-muted: #E3E1DA;
+  --panel-bg: #F7F5EE;
+  --text-primary: #111111;
+  --text-secondary: #5D5A54;
+  --border-strong: #111111;
+  --shadow-strong: #111111;
+  --input-bg: #FFFFFF;
+  --cap-paper: var(--app-bg);
+  --cap-purple-dark: var(--surface-raised);
+  --cap-purple-bright: var(--neo-blue);
+  --cap-yellow: var(--neo-yellow);
+  --cap-purple-950: var(--app-bg);
+  --cap-purple-800: var(--surface-raised);
+  --cap-purple-600: var(--neo-blue);
+  --cap-purple-400: var(--neo-lavender);
+  --cap-purple-200: var(--surface-muted);
+  --cap-pink: var(--neo-pink);
+  --cap-muted: var(--surface-muted);
+  --cap-success: var(--neo-teal);
+  --cap-destructive: var(--neo-coral);
+  --cap-focus: var(--neo-green);
+  --cap-outline: var(--border-strong);
+  --cap-shadow-color: var(--shadow-strong);
+  --cap-marketing-surface: var(--surface);
+  --cap-marketing-muted: var(--panel-bg);
+  --cap-marketing-text-muted: var(--text-secondary);
   --cap-border: 2px solid var(--cap-outline);
   --cap-shadow: 4px 4px 0 var(--cap-shadow-color);
   --cap-shadow-lg: 6px 6px 0 var(--cap-shadow-color);
   --radius-none: 0px;
-  --radius-xs: 0px;
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --neo-shadow-sm: 2px 2px 0 var(--cap-shadow-color);
-  --neo-shadow: 4px 4px 0 var(--cap-shadow-color);
-  --neo-shadow-accent: 4px 4px 0 var(--secondary);
-  --background: #000000;
-  --foreground: #f8f8f2;
-  --card: #080808;
-  --card-foreground: #f8f8f2;
-  --popover: #080808;
-  --popover-hover: #160326;
-  --popover-foreground: #ffffff;
-  --primary: #b13bff;
-  --primary-foreground: #ffffff;
-  --secondary: #471396;
-  --secondary-border: #b13bff;
-  --secondary-foreground: #ffffff;
-  --muted: #141414;
-  --muted-foreground: #cfcbd6;
-  --accent: #1a062a;
-  --accent-foreground: #ffffff;
-  --destructive: hsl(0, 83%, 50%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --constructive: hsl(141, 71%, 48%);
-  --constructive-foreground: hsl(0, 0%, 100%);
-  --caution: #b13bff;
-  --caution-foreground: #000000;
-  --border: #3d2269;
-  --input: #080808;
-  --ring: #b13bff;
-  --chart-1: hsl(220 70% 50%);
-  --chart-2: hsl(160 60% 45%);
-  --chart-3: hsl(30 80% 55%);
-  --chart-4: hsl(280 65% 60%);
-  --chart-5: hsl(340 75% 55%);
-  --sidebar-background: #000000;
-  --sidebar-foreground: #f8f8f2;
-  --sidebar-primary: #b13bff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #160326;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #471396;
-  --sidebar-ring: #b13bff;
-  --sidebar: #000000;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 6px;
+  --neo-shadow-sm: 2px 2px 0 var(--shadow-strong);
+  --neo-shadow: 4px 4px 0 var(--shadow-strong);
+  --neo-shadow-accent: 4px 4px 0 var(--neo-green);
+  --background: var(--app-bg);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-hover: var(--surface-muted);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--neo-green);
+  --primary-foreground: var(--neo-black);
+  --secondary: var(--surface);
+  --secondary-border: var(--border-strong);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --destructive: var(--neo-coral);
+  --destructive-foreground: var(--neo-black);
+  --constructive: var(--neo-teal);
+  --constructive-foreground: var(--neo-black);
+  --caution: var(--neo-yellow);
+  --caution-foreground: var(--neo-black);
+  --border: var(--border-strong);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
+  --chart-1: var(--neo-blue);
+  --chart-2: var(--neo-teal);
+  --chart-3: var(--neo-yellow);
+  --chart-4: var(--neo-pink);
+  --chart-5: var(--neo-coral);
+  --sidebar-background: var(--panel-bg);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--neo-green);
+  --sidebar-primary-foreground: var(--neo-black);
+  --sidebar-accent: var(--surface-muted);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-strong);
+  --sidebar-ring: var(--neo-green);
+  --sidebar: var(--panel-bg);
 }
 
 .panel {
-  --background: hsl(210, 20%, 98%);
-  --foreground: hsl(0 0% 13%);
-  --card: hsl(0, 0%, 98%);
-  --card-foreground: hsl(0 0% 13%);
-  --primary-foreground: hsl(0, 0%, 98%);
-  --secondary: hsl(204, 100%, 95%);
-  --secondary-border: hsl(204, 100%, 92%);
-  --secondary-foreground: hsl(200, 98%, 37%);
-  --muted: hsl(0 0% 83.1%);
-  --muted-foreground: hsl(0 0% 48%);
-  --accent: hsl(0, 0%, 93%);
-  --accent-foreground: hsl(0 0% 5%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --constructive-foreground: hsl(0, 0%, 98%);
-  --border: hsl(0 0% 87%);
-  --input: hsl(0 0% 93%);
-  --ring: hsl(0, 0%, 53%);
+  --background: var(--panel-bg);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --primary-foreground: var(--neo-black);
+  --secondary: var(--surface);
+  --secondary-border: var(--border-strong);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --destructive-foreground: var(--neo-black);
+  --constructive-foreground: var(--neo-black);
+  --border: var(--border-strong);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
 }
 
 .dark {
-  --cap-paper: #000000;
-  --cap-outline: #f8f8f2;
-  --cap-shadow-color: #471396;
-  --cap-marketing-surface: #080808;
-  --cap-marketing-muted: #141414;
-  --cap-marketing-text-muted: #cfcbd6;
-  --background: #000000;
-  --foreground: #f8f8f2;
-  --card: #080808;
-  --card-foreground: #f8f8f2;
-  --popover: #080808;
-  --popover-hover: #160326;
-  --popover-foreground: #ffffff;
-  --primary: #b13bff;
-  --primary-foreground: #ffffff;
-  --secondary: #471396;
-  --secondary-border: #b13bff;
-  --secondary-foreground: #ffffff;
-  --muted: #141414;
-  --muted-foreground: #cfcbd6;
-  --accent: #1a062a;
-  --accent-foreground: #f8f8f2;
-  --destructive: #ff3b30;
-  --destructive-foreground: #ffffff;
-  --constructive: #19e68c;
-  --constructive-foreground: #000000;
-  --caution: #b13bff;
-  --caution-foreground: #000000;
-  --border: #471396;
-  --input: #080808;
-  --ring: #b13bff;
-  --sidebar-background: #000000;
-  --sidebar-foreground: #f8f8f2;
-  --sidebar-primary: #b13bff;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #160326;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #471396;
-  --sidebar-ring: #b13bff;
-  --sidebar: #000000;
+  --app-bg: #242423;
+  --surface: #2D2D2B;
+  --surface-raised: #353533;
+  --surface-muted: #1D1D1C;
+  --card-dark: #090909;
+  --text-primary: #F7F3EA;
+  --text-secondary: #BBB7AE;
+  --border-strong: #090909;
+  --border-on-black: #575752;
+  --shadow-light: #F4F0E7;
+  --shadow-strong: var(--shadow-light);
+  --input-bg: #1A1A19;
+  --cap-paper: var(--app-bg);
+  --cap-outline: var(--border-strong);
+  --cap-shadow-color: var(--shadow-light);
+  --cap-marketing-surface: var(--surface);
+  --cap-marketing-muted: var(--surface-muted);
+  --cap-marketing-text-muted: var(--text-secondary);
+  --background: var(--app-bg);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-hover: var(--surface-muted);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--neo-green);
+  --primary-foreground: var(--neo-black);
+  --secondary: var(--surface);
+  --secondary-border: var(--border-on-black);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --destructive: var(--neo-coral);
+  --destructive-foreground: var(--neo-black);
+  --constructive: var(--neo-teal);
+  --constructive-foreground: var(--neo-black);
+  --caution: var(--neo-yellow);
+  --caution-foreground: var(--neo-black);
+  --border: var(--border-on-black);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
+  --sidebar-background: var(--surface-muted);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--neo-green);
+  --sidebar-primary-foreground: var(--neo-black);
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-on-black);
+  --sidebar-ring: var(--neo-green);
+  --sidebar: var(--surface-muted);
 }
 
 .dark .panel {
-  --background: #111111;
-  --foreground: #f8f8f2;
-  --card: #111111;
-  --card-foreground: #f8f8f2;
-  --secondary: #171717;
-  --secondary-border: #4a4a4a;
-  --secondary-foreground: #f8f8f2;
-  --muted: #202020;
-  --muted-foreground: #b7b7b7;
-  --accent: #202020;
-  --accent-foreground: #f8f8f2;
-  --border: #4a4a4a;
-  --input: #171717;
-  --ring: #b13bff;
+  --background: var(--surface);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --secondary: var(--surface-muted);
+  --secondary-border: var(--border-on-black);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --border: var(--border-on-black);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
 }
 
 @layer base {
@@ -190,7 +220,7 @@
   h4,
   h5,
   h6 {
-    font-family: var(--font-archivo-black), sans-serif;
+    font-family: var(--font-inter), sans-serif;
     letter-spacing: 0;
   }
   input[type="checkbox"] {
@@ -216,8 +246,8 @@
   --breakpoint-xs: 30rem;
 
   /* Typography */
-  --font-sans: var(--font-space-grotesk), sans-serif;
-  --font-display: var(--font-archivo-black), sans-serif;
+  --font-sans: var(--font-inter), sans-serif;
+  --font-display: var(--font-inter), sans-serif;
 
   /* Font sizes */
   --text-xs: 0.72rem;
@@ -310,14 +340,14 @@
 @layer components {
   .marketing-theme {
     background: var(--cap-paper);
-    color: var(--cap-outline);
-    font-family: var(--font-space-grotesk), sans-serif;
+    color: var(--foreground);
+    font-family: var(--font-inter), sans-serif;
     --background: var(--cap-paper);
-    --foreground: var(--cap-outline);
+    --foreground: var(--text-primary);
     --card: var(--cap-marketing-surface);
-    --card-foreground: var(--cap-outline);
+    --card-foreground: var(--text-primary);
     --popover: var(--cap-marketing-surface);
-    --popover-foreground: var(--cap-outline);
+    --popover-foreground: var(--text-primary);
     --muted: var(--cap-marketing-muted);
     --muted-foreground: var(--cap-marketing-text-muted);
     --accent: var(--cap-marketing-muted);
@@ -337,14 +367,14 @@
   }
 
   .cap-focus:focus-visible {
-    outline-color: var(--cap-purple-600);
-    box-shadow: 0 0 0 3px var(--cap-purple-dark);
+    outline-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
   }
 
   .marketing-header {
     border-color: var(--cap-outline);
-    background: color-mix(in srgb, var(--cap-paper) 94%, transparent);
-    color: var(--cap-outline);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    color: var(--foreground);
   }
 
   .dark .marketing-theme .text-black\/65,
@@ -372,20 +402,28 @@
   .projects-shell {
     background-color: var(--background);
     background-image:
-      linear-gradient(color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px),
-      linear-gradient(90deg, color-mix(in srgb, var(--border) 48%, transparent) 1px, transparent 1px);
+      linear-gradient(color-mix(in srgb, var(--border) 34%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--border) 34%, transparent) 1px, transparent 1px);
     background-size: 32px 32px;
   }
 
+  .projects-shell .project-card {
+    box-shadow: 4px 4px 0 var(--shadow-strong);
+  }
+
+  .dark .projects-shell .project-card {
+    box-shadow: 4px 4px 0 var(--shadow-light);
+  }
+
   .editor-shell .panel {
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--card);
-    box-shadow: none;
+    background: var(--panel-bg);
+    box-shadow: 3px 3px 0 var(--shadow-strong);
   }
 
   .editor-shell .editor-panel {
-    background: var(--card);
+    background: var(--panel-bg);
   }
 
   .editor-shell :is(.panel, .editor-panel, [data-radix-scroll-area-viewport]) {
@@ -398,6 +436,20 @@
 
   .editor-shell :is(button, [role="button"], input, textarea, select, [data-slot="select-trigger"]) {
     border-radius: var(--radius-sm);
+  }
+
+  .editor-shell :is(button, [role="button"]) {
+    border-width: 2px;
+  }
+
+  .editor-shell :is(input, textarea, select, [data-slot="select-trigger"]) {
+    border-width: 2px;
+    background: var(--input);
+  }
+
+  .admin-shell {
+    background: var(--background);
+    color: var(--foreground);
   }
 
   .editor-shell :is(button, [role="button"]):hover {
@@ -415,7 +467,7 @@
 
   .editor-shell [data-timeline-element-selected="true"] {
     border-color: var(--primary) !important;
-    box-shadow: var(--neo-shadow-sm) !important;
+    box-shadow: 0 0 0 2px var(--primary), 3px 3px 0 var(--shadow-strong) !important;
   }
 
   .editor-shell [data-slot="slider-track"] {
@@ -543,10 +595,10 @@
     box-shadow: 3px 3px 0 #111;
   }
   .preset-word-0 { background: var(--cap-yellow); border-radius: .4rem; }
-  .preset-word-1 { background: white; color: var(--cap-purple-800); transform: rotate(-2deg); }
+  .preset-word-1 { background: var(--neo-blue); color: var(--neo-black); transform: rotate(-2deg); }
   .preset-word-2 { background: rgba(17,17,17,.78); color: white; border-color: white; box-shadow: none; letter-spacing: .08em; }
   .preset-word-3 { background: #bde0ff; border-radius: 999px; }
-  .preset-word-4 { background: var(--cap-purple-bright); font-size: clamp(.8rem, 1.5vw, 1.2rem); transform: rotate(2deg); }
+  .preset-word-4 { background: var(--neo-pink); color: var(--neo-black); font-size: clamp(.8rem, 1.5vw, 1.2rem); transform: rotate(2deg); }
   .preset-word-5 { background: white; letter-spacing: -.04em; }
 }
 
@@ -613,10 +665,10 @@
 
 /* ---- Capinsta brand tokens + Neubrutalist landing utilities ---- */
 @theme inline {
-  --color-brand: hsl(262, 83%, 58%);
-  --color-brand-foreground: hsl(0, 0%, 100%);
-  --color-brand-strong: hsl(262, 83%, 50%);
-  --color-ink: hsl(270, 20%, 8%);
+  --color-brand: var(--neo-green);
+  --color-brand-foreground: var(--neo-black);
+  --color-brand-strong: var(--neo-teal);
+  --color-ink: var(--neo-black);
 }
 
 /* Hard offset shadow used on cards/buttons in the landing surface. */

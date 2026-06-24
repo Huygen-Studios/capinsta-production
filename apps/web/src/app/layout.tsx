@@ -6,21 +6,15 @@ import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData, viewportTheme } from "./metadata";
 import { webEnv } from "@/env/web";
-import { Archivo_Black, Space_Grotesk } from "next/font/google";
+import { Inter } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
 import { RouteCookieConsent } from "@/components/route-cookie-consent";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
 import { GoogleAnalyticsProvider } from "@/components/analytics/google-analytics-provider";
 
-const siteFont = Space_Grotesk({
+const siteFont = Inter({
 	subsets: ["latin"],
-	variable: "--font-space-grotesk",
-	weight: ["400", "500", "600", "700"],
-});
-const displayFont = Archivo_Black({
-	subsets: ["latin"],
-	variable: "--font-archivo-black",
-	weight: "400",
+	variable: "--font-inter",
 });
 
 export const metadata = baseMetaData;
@@ -35,7 +29,7 @@ export default function RootLayout({
 		<html lang="en" suppressHydrationWarning>
 			<head />
 			<body
-				className={`${siteFont.variable} ${displayFont.variable} font-sans antialiased`}
+				className={`${siteFont.variable} font-sans antialiased`}
 			>
 				<GoogleAnalyticsProvider />
 				<ThemeProvider
