@@ -179,18 +179,12 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
     database_url = _database_url()
     if database_url and psycopg is not None:
         try:
-            with psycopg.connect(database_url, row_factory=dict_row, connect_timeout=4) as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        """
-                        SELECT id, provider, model, provider_options, timestamp_strategy,
-                               strict_provider, version, pipeline_options
-                        FROM transcription_configurations
-                        WHERE status = 'active'
-                        LIMIT 1
-                        """
-                    )
-                    row = cursor.fetchone()
+            try:
+                row = _active_config_row(database_url, include_pipeline_options=True)
+            except Exception as exc:
+                if "pipeline_options" not in str(exc):
+                    raise
+                row = _active_config_row(database_url, include_pipeline_options=False)
             snapshot = _snapshot_from_row(row) if row else _env_snapshot()
             _CACHE = (now, snapshot)
             return snapshot
@@ -206,6 +200,22 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
     snapshot = _env_snapshot()
     _CACHE = (now, snapshot)
     return snapshot
+
+
+def _active_config_row(database_url: str, *, include_pipeline_options: bool) -> dict[str, Any] | None:
+    pipeline_select = ", pipeline_options" if include_pipeline_options else ""
+    with psycopg.connect(database_url, row_factory=dict_row, connect_timeout=4) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT id, provider, model, provider_options, timestamp_strategy,
+                       strict_provider, version{pipeline_select}
+                FROM transcription_configurations
+                WHERE status = 'active'
+                LIMIT 1
+                """
+            )
+            return cursor.fetchone()
 
 
 def _circuit_key(snapshot: TranscriptionConfigSnapshot) -> tuple[str, str, int]:

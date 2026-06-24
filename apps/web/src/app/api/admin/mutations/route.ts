@@ -6,6 +6,10 @@ import { invalidateSiteAccessPolicy } from "@/access/server";
 import { recordAdminAuditEvent } from "@/admin/audit";
 import { adminBackendFetch } from "@/admin/backend";
 import {
+	getAdminTranscriptionConfiguration,
+	transcriptionPipelineOptionsColumnExists,
+} from "@/admin/transcription-config-db";
+import {
 	requireAdminPermission,
 	requireRecentMfaForSensitiveAction,
 	RecentMfaRequiredError,
@@ -285,6 +289,27 @@ const schema = z.discriminatedUnion("action", [
 		reason,
 	}),
 ]);
+
+const transcriptionConfigurationReturning = {
+	id: transcriptionConfigurations.id,
+	provider: transcriptionConfigurations.provider,
+	model: transcriptionConfigurations.model,
+	providerOptions: transcriptionConfigurations.providerOptions,
+	timestampStrategy: transcriptionConfigurations.timestampStrategy,
+	strictProvider: transcriptionConfigurations.strictProvider,
+	status: transcriptionConfigurations.status,
+	version: transcriptionConfigurations.version,
+	testStatus: transcriptionConfigurations.testStatus,
+	testedAt: transcriptionConfigurations.testedAt,
+	testedBy: transcriptionConfigurations.testedBy,
+	testErrorCode: transcriptionConfigurations.testErrorCode,
+	testLatencyMs: transcriptionConfigurations.testLatencyMs,
+	activatedAt: transcriptionConfigurations.activatedAt,
+	activatedBy: transcriptionConfigurations.activatedBy,
+	activationReason: transcriptionConfigurations.activationReason,
+	createdAt: transcriptionConfigurations.createdAt,
+	updatedAt: transcriptionConfigurations.updatedAt,
+};
 
 type Mutation = z.infer<typeof schema>;
 
@@ -860,35 +885,36 @@ export async function POST(request: Request) {
 				)
 					throw new Error("invalid_provider_options");
 				beforeValue = null;
+				const hasPipelineOptions =
+					await transcriptionPipelineOptionsColumnExists(tx);
+				const createValues = {
+					provider: value.provider,
+					model: value.model,
+					providerOptions,
+					timestampStrategy: entry.timestampStrategy,
+					strictProvider: true,
+					status: "draft",
+					testStatus: "untested",
+				};
+				const values = hasPipelineOptions
+					? { ...createValues, pipelineOptions: resolvedPipelineOptions }
+					: createValues;
 				const [created] = await tx
 					.insert(transcriptionConfigurations)
-					.values({
-						provider: value.provider,
-						model: value.model,
-						providerOptions,
-						pipelineOptions: resolvedPipelineOptions,
-						timestampStrategy: entry.timestampStrategy,
-						strictProvider: true,
-						status: "draft",
-						testStatus: "untested",
-					})
-					.returning();
-				afterValue = created;
+					.values(values)
+					.returning(transcriptionConfigurationReturning);
+				afterValue = { ...created, pipelineOptions: resolvedPipelineOptions };
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: created.id,
 					version: created.version,
 					action: "create_draft",
 					beforeSnapshot: beforeValue,
-					afterSnapshot: created,
+					afterSnapshot: afterValue,
 					reason: value.reason,
 					changedBy: context!.userId,
 				});
 			} else if (value.action === "transcription.config.test") {
-				const [current] = await tx
-					.select()
-					.from(transcriptionConfigurations)
-					.where(eq(transcriptionConfigurations.id, value.targetId))
-					.limit(1);
+				const current = await getAdminTranscriptionConfiguration(tx, value.targetId);
 				if (!current) throw new Error("target_not_found");
 				if (current.version !== value.version) throw new Error("stale_configuration");
 				const entry = getTranscriptionCatalogEntry({
@@ -939,8 +965,8 @@ export async function POST(request: Request) {
 						updatedAt: new Date(),
 					})
 					.where(eq(transcriptionConfigurations.id, current.id))
-					.returning();
-				afterValue = tested;
+					.returning(transcriptionConfigurationReturning);
+				afterValue = { ...tested, pipelineOptions: current.pipelineOptions };
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: current.id,
 					version: current.version,
@@ -951,11 +977,7 @@ export async function POST(request: Request) {
 					changedBy: context!.userId,
 				});
 			} else if (value.action === "transcription.config.activate") {
-				const [current] = await tx
-					.select()
-					.from(transcriptionConfigurations)
-					.where(eq(transcriptionConfigurations.id, value.targetId))
-					.limit(1);
+				const current = await getAdminTranscriptionConfiguration(tx, value.targetId);
 				if (!current) throw new Error("target_not_found");
 				if (current.version !== value.version) throw new Error("stale_configuration");
 				if (current.testStatus !== "passed") throw new Error("untested_configuration");
@@ -981,8 +1003,8 @@ export async function POST(request: Request) {
 						updatedAt: new Date(),
 					})
 					.where(eq(transcriptionConfigurations.id, current.id))
-					.returning();
-				afterValue = activated;
+					.returning(transcriptionConfigurationReturning);
+				afterValue = { ...activated, pipelineOptions: current.pipelineOptions };
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: current.id,
 					version: activated.version,
@@ -993,11 +1015,7 @@ export async function POST(request: Request) {
 					changedBy: context!.userId,
 				});
 			} else if (value.action === "transcription.config.deactivate") {
-				const [current] = await tx
-					.select()
-					.from(transcriptionConfigurations)
-					.where(eq(transcriptionConfigurations.id, value.targetId))
-					.limit(1);
+				const current = await getAdminTranscriptionConfiguration(tx, value.targetId);
 				if (!current) throw new Error("target_not_found");
 				beforeValue = current;
 				const [deactivated] = await tx
@@ -1008,8 +1026,8 @@ export async function POST(request: Request) {
 						updatedAt: new Date(),
 					})
 					.where(eq(transcriptionConfigurations.id, current.id))
-					.returning();
-				afterValue = deactivated;
+					.returning(transcriptionConfigurationReturning);
+				afterValue = { ...deactivated, pipelineOptions: current.pipelineOptions };
 				await tx.insert(transcriptionConfigurationVersions).values({
 					configurationId: current.id,
 					version: deactivated.version,
