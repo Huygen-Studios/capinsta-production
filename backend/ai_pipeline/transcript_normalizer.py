@@ -3,6 +3,7 @@ import os
 from typing import Any
 
 from .audio import Chunk
+from .pipeline_config import CaptionPipelineConfig, resolve_pipeline_config
 from .language_modes import (
     final_text_requires_romanization,
     normalize_caption_text,
@@ -96,6 +97,18 @@ def _detect_provider_timestamp_basis(raw_words: list[dict[str, Any]], chunk: Chu
     return "chunk_local"
 
 
+def _provider_declared_timestamp_basis(metadata: dict[str, Any]) -> str | None:
+    value = str(metadata.get("timestampBasis") or metadata.get("timestamp_basis") or "").strip().lower()
+    if value in {"chunk_local", "absolute", "full_audio", "none"}:
+        return value
+    return None
+
+
+def _is_estimated_timing_source(value: Any) -> bool:
+    source = str(value or "").lower()
+    return any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "fallback"))
+
+
 def _provider_time_warnings(raw_words: list[dict[str, Any]], chunk: Chunk, basis: str) -> list[str]:
     warnings: list[str] = []
     duration = _chunk_duration(chunk)
@@ -167,6 +180,10 @@ def _normalize_word(raw_word: dict[str, Any], language_mode: str) -> dict[str, A
         normalized["timingSource"] = raw_word["timingSource"]
     if raw_word.get("provider"):
         normalized["provider"] = raw_word["provider"]
+    if raw_word.get("timestampBasis") or raw_word.get("timestamp_basis"):
+        normalized["timestampBasis"] = raw_word.get("timestampBasis") or raw_word.get("timestamp_basis")
+    if raw_word.get("chunkIndex") is not None:
+        normalized["chunkIndex"] = raw_word.get("chunkIndex")
     if end <= start:
         normalized["end"] = round(start + MIN_WORD_DURATION, 3)
         _mark_timing_repaired(
@@ -601,9 +618,11 @@ def build_word_timed_transcript_from_chunks(
     language_mode: str,
     speech_segments: list[dict[str, Any]] | None = None,
     chunk_audit: list[dict[str, Any]] | None = None,
+    pipeline_config: CaptionPipelineConfig | dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
     mode = normalize_language_mode(language_mode)
+    resolved_config = pipeline_config if isinstance(pipeline_config, CaptionPipelineConfig) else resolve_pipeline_config(pipeline_config if isinstance(pipeline_config, dict) else None)
     emitted_until = -0.001
     recent_words: list[str] = []
     recent_emitted: list[tuple[str, float, float]] = []
@@ -625,6 +644,7 @@ def build_word_timed_transcript_from_chunks(
             "absoluteFirstWords": [],
             "absoluteLastWords": [],
             "timestampBasis": "chunk_local",
+            "timestampBasisSource": "fallback",
             "warnings": [],
             "droppedDuplicateWords": 0,
             "speechSpanRetimedWords": 0,
@@ -639,8 +659,19 @@ def build_word_timed_transcript_from_chunks(
                 "Whisper provider that returns word timestamps."
             )
 
-        timestamp_basis = _detect_provider_timestamp_basis(raw_words, chunk)
+        declared_basis = _provider_declared_timestamp_basis(metadata)
+        if declared_basis == "none":
+            audit_entry["timestampBasis"] = "none"
+            audit_entry["timestampBasisSource"] = "provider_declared"
+            audit_entry["warnings"].append("provider declared no native word timestamp basis")
+            if chunk_audit is not None:
+                chunk_audit.append(audit_entry)
+            raise TranscriptValidationError("Provider did not return native word timestamps for this chunk.")
+        timestamp_basis = declared_basis or _detect_provider_timestamp_basis(raw_words, chunk)
         audit_entry["timestampBasis"] = timestamp_basis
+        audit_entry["timestampBasisSource"] = "provider_declared" if declared_basis else "heuristic_fallback"
+        if not declared_basis:
+            audit_entry["warnings"].append("provider did not declare timestamp basis; heuristic fallback used")
         audit_entry["warnings"].extend(_provider_time_warnings(raw_words, chunk, timestamp_basis))
 
         absolute_words: list[dict[str, Any]] = []
@@ -650,10 +681,10 @@ def build_word_timed_transcript_from_chunks(
             if start is None or end is None:
                 continue
 
-            if timestamp_basis == "absolute":
+            if timestamp_basis in {"absolute", "full_audio"}:
                 absolute_start = start
                 absolute_end = end
-                timing_source = "provider_word_absolute_detected"
+                timing_source = "provider_word_absolute"
             else:
                 absolute_start = float(chunk.start_time) + start
                 absolute_end = float(chunk.start_time) + end
@@ -688,6 +719,32 @@ def build_word_timed_transcript_from_chunks(
         normalized_words = [
             w for w in (_normalize_word(w, mode) for w in absolute_words) if w
         ]
+        estimated_count = sum(
+            1
+            for word in normalized_words
+            if _is_estimated_timing_source(word.get("timing_source") or word.get("timingSource"))
+        )
+        if estimated_count:
+            estimated_ratio = estimated_count / max(1, len(normalized_words))
+            audit_entry["estimatedWordCount"] = estimated_count
+            audit_entry["estimatedWordRatio"] = round(estimated_ratio, 4)
+            if resolved_config.timingSourcePolicy != "estimated_debug_only" and not resolved_config.quality.allowEstimatedWords:
+                audit_entry["warnings"].append(f"estimated timing rejected by policy ({estimated_count} word(s))")
+                if chunk_audit is not None:
+                    chunk_audit.append(audit_entry)
+                raise TranscriptValidationError(
+                    "Provider returned estimated word timing; configured timing policy requires native or real forced alignment."
+                )
+            if (
+                resolved_config.timingSourcePolicy != "estimated_debug_only"
+                and estimated_ratio > resolved_config.quality.maximumEstimatedWordRatio
+            ):
+                audit_entry["warnings"].append(
+                    f"estimated timing ratio {estimated_ratio:.3f} exceeds configured maximum"
+                )
+                if chunk_audit is not None:
+                    chunk_audit.append(audit_entry)
+                raise TranscriptValidationError("Estimated word timing ratio exceeds configured maximum.")
         if not normalized_words:
             audit_entry["warnings"].append("no usable word timestamps after normalization")
             if chunk_audit is not None:

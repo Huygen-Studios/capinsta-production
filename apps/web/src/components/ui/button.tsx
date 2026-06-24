@@ -4,27 +4,29 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/utils/ui";
 
 const buttonVariants = cva(
-	"inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[transform,box-shadow,background-color,color] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary/35 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+	"inline-flex items-center cursor-pointer justify-center gap-2 whitespace-nowrap rounded-sm border border-transparent text-sm font-bold transition-[transform,box-shadow,background-color,color,border-color] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-primary/35 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: {
-				default: "bg-foreground text-background hover:bg-foreground/90",
-				background: "bg-background text-foreground hover:bg-background/90",
+				default:
+					"border-black bg-primary text-primary-foreground shadow-[3px_3px_0_var(--secondary)] hover:-translate-y-0.5 hover:shadow-[4px_4px_0_var(--secondary)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0_#000]",
+				background: "border-border bg-background text-foreground hover:bg-accent",
 				destructive:
-					"bg-destructive text-destructive-foreground hover:bg-destructive/80",
+					"border-black bg-destructive text-destructive-foreground shadow-[2px_2px_0_#000] hover:-translate-y-0.5",
 				"destructive-foreground":
-					"border bg-background hover:bg-destructive/15 text-destructive",
+					"border border-destructive bg-background hover:bg-destructive/15 text-destructive",
 				caution: "text-caution hover:bg-caution/10",
-				outline: "border border-border bg-background text-foreground hover:bg-accent",
+				outline:
+					"border border-border bg-background text-foreground hover:border-primary hover:bg-accent",
 				secondary:
 					"bg-secondary text-secondary-foreground border border-secondary-border",
-				text: "bg-transparent rounded-none opacity-100 hover:opacity-75",
-				ghost: "bg-transparent text-foreground hover:bg-accent",
+				text: "border-0 bg-transparent rounded-none opacity-100 hover:opacity-75",
+				ghost: "border border-transparent bg-transparent text-foreground hover:border-border hover:bg-accent",
 				link: "text-primary underline-offset-4 hover:underline !p-0 !h-auto",
 				brutal:
-					"rounded-lg border-2 border-[var(--cap-outline)] bg-[var(--cap-purple-600)] text-white shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
+					"rounded-sm border-2 border-[var(--cap-outline)] bg-[var(--cap-purple-600)] text-white shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
 				lime:
-					"rounded-lg border-2 border-[var(--cap-outline)] bg-[var(--cap-lime)] text-[#111] shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
+					"rounded-sm border-2 border-[var(--cap-outline)] bg-[var(--cap-lime)] text-[#111] shadow-[4px_4px_0_var(--cap-shadow-color)] hover:-translate-y-0.5 hover:shadow-[6px_6px_0_var(--cap-shadow-color)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[2px_2px_0_var(--cap-shadow-color)]",
 			},
 			size: {
 				default: "h-9 px-4 py-2",

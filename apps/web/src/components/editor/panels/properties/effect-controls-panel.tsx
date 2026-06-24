@@ -157,7 +157,7 @@ export function EffectControlsShell({
 }) {
 	return (
 		<div className={cn("panel editor-panel flex h-full min-h-0 flex-col overflow-hidden", className)}>
-			<div className="sticky top-0 z-10 shrink-0 border-b bg-background/95 px-3 py-2 backdrop-blur">
+			<div className="sticky top-0 z-10 shrink-0 border-b bg-background px-3 py-2">
 				<h2 className="text-sm font-semibold tracking-wide">Effect Controls</h2>
 			</div>
 			{children}

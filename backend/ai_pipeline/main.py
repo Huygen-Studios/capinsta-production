@@ -27,6 +27,7 @@ from .sync.auto_sync import apply_auto_sync_if_confident
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement
 from .sync.pause_preserver import preserve_detected_pauses
+from .pipeline_config import resolve_pipeline_config
 from .timing import (
     alignment_provider_status,
     annotate_word_timing_sources,
@@ -129,6 +130,44 @@ def _log_caption_timing_debug(
             for word in aligned_words[:50]
         ],
     )
+
+
+def _chunks_have_provider_words(chunks: list[Any]) -> bool:
+    text_chunks = [chunk for chunk in chunks if str(getattr(chunk, "final_text", "") or getattr(chunk, "raw_text", "") or "").strip()]
+    if not text_chunks:
+        return False
+    for chunk in text_chunks:
+        metadata = getattr(chunk, "asr_metadata", None) or {}
+        basis = str(metadata.get("timestamp_basis") or metadata.get("timestampBasis") or "").lower()
+        if basis == "none":
+            return False
+        words = metadata.get("words") or []
+        if not isinstance(words, list) or not words:
+            return False
+        for word in words:
+            source = str(
+                (word or {}).get("timingSource")
+                or (word or {}).get("timing_source")
+                or ""
+            ).lower()
+            if any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "fallback")):
+                return False
+    return True
+
+
+def _caption_chunking_rules(config: Any) -> dict[str, Any]:
+    chunking = config.captionChunking
+    return {
+        "target_words": chunking.targetWords,
+        "max_words": chunking.maxWords,
+        "min_words": chunking.minWords,
+        "max_chars": chunking.maxCharacters,
+        "min_duration": chunking.minDurationSeconds,
+        "max_duration": chunking.maxDurationSeconds,
+        "pause_split_threshold": chunking.pauseSplitThresholdSeconds,
+        "merge_gap": chunking.mergeGapSeconds,
+        "phrase_hold": chunking.phraseHoldSeconds,
+    }
     logger.info("caption_timing_debug silenceGaps=%r", qualifying_gaps[:80])
     logger.info(
         "caption_timing_debug captionChunks=%r",
@@ -175,6 +214,7 @@ def run_pipeline(
     transcription_providers: set[str] = set()
     transcription_fallback_from: set[str] = set()
     active_snapshot = coerce_snapshot(transcription_config_snapshot)
+    pipeline_config = resolve_pipeline_config(active_snapshot.resolved_pipeline_options if active_snapshot else None)
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -381,17 +421,33 @@ def run_pipeline(
         emit_progress("romanizing", 70, "Romanizing and validating transcript text.")
 
         chunk_audit: list[dict[str, Any]] = []
-        use_provider_word_timing = language_mode in CODE_MIXED_LANGUAGE_MODES or (
-            language_mode == "telugu" and selected_provider == "sarvam"
+        has_provider_word_timing = _chunks_have_provider_words(processed_chunks)
+        use_provider_word_timing = (
+            pipeline_config.timingSourcePolicy != "forced"
+            and has_provider_word_timing
         )
+        if pipeline_config.timingSourcePolicy == "native_required" and not has_provider_word_timing:
+            raise TranscriptValidationError(
+                "Configured timing policy requires native provider word timestamps, but the provider did not return them."
+            )
         if use_provider_word_timing:
             clamped_segments = build_word_timed_transcript_from_chunks(
                 processed_chunks,
                 language_mode,
                 speech_segments=vad_report.get("speechSegments") or [],
                 chunk_audit=chunk_audit,
+                pipeline_config=pipeline_config,
+            )
+            _stage_log(
+                "provider word timestamps preserved",
+                timing_source_policy=pipeline_config.timingSourcePolicy,
+                chunk_count=len(processed_chunks),
             )
         else:
+            if pipeline_config.timingSourcePolicy == "native_required":
+                raise TranscriptValidationError(
+                    "Configured timing policy requires native provider word timestamps, but native timing was unavailable."
+                )
             merged_text, merged_segments = merge_chunks(processed_chunks)
             _stage_log(
                 "word timestamps normalized",
@@ -492,7 +548,11 @@ def run_pipeline(
         )
         sync_report["pausePreservation"] = pause_preservation_report
         aligned_words = canonical_aligned_words_from_segments(clamped_segments)
-        rebuilt_from_aligned_words = build_segments_from_aligned_words(aligned_words)
+        caption_chunking_rules = _caption_chunking_rules(pipeline_config)
+        rebuilt_from_aligned_words = build_segments_from_aligned_words(
+            aligned_words,
+            chunking_rules=caption_chunking_rules,
+        )
         if rebuilt_from_aligned_words:
             clamped_segments = rebuilt_from_aligned_words
             sync_report["captionBuild"] = {
@@ -500,6 +560,7 @@ def run_pipeline(
                 "alignedWordCount": len(aligned_words),
                 "captionBlockCount": len(clamped_segments),
                 "estimatedWordCount": sum(1 for word in aligned_words if word.get("timingNeedsReview") or word.get("timingReviewRequired")),
+                "chunkingRules": caption_chunking_rules,
             }
         clamped_segments = annotate_word_timing_sources(clamped_segments)
         aligned_words = canonical_aligned_words_from_segments(clamped_segments)
@@ -592,6 +653,8 @@ def run_pipeline(
                 "duration": vad_report.get("audioDuration"),
             },
             "timing": {
+                "configurationAppliedExactly": bool(active_snapshot),
+                "resolvedPipelineOptions": pipeline_config.to_dict(),
                 "alignment": timing_provider_status,
                 "vad": vad_report,
                 "report": timing_report,

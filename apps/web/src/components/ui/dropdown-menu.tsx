@@ -36,7 +36,7 @@ const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
 const dropdownMenuItemVariants = cva(
-	"relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2.5 py-1.5 text-sm text-foreground/85 outline-hidden data-[highlighted]:bg-popover-hover data-disabled:pointer-events-none data-disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
+	"relative flex cursor-pointer select-none items-center gap-2 rounded-xs border border-transparent px-2.5 py-1.5 text-sm text-foreground/90 outline-hidden data-[highlighted]:border-primary data-[highlighted]:bg-popover-hover data-disabled:pointer-events-none data-disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
 	{
 		variants: {
 			variant: {
@@ -82,7 +82,7 @@ const DropdownMenuSubContent = React.forwardRef<
 	<DropdownMenuPrimitive.SubContent
 		ref={ref}
 		className={cn(
-			"group/menu bg-popover text-popover-foreground z-50 min-w-32 overflow-hidden rounded-md border p-1 shadow-lg",
+			"group/menu bg-popover text-popover-foreground z-50 min-w-32 overflow-hidden rounded-sm border p-1 shadow-[3px_3px_0_#000]",
 			className,
 		)}
 		{...props}
@@ -104,7 +104,7 @@ const DropdownMenuContent = React.forwardRef<
 				e.preventDefault();
 			}}
 			className={cn(
-				"group/menu bg-popover text-popover-foreground z-50 min-w-32 overflow-hidden rounded-md border p-1 shadow-lg",
+				"group/menu bg-popover text-popover-foreground z-50 min-w-32 overflow-hidden rounded-sm border p-1 shadow-[3px_3px_0_#000]",
 				className,
 			)}
 			{...props}
@@ -140,13 +140,13 @@ const DropdownMenuItem = React.forwardRef<
 		);
 
 		const renderedChildren =
-			asChild && React.isValidElement(children) ? (
+			asChild &&
+			React.isValidElement<{ children?: React.ReactNode }>(children) ? (
 				React.cloneElement(
-					children as React.ReactElement<{ children?: React.ReactNode }>,
+					children,
 					{},
 					iconSlot,
-					(children as React.ReactElement<{ children?: React.ReactNode }>).props
-						.children,
+					children.props.children,
 				)
 			) : (
 				<>

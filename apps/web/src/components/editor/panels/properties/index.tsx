@@ -18,6 +18,14 @@ import { cn } from "@/utils/ui";
 
 type CaptionPanelTab = "effects" | "editor";
 
+const CAPTION_INSPECTOR_TABS: ReadonlyArray<{
+	tab: CaptionPanelTab;
+	label: string;
+}> = [
+	{ tab: "effects", label: "Effect Controls" },
+	{ tab: "editor", label: "Caption Editor" },
+];
+
 function CaptionInspectorTabs({
 	activeTab,
 	onChange,
@@ -26,21 +34,18 @@ function CaptionInspectorTabs({
 	onChange: (tab: CaptionPanelTab) => void;
 }) {
 	return (
-		<div className="flex shrink-0 border-b px-2 py-2">
-			{[
-				["effects", "Effect Controls"],
-				["editor", "Caption Editor"],
-			].map(([tab, label]) => (
+		<div className="flex shrink-0 gap-1 border-b px-2 py-2">
+			{CAPTION_INSPECTOR_TABS.map(({ tab, label }) => (
 				<button
 					key={tab}
 					type="button"
 					className={cn(
-						"rounded-sm px-2 py-1 text-xs font-medium",
+						"rounded-sm border px-2 py-1 text-xs font-bold",
 						activeTab === tab
-							? "bg-accent text-foreground"
-							: "text-muted-foreground hover:bg-accent/60",
+							? "border-primary bg-secondary text-secondary-foreground shadow-[2px_2px_0_#000]"
+							: "border-border text-muted-foreground hover:bg-accent/60",
 					)}
-					onClick={() => onChange(tab as CaptionPanelTab)}
+					onClick={() => onChange(tab)}
 				>
 					{label}
 				</button>

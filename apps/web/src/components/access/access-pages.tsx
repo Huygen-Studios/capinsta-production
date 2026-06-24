@@ -88,30 +88,20 @@ export function MaintenancePage({ policy }: { policy: SitePolicy }) {
 }
 
 export function EarlyAccessPage({ context }: { context: AccessContext }) {
-	const verified = context.emailConfirmedAt ? "Verified" : "Not verified yet";
 	return (
 		<main className="grid min-h-svh place-items-center bg-background px-6 text-foreground">
-			<section className="w-full max-w-xl rounded-lg border-2 bg-card p-6 shadow-[4px_4px_0_var(--foreground)]">
+			<section className="w-full max-w-xl rounded-sm border-2 bg-card p-6 shadow-[5px_5px_0_var(--secondary)]">
 				<LogoStatic variant="wordmark" height={36} alt="Capinsta" priority />
 				<h1 className="mt-8 font-display text-3xl font-black">
-					Your Capinsta account is ready.
+					Thanks for joining waitlist.
 				</h1>
 				<p className="mt-3 text-muted-foreground">
-					We&apos;re currently inviting users in small groups. You&apos;ll receive access
-					when your account is approved.
+					We&apos;ll email you as soon as your Capinsta access is ready.
 				</p>
-				<dl className="mt-6 grid gap-3 rounded-md border bg-background p-4 text-sm">
+				<dl className="mt-6 grid gap-3 rounded-sm border bg-background p-4 text-sm">
 					<div className="flex justify-between gap-4">
 						<dt className="text-muted-foreground">Email</dt>
 						<dd className="font-mono">{context.email ?? "Unavailable"}</dd>
-					</div>
-					<div className="flex justify-between gap-4">
-						<dt className="text-muted-foreground">Verification</dt>
-						<dd>{verified}</dd>
-					</div>
-					<div className="flex justify-between gap-4">
-						<dt className="text-muted-foreground">Access status</dt>
-						<dd>{context.productAccessExpired ? "expired" : context.productAccessStatus}</dd>
 					</div>
 				</dl>
 				<div className="mt-6">

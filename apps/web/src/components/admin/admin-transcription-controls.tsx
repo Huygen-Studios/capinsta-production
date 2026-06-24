@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { CheckCircle2, CircleAlert, FlaskConical, Power, Save } from "lucide-react";
-import { TRANSCRIPTION_PROVIDER_CATALOG, defaultProviderOptions, isTranscriptionProvider, type TranscriptionProvider } from "@/transcription/provider-catalog";
+import { DEFAULT_PIPELINE_OPTIONS, TRANSCRIPTION_PROVIDER_CATALOG, defaultProviderOptions, isTranscriptionProvider, type TranscriptionProvider } from "@/transcription/provider-catalog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ type Configuration = {
 	provider: TranscriptionProvider;
 	model: string;
 	providerOptions: Record<string, unknown>;
+	pipelineOptions: Record<string, unknown>;
 	timestampStrategy: string;
 	status: string;
 	version: number;
@@ -93,6 +94,7 @@ export function AdminTranscriptionControls({
 						<div><Label>Provider</Label><p className="font-semibold">{active?.provider ?? "Backend env fallback"}</p></div>
 						<div><Label>Model</Label><p className="font-semibold">{active?.model ?? "Existing backend setting"}</p></div>
 						<div><Label>Strategy</Label><p className="font-semibold">{active?.timestampStrategy ?? "Bootstrap fallback"}</p></div>
+						<div><Label>Timing policy</Label><p className="font-semibold">{String(active?.pipelineOptions?.timingSourcePolicy ?? "native_then_forced")}</p></div>
 						<div><Label>Version</Label><p className="font-semibold">{active?.version ?? "-"}</p></div>
 						<div><Label>Health</Label><Badge variant="outline">{healthStatus}</Badge></div>
 						<div><Label>Last test</Label><p className="text-sm">{active?.testStatus ?? "Save and test a draft"} {active?.testLatencyMs ? `(${active.testLatencyMs} ms)` : ""}</p></div>
@@ -162,6 +164,7 @@ export function AdminTranscriptionControls({
 								provider,
 								model,
 								providerOptions: provider === "sarvam" ? { ...defaultProviderOptions("sarvam"), mode: sarvamMode } : {},
+								pipelineOptions: DEFAULT_PIPELINE_OPTIONS,
 								reason,
 							})}
 						>
@@ -195,7 +198,12 @@ export function AdminTranscriptionControls({
 						<div className="grid gap-2 rounded-md border p-3 text-sm">
 							<p><strong>{selectedConfig.provider}</strong> {selectedConfig.model}</p>
 							<p>{selectedConfig.timestampStrategy}</p>
+							<p>Timing policy: {String(selectedConfig.pipelineOptions?.timingSourcePolicy ?? "native_then_forced")}</p>
 							<p>Test: {selectedConfig.testStatus}{selectedConfig.testErrorCode ? ` (${selectedConfig.testErrorCode})` : ""}</p>
+							<details className="mt-2">
+								<summary className="cursor-pointer font-semibold">Resolved configuration preview</summary>
+								<pre className="mt-2 max-h-72 overflow-auto rounded-sm border bg-muted p-2 text-xs">{JSON.stringify(selectedConfig.pipelineOptions ?? DEFAULT_PIPELINE_OPTIONS, null, 2)}</pre>
+							</details>
 						</div>
 					) : null}
 					<Label>Activation confirmation</Label>

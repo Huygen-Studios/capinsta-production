@@ -34,6 +34,7 @@ from ..transcription_control import (
     circuit_state,
     invalidate_transcription_config_cache,
 )
+from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
 from . import export_jobs as export_runtime
 from ai_pipeline.transcriber import TranscriptionProviderError, is_real_secret, transcribe_audio
 
@@ -53,6 +54,7 @@ class TranscriptionTestRequest(BaseModel):
     timestampStrategy: str = Field(min_length=1, max_length=80)
     strictProvider: bool = True
     providerOptions: dict = Field(default_factory=dict)
+    pipelineOptions: dict = Field(default_factory=dict)
     reason: str = Field(min_length=8, max_length=1000)
 
 
@@ -484,6 +486,8 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
         provider_options=dict(body.providerOptions or {}),
         timestamp_strategy=entry.timestamp_strategy,
         strict_provider=True,
+        pipeline_options=resolve_pipeline_config(body.pipelineOptions or DEFAULT_PIPELINE_OPTIONS).to_dict(),
+        resolved_pipeline_options=resolve_pipeline_config(body.pipelineOptions or DEFAULT_PIPELINE_OPTIONS).to_dict(),
     )
     started = time.monotonic()
     try:
@@ -503,6 +507,7 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
             "category": None,
             "latencyMs": latency_ms,
             "wordCount": word_count,
+            "resolvedPipelineOptions": snapshot.resolved_pipeline_options,
             "providerRequestId": result.get("provider_request_id") or result.get("request_id"),
             "circuit": circuit_state(snapshot),
             "correlationId": admin.correlation_id,

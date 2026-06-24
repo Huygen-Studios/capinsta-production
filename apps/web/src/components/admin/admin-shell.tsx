@@ -74,7 +74,7 @@ export function AdminShell({
         </nav>
       </aside>
       <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur md:px-6">
+        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-4 border-b bg-background px-4 md:px-6">
           <form action="/admincapinsta11/users" className="max-w-lg flex-1">
             <Input
               name="q"

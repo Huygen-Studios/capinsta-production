@@ -153,7 +153,7 @@ function ProjectsHeader() {
 	const { viewMode, isHydrated, setViewMode } = useProjectsStore();
 
 	return (
-		<header className="sticky top-0 z-20 flex flex-col gap-2 border-b-2 border-border bg-background/95 px-4 backdrop-blur sm:px-8">
+		<header className="sticky top-0 z-20 flex flex-col gap-2 border-b-2 border-border bg-background px-4 sm:px-8">
 			<div className="flex items-center justify-between h-16 pt-2">
 				<div className="flex min-w-0 items-center gap-4">
 					<Link href="/" aria-label="Capinsta home" className="hidden sm:block">
@@ -274,7 +274,7 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 	};
 
 	return (
-		<div className="sticky top-16 z-10 mx-4 flex h-14 items-center justify-between border-b border-border bg-background/95 px-2 pt-1 backdrop-blur">
+		<div className="sticky top-16 z-10 mx-4 flex h-14 items-center justify-between border-b border-border bg-background px-2 pt-1">
 			<div className="flex items-center gap-2">
 				<Label
 					className="flex items-center gap-3 cursor-pointer px-2"
@@ -377,7 +377,7 @@ function SearchBar({
 					<Button
 						size="icon"
 						variant="outline"
-						className="size-10.5 rounded-full"
+						className="size-10.5 rounded-sm"
 					>
 						<HugeiconsIcon icon={Search01Icon} />
 					</Button>
@@ -394,7 +394,7 @@ function SearchBar({
 						value={searchQuery}
 						onChange={(event) => setSearchQuery({ query: event.target.value })}
 						size="lg"
-						className="h-10 min-w-56 rounded-lg border-2 bg-card pl-9 focus-visible:border-primary"
+						className="h-10 min-w-56 rounded-sm border-2 bg-card pl-9 focus-visible:border-primary"
 					/>
 				</div>
 			)}
@@ -651,7 +651,7 @@ function ProjectItem({
 	};
 
 	const gridContent = (
-		<Card className="project-card overflow-hidden border-2 border-border bg-card p-0 shadow-[3px_3px_0_color-mix(in_srgb,var(--primary)_45%,transparent)] transition-[transform,box-shadow,border-color] duration-150 group-hover:-translate-y-1 group-hover:border-primary group-hover:shadow-[5px_5px_0_var(--primary)] group-focus-within:border-primary">
+		<Card className="project-card overflow-hidden rounded-sm border-2 border-border bg-card p-0 shadow-[3px_3px_0_#000] transition-[transform,box-shadow,border-color] duration-150 group-hover:-translate-y-1 group-hover:border-primary group-hover:shadow-[5px_5px_0_var(--secondary)] group-focus-within:border-primary">
 			<div className="relative aspect-video border-b-2 border-border bg-muted">
 				<div className="absolute inset-0">
 					{project.thumbnail ? (
@@ -689,7 +689,7 @@ function ProjectItem({
 
 	const listRowContent = (
 		<div className="flex items-center gap-3 flex-1 min-w-0">
-			<div className="bg-muted relative size-10 rounded overflow-hidden shrink-0">
+			<div className="bg-muted relative size-10 rounded-sm overflow-hidden shrink-0">
 				{project.thumbnail ? (
 					<Image
 						src={project.thumbnail}
@@ -720,9 +720,9 @@ function ProjectItem({
 
 	const listContent = (
 		<div
-			className={`flex items-center gap-4 rounded-lg border-2 px-4 py-2.5 transition-colors ${
+			className={`flex items-center gap-4 rounded-sm border-2 px-4 py-2.5 transition-colors ${
 				isSelected
-					? "border-primary bg-primary/10 shadow-[2px_2px_0_var(--primary)]"
+					? "border-primary bg-primary/10 shadow-[2px_2px_0_#000]"
 					: "border-border bg-card hover:border-primary/60 hover:bg-accent/40"
 			}`}
 		>
@@ -1031,11 +1031,11 @@ function EmptyState() {
 
 	if (savedProjects.length > 0) {
 		return (
-			<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-5 rounded-xl border-2 border-border bg-card px-8 py-16 text-center shadow-[4px_4px_0_color-mix(in_srgb,var(--primary)_45%,transparent)]">
+			<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-5 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--secondary)]">
 				<div className="flex flex-col items-center gap-8">
 					<HugeiconsIcon
 						icon={Search01Icon}
-						className="text-muted-foreground size-16 bg-accent/35 border rounded-md p-4"
+						className="text-foreground size-16 bg-accent border rounded-sm p-4"
 					/>
 					<div className="flex flex-col items-center gap-3">
 						<h3 className="text-lg font-medium">No results found</h3>
@@ -1057,12 +1057,12 @@ function EmptyState() {
 	}
 
 	return (
-		<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-6 rounded-xl border-2 border-border bg-card px-8 py-16 text-center shadow-[4px_4px_0_color-mix(in_srgb,var(--primary)_45%,transparent)]">
+		<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-6 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--secondary)]">
 			<div className="flex flex-col items-center gap-2">
-				<div className="bg-muted/30 flex size-16 items-center justify-center rounded-full">
+				<div className="bg-accent flex size-16 items-center justify-center rounded-sm border">
 					<HugeiconsIcon
 						icon={Video01Icon}
-						className="text-muted-foreground size-8"
+						className="text-foreground size-8"
 					/>
 				</div>
 				<h3 className="text-lg font-medium">No projects yet</h3>

@@ -553,6 +553,8 @@ function ElementInner({
 		isDropTarget;
 	return (
 		<div
+			data-timeline-element="true"
+			data-timeline-element-selected={isSelected ? "true" : undefined}
 			className="absolute top-0 bottom-0"
 			style={{
 				left: `${ELEMENT_RING_WIDTH_PX}px`,
@@ -560,18 +562,18 @@ function ElementInner({
 			}}
 		>
 			<div
-				className="absolute inset-0 rounded-sm"
+				className="absolute inset-0 rounded-xs"
 				style={
 					isSelected
 						? {
-								boxShadow: `0 0 0 ${ELEMENT_RING_WIDTH_PX}px var(--primary)`,
+								boxShadow: `0 0 0 ${ELEMENT_RING_WIDTH_PX}px var(--primary), var(--neo-shadow-sm)`,
 							}
 						: undefined
 				}
 			>
 				<div
 					className={cn(
-						"absolute inset-0 overflow-hidden rounded-sm",
+						"absolute inset-0 overflow-hidden rounded-xs",
 						isExpanded && "bg-background",
 					)}
 				>

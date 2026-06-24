@@ -32,7 +32,7 @@ const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
 const selectItemVariants = cva(
-	"relative flex cursor-pointer select-none items-center gap-1.5 rounded-sm px-2 py-1 text-sm text-foreground/85 outline-hidden data-[highlighted]:bg-popover-hover data-disabled:pointer-events-none data-disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
+	"relative flex cursor-pointer select-none items-center gap-1.5 rounded-xs border border-transparent px-2 py-1 text-sm text-foreground/90 outline-hidden data-[highlighted]:border-primary data-[highlighted]:bg-popover-hover data-disabled:pointer-events-none data-disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
 	{
 		variants: {
 			variant: {
@@ -48,7 +48,7 @@ const selectItemVariants = cva(
 );
 
 const selectTriggerVariants = cva(
-	"border-border ring-offset-background placeholder:text-muted-foreground flex h-7 w-auto cursor-pointer items-center justify-between gap-1 rounded-md border px-2.5 text-sm whitespace-nowrap transition-none focus:border-primary focus:ring-0 focus:ring-primary/10 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+	"border-border ring-offset-background placeholder:text-muted-foreground flex h-7 w-auto cursor-pointer items-center justify-between gap-1 rounded-sm border px-2.5 text-sm whitespace-nowrap transition-none focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
 	{
 		variants: {
 			variant: {
@@ -137,7 +137,7 @@ const SelectContent = React.forwardRef<
 		<SelectPrimitive.Content
 			ref={ref}
 			className={cn(
-				"bg-popover text-popover-foreground z-50 max-h-(--radix-select-content-available-height) min-w-32 overflow-hidden rounded-md border p-1 shadow-lg",
+				"bg-popover text-popover-foreground z-50 max-h-(--radix-select-content-available-height) min-w-32 overflow-hidden rounded-sm border p-1 shadow-[3px_3px_0_#000]",
 				className,
 			)}
 			position={position}

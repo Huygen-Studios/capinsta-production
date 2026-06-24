@@ -92,6 +92,13 @@ async def timing_debug(
             })
 
     timing_meta = metadata.get("timing") if isinstance(metadata.get("timing"), dict) else {}
+    configuration_snapshot = transcript.get("transcriptionConfiguration") if isinstance(transcript, dict) else None
+    resolved_pipeline_options = (
+        timing_meta.get("resolvedPipelineOptions")
+        or (configuration_snapshot or {}).get("resolved_pipeline_options")
+        or (configuration_snapshot or {}).get("pipeline_options")
+        or {}
+    )
     vad = timing_meta.get("vad") if isinstance(timing_meta.get("vad"), dict) else {}
     silence_gaps = vad.get("silenceGaps") if isinstance(vad.get("silenceGaps"), list) else []
     chunk_audit = timing_meta.get("chunkAudit") if isinstance(timing_meta.get("chunkAudit"), list) else []
@@ -132,5 +139,8 @@ async def timing_debug(
         "autoSyncRejectReason": (sync_meta.get("autoGlobalSync") or {}).get("rejectReason") if isinstance(sync_meta, dict) else None,
         "captionGaps": classify_caption_gaps(segments, speech_segments),
         "pauseThresholdUsed": vad.get("thresholdSeconds") or DEFAULT_PAUSE_SPLIT_THRESHOLD,
+        "configurationSnapshot": configuration_snapshot,
+        "resolvedPipelineOptions": resolved_pipeline_options,
+        "configurationAppliedExactly": bool(timing_meta.get("configurationAppliedExactly")),
         "report": report,
     }

@@ -235,13 +235,13 @@ function ExportDialog({
 								type="button"
 								aria-disabled="true"
 								onClick={() => toast.info(FULL_VIDEO_COMING_SOON)}
-								className="group relative flex min-h-32 cursor-not-allowed flex-col items-start rounded-xl border border-border/70 bg-muted/20 p-4 text-left opacity-65 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-muted-foreground/30"
+								className="group relative flex min-h-32 cursor-not-allowed flex-col items-start rounded-sm border border-border/70 bg-muted/20 p-4 text-left opacity-65 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-muted-foreground/30"
 							>
 								<div className="mb-4 flex w-full items-start justify-between gap-3">
-									<span className="rounded-lg border bg-background p-2">
+									<span className="rounded-sm border bg-background p-2">
 										<Film className="size-5 text-muted-foreground" />
 									</span>
-									<span className="rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+									<span className="rounded-sm border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
 										Coming soon
 									</span>
 								</div>
@@ -251,12 +251,12 @@ function ExportDialog({
 								</span>
 							</button>
 
-							<div className="relative flex min-h-32 flex-col items-start rounded-xl border border-primary/60 bg-primary/5 p-4 text-left shadow-[0_0_0_1px_hsl(var(--primary)/0.08)]">
+							<div className="relative flex min-h-32 flex-col items-start rounded-sm border border-primary bg-primary/5 p-4 text-left shadow-[3px_3px_0_#000]">
 								<div className="mb-4 flex w-full items-start justify-between gap-3">
-									<span className="rounded-lg bg-primary/15 p-2">
+									<span className="rounded-sm border border-primary bg-primary/15 p-2">
 										<Layers3 className="size-5 text-primary" />
 									</span>
-									<span className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground">
+									<span className="flex items-center gap-1 rounded-sm bg-primary px-2.5 py-1 text-[11px] font-bold text-primary-foreground">
 										<Sparkles className="size-3" />
 										Recommended
 									</span>
@@ -270,7 +270,7 @@ function ExportDialog({
 							</div>
 						</div>
 
-						<div className="grid gap-x-8 gap-y-6 rounded-xl border bg-background/40 p-5 md:grid-cols-2">
+						<div className="grid gap-x-8 gap-y-6 rounded-sm border bg-background/40 p-5 md:grid-cols-2">
 							<OptionSection
 								title="Background"
 								description="Choose the chroma or solid canvas color."

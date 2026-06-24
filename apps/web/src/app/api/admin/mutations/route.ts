@@ -40,11 +40,13 @@ import {
 import { webEnv } from "@/env/web";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
+	DEFAULT_PIPELINE_OPTIONS,
 	defaultProviderOptions,
 	getTranscriptionCatalogEntry,
 } from "@/transcription/provider-catalog";
 
 const reason = z.string().trim().min(8).max(1000);
+const pipelineOptions = z.record(z.string(), z.unknown()).optional();
 const appRoleKey = z.enum(["member", "developer"]);
 const appPermissionKey = z.enum([
 	"app.access",
@@ -261,6 +263,7 @@ const schema = z.discriminatedUnion("action", [
 		provider: transcriptionProvider,
 		model: z.string().trim().min(1).max(120),
 		providerOptions: transcriptionProviderOptions,
+		pipelineOptions,
 		reason,
 	}),
 	z.object({
@@ -846,6 +849,10 @@ export async function POST(request: Request) {
 					value.provider === "sarvam"
 						? { ...defaultProviderOptions(value.provider), ...(value.providerOptions ?? {}) }
 						: {};
+				const resolvedPipelineOptions = {
+					...DEFAULT_PIPELINE_OPTIONS,
+					...(value.pipelineOptions ?? {}),
+				};
 				const supportedProviderModes: readonly string[] = entry.supportedProviderModes;
 				if (
 					value.provider === "sarvam" &&
@@ -859,6 +866,7 @@ export async function POST(request: Request) {
 						provider: value.provider,
 						model: value.model,
 						providerOptions,
+						pipelineOptions: resolvedPipelineOptions,
 						timestampStrategy: entry.timestampStrategy,
 						strictProvider: true,
 						status: "draft",
@@ -904,6 +912,7 @@ export async function POST(request: Request) {
 							timestampStrategy: current.timestampStrategy,
 							strictProvider: current.strictProvider,
 							providerOptions: current.providerOptions,
+							pipelineOptions: current.pipelineOptions,
 							reason: value.reason,
 						}),
 					},

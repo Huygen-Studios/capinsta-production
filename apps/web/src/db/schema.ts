@@ -272,6 +272,10 @@ export const captionJobs = pgTable(
 			.$type<Record<string, unknown>>()
 			.default({})
 			.notNull(),
+		pipelineOptions: jsonb("pipeline_options")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
 		estimatedCost: numeric("estimated_cost", { precision: 12, scale: 6 }),
 		sanitizedErrorCode: text("sanitized_error_code"),
 		sanitizedErrorMessage: text("sanitized_error_message"),
@@ -485,6 +489,10 @@ export const transcriptionConfigurations = pgTable(
 		provider: text("provider").notNull(),
 		model: text("model").notNull(),
 		providerOptions: jsonb("provider_options")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
+		pipelineOptions: jsonb("pipeline_options")
 			.$type<Record<string, unknown>>()
 			.default({})
 			.notNull(),

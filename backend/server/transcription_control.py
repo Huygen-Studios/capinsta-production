@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from .settings import DB_PATH
 from .transcription_catalog import catalog_entry, validate_catalog_selection
+from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
 
 try:
     import psycopg
@@ -34,6 +35,8 @@ class TranscriptionConfigSnapshot:
     output_language: str | None = None
     resolved_provider_mode: str | None = None
     resolved_provider_language_code: str | None = None
+    pipeline_options: dict[str, Any] | None = None
+    resolved_pipeline_options: dict[str, Any] | None = None
 
     @property
     def provider_mode(self) -> str:
@@ -46,6 +49,10 @@ class TranscriptionConfigSnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        pipeline_options = self.pipeline_options or DEFAULT_PIPELINE_OPTIONS
+        resolved_pipeline_options = self.resolved_pipeline_options or resolve_pipeline_config(pipeline_options).to_dict()
+        payload["pipeline_options"] = pipeline_options
+        payload["resolved_pipeline_options"] = resolved_pipeline_options
         payload["provider_mode"] = self.provider_mode
         payload["provider_language_code"] = self.provider_language_code
         return payload
@@ -126,6 +133,8 @@ def _env_snapshot() -> TranscriptionConfigSnapshot | None:
         provider_options=options,
         timestamp_strategy=entry.timestamp_strategy,
         strict_provider=True,
+        pipeline_options=DEFAULT_PIPELINE_OPTIONS,
+        resolved_pipeline_options=DEFAULT_PIPELINE_OPTIONS,
     )
 
 
@@ -138,6 +147,10 @@ def _snapshot_from_row(row: dict[str, Any]) -> TranscriptionConfigSnapshot:
     provider_options = row.get("provider_options") or {}
     if isinstance(provider_options, str):
         provider_options = json.loads(provider_options or "{}")
+    pipeline_options = row.get("pipeline_options") or {}
+    if isinstance(pipeline_options, str):
+        pipeline_options = json.loads(pipeline_options or "{}")
+    resolved_pipeline_options = resolve_pipeline_config(pipeline_options).to_dict()
     validate_catalog_selection(
         str(row["provider"]),
         str(row["model"]),
@@ -152,6 +165,8 @@ def _snapshot_from_row(row: dict[str, Any]) -> TranscriptionConfigSnapshot:
         provider_options=dict(provider_options),
         timestamp_strategy=str(row["timestamp_strategy"]),
         strict_provider=bool(row.get("strict_provider", True)),
+        pipeline_options=resolved_pipeline_options,
+        resolved_pipeline_options=resolved_pipeline_options,
     )
 
 
@@ -169,7 +184,7 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
                     cursor.execute(
                         """
                         SELECT id, provider, model, provider_options, timestamp_strategy,
-                               strict_provider, version
+                               strict_provider, version, pipeline_options
                         FROM transcription_configurations
                         WHERE status = 'active'
                         LIMIT 1
@@ -259,6 +274,13 @@ def coerce_snapshot(value: TranscriptionConfigSnapshot | dict[str, Any] | str | 
             return None
     try:
         provider_options = value.get("provider_options") or value.get("providerOptions") or {}
+        pipeline_options = resolve_pipeline_config(
+            value.get("resolved_pipeline_options")
+            or value.get("resolvedPipelineOptions")
+            or value.get("pipeline_options")
+            or value.get("pipelineOptions")
+            or {}
+        ).to_dict()
         return TranscriptionConfigSnapshot(
             configuration_id=str(value.get("configuration_id") or value.get("configurationId") or "unknown"),
             provider=str(value["provider"]),
@@ -279,6 +301,8 @@ def coerce_snapshot(value: TranscriptionConfigSnapshot | dict[str, Any] | str | 
                 or value.get("provider_language_code")
                 or value.get("providerLanguageCode")
             ),
+            pipeline_options=pipeline_options,
+            resolved_pipeline_options=pipeline_options,
         )
     except Exception:
         return None
@@ -295,6 +319,7 @@ def persist_snapshot_to_runtime_db(job_id: str, snapshot: TranscriptionConfigSna
                 transcription_config_version = ?,
                 timestamp_strategy = ?,
                 provider_mode = ?,
+                pipeline_options_json = ?,
                 transcription_config_snapshot_json = ?
             WHERE id = ?
             """,
@@ -304,6 +329,7 @@ def persist_snapshot_to_runtime_db(job_id: str, snapshot: TranscriptionConfigSna
                 snapshot.version,
                 snapshot.timestamp_strategy,
                 snapshot.provider_mode,
+                json.dumps(snapshot.resolved_pipeline_options or DEFAULT_PIPELINE_OPTIONS, ensure_ascii=False),
                 json.dumps(payload, ensure_ascii=False),
                 job_id,
             ),

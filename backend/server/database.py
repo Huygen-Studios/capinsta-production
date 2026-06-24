@@ -203,6 +203,7 @@ async def init_db():
             "transcription_config_version INTEGER", "timestamp_strategy TEXT",
             "provider_mode TEXT", "provider_request_id TEXT",
             "timing_source_summary_json TEXT",
+            "pipeline_options_json TEXT",
             "transcription_config_snapshot_json TEXT",
         ):
             try:

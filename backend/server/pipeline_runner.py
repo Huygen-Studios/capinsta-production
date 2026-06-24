@@ -122,6 +122,9 @@ async def update_job_status(job_id: str, status: str, progress: int = None,
             if isinstance(metadata, dict):
                 timing = metadata.get("timing")
                 if isinstance(timing, dict):
+                    if isinstance(timing.get("resolvedPipelineOptions"), dict):
+                        updates.append("pipeline_options_json = ?")
+                        params.append(json.dumps(timing.get("resolvedPipelineOptions") or {}, ensure_ascii=False))
                     report = timing.get("report")
                     if isinstance(report, dict):
                         updates.append("timing_source_summary_json = ?")

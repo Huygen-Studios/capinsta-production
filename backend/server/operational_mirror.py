@@ -64,7 +64,7 @@ async def _write_caption(payload: dict[str, Any]) -> None:
         INSERT INTO caption_jobs (
           id, user_id, project_id, source_filename, language, provider,
           transcription_model, transcription_config_version, timestamp_strategy,
-          provider_mode, provider_request_id, timing_source_summary,
+          provider_mode, provider_request_id, timing_source_summary, pipeline_options,
           media_duration_seconds, status, progress, word_count, caption_count,
           queued_at, started_at, completed_at, cancelled_at, retry_count,
           sanitized_error_code, sanitized_error_message, correlation_id,
@@ -73,7 +73,7 @@ async def _write_caption(payload: dict[str, Any]) -> None:
           %(id)s, %(user_id)s::uuid, %(project_id)s, %(source_filename)s, %(language)s,
           %(provider)s, %(transcription_model)s, %(transcription_config_version)s,
           %(timestamp_strategy)s, %(provider_mode)s, %(provider_request_id)s,
-          %(timing_source_summary)s::jsonb,
+          %(timing_source_summary)s::jsonb, %(pipeline_options)s::jsonb,
           %(media_duration_seconds)s, %(status)s, %(progress)s,
           %(word_count)s, %(caption_count)s, %(queued_at)s, %(started_at)s,
           %(completed_at)s, %(cancelled_at)s, %(retry_count)s,
@@ -93,6 +93,7 @@ async def _write_caption(payload: dict[str, Any]) -> None:
           provider_mode = excluded.provider_mode,
           provider_request_id = excluded.provider_request_id,
           timing_source_summary = excluded.timing_source_summary,
+          pipeline_options = excluded.pipeline_options,
           media_duration_seconds = excluded.media_duration_seconds,
           status = excluded.status,
           progress = excluded.progress,
@@ -356,12 +357,14 @@ async def caption_payload(job_id: str) -> dict[str, Any] | None:
         provider_name = provider
         provider_model = None
     timing_summary = {}
+    pipeline_options = {}
     if isinstance(metadata, dict):
         timing = metadata.get("timing")
         if isinstance(timing, dict):
             report = timing.get("report")
             if isinstance(report, dict):
                 timing_summary = report.get("timingSourceCounts") or {}
+                pipeline_options = timing.get("resolvedPipelineOptions") or {}
     now = datetime.now(timezone.utc).isoformat()
     status = row["status"]
     return {
@@ -377,6 +380,7 @@ async def caption_payload(job_id: str) -> dict[str, Any] | None:
         "provider_mode": row["provider_mode"] if "provider_mode" in row.keys() else None,
         "provider_request_id": row["provider_request_id"] if "provider_request_id" in row.keys() else None,
         "timing_source_summary": json.dumps(timing_summary),
+        "pipeline_options": json.dumps(pipeline_options),
         "media_duration_seconds": row["media_duration_seconds"] if "media_duration_seconds" in row.keys() else None,
         "status": status,
         "progress": max(-1, min(100, int(row["progress"] or 0))),

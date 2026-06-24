@@ -35,12 +35,12 @@ const ContextMenuSub = ContextMenuPrimitive.Sub;
 const ContextMenuRadioGroup = ContextMenuPrimitive.RadioGroup;
 
 const contextMenuItemVariants = cva(
-	"relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-foreground/85 outline-hidden data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
+	"relative flex cursor-pointer select-none items-center gap-2 rounded-xs border border-transparent px-3 py-1.5 text-sm text-foreground/90 outline-hidden data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
 	{
 		variants: {
 			variant: {
 				default:
-					"focus:bg-accent focus:text-accent-foreground [&_svg]:text-muted-foreground",
+					"focus:border-primary focus:bg-accent focus:text-accent-foreground [&_svg]:text-muted-foreground",
 				destructive:
 					"text-destructive focus:bg-destructive/10 focus:text-destructive [&_svg]:text-destructive",
 			},
@@ -93,7 +93,7 @@ const ContextMenuSubContent = React.forwardRef<
 	<ContextMenuPrimitive.SubContent
 		ref={ref}
 		className={cn(
-			"bg-popover text-popover-foreground z-50 min-w-48 overflow-hidden rounded-md border shadow-xl p-1",
+			"bg-popover text-popover-foreground z-50 min-w-48 overflow-hidden rounded-sm border shadow-[3px_3px_0_#000] p-1",
 			className,
 		)}
 		{...props}
@@ -111,7 +111,7 @@ const ContextMenuContent = React.forwardRef<
 		<ContextMenuPrimitive.Content
 			ref={ref}
 			className={cn(
-				"bg-popover text-popover-foreground z-50 min-w-48 overflow-hidden rounded-md border shadow-xl p-1",
+				"bg-popover text-popover-foreground z-50 min-w-48 overflow-hidden rounded-sm border shadow-[3px_3px_0_#000] p-1",
 				className,
 			)}
 			{...props}

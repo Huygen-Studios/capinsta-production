@@ -610,6 +610,7 @@ def _classify_gemini_error(exc: Exception) -> TranscriptionProviderError:
 
 def _normalize_provider_result(result: dict, provider: str) -> dict:
     normalized_words: list[dict[str, Any]] = []
+    timestamp_basis = str(result.get("timestamp_basis") or result.get("timestampBasis") or "chunk_local")
     for raw_word in result.get("words") or []:
         if not isinstance(raw_word, dict):
             continue
@@ -630,11 +631,14 @@ def _normalize_provider_result(result: dict, provider: str) -> dict:
             "provider": raw_word.get("provider") or provider,
             "timing_source": timing_source,
             "timingSource": timing_source,
+            "timestampBasis": raw_word.get("timestampBasis") or raw_word.get("timestamp_basis") or timestamp_basis,
         }
         normalized_words.append(normalized_word)
 
     result["words"] = normalized_words
     result["provider"] = result.get("provider") or provider
+    result["timestamp_basis"] = timestamp_basis
+    result["timestampBasis"] = timestamp_basis
     return result
 
 
@@ -675,6 +679,7 @@ def _call_groq(client, audio_path: str, prompt: str, language_hint: str | None,
         "segments": payload.get("segments") or [],
         "words": payload.get("words") or [],
         "provider": "groq_whisper",
+        "timestamp_basis": "chunk_local",
     }
 
 
@@ -718,9 +723,10 @@ def _call_openai_whisper(audio_path: str, language_mode: str, transcription_conf
 
     snapshot = coerce_snapshot(transcription_config_snapshot)
     model = snapshot.model if snapshot else OPENAI_TRANSCRIPTION_MODEL
+    timeout_seconds = (snapshot.resolved_pipeline_options or {}).get("performance", {}).get("providerTimeoutSeconds") if snapshot else None
     client = OpenAI(
         api_key=api_key,
-        timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
+        timeout=int(timeout_seconds or STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS),
         max_retries=0,
     )
     language_hint = LANGUAGE_HINTS.get(language_mode)
@@ -774,6 +780,7 @@ def _call_openai_whisper(audio_path: str, language_mode: str, transcription_conf
         "model": model,
         "timestamp_strategy": "provider_word" if model == "whisper-1" else "local_forced_alignment",
         "timestamp_capability": "native_provider_word" if model == "whisper-1" else "transcript_text",
+        "timestamp_basis": "chunk_local" if model == "whisper-1" else "none",
     }
 
 
@@ -815,6 +822,7 @@ def _derive_words_for_segment(text: str, start: float, end: float, provider: str
                 "provider": provider,
                 "timing_source": "provider_segment_derived",
                 "timingSource": "provider_segment_derived",
+                "timestampBasis": "chunk_local",
             }
         )
         cursor = word_end
@@ -847,6 +855,7 @@ def _normalize_gemini_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "provider": "gemini",
                 "timing_source": "provider_structured_word",
                 "timingSource": "provider_structured_word",
+                "timestampBasis": "chunk_local",
             }
         )
 
@@ -1065,6 +1074,7 @@ def _call_gemini(audio_path: str, language_mode: str, transcription_config_snaps
         "model": model,
         "timestamp_strategy": "structured_word_validate",
         "timestamp_capability": "structured_model_word_timestamps",
+        "timestamp_basis": "chunk_local",
     }
 
 
@@ -1116,6 +1126,8 @@ def _normalize_sarvam_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "model": "saaras:v3",
                 "timingGranularity": timing_granularity,
                 "timing_source": "provider_segment_derived" if timing_granularity == "phrase" else "provider_native_word",
+                "timingSource": "provider_segment_derived" if timing_granularity == "phrase" else "provider_native_word",
+                "timestampBasis": "chunk_local",
                 "preservePhraseTiming": preserve_phrase_timing,
             }
         )
@@ -1179,6 +1191,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
     model = snapshot.model if snapshot else "saaras:v3"
     output_language = snapshot.output_language if snapshot and snapshot.output_language else "original"
     mode, language_code = _sarvam_mode_for_language(language_mode, output_language=output_language)
+    timeout_seconds = (snapshot.resolved_pipeline_options or {}).get("performance", {}).get("providerTimeoutSeconds") if snapshot else None
 
     upload_mime_type = _sniff_audio_mime_type(audio_path) or "application/octet-stream"
     with open(audio_path, "rb") as file:
@@ -1192,7 +1205,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
                 "with_timestamps": "true",
             },
             files={"file": (os.path.basename(audio_path), file, upload_mime_type)},
-            timeout=STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS,
+            timeout=int(timeout_seconds or STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS),
         )
 
     if response.status_code >= 400:
@@ -1233,6 +1246,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
         "request_id": payload.get("request_id"),
         "timestamp_strategy": "provider_word",
         "timestamp_capability": "native_provider_word",
+        "timestamp_basis": "chunk_local",
         "language_probability": payload.get("language_probability"),
         "providerRawText": provider_raw_text,
         "providerMode": mode,
@@ -1421,7 +1435,8 @@ async def transcribe_sarvam_chunks_bounded(
             for audio_path in audio_paths
         ]
     try:
-        concurrency = int(os.getenv("SARVAM_MAX_CONCURRENCY", "2"))
+        configured = (snapshot.resolved_pipeline_options or {}).get("performance", {}).get("sarvamMaxConcurrency") if snapshot else None
+        concurrency = int(configured or os.getenv("SARVAM_MAX_CONCURRENCY", "2"))
     except ValueError:
         concurrency = 2
     concurrency = max(1, min(concurrency, 8))
