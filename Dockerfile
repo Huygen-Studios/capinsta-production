@@ -132,4 +132,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Standalone server entrypoint, run under Node (Bun-free runtime).
-CMD ["node", "apps/web/server.js"]
+CMD ["node", "server.js"]
