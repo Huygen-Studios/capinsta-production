@@ -7,6 +7,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { CapinstaCaptionBinding } from "../captionTimelineSync";
 import {
 	applyCapinstaPresetToClipStyle,
+	resetCapinstaClipStyleOverrides,
 	updateCapinstaClipStyle,
 } from "../styles/styleMigration";
 import { styleToExport } from "../styles/styleToExport";
@@ -22,6 +23,7 @@ import type {
 	CapinstaOutlineWeight,
 } from "../styles/styleTypes";
 import { useEditor } from "@/editor/use-editor";
+import { UpdateCapinstaCaptionDocumentCommand } from "@/commands";
 import { CapinstaPresetGrid } from "./CapinstaPresetGrid";
 import { CapinstaColorControl } from "./CapinstaColorControl";
 import { CapinstaSliderControl } from "./CapinstaSliderControl";
@@ -153,12 +155,8 @@ export function CapinstaCaptionStylePanel(
 
 	function replaceRecord(nextRecord: CapinstaCaptionDocumentRecord) {
 		if (!binding || !singleTrackId) return;
-		const currentRecords =
-			editor.project.getActive()?.capinstaCaptionDocuments ?? [];
-		editor.project.replaceCapinstaCaptionDocuments({
-			records: currentRecords.map((record) =>
-				record.document.id === nextRecord.document.id ? nextRecord : record,
-			),
+		editor.command.execute({
+			command: new UpdateCapinstaCaptionDocumentCommand(nextRecord),
 		});
 	}
 
@@ -190,11 +188,28 @@ export function CapinstaCaptionStylePanel(
 	}
 
 	function applyBulkUpdate(result: CapinstaBulkStyleUpdateResult) {
-		editor.project.replaceCapinstaCaptionDocuments({
-			records: result.records,
+		const currentRecords =
+			editor.project.getActive()?.capinstaCaptionDocuments ?? [];
+		const changedRecords = result.records.filter((record) => {
+			const currentRecord = currentRecords.find(
+				(candidate) => candidate.document.id === record.document.id,
+			);
+			return currentRecord && currentRecord.document !== record.document;
 		});
+		const commandOwnsRecordUpdate = changedRecords.length === 1;
+		if (commandOwnsRecordUpdate) {
+			editor.command.execute({
+				command: new UpdateCapinstaCaptionDocumentCommand(changedRecords[0]!),
+			});
+		} else {
+			editor.project.replaceCapinstaCaptionDocuments({
+				records: result.records,
+			});
+		}
 		if (result.tracks) {
-			editor.timeline.updateTracks(result.tracks);
+			if (!commandOwnsRecordUpdate) {
+				editor.timeline.updateTracks(result.tracks);
+			}
 			return;
 		}
 		editor.timeline.updateElements({
@@ -365,7 +380,13 @@ export function CapinstaCaptionStylePanel(
 			);
 			return;
 		}
-		applyPreset(style.presetId);
+		if (!binding) return;
+		replaceRecord(
+			resetCapinstaClipStyleOverrides({
+				record: binding.record,
+				clipId: binding.clip.id,
+			}),
+		);
 	}
 
 	function commonValue<T>(path: string, fallback: T): T {
@@ -386,7 +407,7 @@ export function CapinstaCaptionStylePanel(
 		<div className="grid">
 			{isBulkMode ? (
 				<div className="grid gap-1 border-b px-3 py-3 text-xs">
-					<div className="font-semibold">Capinsta captions</div>
+					<div className="font-semibold">Editing: All Captions</div>
 					<div className="text-muted-foreground">
 						{props.selectedCount} Capinsta captions selected
 					</div>
@@ -397,6 +418,15 @@ export function CapinstaCaptionStylePanel(
 					) : null}
 					<div className="text-muted-foreground">
 						Changes apply to all selected Capinsta captions.
+					</div>
+				</div>
+			) : binding ? (
+				<div className="grid gap-1 border-b px-3 py-3 text-xs">
+					<div className="font-semibold">
+						Editing: {binding.clip.text ? `“${binding.clip.text}”` : binding.clip.id}
+					</div>
+					<div className="text-muted-foreground">
+						Changes apply only to this caption.
 					</div>
 				</div>
 			) : null}

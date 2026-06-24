@@ -13,6 +13,7 @@ import {
 import {
 	applyCapinstaPresetToClipStyle,
 	ensureCapinstaDocumentStyles,
+	resolveCapinstaClipStyle,
 	updateCapinstaClipStyle,
 } from "./styles/styleMigration";
 import { styleToExport } from "./styles/styleToExport";
@@ -338,7 +339,8 @@ describe("Capinsta style foundation", () => {
 		});
 
 		expect(migrated.style?.version).toBe("capinsta.captionStyle.v1");
-		expect(migrated.clips[0]?.style?.presetId).toBe("word_highlight_box");
+		expect(migrated.style?.presetId).toBe("word_highlight_box");
+		expect(migrated.clips[0]?.style).toBeUndefined();
 	});
 
 	test("validates unsafe style values back to bounded values", () => {
@@ -363,7 +365,9 @@ describe("Capinsta style foundation", () => {
 		});
 
 		expect(record.document.clips[0]?.stylePresetId).toBe("mrbeast_style");
-		expect(record.document.clips[0]?.style?.activeWord.color).toBe("#FFFF00");
+		expect(record.document.clips[0]?.styleOverrides?.activeWord?.color).toBe(
+			"#FFFF00",
+		);
 		expect(record.document.clips[1]?.stylePresetId).toBe("word_highlight_box");
 	});
 
@@ -381,8 +385,8 @@ describe("Capinsta style foundation", () => {
 		});
 
 		expect(
-			project.capinstaCaptionDocuments?.[0]?.document.clips[0]?.style?.text
-				.color,
+			project.capinstaCaptionDocuments?.[0]?.document.clips[0]?.styleOverrides
+				?.text?.color,
 		).toBe("#ff0000");
 		expect(
 			JSON.parse(JSON.stringify(project)).capinstaCaptionDocuments,
@@ -561,10 +565,13 @@ describe("Capinsta style foundation", () => {
 		});
 
 		expect(resetRecord.document.clips[0]?.text).toBe("Build the edit then");
-		expect(resetRecord.document.clips[0]?.style?.text.color).toBe("#FFFFFF");
-		expect(resetRecord.document.clips[0]?.style?.presetId).toBe(
-			"mrbeast_style",
-		);
+		expect(
+			resolveCapinstaClipStyle({
+				document: resetRecord.document,
+				clip: resetRecord.document.clips[0]!,
+			}).text.color,
+		).toBe("#FFFFFF");
+		expect(resetRecord.document.clips[0]?.styleOverrides?.presetId).toBe("mrbeast_style");
 	});
 
 	test("word-effect none exports static styled captions", () => {

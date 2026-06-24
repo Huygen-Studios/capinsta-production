@@ -12,7 +12,10 @@ import {
 } from "./captionTimelineSync";
 import {
 	applyCapinstaPresetToClipStyle,
+	resetCapinstaClipStyleOverrides,
+	resetCapinstaDocumentToPreset,
 	resolveCapinstaClipStyle,
+	updateCapinstaDocumentStyle,
 	updateCapinstaClipStyle,
 } from "./styles/styleMigration";
 import { styleToExport } from "./styles/styleToExport";
@@ -334,8 +337,24 @@ export function applyStylePatchToCapinstaSelection({
 	stylePatch: CapinstaCaptionStylePatch;
 }): CapinstaBulkStyleUpdateResult {
 	let nextRecords = records;
+	const fullDocumentIds = selectedDocumentIdsForFullRechunk({
+		records,
+		selectedRefs,
+	});
+
+	for (const documentId of fullDocumentIds) {
+		const record = nextRecords.find(
+			(candidate) => candidate.document.id === documentId,
+		);
+		if (!record) continue;
+		nextRecords = replaceRecord(
+			nextRecords,
+			updateCapinstaDocumentStyle({ record, patch: stylePatch }),
+		);
+	}
 
 	for (const ref of selectedRefs) {
+		if (fullDocumentIds.has(ref.documentId)) continue;
 		const record = nextRecords.find(
 			(candidate) => candidate.document.id === ref.documentId,
 		);
@@ -439,21 +458,36 @@ export function resetStyleForCapinstaSelection({
 	selectedRefs: CapinstaCaptionSelectionRef[];
 }): CapinstaBulkStyleUpdateResult {
 	let nextRecords = records;
+	const fullDocumentIds = selectedDocumentIdsForFullRechunk({
+		records,
+		selectedRefs,
+	});
+
+	for (const documentId of fullDocumentIds) {
+		const record = nextRecords.find(
+			(candidate) => candidate.document.id === documentId,
+		);
+		if (!record) continue;
+		const presetId =
+			record.document.style?.presetId ??
+			(record.document.stylePresetId as CapinstaCaptionPresetId);
+		nextRecords = replaceRecord(
+			nextRecords,
+			resetCapinstaDocumentToPreset({ record, presetId }),
+		);
+	}
 
 	for (const ref of selectedRefs) {
-		const presetId =
-			getCommonStyleValue<CapinstaCaptionPresetId>(selectedRefs, "presetId") ??
-			ref.style.presetId;
+		if (fullDocumentIds.has(ref.documentId)) continue;
 		const record = nextRecords.find(
 			(candidate) => candidate.document.id === ref.documentId,
 		);
 		if (!record) continue;
 		nextRecords = replaceRecord(
 			nextRecords,
-			applyCapinstaPresetToClipStyle({
+			resetCapinstaClipStyleOverrides({
 				record,
 				clipId: ref.clipId,
-				presetId,
 			}),
 		);
 	}

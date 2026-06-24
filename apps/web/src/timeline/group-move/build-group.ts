@@ -29,11 +29,32 @@ export function buildMoveGroup({
 		return null;
 	}
 
+	const explicitRefs = [anchorRef, ...selectedElements];
+	const explicitKeys = new Set(
+		explicitRefs.map((elementRef) => elementRef.elementId),
+	);
+	const isIndividualSelection =
+		selectedElements.length <= 1 &&
+		selectedElements.every(
+			(elementRef) => elementRef.elementId === anchorRef.elementId,
+		);
 	const seen = new Set<string>();
 	const orderedRefs = expandElementRefsWithLinkedMedia({
 		tracks,
-		elementRefs: [anchorRef, ...selectedElements],
+		elementRefs: explicitRefs,
 	}).filter((elementRef) => {
+		if (isIndividualSelection && !explicitKeys.has(elementRef.elementId)) {
+			const expandedTrack = findTrackInSceneTracks({
+				tracks,
+				trackId: elementRef.trackId,
+			});
+			const expandedElement = expandedTrack?.elements.find(
+				(element) => element.id === elementRef.elementId,
+			);
+			if (expandedElement?.capinstaDocumentId) {
+				return false;
+			}
+		}
 		if (seen.has(elementRef.elementId)) {
 			return false;
 		}

@@ -9,6 +9,7 @@ import {
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/timeline/scale";
 import {
 	maxMediaTime,
+	addMediaTime,
 	type MediaTime,
 	mediaTime,
 	roundFrameTime,
@@ -288,6 +289,65 @@ function resolveGroupMoveForDrop({
 	);
 }
 
+function resolveCaptionSameTrackMove({
+	group,
+	tracks,
+	anchorStartTime,
+}: {
+	group: MoveGroup;
+	tracks: SceneTracks;
+	anchorStartTime: MediaTime;
+}): GroupMoveResult | null {
+	const sourceTrackId = group.anchor.trackId;
+	const sourceTrack = orderedTracks(tracks).find(
+		(track) => track.id === sourceTrackId,
+	);
+	if (!sourceTrack) return null;
+
+	const sourceElements = new Map(
+		sourceTrack.elements.map((element) => [element.id, element]),
+	);
+	const allGeneratedCaptions = group.members.every((member) => {
+		if (member.trackId !== sourceTrackId) return false;
+		const element = sourceElements.get(member.elementId);
+		return Boolean(element?.capinstaDocumentId);
+	});
+	if (!allGeneratedCaptions) return null;
+
+	const minimumAnchorStartTime = group.members.reduce(
+		(minimumStartTime, member) =>
+			member.timeOffset < ZERO_MEDIA_TIME
+				? maxMediaTime({
+						a: minimumStartTime,
+						b: subMediaTime({ a: ZERO_MEDIA_TIME, b: member.timeOffset }),
+					})
+				: minimumStartTime,
+		ZERO_MEDIA_TIME,
+	);
+	const clampedAnchorStartTime =
+		anchorStartTime < minimumAnchorStartTime
+			? minimumAnchorStartTime
+			: anchorStartTime;
+	const moves = group.members.map((member) => ({
+		sourceTrackId: member.trackId,
+		targetTrackId: member.trackId,
+		elementId: member.elementId,
+		newStartTime: addMediaTime({
+			a: clampedAnchorStartTime,
+			b: member.timeOffset,
+		}),
+	}));
+
+	return {
+		moves,
+		createTracks: [],
+		targetSelection: moves.map((move) => ({
+			trackId: move.targetTrackId,
+			elementId: move.elementId,
+		})),
+	};
+}
+
 // --- Controller ---
 
 export class ElementInteractionController {
@@ -526,6 +586,16 @@ export class ElementInteractionController {
 		const { scene, viewport } = this.deps;
 		const tracks = scene.getTracks();
 		const zoomLevel = viewport.getZoomLevel();
+		const captionSameTrackMove = resolveCaptionSameTrackMove({
+			group: drag.moveGroup,
+			tracks,
+			anchorStartTime: snappedTime,
+		});
+		if (captionSameTrackMove) {
+			drag.groupMoveResult = captionSameTrackMove;
+			drag.dropTarget = null;
+			return;
+		}
 
 		const anchorDropTarget = resolveDropTarget({
 			clientX,

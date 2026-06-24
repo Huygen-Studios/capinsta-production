@@ -25,8 +25,10 @@ const {
 	applyStylePatchToCapinstaSelection,
 	getCommonStyleValue,
 	getSelectedCapinstaCaptionRefs,
+	resetStyleForCapinstaSelection,
 } = await import("./bulkStyleSync");
 const { getCapinstaPresetStyle } = await import("./styles/presetRegistry");
+const { resolveCapinstaClipStyle } = await import("./styles/styleMigration");
 const { getCapinstaTextRenderDataForElement } = await import("./exportRender");
 
 function mediaTimeFromSeconds(seconds: number) {
@@ -184,8 +186,7 @@ describe("Capinsta bulk style synchronization", () => {
 			presetId: "mrbeast_style",
 		});
 
-		expect(records[0]?.document.clips[0]?.style?.presetId).toBe("mrbeast_style");
-		expect(records[0]?.document.clips[1]?.style?.presetId).toBe("mrbeast_style");
+		expect(records[0]?.document.style?.presetId).toBe("mrbeast_style");
 		expect(records[0]?.document.clips.map((clip) => clip.text)).toEqual([
 			"Build the",
 			"edit",
@@ -214,8 +215,9 @@ describe("Capinsta bulk style synchronization", () => {
 			stylePatch: { text: { color: "#123456", fontSize: 88 } },
 		});
 
-		expect(records[0]?.document.clips[0]?.style?.text.color).toBe("#123456");
-		expect(records[0]?.document.clips[1]?.style?.text.fontSize).toBe(88);
+		expect(records[0]?.document.style?.text.color).toBe("#123456");
+		expect(records[0]?.document.style?.text.fontSize).toBe(88);
+		expect(records[0]?.document.clips[0]?.styleOverrides).toBeUndefined();
 		expect(timelineUpdates.map((update) => update.patch.params.color)).toEqual([
 			"#123456",
 			"#123456",
@@ -242,8 +244,8 @@ describe("Capinsta bulk style synchronization", () => {
 			stylePatch: { layout: { positionX: 42, positionY: 68 } },
 		});
 
-		expect(records[0]?.document.clips[0]?.style?.layout.positionX).toBe(42);
-		expect(records[0]?.document.clips[1]?.style?.layout.positionY).toBe(68);
+		expect(records[0]?.document.style?.layout.positionX).toBe(42);
+		expect(records[0]?.document.style?.layout.positionY).toBe(68);
 	});
 
 	test("timing, text, words, and manual edit metadata are preserved", () => {
@@ -285,6 +287,140 @@ describe("Capinsta bulk style synchronization", () => {
 		expect(records[0]?.document.words).toEqual(preparedRecord.document.words);
 		expect(updatedClip.timingNeedsReview).toBe(true);
 		expect(updatedClip.manualEdit).toEqual(originalClip.manualEdit);
+		expect(updatedClip.styleOverrides?.text?.color).toBe("#654321");
+		expect(
+			resolveCapinstaClipStyle({
+				document: records[0]!.document,
+				clip: updatedClip,
+			}).text.color,
+		).toBe("#654321");
+	});
+
+	test("individual font change updates only one caption override", () => {
+		const record = buildRecord();
+		const { tracks, captionElements } = buildTracks(record);
+		const selectedRefs = getSelectedCapinstaCaptionRefs({
+			selection: selectElements([captionElements[0]!]),
+			tracks,
+			records: [record],
+		}).selectedCapinstaClipRefs;
+
+		const { records } = applyStylePatchToCapinstaSelection({
+			records: [record],
+			tracks,
+			selectedRefs,
+			stylePatch: { text: { fontFamily: "Montserrat" } },
+		});
+		const [firstClip, secondClip] = records[0]!.document.clips;
+
+		expect(firstClip?.styleOverrides?.text?.fontFamily).toBe("Montserrat");
+		expect(secondClip?.styleOverrides).toBeUndefined();
+		expect(
+			resolveCapinstaClipStyle({
+				document: records[0]!.document,
+				clip: firstClip!,
+			}).text.fontFamily,
+		).toBe("Montserrat");
+		expect(
+			resolveCapinstaClipStyle({
+				document: records[0]!.document,
+				clip: secondClip!,
+			}).text.fontFamily,
+		).toBe("Poppins");
+	});
+
+	test("untouched individual property inherits the global value", () => {
+		const record = buildRecord();
+		const { tracks, captionElements } = buildTracks(record);
+		const selectedRefs = getSelectedCapinstaCaptionRefs({
+			selection: selectElements([captionElements[0]!]),
+			tracks,
+			records: [record],
+		}).selectedCapinstaClipRefs;
+		const { records } = applyStylePatchToCapinstaSelection({
+			records: [record],
+			tracks,
+			selectedRefs,
+			stylePatch: { text: { fontFamily: "Montserrat" } },
+		});
+		records[0]!.document.style = {
+			...records[0]!.document.style!,
+			text: { ...records[0]!.document.style!.text, color: "#00ff00" },
+		};
+
+		expect(
+			resolveCapinstaClipStyle({
+				document: records[0]!.document,
+				clip: records[0]!.document.clips[0]!,
+			}).text.color,
+		).toBe("#00ff00");
+	});
+
+	test("reset selected preset clears individual overrides only", () => {
+		const record = buildRecord();
+		const { tracks, captionElements } = buildTracks(record);
+		const firstRef = getSelectedCapinstaCaptionRefs({
+			selection: selectElements([captionElements[0]!]),
+			tracks,
+			records: [record],
+		}).selectedCapinstaClipRefs;
+		const styled = applyStylePatchToCapinstaSelection({
+			records: [record],
+			tracks,
+			selectedRefs: firstRef,
+			stylePatch: { text: { fontFamily: "Montserrat" } },
+		}).records;
+		const styledRefs = getSelectedCapinstaCaptionRefs({
+			selection: selectElements([captionElements[0]!]),
+			tracks,
+			records: styled,
+		}).selectedCapinstaClipRefs;
+
+		const { records } = resetStyleForCapinstaSelection({
+			records: styled,
+			tracks,
+			selectedRefs: styledRefs,
+		});
+
+		expect(records[0]?.document.clips[0]?.styleOverrides).toBeUndefined();
+		expect(records[0]?.document.clips[1]?.styleOverrides).toBeUndefined();
+		expect(
+			resolveCapinstaClipStyle({
+				document: records[0]!.document,
+				clip: records[0]!.document.clips[0]!,
+			}).text.fontFamily,
+		).toBe(records[0]!.document.style!.text.fontFamily);
+	});
+
+	test("reset selected preset in global scope resets the document style", () => {
+		const record = buildRecord();
+		const { tracks, captionElements } = buildTracks(record);
+		const selectedRefs = getSelectedCapinstaCaptionRefs({
+			selection: selectElements(captionElements.slice(0, 2)),
+			tracks,
+			records: [record],
+		}).selectedCapinstaClipRefs;
+		const styled = applyStylePatchToCapinstaSelection({
+			records: [record],
+			tracks,
+			selectedRefs,
+			stylePatch: { text: { color: "#101010" } },
+		}).records;
+		const styledRefs = getSelectedCapinstaCaptionRefs({
+			selection: selectElements(captionElements.slice(0, 2)),
+			tracks,
+			records: styled,
+		}).selectedCapinstaClipRefs;
+
+		const { records } = resetStyleForCapinstaSelection({
+			records: styled,
+			tracks,
+			selectedRefs: styledRefs,
+		});
+
+		expect(records[0]?.document.style?.text.color).toBe("#FFFFFF");
+		expect(records[0]?.document.clips[0]?.styleOverrides).toBeUndefined();
+		expect(records[0]?.document.clips[1]?.styleOverrides).toBeUndefined();
 	});
 
 	test("mixed values are detected", () => {
@@ -332,9 +468,7 @@ describe("Capinsta bulk style synchronization", () => {
 			element: captionElements[0]!,
 		});
 
-		expect(restoredRecords[0].document.clips[0].style.text.color).toBe(
-			"#ff00aa",
-		);
+		expect(restoredRecords[0].document.style.text.color).toBe("#ff00aa");
 		expect(renderData?.style.textColor).toBe("#ff00aa");
 		expect(renderData?.clipText).toBe(record.document.clips[0]?.text);
 	});

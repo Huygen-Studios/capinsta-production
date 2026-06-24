@@ -13,6 +13,12 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+	Section,
+	SectionContent,
+	SectionHeader,
+	SectionTitle,
+} from "@/components/section";
 import type {
 	CapinstaCaptionDocumentRecord,
 	NeutralCaptionClip,
@@ -517,6 +523,14 @@ export function CaptionEditorPanel({
 		[document],
 	);
 	const providerLabel = document ? captionProviderLabel(document) : "";
+	const reviewWarnings = useMemo(
+		() =>
+			clips.filter(
+				(clip) =>
+					clip.timingNeedsReview || clip.manualEdit?.timingReviewReason,
+			),
+		[clips],
+	);
 	const results = useMemo(
 		() =>
 			search
@@ -690,75 +704,139 @@ export function CaptionEditorPanel({
 			</header>
 			<ScrollArea className="min-h-0 flex-1">
 				<div ref={scrollRef} className="flex flex-col">
-					{clips.map((clip, index) => (
-						<SubtitleRow
-							key={clip.id}
-							document={document}
-							clip={clip}
-							index={index}
-							active={activeId === clip.id}
-							selected={selectedId === clip.id}
-							fps={fps}
-							onSelect={() => selectClip(clip)}
-							onPlay={() => {
-								selectClip(clip);
-								editor.playback.play();
-							}}
-							onChange={commit}
-							onEditingChange={setEditing}
-							onDelete={() =>
-								commit(deleteSegment({ document, clipId: clip.id }))
-							}
-							onMergePrevious={() =>
-								clips[index - 1] &&
-								commit(
-									mergeSegments({
-										document,
-										firstId: clips[index - 1]!.id,
-										secondId: clip.id,
-									}),
-								)
-							}
-							onMergeNext={() =>
-								clips[index + 1] &&
-								commit(
-									mergeSegments({
-										document,
-										firstId: clip.id,
-										secondId: clips[index + 1]!.id,
-									}),
-								)
-							}
-							onAddBefore={() =>
-								commit(
-									addSegment({ document, at: Math.max(0, clip.start - 1.5) }),
-								)
-							}
-							onAddAfter={() => commit(addSegment({ document, at: clip.end }))}
-							onSplit={(characterIndex) =>
-								commit(
-									splitSegment({ document, clipId: clip.id, characterIndex }),
-								)
-							}
-						/>
-					))}
-					<Button
-						type="button"
-						variant="outline"
-						onClick={() =>
-							commit(
-								addSegment({
-									document,
-									at: mediaTimeToSeconds({
-										time: editor.playback.getCurrentTime(),
-									}),
-								}),
-							)
-						}
+					<Section
+						collapsible
+						defaultOpen
+						sectionKey="caption-editor:text-timing"
+						showBottomBorder
 					>
-						<Plus />
-						Add subtitle at playhead
-					</Button>
+						<SectionHeader className="h-8 px-3 text-xs">
+							<SectionTitle className="text-xs font-semibold">
+								Caption text and timing
+							</SectionTitle>
+						</SectionHeader>
+						<SectionContent className="p-0">
+							{clips.map((clip, index) => (
+								<SubtitleRow
+									key={clip.id}
+									document={document}
+									clip={clip}
+									index={index}
+									active={activeId === clip.id}
+									selected={selectedId === clip.id}
+									fps={fps}
+									onSelect={() => selectClip(clip)}
+									onPlay={() => {
+										selectClip(clip);
+										editor.playback.play();
+									}}
+									onChange={commit}
+									onEditingChange={setEditing}
+									onDelete={() =>
+										commit(deleteSegment({ document, clipId: clip.id }))
+									}
+									onMergePrevious={() =>
+										clips[index - 1] &&
+										commit(
+											mergeSegments({
+												document,
+												firstId: clips[index - 1]!.id,
+												secondId: clip.id,
+											}),
+										)
+									}
+									onMergeNext={() =>
+										clips[index + 1] &&
+										commit(
+											mergeSegments({
+												document,
+												firstId: clip.id,
+												secondId: clips[index + 1]!.id,
+											}),
+										)
+									}
+									onAddBefore={() =>
+										commit(
+											addSegment({
+												document,
+												at: Math.max(0, clip.start - 1.5),
+											}),
+										)
+									}
+									onAddAfter={() =>
+										commit(addSegment({ document, at: clip.end }))
+									}
+									onSplit={(characterIndex) =>
+										commit(
+											splitSegment({
+												document,
+												clipId: clip.id,
+												characterIndex,
+											}),
+										)
+									}
+								/>
+							))}
+						</SectionContent>
+					</Section>
+					<Section
+						collapsible
+						defaultOpen={reviewWarnings.length > 0}
+						sectionKey="caption-editor:review-warnings"
+						showBottomBorder
+					>
+						<SectionHeader className="h-8 px-3 text-xs">
+							<SectionTitle className="text-xs font-semibold">
+								Review warnings
+							</SectionTitle>
+						</SectionHeader>
+						<SectionContent className="px-3 pb-3 pt-1">
+							{reviewWarnings.length > 0 ? (
+								<div className="grid gap-1 text-xs text-amber-500">
+									{reviewWarnings.map((clip) => (
+										<div key={clip.id}>
+											{clip.text || clip.id}: timing needs review
+										</div>
+									))}
+								</div>
+							) : (
+								<p className="text-xs text-muted-foreground">
+									No caption timing warnings.
+								</p>
+							)}
+						</SectionContent>
+					</Section>
+					<Section
+						collapsible
+						defaultOpen
+						sectionKey="caption-editor:additional-options"
+						showBottomBorder={false}
+					>
+						<SectionHeader className="h-8 px-3 text-xs">
+							<SectionTitle className="text-xs font-semibold">
+								Additional options
+							</SectionTitle>
+						</SectionHeader>
+						<SectionContent className="px-3 pb-3 pt-1">
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() =>
+									commit(
+										addSegment({
+											document,
+											at: mediaTimeToSeconds({
+												time: editor.playback.getCurrentTime(),
+											}),
+										}),
+									)
+								}
+							>
+								<Plus />
+								Add subtitle at playhead
+							</Button>
+						</SectionContent>
+					</Section>
 				</div>
 			</ScrollArea>
 		</div>

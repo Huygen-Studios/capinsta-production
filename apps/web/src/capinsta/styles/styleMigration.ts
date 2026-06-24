@@ -11,6 +11,36 @@ import type {
 	CapinstaCaptionStyleV1,
 } from "./styleTypes";
 
+function resolveDocumentStyle(document: NeutralCaptionDocument): CapinstaCaptionStyleV1 {
+	return normalizeCapinstaCaptionStyle(
+		document.style ?? getCapinstaPresetStyle(document.stylePresetId),
+	);
+}
+
+function mergeStylePatch({
+	base,
+	patch,
+}: {
+	base: CapinstaCaptionStylePatch | undefined;
+	patch: CapinstaCaptionStylePatch;
+}): CapinstaCaptionStylePatch {
+	return {
+		...base,
+		...patch,
+		text: { ...base?.text, ...patch.text },
+		background: { ...base?.background, ...patch.background },
+		outline: { ...base?.outline, ...patch.outline },
+		shadow: { ...base?.shadow, ...patch.shadow },
+		activeWord: { ...base?.activeWord, ...patch.activeWord },
+		animation: { ...base?.animation, ...patch.animation },
+		layout: { ...base?.layout, ...patch.layout },
+		effects: { ...base?.effects, ...patch.effects },
+		reveal: { ...base?.reveal, ...patch.reveal },
+		lockup: { ...base?.lockup, ...patch.lockup },
+		chunking: { ...base?.chunking, ...patch.chunking },
+	};
+}
+
 export function resolveCapinstaClipStyle({
 	document,
 	clip,
@@ -18,23 +48,26 @@ export function resolveCapinstaClipStyle({
 	document: NeutralCaptionDocument;
 	clip: NeutralCaptionClip;
 }): CapinstaCaptionStyleV1 {
-	return normalizeCapinstaCaptionStyle(
-		clip.style ?? document.style ?? getCapinstaPresetStyle(clip.stylePresetId || document.stylePresetId),
-	);
+	const documentStyle = resolveDocumentStyle(document);
+	if (clip.styleOverrides) {
+		return normalizeCapinstaCaptionStyle(
+			mergeCapinstaCaptionStyle(documentStyle, clip.styleOverrides),
+		);
+	}
+	return normalizeCapinstaCaptionStyle(clip.style ?? documentStyle);
 }
 
 export function ensureCapinstaDocumentStyles(
 	document: NeutralCaptionDocument,
 ): NeutralCaptionDocument {
-	const documentStyle = normalizeCapinstaCaptionStyle(
-		document.style ?? getCapinstaPresetStyle(document.stylePresetId),
-	);
+	const documentStyle = resolveDocumentStyle(document);
 	return {
 		...document,
+		stylePresetId: documentStyle.presetId,
 		style: documentStyle,
 		clips: document.clips.map((clip) => ({
 			...clip,
-			style: normalizeCapinstaCaptionStyle(clip.style ?? documentStyle),
+			styleOverrides: clip.styleOverrides,
 		})),
 	};
 }
@@ -64,8 +97,88 @@ export function applyCapinstaPresetToClipStyle({
 			...record.document,
 			clips: record.document.clips.map((clip) =>
 				clip.id === clipId
-					? { ...clip, stylePresetId: presetId, style }
-					: { ...clip, style: clip.style ? normalizeCapinstaCaptionStyle(clip.style) : clip.style },
+					? {
+							...clip,
+							stylePresetId: presetId,
+							style: undefined,
+							styleOverrides: style,
+						}
+					: { ...clip },
+			),
+		},
+	};
+}
+
+export function updateCapinstaDocumentStyle({
+	record,
+	patch,
+}: {
+	record: CapinstaCaptionDocumentRecord;
+	patch: CapinstaCaptionStylePatch;
+}): CapinstaCaptionDocumentRecord {
+	const nextStyle = normalizeCapinstaCaptionStyle(
+		mergeCapinstaCaptionStyle(resolveDocumentStyle(record.document), patch),
+	);
+	return {
+		...record,
+		document: {
+			...record.document,
+			stylePresetId: nextStyle.presetId,
+			style: nextStyle,
+			clips: record.document.clips.map((clip) => ({
+				...clip,
+				style: undefined,
+				styleOverrides: undefined,
+				stylePresetId: nextStyle.presetId,
+			})),
+		},
+	};
+}
+
+export function resetCapinstaDocumentToPreset({
+	record,
+	presetId,
+}: {
+	record: CapinstaCaptionDocumentRecord;
+	presetId: CapinstaCaptionPresetId;
+}): CapinstaCaptionDocumentRecord {
+	const style = getCapinstaPresetStyle(presetId);
+	return {
+		...record,
+		document: {
+			...record.document,
+			stylePresetId: presetId,
+			style,
+			clips: record.document.clips.map((clip) => ({
+				...clip,
+				style: undefined,
+				styleOverrides: undefined,
+				stylePresetId: presetId,
+			})),
+		},
+	};
+}
+
+export function resetCapinstaClipStyleOverrides({
+	record,
+	clipId,
+}: {
+	record: CapinstaCaptionDocumentRecord;
+	clipId: string;
+}): CapinstaCaptionDocumentRecord {
+	return {
+		...record,
+		document: {
+			...record.document,
+			clips: record.document.clips.map((clip) =>
+				clip.id === clipId
+					? {
+							...clip,
+							style: undefined,
+							styleOverrides: undefined,
+							stylePresetId: record.document.stylePresetId,
+						}
+					: { ...clip },
 			),
 		},
 	};
@@ -86,15 +199,13 @@ export function updateCapinstaClipStyle({
 			...record.document,
 			clips: record.document.clips.map((clip) => {
 				if (clip.id !== clipId) return { ...clip };
-				const currentStyle = resolveCapinstaClipStyle({
-					document: record.document,
-					clip,
-				});
 				return {
 					...clip,
-					style: normalizeCapinstaCaptionStyle(
-						mergeCapinstaCaptionStyle(currentStyle, patch),
-					),
+					style: undefined,
+					styleOverrides: mergeStylePatch({
+						base: clip.styleOverrides,
+						patch,
+					}),
 				};
 			}),
 		},

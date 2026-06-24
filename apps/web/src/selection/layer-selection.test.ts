@@ -469,6 +469,167 @@ describe("canonical editor layer selection", () => {
 		}
 	});
 
+	test("generated caption group drag keeps captions on the same track", () => {
+		const tracks = makeTracks();
+		const manager = new SelectionManager({} as never);
+		const documentListeners = installDocumentListeners();
+		let committedMove:
+			| { moves: Array<{ targetTrackId: string; elementId: string }>; createTracks: unknown[] }
+			| null = null;
+		const scrollContainer = {
+			scrollLeft: 0,
+			scrollTop: 0,
+			getBoundingClientRect: () => ({ left: 0, top: 0 }),
+		} as HTMLDivElement;
+		const controller = new ElementInteractionController({
+			depsRef: {
+				current: {
+					viewport: {
+						getZoomLevel: () => 1,
+						getTracksScrollEl: () => scrollContainer,
+						getTracksContainerEl: () =>
+							({
+								getBoundingClientRect: () => ({ left: 0, top: 0 }),
+							}) as HTMLDivElement,
+						getHeaderEl: () => null,
+					},
+					input: { isShiftHeld: () => false },
+					scene: { getTracks: () => tracks, getActiveFps: () => ({}) as never },
+					selection: {
+						getSelected: () => manager.getSelectedElements(),
+						isSelected: (ref) =>
+							manager
+								.getSelectedElements()
+								.some(
+									(selected) =>
+										selected.trackId === ref.trackId &&
+										selected.elementId === ref.elementId,
+								),
+						select: (ref) => manager.selectElement({ element: ref }),
+						selectMany: (refs) =>
+							manager.setSelectedElements({ elements: refs }),
+						handleClick: () => {},
+						clearKeyframeSelection: () => manager.clearKeyframeSelection(),
+					},
+					playback: { getCurrentTime: () => 0 },
+					timeline: {
+						moveElements: (args) => {
+							committedMove = args;
+						},
+					},
+					snap: { isEnabled: () => false },
+				},
+			},
+		});
+		const track = tracks.overlay.find(
+			(candidate) => candidate.id === "caption-track",
+		);
+		const element = track?.elements[0];
+		if (!track || !element) throw new Error("Missing caption fixture");
+
+		try {
+			controller.onElementMouseDown({
+				event: mouseEvent({ x: 10, y: 10 }),
+				element,
+				track,
+			});
+			documentListeners.emit("mousemove", { clientX: 90, clientY: 60 });
+			documentListeners.emit("mouseup", { clientX: 90, clientY: 60 });
+			expect(committedMove?.createTracks).toEqual([]);
+			expect(committedMove?.moves).toHaveLength(2);
+			expect(
+				committedMove?.moves.every(
+					(move) => move.targetTrackId === "caption-track",
+				),
+			).toBe(true);
+		} finally {
+			controller.destroy();
+			documentListeners.restore();
+		}
+	});
+
+	test("generated caption individual drag moves one caption without creating tracks", () => {
+		const tracks = makeTracks();
+		const manager = new SelectionManager({} as never);
+		manager.selectElement({
+			element: { trackId: "caption-track", elementId: "caption-1" },
+		});
+		const documentListeners = installDocumentListeners();
+		let committedMove:
+			| { moves: Array<{ targetTrackId: string; elementId: string }>; createTracks: unknown[] }
+			| null = null;
+		const scrollContainer = {
+			scrollLeft: 0,
+			scrollTop: 0,
+			getBoundingClientRect: () => ({ left: 0, top: 0 }),
+		} as HTMLDivElement;
+		const controller = new ElementInteractionController({
+			depsRef: {
+				current: {
+					viewport: {
+						getZoomLevel: () => 1,
+						getTracksScrollEl: () => scrollContainer,
+						getTracksContainerEl: () =>
+							({
+								getBoundingClientRect: () => ({ left: 0, top: 0 }),
+							}) as HTMLDivElement,
+						getHeaderEl: () => null,
+					},
+					input: { isShiftHeld: () => false },
+					scene: { getTracks: () => tracks, getActiveFps: () => ({}) as never },
+					selection: {
+						getSelected: () => manager.getSelectedElements(),
+						isSelected: (ref) =>
+							manager
+								.getSelectedElements()
+								.some(
+									(selected) =>
+										selected.trackId === ref.trackId &&
+										selected.elementId === ref.elementId,
+								),
+						select: (ref) => manager.selectElement({ element: ref }),
+						selectMany: (refs) =>
+							manager.setSelectedElements({ elements: refs }),
+						handleClick: () => {},
+						clearKeyframeSelection: () => manager.clearKeyframeSelection(),
+					},
+					playback: { getCurrentTime: () => 0 },
+					timeline: {
+						moveElements: (args) => {
+							committedMove = args;
+						},
+					},
+					snap: { isEnabled: () => false },
+				},
+			},
+		});
+		const track = tracks.overlay.find(
+			(candidate) => candidate.id === "caption-track",
+		);
+		const element = track?.elements[0];
+		if (!track || !element) throw new Error("Missing caption fixture");
+
+		try {
+			controller.onElementMouseDown({
+				event: mouseEvent({ x: 10, y: 10 }),
+				element,
+				track,
+			});
+			documentListeners.emit("mousemove", { clientX: 90, clientY: 60 });
+			documentListeners.emit("mouseup", { clientX: 90, clientY: 60 });
+			expect(committedMove?.createTracks).toEqual([]);
+			expect(committedMove?.moves).toEqual([
+				expect.objectContaining({
+					targetTrackId: "caption-track",
+					elementId: "caption-1",
+				}),
+			]);
+		} finally {
+			controller.destroy();
+			documentListeners.restore();
+		}
+	});
+
 	test("preview single-click expands a generated caption to its whole document", () => {
 		const tracks = makeTracks();
 		const captionTrack = tracks.overlay.find(

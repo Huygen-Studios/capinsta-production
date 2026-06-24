@@ -152,6 +152,7 @@ export interface NeutralCaptionClip {
   timingNeedsReview: boolean
   timingSource: CapinstaTimingSource
   style?: CapinstaCaptionStyleV1
+  styleOverrides?: import("./styles/styleTypes").CapinstaCaptionStylePatch
   manualEdit?: {
     textEditedAt?: string
     timingEditedAt?: string
@@ -182,6 +183,7 @@ export interface NeutralCaptionDocument {
   transformation?: "none" | "translation" | "transliteration" | "script_conversion"
   stylePresetId: string
   style?: CapinstaCaptionStyleV1
+  styleOverrides?: import("./styles/styleTypes").CapinstaCaptionStylePatch
   clips: NeutralCaptionClip[]
   words: NeutralCaptionWord[]
   manualEdits: CapinstaManualEditMetadataV1

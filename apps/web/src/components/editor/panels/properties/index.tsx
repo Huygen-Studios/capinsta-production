@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
@@ -12,6 +13,41 @@ import {
 	EffectControlsPanel,
 	EffectControlsShell,
 } from "./effect-controls-panel";
+import { CaptionEditorPanel } from "@/subtitles/components/caption-editor-panel";
+import { cn } from "@/utils/ui";
+
+type CaptionPanelTab = "effects" | "editor";
+
+function CaptionInspectorTabs({
+	activeTab,
+	onChange,
+}: {
+	activeTab: CaptionPanelTab;
+	onChange: (tab: CaptionPanelTab) => void;
+}) {
+	return (
+		<div className="flex shrink-0 border-b px-2 py-2">
+			{[
+				["effects", "Effect Controls"],
+				["editor", "Caption Editor"],
+			].map(([tab, label]) => (
+				<button
+					key={tab}
+					type="button"
+					className={cn(
+						"rounded-sm px-2 py-1 text-xs font-medium",
+						activeTab === tab
+							? "bg-accent text-foreground"
+							: "text-muted-foreground hover:bg-accent/60",
+					)}
+					onClick={() => onChange(tab as CaptionPanelTab)}
+				>
+					{label}
+				</button>
+			))}
+		</div>
+	);
+}
 
 export function PropertiesPanel() {
 	const editor = useEditor();
@@ -19,6 +55,7 @@ export function PropertiesPanel() {
 	useEditor((e) => e.media.getAssets());
 	useEditor((e) => e.project.getActive()?.capinstaCaptionDocuments);
 	const { selectedElements } = useElementSelection();
+	const [captionTab, setCaptionTab] = useState<CaptionPanelTab>("effects");
 
 	if (selectedElements.length === 0) {
 		return <EffectControlsEmptyState />;
@@ -36,16 +73,22 @@ export function PropertiesPanel() {
 			: { selectedCapinstaClipRefs: [], ignoredCount: selectedElements.length };
 
 		if (selectedCapinstaClipRefs.length > 0) {
+			const editorRecord = selectedCapinstaClipRefs[0]?.record ?? null;
 			return (
 				<EffectControlsShell>
-					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
-						<CapinstaCaptionStylePanel
-							mode="bulk"
-							selectedCapinstaClipRefs={selectedCapinstaClipRefs}
-							selectedCount={selectedCapinstaClipRefs.length}
-							ignoredCount={ignoredCount}
-						/>
-					</ScrollArea>
+					<CaptionInspectorTabs activeTab={captionTab} onChange={setCaptionTab} />
+					{captionTab === "effects" ? (
+						<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
+							<CapinstaCaptionStylePanel
+								mode="bulk"
+								selectedCapinstaClipRefs={selectedCapinstaClipRefs}
+								selectedCount={selectedCapinstaClipRefs.length}
+								ignoredCount={ignoredCount}
+							/>
+						</ScrollArea>
+					) : (
+						<CaptionEditorPanel record={editorRecord} />
+					)}
 				</EffectControlsShell>
 			);
 		}
@@ -95,6 +138,25 @@ export function PropertiesPanel() {
 						)}
 					</div>
 	) : undefined;
+
+	if (capinstaBinding) {
+		return (
+			<EffectControlsShell>
+				<CaptionInspectorTabs activeTab={captionTab} onChange={setCaptionTab} />
+				{captionStatus}
+				{captionTab === "effects" ? (
+					<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
+						<CapinstaCaptionStylePanel
+							binding={capinstaBinding}
+							trackId={track.id}
+						/>
+					</ScrollArea>
+				) : (
+					<CaptionEditorPanel record={capinstaBinding.record} />
+				)}
+			</EffectControlsShell>
+		);
+	}
 
 	return (
 		<EffectControlsPanel

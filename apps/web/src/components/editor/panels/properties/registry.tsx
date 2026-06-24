@@ -22,7 +22,6 @@ import {
 	MusicNote03Icon,
 	MagicWand05Icon,
 	DashboardSpeed02Icon,
-	TextIcon,
 } from "@hugeicons/core-free-icons";
 import { ElementParamsTab } from "./components/element-params-tab";
 import {
@@ -34,7 +33,6 @@ import { SpeedTab } from "@/speed/components/speed-tab";
 import { GraphicTab } from "@/graphics/components/graphic-tab";
 import { OcShapesIcon } from "@/components/icons";
 import { CapinstaCaptionStylePanel } from "@/capinsta/components/CapinstaCaptionStylePanel";
-import { CaptionEditorPanel } from "@/subtitles/components/caption-editor-panel";
 
 const TRANSFORM_PARAM_KEYS = [
 	"transform.positionX",
@@ -215,20 +213,6 @@ function buildCapinstaStyleTab({
 	};
 }
 
-function buildCapinstaCaptionEditorTab({
-	binding,
-}: {
-	binding: CapinstaCaptionBinding;
-}): PropertiesTabDef {
-	return {
-		id: "caption-editor",
-		label: "Edit captions",
-		icon: <HugeiconsIcon icon={TextIcon} size={16} />,
-		content: () => <CaptionEditorPanel record={binding.record} />,
-		ownsScroll: true,
-	};
-}
-
 function buildGraphicTab({
 	element,
 }: {
@@ -272,7 +256,6 @@ function getTextConfig({
 			...(capinstaBinding
 				? [
 						buildCapinstaStyleTab({ binding: capinstaBinding }),
-						buildCapinstaCaptionEditorTab({ binding: capinstaBinding }),
 					]
 				: []),
 			buildTextTab({ element }),
