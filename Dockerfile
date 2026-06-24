@@ -118,11 +118,22 @@ RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
 # Standalone output: server.js + minimal node_modules under .next/standalone.
+# Keep the server and its static assets under /app/apps/web because Coolify may
+# preserve an explicit start command that executes this path.
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./apps/web
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 
-RUN chown nextjs:nodejs apps
+RUN test -f /app/apps/web/server.js \
+ && test -d /app/apps/web/public \
+ && test -d /app/apps/web/.next/static \
+ || (echo "Expected Next standalone layout is missing"; \
+     echo "server.js files:"; find /app -maxdepth 5 -type f -name server.js -print; \
+     echo ".next/static directories:"; find /app -maxdepth 6 -type d -path "*/.next/static" -print; \
+     echo "public directories:"; find /app -maxdepth 5 -type d -name public -print; \
+     exit 1)
+
+RUN chown -R nextjs:nodejs apps
 
 USER nextjs
 
@@ -132,4 +143,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Standalone server entrypoint, run under Node (Bun-free runtime).
-CMD ["node", "server.js"]
+CMD ["node", "/app/apps/web/server.js"]

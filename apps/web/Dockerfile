@@ -57,11 +57,20 @@ ENV MARBLE_WORKSPACE_KEY="build-placeholder"
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./apps/web
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 
-RUN chown nextjs:nodejs apps
+RUN test -f /app/apps/web/server.js \
+ && test -d /app/apps/web/public \
+ && test -d /app/apps/web/.next/static \
+ || (echo "Expected Next standalone layout is missing"; \
+     echo "server.js files:"; find /app -maxdepth 5 -type f -name server.js -print; \
+     echo ".next/static directories:"; find /app -maxdepth 6 -type d -path "*/.next/static" -print; \
+     echo "public directories:"; find /app -maxdepth 5 -type d -name public -print; \
+     exit 1)
+
+RUN chown -R nextjs:nodejs apps
 
 USER nextjs
 
@@ -70,4 +79,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["bun", "server.js"]
+CMD ["bun", "/app/apps/web/server.js"]
