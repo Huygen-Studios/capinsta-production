@@ -6,7 +6,6 @@ import { Toaster } from "../components/ui/sonner";
 import { ChangelogNotification } from "@/changelog/components/changelog-notification";
 import { TooltipProvider } from "../components/ui/tooltip";
 import { baseMetaData, viewportTheme } from "./metadata";
-import { BotIdClient } from "botid/client";
 import { webEnv } from "@/env/web";
 import { Inter, Urbanist } from "next/font/google";
 import { DevToolsLoader } from "./dev-tools-loader";
@@ -24,13 +23,6 @@ const displayFont = Urbanist({
 export const metadata = baseMetaData;
 export const viewport: Viewport = viewportTheme;
 
-const protectedRoutes = [
-	{
-		path: "/none",
-		method: "GET",
-	},
-];
-
 export default function RootLayout({
 	children,
 }: Readonly<{
@@ -38,9 +30,7 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en" suppressHydrationWarning>
-			<head>
-				<BotIdClient protect={protectedRoutes} />
-			</head>
+			<head />
 			<body
 				className={`${siteFont.variable} ${displayFont.variable} font-sans antialiased`}
 			>
@@ -57,7 +47,7 @@ export default function RootLayout({
 						    Previously this was a beforeInteractive <Script> in <head> that
 						    always loaded in dev, including for the headless export page,
 						    injecting purple overlay boxes into export screenshots. */}
-					<DevToolsLoader />
+						<DevToolsLoader />
 						<RenderRouteExclusions>
 							<Toaster />
 							<Script

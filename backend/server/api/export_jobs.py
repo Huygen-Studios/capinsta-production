@@ -20,6 +20,7 @@ from ..headless_export import (
     ExportStageError,
     _looks_like_browser_disconnect,
     export_headless,
+    redact_render_url,
 )
 from ..progress import manager
 from ..project_cleanup import EXPIRED_MESSAGE, ensure_project_available, is_deleted_row
@@ -536,7 +537,11 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 request.duration_override,
                 request.include_audio,
                 request.background_color,
-                os.getenv("RENDER_PAGE_URL") or "bundled/static render page",
+                redact_render_url(
+                    os.getenv("CAPINSTA_RENDER_BASE_URL")
+                    or os.getenv("RENDER_PAGE_URL")
+                    or "bundled/static render page"
+                ),
                 total_frames,
             )
 

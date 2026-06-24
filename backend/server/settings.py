@@ -215,6 +215,10 @@ def bundled_render_page_url() -> str:
 
 
 def default_render_page_url() -> str:
+    render_base_url = os.getenv("CAPINSTA_RENDER_BASE_URL", "").split(",", 1)[0].strip().rstrip("/")
+    if render_base_url:
+        return f"{render_base_url}/render"
+
     configured = os.getenv("RENDER_PAGE_URL", "").strip()
     if configured:
         return configured

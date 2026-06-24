@@ -9,8 +9,11 @@ import os
 import json
 import asyncio
 import base64
+import hashlib
+import hmac
 import logging
 import math
+import re
 import struct
 import shutil
 import time
@@ -19,6 +22,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Awaitable, Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .asyncio_compat import needs_proactor_thread, run_on_proactor_loop
 from .settings import (
@@ -60,6 +64,8 @@ BITRATE_PRESETS = {
 }
 
 EXPORT_FPS = 30
+RENDER_TOKEN_AUDIENCE = "capinsta.render"
+RENDER_TOKEN_TTL_SECONDS = 5 * 60
 
 
 @asynccontextmanager
@@ -464,6 +470,92 @@ def _tail(text: str, limit: int = 3000) -> str:
     if len(text) <= limit:
         return text
     return text[-limit:]
+
+
+def _base64url_json(payload: dict[str, object]) -> str:
+    return base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+
+def _base64url_digest(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def create_render_token(
+    export_job_id: str,
+    *,
+    secret: str | None = None,
+    now: int | None = None,
+    ttl_seconds: int = RENDER_TOKEN_TTL_SECONDS,
+) -> str:
+    """Create a short-lived browser-visible token scoped to one render job."""
+    resolved_secret = secret or os.getenv("CAPINSTA_RENDER_TOKEN_SECRET", "")
+    if not resolved_secret:
+        raise ExportStageError(
+            "composition_load",
+            "CAPINSTA_RENDER_TOKEN_SECRET is not configured for the headless renderer.",
+        )
+    issued_at = int(now if now is not None else time.time())
+    payload = {
+        "aud": RENDER_TOKEN_AUDIENCE,
+        "export_job_id": export_job_id,
+        "exp": issued_at + max(1, int(ttl_seconds)),
+    }
+    encoded_payload = _base64url_json(payload)
+    signature = hmac.new(
+        resolved_secret.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return f"{encoded_payload}.{_base64url_digest(signature)}"
+
+
+def _is_bundled_render_url(render_url: str) -> bool:
+    return urlsplit(render_url).path.endswith("/render.html")
+
+
+def authorize_render_url(render_url: str, export_job_id: str) -> str:
+    """Attach an export-job-scoped render token to protected render routes."""
+    if _is_bundled_render_url(render_url):
+        return render_url
+
+    parts = urlsplit(render_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query["export_job_id"] = export_job_id
+    query["render_token"] = create_render_token(export_job_id)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def redact_render_url(render_url: str) -> str:
+    text = re.sub(r"(?i)(render_token|token|secret)=([^&\s]+)", r"\1=[redacted]", str(render_url))
+    parts = urlsplit(text)
+    redacted: list[tuple[str, str]] = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        if key.lower() in {"render_token", "token", "secret"}:
+            redacted.append((key, "[redacted]"))
+        else:
+            redacted.append((key, value))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(redacted), parts.fragment))
+
+
+def _redirect_chain(response) -> list[str]:
+    chain: list[str] = []
+    request = getattr(response, "request", None)
+    while request is not None:
+        chain.append(redact_render_url(getattr(request, "url", "")))
+        request = request.redirected_from
+    chain.reverse()
+    return chain
+
+
+def _looks_like_sign_in_page(final_url: str, title: str, body_text: str = "") -> bool:
+    haystack = f"{final_url}\n{title}\n{body_text}".lower()
+    return (
+        "/sign-in" in haystack
+        or "sign in — capinsta" in haystack
+        or "sign in - capinsta" in haystack
+    )
 
 
 def check_export_runtime() -> dict[str, object]:
@@ -1037,7 +1129,7 @@ async def export_headless(
         page_logs: list[str] = []
 
         def capture_page_log(prefix: str, message: str) -> None:
-            line = f"{prefix}: {message}"
+            line = f"{prefix}: {redact_render_url(message)}"
             page_logs.append(line)
             if len(page_logs) > 40:
                 del page_logs[: len(page_logs) - 40]
@@ -1047,21 +1139,26 @@ async def export_headless(
         # Prefer the bundled static render page for long exports. Next dev/HMR
         # pages are useful while editing, but they are much easier to crash
         # during thousands of frame screenshots.
-        render_page_candidates: list[str] = []
+        raw_render_page_candidates: list[str] = []
         bundled_render_url = bundled_render_page_url()
         configured_render_url = default_render_page_url()
         prefer_bundled_render = frontend_dist_available() and _bool_env("EXPORT_PREFER_BUNDLED_RENDER", True)
         if prefer_bundled_render:
-            render_page_candidates.append(bundled_render_url)
-        render_page_candidates.append(configured_render_url)
-        if frontend_dist_available() and bundled_render_url not in render_page_candidates:
-            render_page_candidates.append(bundled_render_url)
+            raw_render_page_candidates.append(bundled_render_url)
+        raw_render_page_candidates.append(configured_render_url)
+        if frontend_dist_available() and bundled_render_url not in raw_render_page_candidates:
+            raw_render_page_candidates.append(bundled_render_url)
 
+        render_page_candidates = [
+            authorize_render_url(candidate, job_id)
+            for candidate in raw_render_page_candidates
+        ]
         render_page_url = render_page_candidates[0]
         render_load_errors: list[str] = []
         loaded_render_page = False
+        render_page_timeout_ms = max(1000, _int_env("CAPINSTA_RENDER_PAGE_TIMEOUT_MS", 30000))
         for candidate_url in render_page_candidates:
-            logger.info("headless_render_page url=%s", candidate_url)
+            logger.info("headless_render_page url=%s", redact_render_url(candidate_url))
             try:
                 page_load_started = time.perf_counter()
                 await close_context_safely()
@@ -1081,16 +1178,53 @@ async def export_headless(
                 page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
                 page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
 
-                response = await page.goto(candidate_url, wait_until="networkidle", timeout=30000)
+                response = await page.goto(candidate_url, wait_until="networkidle", timeout=render_page_timeout_ms)
                 if response is None:
-                    raise ExportStageError("composition_load", f"Render page did not return a response: {candidate_url}")
+                    raise ExportStageError("composition_load", f"Render page did not return a response: {redact_render_url(candidate_url)}")
+                page_title = await page.title()
+                final_url = page.url
+                redirect_chain = _redirect_chain(response)
+                readiness_probe = await page.evaluate(
+                    """() => ({
+                        loadedFlag: window.__RENDER_PAGE_LOADED__ === true,
+                        explicitReadyFlag: window.__CAPINSTA_RENDER_READY__ === true,
+                        hasRendererRoot: Boolean(document.querySelector("#render-frame")),
+                        hasAuthError: Boolean(document.querySelector("[data-render-auth-error='true']")),
+                        hasSignInForm: Boolean(document.querySelector("form")) && /sign in/i.test(document.body?.innerText || "")
+                    })"""
+                )
+                logger.info(
+                    "headless_render_page_loaded requested_url=%s status=%s final_url=%s title=%s redirects=%s readiness_probe=%s",
+                    redact_render_url(candidate_url),
+                    response.status,
+                    redact_render_url(final_url),
+                    page_title,
+                    json.dumps(redirect_chain, default=str),
+                    json.dumps(readiness_probe, default=str),
+                )
+                auth_body_sample = ""
+                if isinstance(readiness_probe, dict) and (
+                    readiness_probe.get("hasAuthError") or readiness_probe.get("hasSignInForm")
+                ):
+                    auth_body_sample = await page.evaluate("() => (document.body?.innerText || '').slice(0, 400)")
+                if _looks_like_sign_in_page(final_url, page_title, auth_body_sample):
+                    raise ExportStageError(
+                        "composition_load",
+                        "Headless renderer was redirected to the sign-in page. "
+                        "Check render-route authentication and internal render-token configuration.",
+                    )
                 if response.status >= 400:
                     raise ExportStageError(
                         "composition_load",
-                        f"Render page returned HTTP {response.status}: {candidate_url}",
+                        f"Render page returned HTTP {response.status}: {redact_render_url(candidate_url)}",
+                    )
+                if isinstance(readiness_probe, dict) and readiness_probe.get("hasAuthError"):
+                    raise ExportStageError(
+                        "composition_load",
+                        f"Render page rejected the render token at {redact_render_url(candidate_url)}.",
                     )
 
-                await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=10000)
+                await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=render_page_timeout_ms)
                 performance.render_page_load_seconds += time.perf_counter() - page_load_started
                 render_page_url = candidate_url
                 loaded_render_page = True
@@ -1101,7 +1235,7 @@ async def export_headless(
                 await close_context_safely()
             except Exception as exc:
                 performance.render_page_load_seconds += time.perf_counter() - page_load_started
-                render_load_errors.append(f"Could not load the caption render page at {candidate_url}: {exc}")
+                render_load_errors.append(f"Could not load the caption render page at {redact_render_url(candidate_url)}: {exc}")
                 await close_context_safely()
 
         if not loaded_render_page:
@@ -1113,7 +1247,7 @@ async def export_headless(
             await close_browser_safely()
             raise ExportStageError(
                 "composition_load",
-                f"Could not load the caption render page at {render_page_candidates[0]}.{detail}",
+                f"Could not load the caption render page at {redact_render_url(render_page_candidates[0])}.{detail}",
             )
 
         if page is None:
@@ -1392,18 +1526,25 @@ async def export_headless(
             page.on("console", lambda msg: capture_page_log("console", msg.text))
             page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
             page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
-            response = await page.goto(render_page_url, wait_until="networkidle", timeout=30000)
+            response = await page.goto(render_page_url, wait_until="networkidle", timeout=render_page_timeout_ms)
             if response is None or response.status >= 400:
                 status = "no response" if response is None else f"HTTP {response.status}"
-                raise ExportStageError("composition_load", f"Render page reload failed during export recovery: {status} {render_page_url}")
-            await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=10000)
+                raise ExportStageError("composition_load", f"Render page reload failed during export recovery: {status} {redact_render_url(render_page_url)}")
+            page_title = await page.title()
+            if _looks_like_sign_in_page(page.url, page_title):
+                raise ExportStageError(
+                    "composition_load",
+                    "Headless renderer was redirected to the sign-in page during recovery. "
+                    "Check render-route authentication and internal render-token configuration.",
+                )
+            await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=render_page_timeout_ms)
             await inject_caption_data()
             await wait_for_fonts()
             # Wait for readiness and assert clean on recreated pages too.
             try:
                 await page.wait_for_function(
-                    "() => document.documentElement.dataset.renderReady === 'true'",
-                    timeout=15000,
+                    "() => window.__CAPINSTA_RENDER_READY__ === true && document.documentElement.dataset.renderReady === 'true'",
+                    timeout=render_page_timeout_ms,
                 )
             except Exception:
                 logger.warning("render_ready_timeout during page recovery export_job_id=%s", export_job_id)
@@ -1438,8 +1579,8 @@ async def export_headless(
         readiness_started = time.perf_counter()
         try:
             await page.wait_for_function(
-                "() => document.documentElement.dataset.renderReady === 'true'",
-                timeout=15000,
+                "() => window.__CAPINSTA_RENDER_READY__ === true && document.documentElement.dataset.renderReady === 'true'",
+                timeout=render_page_timeout_ms,
             )
             readiness = await page.evaluate(
                 """() => {

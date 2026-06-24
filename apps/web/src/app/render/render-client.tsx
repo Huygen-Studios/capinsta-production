@@ -46,6 +46,7 @@ declare global {
 	interface Window {
 		__CAPINSTA_RENDER_ARTIFACT_MARKERS__: readonly string[];
 		__RENDER_PAGE_LOADED__: boolean;
+		__CAPINSTA_RENDER_READY__: boolean;
 		__RENDER_PAGE_LAST_ERROR__: string;
 		__OVERLAY_ONLY_MODE__: boolean;
 		HUYGEN_RENDER_MODE: string;
@@ -300,6 +301,7 @@ export function RenderPageClient() {
 
 		// Mark page as loaded
 		window.__RENDER_PAGE_LOADED__ = true;
+		window.__CAPINSTA_RENDER_READY__ = false;
 		window.__RENDER_PAGE_LAST_ERROR__ = "";
 		window.__OVERLAY_ONLY_MODE__ = true;
 		window.HUYGEN_RENDER_MODE = "full_video";
@@ -431,6 +433,7 @@ export function RenderPageClient() {
 			if (typeof document === "undefined") return;
 			document.documentElement.dataset.renderReady = "true";
 			document.documentElement.dataset.renderReadyReason = reason;
+			window.__CAPINSTA_RENDER_READY__ = true;
 			window.__RENDER_PAGE_LAST_ERROR__ =
 				window.__RENDER_PAGE_LAST_ERROR__ || "";
 			// eslint-disable-next-line no-console
@@ -456,6 +459,7 @@ export function RenderPageClient() {
 			_audioIncluded,
 		) => {
 			try {
+				window.__CAPINSTA_RENDER_READY__ = false;
 				const captions = JSON.parse(captionsJson || "[]");
 				if (!Array.isArray(captions)) {
 					window.__RENDER_PAGE_LAST_ERROR__ = "captions must be an array";
