@@ -70,6 +70,10 @@ RUN test -f /app/apps/web/server.js \
      echo "public directories:"; find /app -maxdepth 5 -type d -name public -print; \
      exit 1)
 
+ENV WEB_JS_RUNTIME=bun
+COPY --chown=nextjs:nodejs apps/web/docker/start-web.sh /app/start-web.sh
+RUN chmod +x /app/start-web.sh
+
 RUN chown -R nextjs:nodejs apps
 
 USER nextjs
@@ -79,4 +83,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["bun", "/app/apps/web/server.js"]
+CMD ["/app/start-web.sh"]
