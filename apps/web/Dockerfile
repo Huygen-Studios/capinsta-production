@@ -58,14 +58,17 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./apps/web
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 
 RUN test -f /app/apps/web/server.js \
  && test -d /app/apps/web/public \
  && test -d /app/apps/web/.next/static \
+ && bun -e "console.log('next_resolved=' + require.resolve('next', { paths: ['/app/apps/web'] }))" \
  || (echo "Expected Next standalone layout is missing"; \
      echo "server.js files:"; find /app -maxdepth 5 -type f -name server.js -print; \
+     echo "next package candidates:"; find /app -maxdepth 7 -path "*/node_modules/next" -print; \
      echo ".next/static directories:"; find /app -maxdepth 6 -type d -path "*/.next/static" -print; \
      echo "public directories:"; find /app -maxdepth 5 -type d -name public -print; \
      exit 1)
