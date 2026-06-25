@@ -59,8 +59,11 @@ RUN apt-get update \
 
 COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
 RUN python -m pip install --upgrade pip \
+  && python -m pip install --upgrade setuptools wheel \
   && python -m pip install -r requirements.txt \
-  && python -m pip install -r requirements-stable-ts.txt \
+  && python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.3.1+cpu torchaudio==2.3.1+cpu \
+  && python -m pip install more-itertools numba tiktoken \
+  && python -m pip install --no-build-isolation --no-deps openai-whisper==20250625 stable-ts==2.19.1 \
   && python -m playwright install --with-deps chromium
 
 RUN mkdir -p \

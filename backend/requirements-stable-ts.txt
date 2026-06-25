@@ -6,5 +6,10 @@
 
 torch==2.3.1+cpu
 torchaudio==2.3.1+cpu
+setuptools<82
+wheel
+more-itertools
+numba
+tiktoken
 openai-whisper==20250625
 stable-ts==2.19.1
