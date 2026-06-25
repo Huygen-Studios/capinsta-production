@@ -763,12 +763,15 @@ def build_word_timed_transcript_from_chunks(
                 resolved_config.timingSourcePolicy != "estimated_debug_only"
                 and estimated_ratio > resolved_config.quality.maximumEstimatedWordRatio
             ):
+                configured_ratio = resolved_config.quality.maximumEstimatedWordRatio
                 audit_entry["warnings"].append(
-                    f"estimated timing ratio {estimated_ratio:.3f} exceeds configured maximum"
+                    f"estimated timing ratio {estimated_ratio:.3f} exceeds configured maximum {configured_ratio:.3f}"
                 )
                 if chunk_audit is not None:
                     chunk_audit.append(audit_entry)
-                raise TranscriptValidationError("Estimated word timing ratio exceeds configured maximum.")
+                raise TranscriptValidationError(
+                    f"Estimated word timing ratio {estimated_ratio:.1%} exceeds configured maximum {configured_ratio:.0%}."
+                )
         if not normalized_words:
             audit_entry["warnings"].append("no usable word timestamps after normalization")
             if chunk_audit is not None:

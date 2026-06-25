@@ -11,7 +11,7 @@ ALTER TABLE transcription_configurations
     "repair": {"speechSpanRetimerEnabled": true, "minimumWordDurationSeconds": 0.04, "minimumInterWordGapSeconds": 0, "cadenceMinSeconds": 0.075, "cadenceMaxSeconds": 0.35, "minimumSpeechRetimeWords": 6, "minimumSpeechRetimeTrailingGapSeconds": 1.0, "speechRetimeCompressionRatio": 0.78, "minimumPhraseRetimeWords": 4},
     "autoSync": {"enabled": false, "frameStepSeconds": 0.02, "maxShiftSeconds": 2.0, "minScore": 0.58, "minImprovement": 0.04, "maxEstimatedWordRatio": 0.70, "allowSkew": false, "maxSkewDelta": 0.02},
     "captionChunking": {"targetWords": 4, "maxWords": 5, "minWords": 2, "maxCharacters": 36, "minDurationSeconds": 0.8, "maxDurationSeconds": 3.0, "pauseSplitThresholdSeconds": 0.30, "mergeGapSeconds": 0.12, "phraseHoldSeconds": 0.12},
-    "quality": {"minimumProviderTimestampCoverage": 0.90, "allowSegmentDerivedWords": false, "allowEstimatedWords": false, "maximumEstimatedWordRatio": 0.05},
+    "quality": {"minimumProviderTimestampCoverage": 0.90, "allowSegmentDerivedWords": false, "allowEstimatedWords": false, "maximumEstimatedWordRatio": 0.15},
     "performance": {"providerTimeoutSeconds": 60, "sarvamMaxConcurrency": 2, "alignmentRetries": 3}
   }'::jsonb;
 

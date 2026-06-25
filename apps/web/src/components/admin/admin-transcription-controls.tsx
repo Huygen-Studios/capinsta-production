@@ -209,6 +209,7 @@ export function AdminTranscriptionControls({
 	const performance = section(pipelineOptions, "performance");
 	const quality = section(pipelineOptions, "quality");
 	const nativeRequired = stringValue(pipelineOptions.timingSourcePolicy, "native_then_forced") === "native_required";
+	const allowEstimatedWords = !nativeRequired && booleanValue(quality.allowEstimatedWords, false);
 
 	const setPipelineValue = (key: string, field: string, value: unknown) => {
 		setPipelineOptions((current) => updateNested(current, key, field, value));
@@ -593,11 +594,26 @@ export function AdminTranscriptionControls({
 									<input
 										type="checkbox"
 										disabled={nativeRequired}
-										checked={!nativeRequired && booleanValue(quality.allowEstimatedWords, false)}
+										checked={allowEstimatedWords}
 										onChange={(event) => setPipelineValue("quality", "allowEstimatedWords", event.currentTarget.checked)}
 									/>
 									{nativeRequired ? "Estimated words disabled for native required" : "Allow estimated words"}
 								</label>
+								<div className="grid gap-2">
+									<Label>Maximum estimated word ratio</Label>
+									<Input
+										type="number"
+										step="0.01"
+										min="0"
+										max="1"
+										disabled={!allowEstimatedWords}
+										value={numericInputValue(quality.maximumEstimatedWordRatio, 0.15)}
+										onChange={(event) => setPipelineValue("quality", "maximumEstimatedWordRatio", Number(event.currentTarget.value))}
+									/>
+									<p className="text-xs text-muted-foreground">
+										Maximum fraction of caption words allowed to use estimated timing after alignment. 0.15 means 15%.
+									</p>
+								</div>
 							</div>
 						</div>
 						<div className="grid gap-2 md:col-span-2">

@@ -11,7 +11,7 @@ class QualityConfig:
     minimumProviderTimestampCoverage: float = 0.90
     allowSegmentDerivedWords: bool = False
     allowEstimatedWords: bool = False
-    maximumEstimatedWordRatio: float = 0.05
+    maximumEstimatedWordRatio: float = 0.15
 
 
 @dataclass(frozen=True)
@@ -238,7 +238,7 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
             minimumProviderTimestampCoverage=_num(quality.get("minimumProviderTimestampCoverage"), 0.90, 0.0, 1.0),
             allowSegmentDerivedWords=_bool(quality.get("allowSegmentDerivedWords"), False),
             allowEstimatedWords=_bool(quality.get("allowEstimatedWords"), False),
-            maximumEstimatedWordRatio=_num(quality.get("maximumEstimatedWordRatio"), 0.05, 0.0, 1.0),
+            maximumEstimatedWordRatio=_num(quality.get("maximumEstimatedWordRatio"), 0.15, 0.0, 1.0),
         ),
         performance=PerformanceConfig(
             providerTimeoutSeconds=_int(performance.get("providerTimeoutSeconds"), 60, 5, 600),

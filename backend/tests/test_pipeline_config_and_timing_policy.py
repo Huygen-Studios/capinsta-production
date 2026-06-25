@@ -30,6 +30,7 @@ def test_pipeline_config_defaults_are_production_safe():
     assert config.timingSourcePolicy == "native_then_forced"
     assert config.quality.allowEstimatedWords is False
     assert config.quality.allowSegmentDerivedWords is False
+    assert config.quality.maximumEstimatedWordRatio == 0.15
     assert config.quality.minimumProviderTimestampCoverage == 0.90
     assert config.performance.providerTimeoutSeconds == 60
     assert config.captionChunking.maxWords == 5
@@ -149,6 +150,61 @@ def test_estimated_debug_policy_marks_estimated_words():
     words = [word for segment in segments for word in segment["words"]]
     assert len(words) == 2
     assert all(word["timingNeedsReview"] for word in words)
+
+
+def _ten_word_chunk_with_one_estimated():
+    words = []
+    for index in range(10):
+        words.append(
+            {
+                "word": f"word{index}",
+                "start": index * 0.2,
+                "end": index * 0.2 + 0.1,
+                "timing_source": "estimated" if index == 0 else "provider_native_word",
+            }
+        )
+    return _chunk(words)
+
+
+def test_maximum_estimated_word_ratio_allows_ten_percent_when_configured():
+    config = resolve_pipeline_config(
+        {
+            "quality": {
+                "allowEstimatedWords": True,
+                "maximumEstimatedWordRatio": 0.15,
+            }
+        }
+    )
+
+    segments = build_word_timed_transcript_from_chunks(
+        [_ten_word_chunk_with_one_estimated()],
+        "english",
+        pipeline_config=config,
+    )
+    words = [word for segment in segments for word in segment["words"]]
+
+    assert len(words) == 10
+    assert sum(1 for word in words if word.get("timingNeedsReview")) == 1
+
+
+def test_maximum_estimated_word_ratio_rejects_ten_percent_when_configured_too_low():
+    config = resolve_pipeline_config(
+        {
+            "quality": {
+                "allowEstimatedWords": True,
+                "maximumEstimatedWordRatio": 0.05,
+            }
+        }
+    )
+
+    with pytest.raises(TranscriptValidationError) as exc:
+        build_word_timed_transcript_from_chunks(
+            [_ten_word_chunk_with_one_estimated()],
+            "english",
+            pipeline_config=config,
+        )
+
+    assert "Estimated word timing ratio 10.0% exceeds configured maximum 5%" in str(exc.value)
 
 
 def test_caption_chunking_rules_change_visible_output():

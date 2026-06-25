@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
 	getAdminTranscriptionConfiguration,
 	listAdminTranscriptionConfigurations,
@@ -61,6 +63,11 @@ describe("admin transcription configuration db compatibility", () => {
 
 		expect(config.provider).toBe("sarvam");
 		expect(config.pipelineOptions.timingSourcePolicy).toBe("native_then_forced");
+		expect(
+			isRecord(config.pipelineOptions.quality)
+				? config.pipelineOptions.quality.maximumEstimatedWordRatio
+				: undefined,
+		).toBe(0.15);
 	});
 
 	test("loads malformed legacy pipeline options without crashing", async () => {
@@ -90,6 +97,7 @@ describe("admin transcription configuration db compatibility", () => {
 				timingSourcePolicy: "native_required",
 				captionChunking: { maxWords: 3 },
 				autoSync: { enabled: true, maxShiftSeconds: 0.5 },
+				quality: { allowEstimatedWords: true, maximumEstimatedWordRatio: 0.2 },
 				__proto__: { polluted: true },
 			},
 		);
@@ -101,7 +109,28 @@ describe("admin transcription configuration db compatibility", () => {
 		expect(isRecord(captionChunking) ? captionChunking.maxCharacters : undefined).toBe(36);
 		expect(isRecord(autoSync) ? autoSync.enabled : undefined).toBe(true);
 		expect(isRecord(autoSync) ? autoSync.minScore : undefined).toBe(0.58);
+		const quality = merged.quality;
+		expect(isRecord(quality) ? quality.allowEstimatedWords : undefined).toBe(true);
+		expect(isRecord(quality) ? quality.maximumEstimatedWordRatio : undefined).toBe(0.2);
 		expect(Object.prototype).not.toHaveProperty("polluted");
+	});
+
+	test("frontend default maximum estimated ratio matches backend schema", () => {
+		const quality = DEFAULT_PIPELINE_OPTIONS.quality;
+
+		expect(quality.maximumEstimatedWordRatio).toBe(0.15);
+	});
+
+	test("admin UI exposes disabled maximum estimated ratio control with helper text", () => {
+		const source = readFileSync(
+			join(process.cwd(), "src/components/admin/admin-transcription-controls.tsx"),
+			"utf8",
+		);
+
+		expect(source).toContain("Maximum estimated word ratio");
+		expect(source).toContain("quality\", \"maximumEstimatedWordRatio\"");
+		expect(source).toContain("disabled={!allowEstimatedWords}");
+		expect(source).toContain("Maximum fraction of caption words allowed to use estimated timing after alignment. 0.15 means 15%.");
 	});
 
 	test("Gemini catalog entries require real local alignment", () => {
