@@ -34,7 +34,7 @@ function CaptionInspectorTabs({
 	onChange: (tab: CaptionPanelTab) => void;
 }) {
 	return (
-		<div className="flex shrink-0 gap-1 border-b-2 border-border bg-card px-2 py-2">
+		<div className="flex shrink-0 gap-1 border-b border-border bg-card px-2 py-2">
 			{CAPTION_INSPECTOR_TABS.map(({ tab, label }) => (
 				<button
 					key={tab}
@@ -42,7 +42,7 @@ function CaptionInspectorTabs({
 					className={cn(
 						"rounded-sm border px-2 py-1 text-xs font-bold",
 						activeTab === tab
-							? "border-primary bg-primary text-primary-foreground shadow-[2px_2px_0_var(--shadow-strong)]"
+							? "border-[var(--neo-black)] bg-primary text-primary-foreground shadow-[2px_2px_0_var(--shadow-strong)]"
 							: "border-border bg-background text-muted-foreground hover:bg-muted",
 					)}
 					onClick={() => onChange(tab)}
@@ -129,7 +129,7 @@ export function PropertiesPanel() {
 	if (visibleTabs.length === 0) return <EffectControlsEmptyState />;
 
 	const captionStatus = capinstaBinding ? (
-					<div className="flex items-center justify-between gap-2 border-b-2 border-border px-3 py-2 text-xs">
+					<div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 text-xs">
 						<span className="font-medium">Capinsta caption</span>
 						{capinstaBinding.clip.timingNeedsReview ? (
 							<span

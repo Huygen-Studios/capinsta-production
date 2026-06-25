@@ -116,9 +116,10 @@ function EffectSection({
 			sectionKey={`effect-controls:${element.type}:${tab.id}`}
 			showTopBorder
 			showBottomBorder={false}
+			className="border-border/80"
 		>
 			<SectionHeader
-				className="h-8 px-3 text-xs"
+				className="h-9 px-3 text-xs"
 				leading={<span className="text-muted-foreground text-[11px] italic">fx</span>}
 				trailing={
 					canReset(tab.label) ? (
@@ -139,7 +140,7 @@ function EffectSection({
 			>
 				<SectionTitle className="text-xs font-semibold">{label}</SectionTitle>
 			</SectionHeader>
-			<SectionContent className="px-3 pb-3 pt-1">
+			<SectionContent className="px-3 pb-4 pt-1.5">
 				<div className="effect-controls-section text-sm">
 					{tab.content({ trackId })}
 				</div>
@@ -157,7 +158,7 @@ export function EffectControlsShell({
 }) {
 	return (
 		<div className={cn("panel editor-panel flex h-full min-h-0 flex-col overflow-hidden", className)}>
-			<div className="sticky top-0 z-10 shrink-0 border-b-2 border-border bg-card px-3 py-2">
+			<div className="sticky top-0 z-10 shrink-0 border-b border-border bg-card px-3 py-2.5">
 				<h2 className="text-sm font-black tracking-wide">Effect Controls</h2>
 			</div>
 			{children}

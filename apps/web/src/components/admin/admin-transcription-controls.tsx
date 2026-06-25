@@ -208,6 +208,7 @@ export function AdminTranscriptionControls({
 	const captionChunking = section(pipelineOptions, "captionChunking");
 	const performance = section(pipelineOptions, "performance");
 	const quality = section(pipelineOptions, "quality");
+	const nativeRequired = stringValue(pipelineOptions.timingSourcePolicy, "native_then_forced") === "native_required";
 
 	const setPipelineValue = (key: string, field: string, value: unknown) => {
 		setPipelineOptions((current) => updateNested(current, key, field, value));
@@ -586,10 +587,11 @@ export function AdminTranscriptionControls({
 								<label className="flex items-center gap-2 text-sm font-medium">
 									<input
 										type="checkbox"
-										checked={booleanValue(quality.allowEstimatedWords, false)}
+										disabled={nativeRequired}
+										checked={!nativeRequired && booleanValue(quality.allowEstimatedWords, false)}
 										onChange={(event) => setPipelineValue("quality", "allowEstimatedWords", event.currentTarget.checked)}
 									/>
-									Allow estimated words
+									{nativeRequired ? "Estimated words disabled for native required" : "Allow estimated words"}
 								</label>
 							</div>
 						</div>

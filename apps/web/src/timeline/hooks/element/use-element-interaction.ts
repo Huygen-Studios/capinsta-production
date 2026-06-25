@@ -48,9 +48,15 @@ export function useElementInteraction({
 		},
 		selection: {
 			getSelected: () => selection.selectedElements,
+			getMode: () => selection.elementSelectionMode,
 			isSelected: selection.isElementSelected,
-			select: selection.selectElement,
-			selectMany: (refs) => selection.setElementSelection({ elements: refs }),
+			select: (ref, mode) => selection.selectElement({ ...ref, mode }),
+			selectMany: (refs, options) =>
+				selection.setElementSelection({
+					elements: refs,
+					mode: options?.mode,
+					primary: options?.primary,
+				}),
 			handleClick: selection.handleElementClick,
 			clearKeyframeSelection: () => editor.selection.clearKeyframeSelection(),
 		},

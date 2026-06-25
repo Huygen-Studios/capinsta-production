@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
 from ai_pipeline.renderer import chunk_words_into_captions
 from ai_pipeline.transcriber import _normalize_sarvam_words
-from ai_pipeline.transcript_normalizer import build_word_timed_transcript_from_chunks
+from ai_pipeline.transcript_normalizer import TranscriptValidationError, build_word_timed_transcript_from_chunks
 
 
 @dataclass
@@ -38,29 +40,23 @@ def test_sarvam_chunks_are_preserved_as_phrase_timing_units():
 
 def test_phrase_units_are_not_evenly_interpolated_into_fake_words():
     words = _normalize_sarvam_words(_sarvam_payload())
-    segments = build_word_timed_transcript_from_chunks(
-        [
-            FakeChunk(
-                index=0,
-                start_time=0.0,
-                end_time=3.3,
-                final_text="hello there after a pause",
-                asr_metadata={
-                    "provider": "sarvam",
-                    "timing_granularity": "phrase",
-                    "words": words,
-                },
-            )
-        ],
-        "english",
-    )
-
-    normalized = segments[0]["words"]
-    assert len(normalized) == 2
-    assert normalized[0]["word"] == "hello there"
-    assert normalized[1]["start"] == 2.4
-    assert normalized[1]["start"] - normalized[0]["end"] == 1.4
-    assert not any("interpolated" in word.get("timing_source", "") for word in normalized)
+    with pytest.raises(TranscriptValidationError):
+        build_word_timed_transcript_from_chunks(
+            [
+                FakeChunk(
+                    index=0,
+                    start_time=0.0,
+                    end_time=3.3,
+                    final_text="hello there after a pause",
+                    asr_metadata={
+                        "provider": "sarvam",
+                        "timing_granularity": "phrase",
+                        "words": words,
+                    },
+                )
+            ],
+            "english",
+        )
 
 
 def test_caption_chunking_keeps_provider_phrases_and_their_pause_atomic():
@@ -72,7 +68,7 @@ def test_caption_chunking_keeps_provider_phrases_and_their_pause_atomic():
     assert captions[1]["start"] == 2.4
 
 
-def test_phrase_tokens_are_distributed_only_across_detected_speech_islands():
+def test_phrase_tokens_are_rejected_instead_of_distributed_across_speech_islands():
     payload = {
         "transcript": "one two three four five six",
         "timestamps": {
@@ -82,32 +78,24 @@ def test_phrase_tokens_are_distributed_only_across_detected_speech_islands():
         },
     }
     words = _normalize_sarvam_words(payload)
-    segments = build_word_timed_transcript_from_chunks(
-        [
-            FakeChunk(
-                index=0,
-                start_time=0.0,
-                end_time=5.0,
-                final_text=payload["transcript"],
-                asr_metadata={
-                    "provider": "sarvam",
-                    "timing_granularity": "phrase",
-                    "words": words,
-                },
-            )
-        ],
-        "english",
-        speech_segments=[
-            {"start": 0.0, "end": 1.8},
-            {"start": 3.0, "end": 5.0},
-        ],
-    )
-
-    estimated_words = segments[0]["words"]
-    assert len(estimated_words) == 6
-    assert all(word["timingSource"] == "estimated" for word in estimated_words)
-    assert all(not (1.8 < word["start"] < 3.0) for word in estimated_words)
-    assert any(
-        estimated_words[index]["start"] - estimated_words[index - 1]["end"] >= 1.0
-        for index in range(1, len(estimated_words))
-    )
+    with pytest.raises(TranscriptValidationError):
+        build_word_timed_transcript_from_chunks(
+            [
+                FakeChunk(
+                    index=0,
+                    start_time=0.0,
+                    end_time=5.0,
+                    final_text=payload["transcript"],
+                    asr_metadata={
+                        "provider": "sarvam",
+                        "timing_granularity": "phrase",
+                        "words": words,
+                    },
+                )
+            ],
+            "english",
+            speech_segments=[
+                {"start": 0.0, "end": 1.8},
+                {"start": 3.0, "end": 5.0},
+            ],
+        )

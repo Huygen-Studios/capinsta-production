@@ -604,7 +604,7 @@ export function CaptionEditorPanel({
 	if (!document || !currentRecord) return null;
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<header className="shrink-0 border-b p-3">
+			<header className="shrink-0 border-b bg-card p-3">
 				<div className="flex items-center justify-between gap-2">
 					<div>
 						<h2 className="text-sm font-semibold">Captions</h2>
@@ -710,7 +710,7 @@ export function CaptionEditorPanel({
 						sectionKey="caption-editor:text-timing"
 						showBottomBorder
 					>
-						<SectionHeader className="h-8 px-3 text-xs">
+						<SectionHeader className="h-9 px-3 text-xs">
 							<SectionTitle className="text-xs font-semibold">
 								Caption text and timing
 							</SectionTitle>
@@ -785,12 +785,12 @@ export function CaptionEditorPanel({
 						sectionKey="caption-editor:review-warnings"
 						showBottomBorder
 					>
-						<SectionHeader className="h-8 px-3 text-xs">
+						<SectionHeader className="h-9 px-3 text-xs">
 							<SectionTitle className="text-xs font-semibold">
 								Review warnings
 							</SectionTitle>
 						</SectionHeader>
-						<SectionContent className="px-3 pb-3 pt-1">
+						<SectionContent className="px-3 pb-4 pt-1.5">
 							{reviewWarnings.length > 0 ? (
 								<div className="grid gap-1 text-xs text-amber-500">
 									{reviewWarnings.map((clip) => (
@@ -812,12 +812,12 @@ export function CaptionEditorPanel({
 						sectionKey="caption-editor:additional-options"
 						showBottomBorder={false}
 					>
-						<SectionHeader className="h-8 px-3 text-xs">
+						<SectionHeader className="h-9 px-3 text-xs">
 							<SectionTitle className="text-xs font-semibold">
 								Additional options
 							</SectionTitle>
 						</SectionHeader>
-						<SectionContent className="px-3 pb-3 pt-1">
+						<SectionContent className="px-3 pb-4 pt-1.5">
 							<Button
 								type="button"
 								variant="outline"

@@ -17,6 +17,15 @@ def _write_wav(path):
     return str(path)
 
 
+def _write_wav_seconds(path, seconds: float):
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(16000)
+        audio.writeframes(b"\0\0" * int(16000 * seconds))
+    return str(path)
+
+
 def _write_mp3_like(path):
     path.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x21" + b"\0" * 64)
     return str(path)
@@ -60,6 +69,7 @@ class FakeResponse:
         self.status_code = status_code
         self._payload = payload
         self.text = text
+        self.headers = {"x-request-id": (payload or {}).get("request_id", "req-test")}
 
     def json(self):
         if isinstance(self._payload, Exception):
@@ -228,6 +238,161 @@ def test_sarvam_upload_mime_matches_mp3_bytes(monkeypatch, tmp_path):
 
     assert result["provider"] == "sarvam"
     assert seen["files"]["file"][2] == "audio/mpeg"
+
+
+def test_sarvam_parser_accepts_only_single_lexical_native_words():
+    result = transcriber._normalize_sarvam_words(
+        {
+            "transcript": "hello how are you",
+            "timestamps": {
+                "words": ["hello", "how", "are", "you"],
+                "start_time_seconds": [0.0, 0.2, 0.4, 0.6],
+                "end_time_seconds": [0.1, 0.3, 0.5, 0.8],
+            },
+        },
+        audio_duration=1.0,
+    )
+
+    assert result.granularity == "native_word"
+    assert result.native_word_count == 4
+    assert result.phrase_entry_count == 0
+    assert {word["timing_source"] for word in result.words} == {"provider_native"}
+
+
+def test_sarvam_parser_classifies_multi_word_entries_as_phrase():
+    result = transcriber._normalize_sarvam_words(
+        {
+            "transcript": "hello how are you",
+            "timestamps": {
+                "words": ["hello how", "are you"],
+                "start_time_seconds": [0.0, 0.5],
+                "end_time_seconds": [0.4, 0.9],
+            },
+        },
+        audio_duration=1.0,
+    )
+
+    assert result.granularity == "phrase"
+    assert result.native_word_count == 0
+    assert result.phrase_entry_count == 2
+    assert {word["timing_source"] for word in result.words} == {"provider_phrase"}
+
+
+def test_sarvam_parser_rejects_non_monotonic_and_out_of_bounds_timestamps():
+    with pytest.raises(transcriber.TranscriptionProviderError) as exc:
+        transcriber._normalize_sarvam_words(
+            {
+                "transcript": "hello world",
+                "timestamps": {
+                    "words": ["hello", "world"],
+                    "start_time_seconds": [0.5, 0.2],
+                    "end_time_seconds": [0.7, 0.9],
+                },
+            },
+            audio_duration=1.0,
+        )
+    assert exc.value.category == "sarvam_timestamp_arrays_invalid"
+
+    with pytest.raises(transcriber.TranscriptionProviderError) as exc:
+        transcriber._normalize_sarvam_words(
+            {
+                "transcript": "hello",
+                "timestamps": {
+                    "words": ["hello"],
+                    "start_time_seconds": [0.0],
+                    "end_time_seconds": [4.0],
+                },
+            },
+            audio_duration=1.0,
+        )
+    assert exc.value.category == "sarvam_timestamp_arrays_invalid"
+
+
+def test_sarvam_verbatim_retry_recovers_native_word_timing(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    calls = []
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        calls.append(dict(data or {}))
+        if len(calls) == 1:
+            return FakeResponse(
+                payload={
+                    "transcript": "hello world",
+                    "request_id": "phrase-1",
+                    "timestamps": {
+                        "words": ["hello world"],
+                        "start_time_seconds": [0.0],
+                        "end_time_seconds": [0.8],
+                    },
+                }
+            )
+        return FakeResponse(
+            payload={
+                "transcript": "hello world",
+                "request_id": "native-2",
+                "timestamps": {
+                    "words": ["hello", "world"],
+                    "start_time_seconds": [0.0, 0.5],
+                    "end_time_seconds": [0.4, 0.8],
+                },
+            }
+        )
+
+    monkeypatch.setattr(transcriber.requests, "post", fake_post)
+    result = transcriber._call_sarvam(_write_wav(tmp_path / "chunk.wav"), "english")
+
+    assert [call["mode"] for call in calls] == ["transcribe", "verbatim"]
+    assert result["timing_mode"] == "verbatim"
+    assert result["nativeWordCount"] == 2
+    assert [word["timing_source"] for word in result["words"]] == ["provider_native", "provider_native"]
+    assert result["provider_request_ids"] == ["phrase-1", "native-2"]
+
+
+def test_sarvam_smaller_chunk_retry_merges_chunk_local_offsets(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    source = _write_wav_seconds(tmp_path / "source.wav", 16.0)
+    small_a = _write_wav_seconds(tmp_path / "small-a.wav", 8.0)
+    small_b = _write_wav_seconds(tmp_path / "small-b.wav", 8.0)
+    calls = []
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        calls.append(dict(data or {}))
+        if len(calls) <= 2:
+            return FakeResponse(
+                payload={
+                    "transcript": "hello world",
+                    "request_id": f"phrase-{len(calls)}",
+                    "timestamps": {
+                        "words": ["hello world"],
+                        "start_time_seconds": [0.0],
+                        "end_time_seconds": [0.8],
+                    },
+                }
+            )
+        word = "hello" if len(calls) == 3 else "world"
+        return FakeResponse(
+            payload={
+                "transcript": word,
+                "request_id": f"native-{len(calls)}",
+                "timestamps": {
+                    "words": [word],
+                    "start_time_seconds": [0.1],
+                    "end_time_seconds": [0.5],
+                },
+            }
+        )
+
+    monkeypatch.setattr(transcriber.requests, "post", fake_post)
+    monkeypatch.setattr(transcriber, "_small_sarvam_audio_chunks", lambda _path: [(small_a, 0.0, 8.0), (small_b, 8.0, 16.0)])
+
+    result = transcriber._call_sarvam(source, "english")
+
+    assert [call["mode"] for call in calls] == ["transcribe", "verbatim", "verbatim", "verbatim"]
+    assert result["timing_mode"] == "verbatim_small_chunks"
+    assert [word["start"] for word in result["words"]] == [0.1, 8.1]
+    assert result["nativeWordCount"] == 2
 
 
 @pytest.mark.parametrize(

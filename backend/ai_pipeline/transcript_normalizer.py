@@ -106,7 +106,11 @@ def _provider_declared_timestamp_basis(metadata: dict[str, Any]) -> str | None:
 
 def _is_estimated_timing_source(value: Any) -> bool:
     source = str(value or "").lower()
-    return any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "fallback", "structured", "low_confidence"))
+    return any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "provider_phrase", "fallback", "structured", "low_confidence"))
+
+
+def _is_provider_native_timing_source(value: Any) -> bool:
+    return str(value or "").lower() in {"provider_native", "provider_native_word", "provider_word_chunk_local", "provider_word_absolute"}
 
 
 def _provider_time_warnings(raw_words: list[dict[str, Any]], chunk: Chunk, basis: str) -> list[str]:
@@ -724,10 +728,30 @@ def build_word_timed_transcript_from_chunks(
             for word in normalized_words
             if _is_estimated_timing_source(word.get("timing_source") or word.get("timingSource"))
         )
+        non_native_count = sum(
+            1
+            for word in normalized_words
+            if not _is_provider_native_timing_source(word.get("timing_source") or word.get("timingSource"))
+        )
+        if resolved_config.timingSourcePolicy == "native_required" and non_native_count:
+            audit_entry["nonNativeWordCount"] = non_native_count
+            audit_entry["warnings"].append(f"native-required rejected {non_native_count} non-native word timing(s)")
+            if chunk_audit is not None:
+                chunk_audit.append(audit_entry)
+            raise TranscriptValidationError(
+                "Sarvam returned phrase-level timestamps instead of native word timestamps."
+            )
         if estimated_count:
             estimated_ratio = estimated_count / max(1, len(normalized_words))
             audit_entry["estimatedWordCount"] = estimated_count
             audit_entry["estimatedWordRatio"] = round(estimated_ratio, 4)
+            if resolved_config.timingSourcePolicy == "native_required":
+                audit_entry["warnings"].append("native-required rejected estimated timing")
+                if chunk_audit is not None:
+                    chunk_audit.append(audit_entry)
+                raise TranscriptValidationError(
+                    "Native-required timing policy received estimated or phrase-derived word timing."
+                )
             if resolved_config.timingSourcePolicy != "estimated_debug_only" and not resolved_config.quality.allowEstimatedWords:
                 audit_entry["warnings"].append(f"estimated timing rejected by policy ({estimated_count} word(s))")
                 if chunk_audit is not None:

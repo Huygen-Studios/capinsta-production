@@ -55,9 +55,13 @@ export interface SceneReader {
 
 export interface ElementSelectionApi {
 	getSelected: () => readonly ElementRef[];
+	getMode: () => "group" | "individual";
 	isSelected: (ref: ElementRef) => boolean;
-	select: (ref: ElementRef) => void;
-	selectMany: (refs: ElementRef[]) => void;
+	select: (ref: ElementRef, mode?: "group" | "individual") => void;
+	selectMany: (
+		refs: ElementRef[],
+		options?: { mode?: "group" | "individual"; primary?: ElementRef | null },
+	) => void;
 	handleClick: (args: ElementRef & { isMultiKey: boolean }) => void;
 	clearKeyframeSelection: () => void;
 }
@@ -373,6 +377,15 @@ export class ElementInteractionController {
 		return expandElementRefsWithLinkedMedia({
 			tracks: this.deps.scene.getTracks(),
 			elementRefs: refs,
+			includeCapinstaDocuments: this.deps.selection.getMode() === "group",
+		});
+	}
+
+	private expandCaptionGroup(refs: readonly ElementRef[]): ElementRef[] {
+		return expandElementRefsWithLinkedMedia({
+			tracks: this.deps.scene.getTracks(),
+			elementRefs: refs,
+			includeCapinstaDocuments: true,
 		});
 	}
 
@@ -441,7 +454,20 @@ export class ElementInteractionController {
 
 		const ref = { trackId: track.id, elementId: element.id };
 
-		if (event.metaKey || event.ctrlKey || event.shiftKey) {
+		if (event.detail >= 2 && element.capinstaDocumentId) {
+			this.deps.selection.select(ref, "individual");
+			this.deps.selection.clearKeyframeSelection();
+			this.finishSession();
+			return;
+		}
+
+		if (event.shiftKey) {
+			this.deps.selection.handleClick({ ...ref, isMultiKey: true });
+			this.finishSession();
+			return;
+		}
+
+		if (event.metaKey || event.ctrlKey) {
 			this.deps.selection.handleClick({ ...ref, isMultiKey: true });
 		}
 
@@ -457,12 +483,25 @@ export class ElementInteractionController {
 			// bulk styling. Linked video/audio remains a single inspector
 			// selection even though the pair still participates in dragging.
 			if (element.capinstaDocumentId) {
-				this.deps.selection.selectMany([...selectedElements]);
+				if (
+					this.deps.selection.getMode() === "individual" &&
+					this.deps.selection.getSelected().length > 0
+				) {
+					this.deps.selection.select(ref, "individual");
+				} else {
+					this.deps.selection.selectMany(this.expandCaptionGroup([ref]), {
+						mode: "group",
+						primary: ref,
+					});
+				}
 			} else {
-				this.deps.selection.select(ref);
+				this.deps.selection.select(ref, "individual");
 			}
 		}
 
+		const activeSelectedElements = this.deps.selection.isSelected(ref)
+			? this.deps.selection.getSelected()
+			: selectedElements;
 		this.session = {
 			kind: "pending",
 			mousedown: {
@@ -475,7 +514,7 @@ export class ElementInteractionController {
 					elementRect: event.currentTarget.getBoundingClientRect(),
 					zoomLevel: this.deps.viewport.getZoomLevel(),
 				}),
-				selectedElements,
+				selectedElements: activeSelectedElements,
 			},
 		};
 		this.activate();
@@ -512,9 +551,19 @@ export class ElementInteractionController {
 			this.deps.selection.getSelected().length > 1
 		) {
 			if (element.capinstaDocumentId) {
-				this.deps.selection.selectMany(this.expandLinkedRefs([ref]));
+				if (
+					this.deps.selection.getMode() === "individual" &&
+					this.deps.selection.getSelected().length > 0
+				) {
+					this.deps.selection.select(ref, "individual");
+				} else {
+					this.deps.selection.selectMany(this.expandCaptionGroup([ref]), {
+						mode: "group",
+						primary: ref,
+					});
+				}
 			} else {
-				this.deps.selection.select(ref);
+				this.deps.selection.select(ref, "individual");
 			}
 			return;
 		}
@@ -684,6 +733,7 @@ export class ElementInteractionController {
 			},
 			selectedElements: [...mousedown.selectedElements],
 			tracks: this.deps.scene.getTracks(),
+			selectionMode: this.deps.selection.getMode(),
 		});
 		if (!moveGroup) return;
 
@@ -708,7 +758,7 @@ export class ElementInteractionController {
 			elementId: mousedown.elementId,
 		};
 		if (!this.deps.selection.isSelected(anchorRef)) {
-			this.deps.selection.select(anchorRef);
+			this.deps.selection.select(anchorRef, "individual");
 		}
 
 		const drag: DragProgress = {

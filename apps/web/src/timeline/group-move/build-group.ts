@@ -9,10 +9,12 @@ export function buildMoveGroup({
 	anchorRef,
 	selectedElements,
 	tracks,
+	selectionMode = "individual",
 }: {
 	anchorRef: ElementRef;
 	selectedElements: ElementRef[];
 	tracks: SceneTracks;
+	selectionMode?: "group" | "individual";
 }): MoveGroup | null {
 	const anchorTrack = findTrackInSceneTracks({
 		tracks,
@@ -42,6 +44,7 @@ export function buildMoveGroup({
 	const orderedRefs = expandElementRefsWithLinkedMedia({
 		tracks,
 		elementRefs: explicitRefs,
+		includeCapinstaDocuments: selectionMode === "group",
 	}).filter((elementRef) => {
 		if (isIndividualSelection && !explicitKeys.has(elementRef.elementId)) {
 			const expandedTrack = findTrackInSceneTracks({

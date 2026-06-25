@@ -5,6 +5,12 @@ import type { ElementRef } from "@/timeline/types";
 export function useElementSelection() {
 	const editor = useEditor();
 	const selectedElements = useEditor((e) => e.selection.getSelectedElements());
+	const elementSelectionMode = useEditor((e) =>
+		e.selection.getElementSelectionMode(),
+	);
+	const primarySelectedElement = useEditor((e) =>
+		e.selection.getPrimarySelectedElement(),
+	);
 
 	const isElementSelected = useCallback(
 		({ trackId, elementId }: ElementRef) =>
@@ -16,9 +22,14 @@ export function useElementSelection() {
 	);
 
 	const selectElement = useCallback(
-		({ trackId, elementId }: ElementRef) => {
+		({
+			trackId,
+			elementId,
+			mode = "individual",
+		}: ElementRef & { mode?: "group" | "individual" }) => {
 			editor.selection.selectElement({
 				element: { trackId, elementId },
+				mode,
 			});
 		},
 		[editor],
@@ -34,6 +45,8 @@ export function useElementSelection() {
 
 			editor.selection.setSelectedElements({
 				elements: [...selectedElements, { trackId, elementId }],
+				mode: "individual",
+				primary: { trackId, elementId },
 			});
 		},
 		[selectedElements, editor],
@@ -46,6 +59,7 @@ export function useElementSelection() {
 					(element) =>
 						!(element.trackId === trackId && element.elementId === elementId),
 				),
+				mode: "individual",
 			});
 		},
 		[selectedElements, editor],
@@ -72,8 +86,16 @@ export function useElementSelection() {
 	}, [editor]);
 
 	const setElementSelection = useCallback(
-		({ elements }: { elements: ElementRef[] }) => {
-			editor.selection.setSelectedElements({ elements });
+		({
+			elements,
+			mode = "individual",
+			primary,
+		}: {
+			elements: ElementRef[];
+			mode?: "group" | "individual";
+			primary?: ElementRef | null;
+		}) => {
+			editor.selection.setSelectedElements({ elements, mode, primary });
 		},
 		[editor],
 	);
@@ -96,9 +118,13 @@ export function useElementSelection() {
 				),
 				...elements,
 			];
-			editor.selection.setSelectedElements({ elements: merged });
+			editor.selection.setSelectedElements({
+				elements: merged,
+				mode: "individual",
+				primary: elements[0] ?? primarySelectedElement,
+			});
 		},
-		[selectedElements, editor],
+		[selectedElements, editor, primarySelectedElement],
 	);
 
 
@@ -116,7 +142,7 @@ export function useElementSelection() {
 			if (isMultiKey) {
 				toggleElementSelection({ trackId, elementId });
 			} else {
-				selectElement({ trackId, elementId });
+				selectElement({ trackId, elementId, mode: "individual" });
 			}
 		},
 		[toggleElementSelection, selectElement],
@@ -124,6 +150,8 @@ export function useElementSelection() {
 
 	return {
 		selectedElements,
+		elementSelectionMode,
+		primarySelectedElement,
 		isElementSelected,
 		selectElement,
 		setElementSelection,

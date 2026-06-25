@@ -34,25 +34,31 @@ function getSelectionRectangleInContent({
 	scrollContainer,
 	startPos,
 	endPos,
+	startContentPos,
+	endContentPos,
 }: {
 	container: HTMLElement;
 	scrollContainer: HTMLDivElement | null;
 	startPos: { x: number; y: number };
 	endPos: { x: number; y: number };
+	startContentPos?: { x: number; y: number } | null;
+	endContentPos?: { x: number; y: number } | null;
 }): SelectionRectangle {
 	const containerRect = container.getBoundingClientRect();
 	const scrollRect = scrollContainer?.getBoundingClientRect() ?? containerRect;
 	const scrollLeft = scrollContainer?.scrollLeft ?? 0;
 	const scrollTop = scrollContainer?.scrollTop ?? 0;
 
-	const adjustedStart = {
-		x: startPos.x - containerRect.left + scrollLeft,
-		y: startPos.y - scrollRect.top + scrollTop,
-	};
-	const adjustedEnd = {
-		x: endPos.x - containerRect.left + scrollLeft,
-		y: endPos.y - scrollRect.top + scrollTop,
-	};
+	const adjustedStart =
+		startContentPos ?? {
+			x: startPos.x - containerRect.left + scrollLeft,
+			y: startPos.y - scrollRect.top + scrollTop,
+		};
+	const adjustedEnd =
+		endContentPos ?? {
+			x: endPos.x - containerRect.left + scrollLeft,
+			y: endPos.y - scrollRect.top + scrollTop,
+		};
 
 	return getNormalizedRectangle({
 		startPos: adjustedStart,
@@ -82,6 +88,8 @@ export function resolveTimelineElementIntersections({
 	zoomLevel,
 	startPos,
 	currentPos,
+	startContentPos,
+	currentContentPos,
 }: {
 	container: HTMLElement;
 	scrollContainer: HTMLDivElement | null;
@@ -89,12 +97,16 @@ export function resolveTimelineElementIntersections({
 	zoomLevel: number;
 	startPos: { x: number; y: number };
 	currentPos: { x: number; y: number };
+	startContentPos?: { x: number; y: number } | null;
+	currentContentPos?: { x: number; y: number } | null;
 }): TimelineElementRef[] {
 	const selectionRectangle = getSelectionRectangleInContent({
 		container,
 		scrollContainer,
 		startPos,
 		endPos: currentPos,
+		startContentPos,
+		endContentPos: currentContentPos,
 	});
 	const selectedElements: TimelineElementRef[] = [];
 

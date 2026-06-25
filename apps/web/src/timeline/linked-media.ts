@@ -47,9 +47,11 @@ function elementGroupIds({
 export function expandElementRefsWithLinkedMedia({
 	tracks,
 	elementRefs,
+	includeCapinstaDocuments = true,
 }: {
 	tracks: SceneTracks;
 	elementRefs: readonly ElementRef[];
+	includeCapinstaDocuments?: boolean;
 }): ElementRef[] {
 	const trackList = allTracks({ tracks });
 	const selectedKeys = new Set(elementRefs.map(refKey));
@@ -70,6 +72,7 @@ export function expandElementRefsWithLinkedMedia({
 				linkedMediaGroupIds.has(element.linkedMediaGroupId);
 			const matchesCapinstaDocument =
 				element.capinstaDocumentId &&
+				includeCapinstaDocuments &&
 				capinstaDocumentIds.has(element.capinstaDocumentId);
 			if (!matchesLinkedMedia && !matchesCapinstaDocument) continue;
 

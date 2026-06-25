@@ -24,9 +24,13 @@ export interface BoxSelectionChange<TId = string>
 export type ResolveIntersections<TId = string> = ({
 	startPos,
 	currentPos,
+	startContentPos,
+	currentContentPos,
 }: {
 	startPos: { x: number; y: number };
 	currentPos: { x: number; y: number };
+	startContentPos?: { x: number; y: number } | null;
+	currentContentPos?: { x: number; y: number } | null;
 }) => TId[];
 
 export interface SelectableSurfaceProps {

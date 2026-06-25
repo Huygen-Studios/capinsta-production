@@ -197,17 +197,17 @@ function ProjectsHeader() {
 						Projects
 					</h1>
 
-					<div className="hidden h-10 items-center rounded-sm border-2 border-border bg-background p-1 shadow-[2px_2px_0_var(--shadow-strong)] md:flex">
+					<div className="hidden h-10 items-center gap-1 rounded-sm border-2 border-border bg-muted/60 p-1 shadow-[2px_2px_0_var(--shadow-strong)] md:flex">
 						{VIEW_MODE_OPTIONS.map(({ mode, icon, label }) => (
 							<Button
 								key={mode}
 								variant="ghost"
 								size="icon"
 								className={cn(
-									"rounded-md hover:bg-accent",
+									"size-8 rounded-xs border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40",
 									isHydrated &&
 										viewMode === mode &&
-										"!bg-primary/15 !text-primary ring-1 ring-primary",
+										"border-[var(--neo-black)] bg-primary text-primary-foreground shadow-[2px_2px_0_var(--shadow-strong)] hover:bg-primary hover:text-primary-foreground",
 								)}
 								onClick={() => setViewMode({ viewMode: mode })}
 								aria-label={label}
@@ -347,20 +347,22 @@ function ProjectsToolbar({ projectIds }: { projectIds: string[] }) {
 
 				<div className="h-4 w-px bg-border/50 block md:hidden" />
 
-				<div className="flex md:hidden items-center gap-4">
+				<div className="flex md:hidden items-center gap-1 rounded-sm border border-border bg-muted/60 p-1">
 					{VIEW_MODE_OPTIONS.map(({ mode, icon, label }) => (
 						<Button
 							key={mode}
-							variant="text"
+							variant="ghost"
+							size="icon"
+							className={cn(
+								"size-8 rounded-xs border border-transparent text-muted-foreground hover:border-border hover:bg-card hover:text-foreground",
+								viewMode === mode &&
+									"border-[var(--neo-black)] bg-primary text-primary-foreground shadow-[2px_2px_0_var(--shadow-strong)] hover:bg-primary hover:text-primary-foreground",
+							)}
 							onClick={() => setViewMode({ viewMode: mode })}
 							aria-label={label}
+							aria-pressed={viewMode === mode}
 						>
-							<HugeiconsIcon
-								icon={icon}
-								className={cn(
-									viewMode === mode ? "text-primary" : "text-muted-foreground",
-								)}
-							/>
+							<HugeiconsIcon icon={icon} />
 						</Button>
 					))}
 				</div>

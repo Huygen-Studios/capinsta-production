@@ -1,5 +1,7 @@
 "use client";
 
+import { Switch } from "@/components/ui/switch";
+
 export function CapinstaToggleControl({
 	label,
 	checked,
@@ -17,10 +19,10 @@ export function CapinstaToggleControl({
 				{label}
 				{mixed ? <span className="ml-2 font-mono text-foreground">Mixed</span> : null}
 			</span>
-			<input
-				type="checkbox"
+			<Switch
 				checked={checked}
-				onChange={(event) => onChange(event.currentTarget.checked)}
+				onCheckedChange={onChange}
+				aria-label={label}
 			/>
 		</label>
 	);

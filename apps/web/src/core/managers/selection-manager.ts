@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import type { SelectedKeyframeRef } from "@/animation/types";
 import type {
+	ElementSelectionMode,
 	EditorSelectionKind,
 	EditorSelectionPatch,
 	EditorSelectionSnapshot,
@@ -10,6 +11,8 @@ import type { ElementRef } from "@/timeline/types";
 
 export class SelectionManager {
 	private selectedElements: ElementRef[] = [];
+	private elementSelectionMode: ElementSelectionMode = "individual";
+	private primarySelectedElement: ElementRef | null = null;
 	private selectedKeyframes: SelectedKeyframeRef[] = [];
 	private keyframeSelectionAnchor: SelectedKeyframeRef | null = null;
 	private selectedMaskPoints: SelectedMaskPointSelection | null = null;
@@ -21,6 +24,14 @@ export class SelectionManager {
 
 	getSelectedElements(): ElementRef[] {
 		return this.selectedElements;
+	}
+
+	getElementSelectionMode(): ElementSelectionMode {
+		return this.elementSelectionMode;
+	}
+
+	getPrimarySelectedElement(): ElementRef | null {
+		return this.primarySelectedElement;
 	}
 
 	getSelectedKeyframes(): SelectedKeyframeRef[] {
@@ -51,6 +62,10 @@ export class SelectionManager {
 	getSnapshot(): EditorSelectionSnapshot {
 		return {
 			selectedElements: [...this.selectedElements],
+			elementSelectionMode: this.elementSelectionMode,
+			primarySelectedElement: this.primarySelectedElement
+				? { ...this.primarySelectedElement }
+				: null,
 			selectedKeyframes: [...this.selectedKeyframes],
 			keyframeSelectionAnchor: this.keyframeSelectionAnchor,
 			selectedMaskPoints: this.selectedMaskPoints
@@ -62,12 +77,32 @@ export class SelectionManager {
 		};
 	}
 
-	selectElement({ element }: { element: ElementRef }): void {
-		this.setSelectedElements({ elements: [element] });
+	selectElement({
+		element,
+		mode = "individual",
+	}: {
+		element: ElementRef;
+		mode?: ElementSelectionMode;
+	}): void {
+		this.setSelectedElements({ elements: [element], mode, primary: element });
 	}
 
-	setSelectedElements({ elements }: { elements: ElementRef[] }): void {
-		this.selectedElements = elements;
+	setSelectedElements({
+		elements,
+		mode = "individual",
+		primary,
+	}: {
+		elements: ElementRef[];
+		mode?: ElementSelectionMode;
+		primary?: ElementRef | null;
+	}): void {
+		this.selectedElements = dedupeElementRefs(elements);
+		this.elementSelectionMode =
+			this.selectedElements.length === 0 ? "individual" : mode;
+		this.primarySelectedElement = resolvePrimaryElement({
+			elements: this.selectedElements,
+			primary,
+		});
 		this.selectedKeyframes = [];
 		this.keyframeSelectionAnchor = null;
 		this.selectedMaskPoints = null;
@@ -110,6 +145,8 @@ export class SelectionManager {
 
 	clearSelection(): void {
 		this.selectedElements = [];
+		this.elementSelectionMode = "individual";
+		this.primarySelectedElement = null;
 		this.selectedKeyframes = [];
 		this.keyframeSelectionAnchor = null;
 		this.selectedMaskPoints = null;
@@ -153,7 +190,24 @@ export class SelectionManager {
 		patch: EditorSelectionPatch;
 	}): EditorSelectionSnapshot {
 		if (patch.selectedElements !== undefined) {
-			this.selectedElements = [...patch.selectedElements];
+			this.selectedElements = dedupeElementRefs(patch.selectedElements);
+		}
+		if (patch.elementSelectionMode !== undefined) {
+			this.elementSelectionMode = patch.elementSelectionMode;
+		}
+		if (patch.primarySelectedElement !== undefined) {
+			this.primarySelectedElement = resolvePrimaryElement({
+				elements: this.selectedElements,
+				primary: patch.primarySelectedElement,
+			});
+		} else if (patch.selectedElements !== undefined) {
+			this.primarySelectedElement = resolvePrimaryElement({
+				elements: this.selectedElements,
+				primary: this.primarySelectedElement,
+			});
+		}
+		if (this.selectedElements.length === 0) {
+			this.elementSelectionMode = "individual";
 		}
 		if (patch.selectedKeyframes !== undefined) {
 			this.selectedKeyframes = [...patch.selectedKeyframes];
@@ -174,7 +228,15 @@ export class SelectionManager {
 	}
 
 	restoreSnapshot({ snapshot }: { snapshot: EditorSelectionSnapshot }): void {
-		this.selectedElements = [...snapshot.selectedElements];
+		this.selectedElements = dedupeElementRefs(snapshot.selectedElements);
+		this.elementSelectionMode =
+			this.selectedElements.length === 0
+				? "individual"
+				: snapshot.elementSelectionMode;
+		this.primarySelectedElement = resolvePrimaryElement({
+			elements: this.selectedElements,
+			primary: snapshot.primarySelectedElement,
+		});
 		this.selectedKeyframes = [...snapshot.selectedKeyframes];
 		this.keyframeSelectionAnchor = snapshot.keyframeSelectionAnchor;
 		this.selectedMaskPoints = snapshot.selectedMaskPoints
@@ -196,4 +258,36 @@ export class SelectionManager {
 			fn();
 		});
 	}
+}
+
+function elementRefKey({ trackId, elementId }: ElementRef): string {
+	return `${trackId}:${elementId}`;
+}
+
+function dedupeElementRefs(elements: ElementRef[]): ElementRef[] {
+	const seen = new Set<string>();
+	const result: ElementRef[] = [];
+	for (const element of elements) {
+		const key = elementRefKey(element);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		result.push(element);
+	}
+	return result;
+}
+
+function resolvePrimaryElement({
+	elements,
+	primary,
+}: {
+	elements: ElementRef[];
+	primary?: ElementRef | null;
+}): ElementRef | null {
+	if (elements.length === 0) return null;
+	if (primary) {
+		const primaryKey = elementRefKey(primary);
+		const match = elements.find((element) => elementRefKey(element) === primaryKey);
+		if (match) return { ...match };
+	}
+	return { ...elements[0]! };
 }

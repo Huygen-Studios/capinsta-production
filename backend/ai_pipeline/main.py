@@ -152,6 +152,8 @@ def _chunks_have_provider_words(chunks: list[Any]) -> bool:
                 or (word or {}).get("timing_source")
                 or ""
             ).lower()
+            if source not in {"provider_native", "provider_native_word", "provider_word_chunk_local", "provider_word_absolute"}:
+                return False
             if "structured" in source:
                 return False
             if any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "phrase", "fallback")):

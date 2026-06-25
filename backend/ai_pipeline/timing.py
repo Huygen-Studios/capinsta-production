@@ -17,6 +17,7 @@ PRODUCTION_INVALID_TIMING_SOURCES = {
     "estimated",
     "interpolated",
     "segment_derived",
+    "provider_phrase",
     "deterministic_fallback",
     "synthetic",
     "low_confidence_interpolated",
@@ -286,6 +287,8 @@ def normalize_timing_source(raw_source: Any, provider: str | None = None) -> str
         return "provider_structured_estimate"
     if "segment_derived" in source:
         return "segment_derived"
+    if "provider_phrase" in source or source == "phrase":
+        return "provider_phrase"
     if "deterministic" in source:
         return "deterministic_fallback"
     if "low_confidence" in source:

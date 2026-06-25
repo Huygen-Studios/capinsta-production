@@ -338,16 +338,23 @@ export function Timeline() {
 
 	const {
 		selectionBox,
+		currentPos: selectionCurrentPos,
 		handleMouseDown: handleSelectionMouseDown,
 		isSelecting,
 		shouldIgnoreClick,
 	} = useBoxSelect({
 		containerRef: tracksContainerRef,
+		scrollContainerRef: tracksScrollRef,
 		selectedIds: selectedElements,
 		anchorId: null,
 		getIsAdditiveSelection: (event) =>
 			event.shiftKey || event.ctrlKey || event.metaKey,
-		resolveIntersections: ({ startPos, currentPos }) => {
+		resolveIntersections: ({
+			startPos,
+			currentPos,
+			startContentPos,
+			currentContentPos,
+		}) => {
 			if (!tracksContainerRef.current) {
 				return [];
 			}
@@ -359,13 +366,19 @@ export function Timeline() {
 				zoomLevel,
 				startPos,
 				currentPos,
+				startContentPos,
+				currentContentPos,
 			});
 		},
 		onSelectionChange: ({ intersectedIds, isAdditive }) => {
 			if (isAdditive) {
 				mergeElementsIntoSelection({ elements: intersectedIds });
 			} else {
-				setElementSelection({ elements: intersectedIds });
+				setElementSelection({
+					elements: intersectedIds,
+					mode: "individual",
+					primary: intersectedIds[0] ?? null,
+				});
 			}
 		},
 	});
@@ -401,6 +414,16 @@ export function Timeline() {
 		rulerScrollRef,
 		tracksScrollRef,
 		contentWidth: dynamicTimelineWidth,
+	});
+
+	useEdgeAutoScroll({
+		isActive: isSelecting,
+		getMouseClientX: () => selectionCurrentPos?.x ?? 0,
+		rulerScrollRef,
+		tracksScrollRef,
+		contentWidth: dynamicTimelineWidth,
+		edgeThreshold: 50,
+		maxScrollSpeed: 18,
 	});
 
 	const showSnapIndicator =

@@ -10,6 +10,8 @@ export interface SelectedMaskPointSelection {
 
 export interface EditorSelectionSnapshot {
 	selectedElements: ElementRef[];
+	elementSelectionMode: ElementSelectionMode;
+	primarySelectedElement: ElementRef | null;
 	selectedKeyframes: SelectedKeyframeRef[];
 	keyframeSelectionAnchor: SelectedKeyframeRef | null;
 	selectedMaskPoints: SelectedMaskPointSelection | null;
@@ -17,9 +19,12 @@ export interface EditorSelectionSnapshot {
 
 export interface EditorSelectionPatch {
 	selectedElements?: ElementRef[];
+	elementSelectionMode?: ElementSelectionMode;
+	primarySelectedElement?: ElementRef | null;
 	selectedKeyframes?: SelectedKeyframeRef[];
 	keyframeSelectionAnchor?: SelectedKeyframeRef | null;
 	selectedMaskPoints?: SelectedMaskPointSelection | null;
 }
 
 export type EditorSelectionKind = "mask-points" | "keyframes" | "elements";
+export type ElementSelectionMode = "group" | "individual";

@@ -108,8 +108,11 @@ export interface SceneReader {
 
 export interface SelectionApi {
 	getSelected: () => readonly ElementRef[];
-	select: (element: ElementRef) => void;
-	selectMany: (elements: readonly ElementRef[]) => void;
+	select: (element: ElementRef, mode?: "group" | "individual") => void;
+	selectMany: (
+		elements: readonly ElementRef[],
+		options?: { mode?: "group" | "individual"; primary?: ElementRef | null },
+	) => void;
 	clearSelection: () => void;
 }
 
@@ -339,10 +342,13 @@ export class PreviewInteractionController {
 
 		if (!hit || hit.element.type !== "text") return;
 
-		this.deps.selection.select({
-			trackId: hit.trackId,
-			elementId: hit.elementId,
-		});
+		this.deps.selection.select(
+			{
+				trackId: hit.trackId,
+				elementId: hit.elementId,
+			},
+			"individual",
+		);
 		this.editingTextState = {
 			trackId: hit.trackId,
 			elementId: hit.elementId,
@@ -452,9 +458,12 @@ export class PreviewInteractionController {
 					tracks: this.deps.scene.getTracks(),
 				});
 				if (clickSelection.length === 1) {
-					this.deps.selection.select(clickSelection[0]);
+					this.deps.selection.select(clickSelection[0], "individual");
 				} else {
-					this.deps.selection.selectMany(clickSelection);
+					this.deps.selection.selectMany(clickSelection, {
+						mode: "group",
+						primary: clickSelection[0],
+					});
 				}
 			}
 		}

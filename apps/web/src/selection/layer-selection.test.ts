@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent }
 import type {
 	AudioElement,
 	EffectElement,
+	ElementRef,
 	GraphicElement,
 	ImageElement,
 	SceneTracks,
@@ -245,10 +246,12 @@ function mouseEvent({
 	x = 10,
 	y = 10,
 	detail = 1,
+	shiftKey = false,
 }: {
 	x?: number;
 	y?: number;
 	detail?: number;
+	shiftKey?: boolean;
 } = {}) {
 	return {
 		button: 0,
@@ -257,12 +260,149 @@ function mouseEvent({
 		detail,
 		metaKey: false,
 		ctrlKey: false,
-		shiftKey: false,
+		shiftKey,
 		stopPropagation: mock(() => {}),
 		currentTarget: {
 			getBoundingClientRect: () => ({ left: 0 }),
 		},
 	} as unknown as ReactMouseEvent;
+}
+
+function sortRefs(refs: readonly ElementRef[]): ElementRef[] {
+	return [...refs].sort((left, right) =>
+		`${left.trackId}:${left.elementId}`.localeCompare(
+			`${right.trackId}:${right.elementId}`,
+		),
+	);
+}
+
+function setCaptionFixtureTiming(tracks: SceneTracks) {
+	const captionTrack = tracks.overlay.find(
+		(candidate) => candidate.id === "caption-track",
+	);
+	if (!captionTrack) throw new Error("Missing caption fixture");
+	const first = captionTrack.elements[0] as TextElement;
+	const second = captionTrack.elements[1] as TextElement;
+	first.startTime = 120_000;
+	first.duration = 60_000;
+	second.startTime = 300_000;
+	second.duration = 60_000;
+	const third: TextElement = {
+		...first,
+		id: "caption-3",
+		name: "Caption three",
+		params: { content: "Caption three" },
+		capinstaClipId: "caption-clip-3",
+		startTime: 480_000,
+		duration: 60_000,
+	};
+	captionTrack.elements = [first, second, third];
+	return { captionTrack, first, second, third };
+}
+
+function makeControllerHarness({
+	tracks,
+	manager,
+}: {
+	tracks: SceneTracks;
+	manager: SelectionManager;
+}) {
+	const documentListeners = installDocumentListeners();
+	let committedMove:
+		| {
+				moves: Array<{
+					targetTrackId: string;
+					elementId: string;
+					newStartTime: number;
+				}>;
+				createTracks: unknown[];
+		  }
+		| null = null;
+	const scrollContainer = {
+		scrollLeft: 0,
+		scrollTop: 0,
+		getBoundingClientRect: () => ({ left: 0, top: 0 }),
+	} as HTMLDivElement;
+	const isSelected = (ref: ElementRef) =>
+		manager
+			.getSelectedElements()
+			.some(
+				(selected) =>
+					selected.trackId === ref.trackId &&
+					selected.elementId === ref.elementId,
+			);
+	const controller = new ElementInteractionController({
+		depsRef: {
+			current: {
+				viewport: {
+					getZoomLevel: () => 1,
+					getTracksScrollEl: () => scrollContainer,
+					getTracksContainerEl: () =>
+						({
+							getBoundingClientRect: () => ({ left: 0, top: 0 }),
+						}) as HTMLDivElement,
+					getHeaderEl: () => null,
+				},
+				input: { isShiftHeld: () => false },
+				scene: { getTracks: () => tracks, getActiveFps: () => ({}) as never },
+				selection: {
+					getMode: () => manager.getElementSelectionMode(),
+					getSelected: () => manager.getSelectedElements(),
+					isSelected,
+					select: (ref, mode) =>
+						manager.selectElement({ element: ref, mode }),
+					selectMany: (refs, options) =>
+						manager.setSelectedElements({
+							elements: refs,
+							mode: options?.mode,
+							primary: options?.primary,
+						}),
+					handleClick: (ref) => {
+						const elementRef = {
+							trackId: ref.trackId,
+							elementId: ref.elementId,
+						};
+						if (!ref.isMultiKey) {
+							manager.selectElement({ element: elementRef });
+							return;
+						}
+						const nextSelection = isSelected(elementRef)
+							? manager
+									.getSelectedElements()
+									.filter(
+										(selected) =>
+											selected.trackId !== elementRef.trackId ||
+											selected.elementId !== elementRef.elementId,
+									)
+							: [...manager.getSelectedElements(), elementRef];
+						manager.setSelectedElements({
+							elements: nextSelection,
+							mode: "individual",
+							primary: elementRef,
+						});
+					},
+					clearKeyframeSelection: () => manager.clearKeyframeSelection(),
+				},
+				playback: { getCurrentTime: () => 0 },
+				timeline: {
+					moveElements: (args) => {
+						committedMove = args;
+					},
+				},
+				snap: { isEnabled: () => false },
+			},
+		},
+	});
+
+	return {
+		controller,
+		documentListeners,
+		getCommittedMove: () => committedMove,
+		destroy: () => {
+			controller.destroy();
+			documentListeners.restore();
+		},
+	};
 }
 
 describe("canonical editor layer selection", () => {
@@ -282,6 +422,7 @@ describe("canonical editor layer selection", () => {
 					input: { isShiftHeld: () => false },
 					scene: { getTracks: () => tracks, getActiveFps: () => null },
 					selection: {
+						getMode: () => manager.getElementSelectionMode(),
 						getSelected: () => manager.getSelectedElements(),
 						isSelected: (ref) =>
 							manager
@@ -291,9 +432,14 @@ describe("canonical editor layer selection", () => {
 										selected.trackId === ref.trackId &&
 										selected.elementId === ref.elementId,
 								),
-						select: (ref) => manager.selectElement({ element: ref }),
-						selectMany: (refs) =>
-							manager.setSelectedElements({ elements: refs }),
+						select: (ref, mode) =>
+							manager.selectElement({ element: ref, mode }),
+						selectMany: (refs, options) =>
+							manager.setSelectedElements({
+								elements: refs,
+								mode: options?.mode,
+								primary: options?.primary,
+							}),
 						handleClick: (ref) =>
 							manager.selectElement({
 								element: {
@@ -367,15 +513,21 @@ describe("canonical editor layer selection", () => {
 					input: { isShiftHeld: () => false },
 					scene: { getTracks: () => tracks, getActiveFps: () => null },
 					selection: {
+						getMode: () => manager.getElementSelectionMode(),
 						getSelected: () => manager.getSelectedElements(),
 						isSelected: (ref) =>
 							manager
 								.getSelectedElements()
 								.some((selected) => selected.elementId === ref.elementId),
-						select: (ref) => manager.selectElement({ element: ref }),
-						selectMany: (refs) => {
+						select: (ref, mode) =>
+							manager.selectElement({ element: ref, mode }),
+						selectMany: (refs, options) => {
 							selectedDuringGesture = refs;
-							manager.setSelectedElements({ elements: refs });
+							manager.setSelectedElements({
+								elements: refs,
+								mode: options?.mode,
+								primary: options?.primary,
+							});
 						},
 						handleClick: () => {},
 						clearKeyframeSelection: () => {},
@@ -421,6 +573,7 @@ describe("canonical editor layer selection", () => {
 					input: { isShiftHeld: () => false },
 					scene: { getTracks: () => tracks, getActiveFps: () => null },
 					selection: {
+						getMode: () => manager.getElementSelectionMode(),
 						getSelected: () => manager.getSelectedElements(),
 						isSelected: (ref) =>
 							manager
@@ -430,9 +583,14 @@ describe("canonical editor layer selection", () => {
 										selected.trackId === ref.trackId &&
 										selected.elementId === ref.elementId,
 								),
-						select: (ref) => manager.selectElement({ element: ref }),
-						selectMany: (refs) =>
-							manager.setSelectedElements({ elements: refs }),
+						select: (ref, mode) =>
+							manager.selectElement({ element: ref, mode }),
+						selectMany: (refs, options) =>
+							manager.setSelectedElements({
+								elements: refs,
+								mode: options?.mode,
+								primary: options?.primary,
+							}),
 						handleClick: () => {},
 						clearKeyframeSelection: () => manager.clearKeyframeSelection(),
 					},
@@ -496,6 +654,7 @@ describe("canonical editor layer selection", () => {
 					input: { isShiftHeld: () => false },
 					scene: { getTracks: () => tracks, getActiveFps: () => ({}) as never },
 					selection: {
+						getMode: () => manager.getElementSelectionMode(),
 						getSelected: () => manager.getSelectedElements(),
 						isSelected: (ref) =>
 							manager
@@ -505,9 +664,14 @@ describe("canonical editor layer selection", () => {
 										selected.trackId === ref.trackId &&
 										selected.elementId === ref.elementId,
 								),
-						select: (ref) => manager.selectElement({ element: ref }),
-						selectMany: (refs) =>
-							manager.setSelectedElements({ elements: refs }),
+						select: (ref, mode) =>
+							manager.selectElement({ element: ref, mode }),
+						selectMany: (refs, options) =>
+							manager.setSelectedElements({
+								elements: refs,
+								mode: options?.mode,
+								primary: options?.primary,
+							}),
 						handleClick: () => {},
 						clearKeyframeSelection: () => manager.clearKeyframeSelection(),
 					},
@@ -578,6 +742,7 @@ describe("canonical editor layer selection", () => {
 					input: { isShiftHeld: () => false },
 					scene: { getTracks: () => tracks, getActiveFps: () => ({}) as never },
 					selection: {
+						getMode: () => manager.getElementSelectionMode(),
 						getSelected: () => manager.getSelectedElements(),
 						isSelected: (ref) =>
 							manager
@@ -587,9 +752,14 @@ describe("canonical editor layer selection", () => {
 										selected.trackId === ref.trackId &&
 										selected.elementId === ref.elementId,
 								),
-						select: (ref) => manager.selectElement({ element: ref }),
-						selectMany: (refs) =>
-							manager.setSelectedElements({ elements: refs }),
+						select: (ref, mode) =>
+							manager.selectElement({ element: ref, mode }),
+						selectMany: (refs, options) =>
+							manager.setSelectedElements({
+								elements: refs,
+								mode: options?.mode,
+								primary: options?.primary,
+							}),
 						handleClick: () => {},
 						clearKeyframeSelection: () => manager.clearKeyframeSelection(),
 					},
@@ -627,6 +797,166 @@ describe("canonical editor layer selection", () => {
 		} finally {
 			controller.destroy();
 			documentListeners.restore();
+		}
+	});
+
+	test("shift-click toggles individual caption elements without returning to group mode", () => {
+		const tracks = makeTracks();
+		const { captionTrack, first, second, third } =
+			setCaptionFixtureTiming(tracks);
+		const manager = new SelectionManager({} as never);
+		manager.selectElement({
+			element: { trackId: captionTrack.id, elementId: first.id },
+			mode: "individual",
+		});
+		const harness = makeControllerHarness({ tracks, manager });
+
+		try {
+			harness.controller.onElementMouseDown({
+				event: mouseEvent({ shiftKey: true }),
+				element: second,
+				track: captionTrack,
+			});
+			expect(sortRefs(manager.getSelectedElements())).toEqual(
+				sortRefs([
+					{ trackId: captionTrack.id, elementId: first.id },
+					{ trackId: captionTrack.id, elementId: second.id },
+				]),
+			);
+			expect(manager.getElementSelectionMode()).toBe("individual");
+
+			harness.controller.onElementMouseDown({
+				event: mouseEvent({ shiftKey: true }),
+				element: first,
+				track: captionTrack,
+			});
+			expect(manager.getSelectedElements()).toEqual([
+				{ trackId: captionTrack.id, elementId: second.id },
+			]);
+
+			harness.controller.onElementMouseDown({
+				event: mouseEvent({ shiftKey: true }),
+				element: third,
+				track: captionTrack,
+			});
+			expect(sortRefs(manager.getSelectedElements())).toEqual(
+				sortRefs([
+					{ trackId: captionTrack.id, elementId: second.id },
+					{ trackId: captionTrack.id, elementId: third.id },
+				]),
+			);
+		} finally {
+			harness.destroy();
+		}
+	});
+
+	test("dragging one member of an individual multi-selection moves the selected set and preserves spacing", () => {
+		const tracks = makeTracks();
+		const { captionTrack, first, second, third } =
+			setCaptionFixtureTiming(tracks);
+		const manager = new SelectionManager({} as never);
+		manager.setSelectedElements({
+			elements: [
+				{ trackId: captionTrack.id, elementId: first.id },
+				{ trackId: captionTrack.id, elementId: third.id },
+			],
+			mode: "individual",
+			primary: { trackId: captionTrack.id, elementId: first.id },
+		});
+		const harness = makeControllerHarness({ tracks, manager });
+
+		try {
+			harness.controller.onElementMouseDown({
+				event: mouseEvent({ x: 100, y: 10 }),
+				element: third,
+				track: captionTrack,
+			});
+			harness.documentListeners.emit("mousemove", { clientX: 200, clientY: 10 });
+			harness.documentListeners.emit("mouseup", { clientX: 200, clientY: 10 });
+
+			const moves = harness.getCommittedMove()?.moves ?? [];
+			expect(moves.map((move) => move.elementId).sort()).toEqual([
+				first.id,
+				third.id,
+			]);
+			expect(moves.some((move) => move.elementId === second.id)).toBe(false);
+
+			const movedFirst = moves.find((move) => move.elementId === first.id);
+			const movedThird = moves.find((move) => move.elementId === third.id);
+			expect(movedFirst).toBeDefined();
+			expect(movedThird).toBeDefined();
+			expect(
+				(movedThird?.newStartTime ?? 0) - (movedFirst?.newStartTime ?? 0),
+			).toBe(third.startTime - first.startTime);
+		} finally {
+			harness.destroy();
+		}
+	});
+
+	test("individual multi-selection drag clamps the whole group at timeline zero", () => {
+		const tracks = makeTracks();
+		const { captionTrack, first, third } = setCaptionFixtureTiming(tracks);
+		const manager = new SelectionManager({} as never);
+		manager.setSelectedElements({
+			elements: [
+				{ trackId: captionTrack.id, elementId: first.id },
+				{ trackId: captionTrack.id, elementId: third.id },
+			],
+			mode: "individual",
+			primary: { trackId: captionTrack.id, elementId: third.id },
+		});
+		const harness = makeControllerHarness({ tracks, manager });
+
+		try {
+			harness.controller.onElementMouseDown({
+				event: mouseEvent({ x: 100, y: 10 }),
+				element: third,
+				track: captionTrack,
+			});
+			harness.documentListeners.emit("mousemove", { clientX: 0, clientY: 10 });
+			harness.documentListeners.emit("mouseup", { clientX: 0, clientY: 10 });
+
+			const moves = harness.getCommittedMove()?.moves ?? [];
+			const movedFirst = moves.find((move) => move.elementId === first.id);
+			const movedThird = moves.find((move) => move.elementId === third.id);
+			expect(movedFirst?.newStartTime).toBe(0);
+			expect(
+				(movedThird?.newStartTime ?? 0) - (movedFirst?.newStartTime ?? 0),
+			).toBe(third.startTime - first.startTime);
+		} finally {
+			harness.destroy();
+		}
+	});
+
+	test("double-click selection does not create an accidental group drag", () => {
+		const tracks = makeTracks();
+		const { captionTrack, first } = setCaptionFixtureTiming(tracks);
+		const manager = new SelectionManager({} as never);
+		manager.setSelectedElements({
+			elements: captionTrack.elements.map((element) => ({
+				trackId: captionTrack.id,
+				elementId: element.id,
+			})),
+			mode: "group",
+			primary: { trackId: captionTrack.id, elementId: first.id },
+		});
+		const harness = makeControllerHarness({ tracks, manager });
+
+		try {
+			harness.controller.onElementMouseDown({
+				event: mouseEvent({ detail: 2, x: 100, y: 10 }),
+				element: first,
+				track: captionTrack,
+			});
+			harness.documentListeners.emit("mousemove", { clientX: 200, clientY: 10 });
+			harness.documentListeners.emit("mouseup", { clientX: 200, clientY: 10 });
+			expect(manager.getSelectedElements()).toEqual([
+				{ trackId: captionTrack.id, elementId: first.id },
+			]);
+			expect(manager.getElementSelectionMode()).toBe("individual");
+			expect(harness.getCommittedMove()).toBeNull();
+		} finally {
+			harness.destroy();
 		}
 	});
 
