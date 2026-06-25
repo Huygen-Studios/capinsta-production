@@ -288,6 +288,11 @@ export function AdminTranscriptionControls({
 										: "Backend forced alignment is available for this model."}
 								</p>
 							) : null}
+							{provider === "sarvam" ? (
+								<p className="mt-1 text-xs text-muted-foreground">
+									Verbatim changes transcript normalization only; native word timing depends on REST with_timestamps=true.
+								</p>
+							) : null}
 						</div>
 						{provider === "sarvam" ? (
 							<div className="grid gap-2">

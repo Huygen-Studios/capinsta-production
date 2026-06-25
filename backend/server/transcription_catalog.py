@@ -113,7 +113,7 @@ TRANSCRIPTION_PROVIDER_CATALOG: tuple[CatalogEntry, ...] = (
         "saaras:v3",
         "Sarvam Saaras v3",
         True,
-        "Native provider word timestamps",
+        "REST /speech-to-text with with_timestamps=true returns native word timestamps; Sarvam Batch is chunk timestamps only",
         "provider_word",
         "SARVAM_API_KEY",
         ("json",),

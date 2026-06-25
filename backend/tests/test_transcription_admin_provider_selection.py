@@ -68,7 +68,7 @@ def test_sarvam_mismatched_timestamp_arrays_are_rejected():
             }
         )
 
-    assert exc.value.category == "sarvam_timestamp_arrays_invalid"
+    assert exc.value.category == "sarvam_timestamp_array_length_mismatch"
 
 
 @pytest.mark.parametrize(

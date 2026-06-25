@@ -38,7 +38,7 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": "audio file not found"}))
         return 2
 
-    payload, latency_ms, _header_request_id = _sarvam_post_audio(
+    payload, latency_ms, _header_request_id, request_metadata = _sarvam_post_audio(
         str(audio_path),
         api_key=api_key,
         model=args.model,
@@ -53,6 +53,7 @@ def main() -> int:
         language_code=args.language_code,
         audio_duration=_audio_duration_seconds(str(audio_path)),
         latency_ms=latency_ms,
+        request_metadata=request_metadata,
     )
     diagnostics = {
         **result.diagnostics,

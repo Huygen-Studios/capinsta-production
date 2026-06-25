@@ -112,7 +112,7 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		model: "saaras:v3",
 		displayName: "Sarvam Saaras v3",
 		enabled: true,
-		timestampCapability: "Native provider word timestamps",
+		timestampCapability: "REST /speech-to-text with with_timestamps=true returns native word timestamps; Sarvam Batch is chunk timestamps only",
 		timestampStrategy: "provider_word",
 		requiredSecret: "SARVAM_API_KEY",
 		supportedResponseFormats: ["json"],

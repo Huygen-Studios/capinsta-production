@@ -99,3 +99,44 @@ def test_phrase_tokens_are_rejected_instead_of_distributed_across_speech_islands
                 {"start": 3.0, "end": 5.0},
             ],
         )
+
+
+def test_native_sarvam_chunk_local_words_receive_global_offset_once():
+    segments = build_word_timed_transcript_from_chunks(
+        [
+            FakeChunk(
+                index=0,
+                start_time=10.0,
+                end_time=18.0,
+                final_text="hello world",
+                asr_metadata={
+                    "provider": "sarvam",
+                    "timestamp_basis": "chunk_local",
+                    "words": [
+                        {"word": "hello", "start": 0.2, "end": 0.5, "timing_source": "provider_native"},
+                        {"word": "world", "start": 1.0, "end": 1.4, "timing_source": "provider_native"},
+                    ],
+                },
+            ),
+            FakeChunk(
+                index=1,
+                start_time=17.9,
+                end_time=25.0,
+                final_text="again",
+                asr_metadata={
+                    "provider": "sarvam",
+                    "timestamp_basis": "chunk_local",
+                    "words": [
+                        {"word": "again", "start": 0.4, "end": 0.8, "timing_source": "provider_native"},
+                    ],
+                },
+            ),
+        ],
+        "english",
+    )
+
+    words = [word for segment in segments for word in segment["words"]]
+
+    assert [round(word["start"], 3) for word in words] == [10.2, 11.0, 18.3]
+    assert [round(word["end"], 3) for word in words] == [10.5, 11.4, 18.7]
+    assert [word["start"] for word in words] == sorted(word["start"] for word in words)

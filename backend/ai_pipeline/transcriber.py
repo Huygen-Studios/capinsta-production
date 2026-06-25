@@ -69,8 +69,11 @@ GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
 SARVAM_NATIVE_COVERAGE_THRESHOLD = 0.90
 SARVAM_SMALL_CHUNK_TARGET_SECONDS = 8.0
 SARVAM_SMALL_CHUNK_MAX_SECONDS = 12.0
+SARVAM_SMALL_CHUNK_MIN_SPLIT_SECONDS = 6.0
 SARVAM_SMALL_CHUNK_PADDING_SECONDS = 0.08
 SARVAM_DEBUG_FIXTURE_ENV = "SARVAM_SAVE_REDACTED_RESPONSE_SHAPE_DIR"
+SARVAM_REST_ENDPOINT_PATH = "/speech-to-text"
+SARVAM_WITH_TIMESTAMPS_FIELD_VALUE = "true"
 
 
 @dataclass
@@ -368,7 +371,7 @@ def _validate_transcription_result(
         word = str(raw_word.get("word") or raw_word.get("text") or "").strip()
         start = _as_timing_float(raw_word.get("start"))
         end = _as_timing_float(raw_word.get("end"))
-        if not word or start is None or end is None or end <= start:
+        if not word or start is None or end is None or end < start:
             continue
         if start + 0.001 < last_start or end + 0.001 < last_end:
             raise TranscriptionProviderError(provider, "timestamps_invalid", "non-monotonic word timestamps")
@@ -1131,6 +1134,10 @@ def _timestamp_shape_diagnostics(
     requested_language_code: str,
     audio_duration: float | None,
     latency_ms: int | None = None,
+    request_metadata: dict[str, Any] | None = None,
+    chunk_index: int | None = None,
+    chunk_global_start: float | None = None,
+    chunk_global_end: float | None = None,
 ) -> dict[str, Any]:
     timestamps = payload.get("timestamps") if isinstance(payload, dict) else None
     timestamps_dict = timestamps if isinstance(timestamps, dict) else {}
@@ -1142,7 +1149,25 @@ def _timestamp_shape_diagnostics(
         for key, value in timestamps_dict.items()
         if isinstance(value, dict)
     }
-    return {
+    first_local = None
+    last_local = None
+    first_global = None
+    last_global = None
+    if isinstance(starts, list) and isinstance(ends, list) and starts and ends:
+        first_start = _finite_timestamp(starts[0])
+        first_end = _finite_timestamp(ends[0])
+        last_start = _finite_timestamp(starts[-1])
+        last_end = _finite_timestamp(ends[-1])
+        if first_start is not None and first_end is not None:
+            first_local = [round(first_start, 3), round(first_end, 3)]
+            offset = chunk_global_start or 0.0
+            first_global = [round(first_start + offset, 3), round(first_end + offset, 3)]
+        if last_start is not None and last_end is not None:
+            last_local = [round(last_start, 3), round(last_end, 3)]
+            offset = chunk_global_start or 0.0
+            last_global = [round(last_start + offset, 3), round(last_end + offset, 3)]
+
+    diagnostics = {
         "requestId": payload.get("request_id") or payload.get("requestId"),
         "model": model,
         "mode": mode,
@@ -1156,8 +1181,28 @@ def _timestamp_shape_diagnostics(
         "endArrayLength": len(ends) if isinstance(ends, list) else None,
         "whitespaceTimestampEntryCount": sum(1 for item in words if _contains_whitespace_token(item)) if isinstance(words, list) else None,
         "audioChunkDuration": round(audio_duration, 3) if audio_duration is not None else None,
+        "chunkIndex": chunk_index,
+        "chunkGlobalStart": round(chunk_global_start, 3) if chunk_global_start is not None else None,
+        "chunkGlobalEnd": round(chunk_global_end, 3) if chunk_global_end is not None else None,
+        "timestampsPresent": isinstance(timestamps, dict),
+        "firstLocalTimestamp": first_local,
+        "lastLocalTimestamp": last_local,
+        "firstGlobalTimestamp": first_global,
+        "lastGlobalTimestamp": last_global,
         "providerLatencyMs": latency_ms,
     }
+    if request_metadata:
+        diagnostics["request"] = {
+            "endpoint": request_metadata.get("endpoint"),
+            "endpointPath": request_metadata.get("endpointPath"),
+            "model": request_metadata.get("model"),
+            "mode": request_metadata.get("mode"),
+            "languageCode": request_metadata.get("languageCode"),
+            "withTimestampsField": request_metadata.get("withTimestampsField"),
+            "authHeader": request_metadata.get("authHeader"),
+            "multipart": bool(request_metadata.get("multipart")),
+        }
+    return diagnostics
 
 
 def _save_sarvam_response_shape_fixture(diagnostics: dict[str, Any]) -> None:
@@ -1183,17 +1228,39 @@ def _parse_sarvam_timestamp_arrays(
     model: str,
     native_candidate: bool,
 ) -> SarvamTimestampResult:
-    timestamps = payload.get("timestamps") or {}
-    words = timestamps.get(words_key) if isinstance(timestamps, dict) else None
-    starts = timestamps.get("start_time_seconds") if isinstance(timestamps, dict) else None
-    ends = timestamps.get("end_time_seconds") if isinstance(timestamps, dict) else None
+    timestamps = payload.get("timestamps") if isinstance(payload, dict) else None
+    if timestamps is None:
+        raise TranscriptionProviderError(
+            "sarvam",
+            "sarvam_timestamps_null",
+            "Sarvam returned null timestamps. Confirm REST /speech-to-text is called with with_timestamps=true.",
+            retryable=False,
+        )
+    if not isinstance(timestamps, dict):
+        raise TranscriptionProviderError(
+            "sarvam",
+            "sarvam_timestamp_parser_error",
+            "Sarvam returned a malformed timestamps object.",
+            retryable=False,
+        )
+    words = timestamps.get(words_key)
+    starts = timestamps.get("start_time_seconds")
+    ends = timestamps.get("end_time_seconds")
     if not isinstance(words, list) or not isinstance(starts, list) or not isinstance(ends, list):
         return SarvamTimestampResult(granularity="missing", source_path=source_path, warnings=["timestamp arrays missing"])
+    if len(words) == 0 and len(starts) == 0 and len(ends) == 0:
+        raise TranscriptionProviderError(
+            "sarvam",
+            "sarvam_timestamps_empty",
+            "Sarvam returned empty timestamp arrays.",
+            retryable=False,
+        )
     if len(words) != len(starts) or len(words) != len(ends):
         raise TranscriptionProviderError(
             "sarvam",
-            "sarvam_timestamp_arrays_invalid",
+            "sarvam_timestamp_array_length_mismatch",
             "Sarvam returned inconsistent timestamp arrays.",
+            retryable=False,
         )
 
     normalized: list[dict[str, Any]] = []
@@ -1209,15 +1276,15 @@ def _parse_sarvam_timestamp_arrays(
         start = _finite_timestamp(starts[index])
         end = _finite_timestamp(ends[index])
         if not token:
-            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_arrays_invalid", "Sarvam returned an empty timestamp token.")
+            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_values_invalid", "Sarvam returned an empty timestamp token.", retryable=False)
         if start is None or end is None:
-            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_arrays_invalid", "Sarvam returned a non-finite timestamp.")
-        if end <= start:
-            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_arrays_invalid", "Sarvam timestamp end is not greater than start.")
+            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_values_invalid", "Sarvam returned a non-finite timestamp.", retryable=False)
+        if end < start:
+            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_values_invalid", "Sarvam timestamp end is before start.", retryable=False)
         if start + 0.001 < last_start or end + 0.001 < last_end:
-            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_arrays_invalid", "Sarvam timestamps are not monotonic.")
+            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_values_invalid", "Sarvam timestamps are not monotonic.", retryable=False)
         if start < -0.05 or (max_end is not None and end > max_end):
-            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_arrays_invalid", "Sarvam timestamps fall outside the audio chunk.")
+            raise TranscriptionProviderError("sarvam", "sarvam_timestamp_values_invalid", "Sarvam timestamps fall outside the audio chunk.", retryable=False)
 
         is_phrase = _contains_whitespace_token(token) or not native_candidate
         granularity = "phrase" if is_phrase else "native_word"
@@ -1251,14 +1318,14 @@ def _parse_sarvam_timestamp_arrays(
     if phrase_count:
         warnings.append("timestamp entries contain multiple lexical words")
     if native_count and coverage < SARVAM_NATIVE_COVERAGE_THRESHOLD:
-        warnings.append(f"native word coverage {coverage:.3f} below threshold")
-    granularity = "native_word" if native_count and not phrase_count and coverage >= SARVAM_NATIVE_COVERAGE_THRESHOLD else "phrase" if phrase_count else "invalid"
+        warnings.append(f"native word coverage {coverage:.3f} below diagnostic threshold")
+    granularity = "native_word" if native_count and not phrase_count else "phrase" if phrase_count else "invalid"
     return SarvamTimestampResult(
         words=normalized,
         granularity=granularity,
         native_word_count=native_count if granularity == "native_word" else 0,
         phrase_entry_count=phrase_count,
-        coverage=round(coverage if granularity == "native_word" else 0.0, 4),
+        coverage=round(coverage, 4) if granularity == "native_word" else 0.0,
         source_path=source_path,
         warnings=warnings,
     )
@@ -1270,9 +1337,21 @@ def _normalize_sarvam_words(
     audio_duration: float | None = None,
     model: str = "saaras:v3",
 ) -> SarvamTimestampResult:
-    timestamps = payload.get("timestamps") or {}
+    timestamps = payload.get("timestamps") if isinstance(payload, dict) else None
+    if timestamps is None:
+        raise TranscriptionProviderError(
+            "sarvam",
+            "sarvam_timestamps_null",
+            "Sarvam returned null timestamps. Confirm REST /speech-to-text is called with with_timestamps=true.",
+            retryable=False,
+        )
     if not isinstance(timestamps, dict):
-        return SarvamTimestampResult(granularity="missing", warnings=["Sarvam timestamps object is missing"])
+        raise TranscriptionProviderError(
+            "sarvam",
+            "sarvam_timestamp_parser_error",
+            "Sarvam returned a malformed timestamps object.",
+            retryable=False,
+        )
 
     result = _parse_sarvam_timestamp_arrays(
         payload,
@@ -1358,19 +1437,38 @@ def _sarvam_post_audio(
     mode: str,
     language_code: str,
     timeout_seconds: int,
-) -> tuple[dict[str, Any], int, str | None]:
+    with_timestamps: bool = True,
+) -> tuple[dict[str, Any], int, str | None, dict[str, Any]]:
+    if not with_timestamps:
+        raise TranscriptionProviderError(
+            "sarvam",
+            "sarvam_timestamps_not_requested",
+            "Sarvam native word timestamps require REST /speech-to-text with with_timestamps=true.",
+            retryable=False,
+        )
     upload_mime_type = _sniff_audio_mime_type(audio_path) or "application/octet-stream"
+    form_data = {
+        "model": model,
+        "mode": mode,
+        "language_code": language_code,
+        "with_timestamps": SARVAM_WITH_TIMESTAMPS_FIELD_VALUE,
+    }
+    request_metadata = {
+        "endpoint": SARVAM_URL,
+        "endpointPath": SARVAM_REST_ENDPOINT_PATH,
+        "model": model,
+        "mode": mode,
+        "languageCode": language_code,
+        "withTimestampsField": form_data["with_timestamps"],
+        "authHeader": "api-subscription-key",
+        "multipart": True,
+    }
     started = time.monotonic()
     with open(audio_path, "rb") as file:
         response = requests.post(
             SARVAM_URL,
             headers={"api-subscription-key": api_key},
-            data={
-                "model": model,
-                "mode": mode,
-                "language_code": language_code,
-                "with_timestamps": "true",
-            },
+            data=form_data,
             files={"file": (os.path.basename(audio_path), file, upload_mime_type)},
             timeout=timeout_seconds,
         )
@@ -1401,7 +1499,7 @@ def _sarvam_post_audio(
     header_request_id = response.headers.get("x-request-id") if hasattr(response, "headers") else None
     if header_request_id and not payload.get("request_id"):
         payload["request_id"] = header_request_id
-    return payload, elapsed_ms, header_request_id
+    return payload, elapsed_ms, header_request_id, request_metadata
 
 
 def _small_sarvam_audio_chunks(audio_path: str) -> list[tuple[str, float, float]]:
@@ -1409,25 +1507,63 @@ def _small_sarvam_audio_chunks(audio_path: str) -> list[tuple[str, float, float]
 
     audio = AudioSegment.from_file(audio_path)
     duration = len(audio) / 1000.0
-    if duration <= SARVAM_SMALL_CHUNK_MAX_SECONDS:
+    if duration <= SARVAM_SMALL_CHUNK_MIN_SPLIT_SECONDS:
         return []
 
     chunks: list[tuple[str, float, float]] = []
-    cursor = 0.0
+    if duration <= SARVAM_SMALL_CHUNK_MAX_SECONDS:
+        boundaries = [0.0, duration / 2.0, duration]
+    else:
+        boundaries = [0.0]
+        cursor = 0.0
+        while cursor < duration - 0.05:
+            end = min(duration, cursor + SARVAM_SMALL_CHUNK_TARGET_SECONDS)
+            if duration - end < 2.0:
+                end = duration
+            boundaries.append(end)
+            cursor = end
+
     index = 0
-    while cursor < duration - 0.05:
-        end = min(duration, cursor + SARVAM_SMALL_CHUNK_TARGET_SECONDS)
-        if duration - end < 2.0:
-            end = duration
-        padded_start = max(0.0, cursor - SARVAM_SMALL_CHUNK_PADDING_SECONDS)
+    for start, end in zip(boundaries, boundaries[1:]):
+        if end - start <= 0.05:
+            continue
+        padded_start = max(0.0, start - SARVAM_SMALL_CHUNK_PADDING_SECONDS)
         padded_end = min(duration, end + SARVAM_SMALL_CHUNK_PADDING_SECONDS)
         fd, chunk_path = tempfile.mkstemp(prefix=f"capinsta-sarvam-retry-{index}-", suffix=".mp3")
         os.close(fd)
         audio[round(padded_start * 1000): round(padded_end * 1000)].export(chunk_path, format="mp3")
         chunks.append((chunk_path, padded_start, padded_end))
         index += 1
-        cursor = end
     return chunks
+
+
+def _dedupe_sarvam_overlap_words(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop only obvious duplicate words introduced by padded retry chunks."""
+    deduped: list[dict[str, Any]] = []
+    recent: list[tuple[str, float, float]] = []
+    last_end = -0.001
+    for word in sorted(words, key=lambda item: (float(item.get("start") or 0.0), float(item.get("end") or 0.0))):
+        text = re.sub(r"\W+", "", str(word.get("word") or word.get("spokenWord") or "").lower())
+        start = _finite_timestamp(word.get("start"))
+        end = _finite_timestamp(word.get("end"))
+        if not text or start is None or end is None:
+            continue
+        duplicate = (
+            start < last_end
+            and any(
+                prev_text == text
+                and min(abs(start - prev_start), abs(end - prev_end)) <= 0.9
+                for prev_text, prev_start, prev_end in recent[-40:]
+            )
+        )
+        if duplicate:
+            continue
+        if deduped and start < float(deduped[-1].get("start") or 0.0) - 0.001:
+            continue
+        deduped.append(word)
+        last_end = max(last_end, end)
+        recent.append((text, start, end))
+    return deduped
 
 
 def _sarvam_response_result(
@@ -1438,6 +1574,10 @@ def _sarvam_response_result(
     language_code: str,
     audio_duration: float | None,
     latency_ms: int | None,
+    request_metadata: dict[str, Any] | None = None,
+    chunk_index: int | None = None,
+    chunk_global_start: float | None = None,
+    chunk_global_end: float | None = None,
 ) -> SarvamTimestampResult:
     diagnostics = _timestamp_shape_diagnostics(
         payload,
@@ -1446,6 +1586,10 @@ def _sarvam_response_result(
         requested_language_code=language_code,
         audio_duration=audio_duration,
         latency_ms=latency_ms,
+        request_metadata=request_metadata,
+        chunk_index=chunk_index,
+        chunk_global_start=chunk_global_start,
+        chunk_global_end=chunk_global_end,
     )
     result = _normalize_sarvam_words(payload, audio_duration=audio_duration, model=model)
     diagnostics["inferredTimingGranularity"] = result.granularity
@@ -1523,8 +1667,8 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
     audio_duration = _audio_duration_seconds(audio_path)
     retry_attempts: list[dict[str, Any]] = []
 
-    def attempt(path: str, attempt_mode: str, reason: str, offset: float = 0.0) -> tuple[dict[str, Any], SarvamTimestampResult]:
-        payload, latency_ms, _header_request_id = _sarvam_post_audio(
+    def attempt(path: str, attempt_mode: str, reason: str, offset: float = 0.0, chunk_index: int | None = None, chunk_end: float | None = None) -> tuple[dict[str, Any], SarvamTimestampResult]:
+        payload, latency_ms, header_request_id, request_metadata = _sarvam_post_audio(
             path,
             api_key=api_key,
             model=model,
@@ -1540,18 +1684,29 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             language_code=language_code,
             audio_duration=duration,
             latency_ms=latency_ms,
+            request_metadata=request_metadata,
+            chunk_index=chunk_index,
+            chunk_global_start=offset,
+            chunk_global_end=chunk_end,
         )
         retry_attempts.append(
             {
                 "reason": reason,
                 "mode": attempt_mode,
-                "requestId": payload.get("request_id"),
+                "requestId": payload.get("request_id") or header_request_id,
                 "granularity": timestamp_result.granularity,
                 "nativeWordCount": timestamp_result.native_word_count,
                 "phraseEntryCount": timestamp_result.phrase_entry_count,
                 "coverage": timestamp_result.coverage,
                 "duration": round(duration, 3) if duration is not None else None,
                 "latencyMs": latency_ms,
+                "endpoint": request_metadata["endpoint"],
+                "endpointPath": request_metadata["endpointPath"],
+                "model": request_metadata["model"],
+                "languageCode": request_metadata["languageCode"],
+                "withTimestampsField": request_metadata["withTimestampsField"],
+                "chunkGlobalStart": round(offset, 3),
+                "chunkGlobalEnd": round(chunk_end, 3) if chunk_end is not None else None,
             }
         )
         if offset:
@@ -1590,13 +1745,20 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
     merged_words: list[dict[str, Any]] = []
     temp_paths: list[str] = []
     try:
-        for chunk_path, offset, _end in small_chunks:
+        for chunk_index, (chunk_path, offset, chunk_end) in enumerate(small_chunks):
             temp_paths.append(chunk_path)
-            _payload, small_result = attempt(chunk_path, "verbatim", "smaller_chunk_verbatim_retry", offset=offset)
+            _payload, small_result = attempt(
+                chunk_path,
+                "verbatim",
+                "smaller_chunk_verbatim_retry",
+                offset=offset,
+                chunk_index=chunk_index,
+                chunk_end=chunk_end,
+            )
             if small_result.granularity != "native_word":
                 raise TranscriptionProviderError(
                     "sarvam",
-                    "sarvam_native_timing_retry_failed",
+                    "sarvam_native_timestamps_unavailable_after_retry",
                     "Sarvam did not return native word timestamps after retrying with verbatim mode and smaller audio chunks.",
                     request_id=_payload.get("request_id"),
                     retryable=False,
@@ -1610,6 +1772,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
                 pass
 
     if merged_words:
+        merged_words = _dedupe_sarvam_overlap_words(merged_words)
         merged_result = SarvamTimestampResult(
             words=merged_words,
             granularity="native_word",
@@ -1630,7 +1793,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             retry_attempts=retry_attempts,
         )
 
-    category = "sarvam_phrase_timestamps" if first_result.granularity == "phrase" or verbatim_result.granularity == "phrase" else "timestamps_missing"
+    category = "sarvam_phrase_timestamps" if first_result.granularity == "phrase" or verbatim_result.granularity == "phrase" else "sarvam_native_timestamps_unavailable_after_retry"
     message = (
         "Sarvam returned phrase-level timestamps instead of native word timestamps."
         if category == "sarvam_phrase_timestamps"
@@ -1805,8 +1968,16 @@ def transcribe_audio(
             safe_categories = {
                 "sarvam_phrase_timestamps",
                 "sarvam_native_timing_retry_failed",
+                "sarvam_native_timestamps_unavailable_after_retry",
                 "sarvam_timing_mapping_failed",
                 "sarvam_timestamp_arrays_invalid",
+                "sarvam_timestamps_not_requested",
+                "sarvam_batch_has_no_word_timestamps",
+                "sarvam_timestamps_null",
+                "sarvam_timestamps_empty",
+                "sarvam_timestamp_array_length_mismatch",
+                "sarvam_timestamp_values_invalid",
+                "sarvam_timestamp_parser_error",
                 "timestamps_missing",
             }
             if last_exception.category in safe_categories:
