@@ -3,7 +3,11 @@ import pytest
 from ai_pipeline.audio import Chunk
 from ai_pipeline.aligner import align_text
 from ai_pipeline.sync import stable_refine
-from ai_pipeline.main import _chunks_have_any_provider_words, _chunks_have_provider_words
+from ai_pipeline.main import (
+    _chunks_have_any_provider_words,
+    _chunks_have_non_word_provider_timing,
+    _chunks_have_provider_words,
+)
 from ai_pipeline.sync.aligned_words import build_segments_from_aligned_words
 from ai_pipeline.audio import build_vad_chunk_ranges
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
@@ -122,6 +126,59 @@ def test_preserved_phrase_timing_words_are_not_counted_as_native():
     )
     assert _chunks_have_provider_words([chunk]) is False
     assert _chunks_have_any_provider_words([chunk]) is True
+    assert _chunks_have_non_word_provider_timing([chunk]) is True
+
+
+def test_sarvam_phrase_timing_is_never_provider_word_timing_even_when_estimated_allowed():
+    chunk = _chunk(
+        [
+            {
+                "word": "okka roopaayiki asalu entha petrol vastundo",
+                "start": 0.0,
+                "end": 20.0,
+                "timing_source": "provider_phrase",
+                "timingSource": "provider_phrase",
+                "preservePhraseTiming": True,
+            },
+        ]
+    )
+    chunk.asr_metadata.update(
+        {
+            "provider": "sarvam",
+            "nativeWordsAvailable": False,
+            "timing_granularity": "phrase",
+            "phraseEntryCount": 1,
+        }
+    )
+    config = resolve_pipeline_config(
+        {
+            "timingSourcePolicy": "native_then_forced",
+            "quality": {
+                "allowEstimatedWords": True,
+                "maximumEstimatedWordRatio": 1.0,
+            },
+        }
+    )
+
+    has_provider_word_timing = _chunks_have_provider_words([chunk])
+    has_any_provider_word_timing = _chunks_have_any_provider_words([chunk])
+    has_non_word_provider_timing = _chunks_have_non_word_provider_timing([chunk])
+    use_provider_word_timing = (
+        config.timingSourcePolicy != "forced"
+        and (
+            has_provider_word_timing
+            or (
+                has_any_provider_word_timing
+                and not has_non_word_provider_timing
+                and config.timingSourcePolicy == "estimated_debug_only"
+            )
+        )
+    )
+
+    assert has_provider_word_timing is False
+    assert has_any_provider_word_timing is True
+    assert has_non_word_provider_timing is True
+    assert use_provider_word_timing is False
 
 
 def test_structured_model_timestamps_are_not_counted_as_native():

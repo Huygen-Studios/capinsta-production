@@ -138,6 +138,11 @@ def _chunks_have_provider_words(chunks: list[Any]) -> bool:
         return False
     for chunk in text_chunks:
         metadata = getattr(chunk, "asr_metadata", None) or {}
+        if metadata.get("nativeWordsAvailable") is False:
+            return False
+        granularity = str(metadata.get("timing_granularity") or metadata.get("timingGranularity") or "").lower()
+        if granularity == "phrase":
+            return False
         basis = str(metadata.get("timestamp_basis") or metadata.get("timestampBasis") or "").lower()
         if basis == "none":
             return False
@@ -174,6 +179,27 @@ def _chunks_have_any_provider_words(chunks: list[Any]) -> bool:
         if not isinstance(words, list) or not words:
             return False
     return True
+
+
+def _chunks_have_non_word_provider_timing(chunks: list[Any]) -> bool:
+    for chunk in chunks:
+        metadata = getattr(chunk, "asr_metadata", None) or {}
+        if metadata.get("nativeWordsAvailable") is False:
+            return True
+        granularity = str(metadata.get("timing_granularity") or metadata.get("timingGranularity") or "").lower()
+        if granularity == "phrase":
+            return True
+        for word in metadata.get("words") or []:
+            if bool((word or {}).get("preservePhraseTiming")):
+                return True
+            source = str(
+                (word or {}).get("timingSource")
+                or (word or {}).get("timing_source")
+                or ""
+            ).lower()
+            if source == "provider_phrase":
+                return True
+    return False
 
 
 def _caption_chunking_rules(config: Any) -> dict[str, Any]:
@@ -485,6 +511,7 @@ def run_pipeline(
         chunk_audit: list[dict[str, Any]] = []
         has_provider_word_timing = _chunks_have_provider_words(processed_chunks)
         has_any_provider_word_timing = _chunks_have_any_provider_words(processed_chunks)
+        has_non_word_provider_timing = _chunks_have_non_word_provider_timing(processed_chunks)
         alignment_was_forced = False
         use_provider_word_timing = (
             pipeline_config.timingSourcePolicy != "forced"
@@ -492,10 +519,8 @@ def run_pipeline(
                 has_provider_word_timing
                 or (
                     has_any_provider_word_timing
-                    and (
-                        pipeline_config.timingSourcePolicy == "estimated_debug_only"
-                        or pipeline_config.quality.allowEstimatedWords
-                    )
+                    and not has_non_word_provider_timing
+                    and pipeline_config.timingSourcePolicy == "estimated_debug_only"
                 )
             )
         )
@@ -521,6 +546,12 @@ def run_pipeline(
             if pipeline_config.timingSourcePolicy == "native_required":
                 raise TranscriptValidationError(
                     "Configured timing policy requires native provider word timestamps, but native timing was unavailable."
+                )
+            if has_non_word_provider_timing:
+                _stage_log(
+                    "provider_phrase_timing_ignored",
+                    timing_source_policy=pipeline_config.timingSourcePolicy,
+                    reason="non-word provider timing cannot satisfy caption timing",
                 )
             merged_text, merged_segments = merge_chunks(processed_chunks)
             _stage_log(
@@ -603,14 +634,20 @@ def run_pipeline(
             clamped_segments = normalize_aligned_segments(clamped_segments, language_mode)
 
         emit_progress("normalizing", 88, "Optimizing word-level timestamps.")
-        try:
-            clamped_segments = transcript_aligner.optimize_segments(audio_path, clamped_segments, language_mode)
-        except Exception as exc:
-            logger.warning(
-                "Local timestamp optimization failed for %s: %s. Continuing with existing timestamps.",
-                audio_path,
-                exc,
+        if alignment_was_forced and pipeline_config.alignment.stableTsEnabled:
+            _stage_log(
+                "legacy_timestamp_optimizer_skipped",
+                reason="canonical stable-ts forced alignment owns timing",
             )
+        else:
+            try:
+                clamped_segments = transcript_aligner.optimize_segments(audio_path, clamped_segments, language_mode)
+            except Exception as exc:
+                logger.warning(
+                    "Local timestamp optimization failed for %s: %s. Continuing with existing timestamps.",
+                    audio_path,
+                    exc,
+                )
 
         emit_progress("normalizing", 89, "Running caption sync engine.")
         try:
