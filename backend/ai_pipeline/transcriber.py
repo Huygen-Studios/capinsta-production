@@ -1612,6 +1612,9 @@ def _sarvam_result_payload(
     language_code: str,
     timestamp_result: SarvamTimestampResult,
     retry_attempts: list[dict[str, Any]],
+    native_words_available: bool = True,
+    native_failure_category: str | None = None,
+    native_failure_message: str | None = None,
 ) -> dict[str, Any]:
     provider_raw_text = (payload.get("transcript") or "").strip()
     detected_language_code = payload.get("language_code")
@@ -1620,6 +1623,8 @@ def _sarvam_result_payload(
         for item in retry_attempts
         if item.get("requestId")
     ]
+    timestamp_capability = "native_provider_word" if native_words_available else "provider_phrase"
+    timestamp_basis = "chunk_local" if words else "none"
     return {
         "text": provider_raw_text,
         "language": detected_language_code,
@@ -1635,9 +1640,12 @@ def _sarvam_result_payload(
         "provider_request_ids": request_ids,
         "request_id": payload.get("request_id") or (request_ids[-1] if request_ids else None),
         "timestamp_strategy": "provider_word",
-        "timestamp_capability": "native_provider_word",
-        "timestamp_basis": "chunk_local",
+        "timestamp_capability": timestamp_capability,
+        "timestamp_basis": timestamp_basis,
         "timing_granularity": timestamp_result.granularity,
+        "nativeWordsAvailable": native_words_available,
+        "nativeTimingFailureCategory": native_failure_category,
+        "nativeTimingFailureMessage": native_failure_message,
         "sarvamTimingDiagnostics": timestamp_result.diagnostics,
         "sarvamRetryAttempts": retry_attempts,
         "nativeWordCount": timestamp_result.native_word_count,
@@ -1743,6 +1751,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
 
     small_chunks = _small_sarvam_audio_chunks(audio_path)
     merged_words: list[dict[str, Any]] = []
+    small_retry_failed_result: SarvamTimestampResult | None = None
     temp_paths: list[str] = []
     try:
         for chunk_index, (chunk_path, offset, chunk_end) in enumerate(small_chunks):
@@ -1756,13 +1765,9 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
                 chunk_end=chunk_end,
             )
             if small_result.granularity != "native_word":
-                raise TranscriptionProviderError(
-                    "sarvam",
-                    "sarvam_native_timestamps_unavailable_after_retry",
-                    "Sarvam did not return native word timestamps after retrying with verbatim mode and smaller audio chunks.",
-                    request_id=_payload.get("request_id"),
-                    retryable=False,
-                )
+                small_retry_failed_result = small_result
+                merged_words = []
+                break
             merged_words.extend(small_result.words)
     finally:
         for path in temp_paths:
@@ -1793,18 +1798,40 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             retry_attempts=retry_attempts,
         )
 
-    category = "sarvam_phrase_timestamps" if first_result.granularity == "phrase" or verbatim_result.granularity == "phrase" else "sarvam_native_timestamps_unavailable_after_retry"
+    phrase_candidates = [
+        candidate
+        for candidate in (first_result, verbatim_result, small_retry_failed_result)
+        if candidate is not None and candidate.words
+    ]
+    best_non_native_result = phrase_candidates[0] if phrase_candidates else first_result
+    category = (
+        "sarvam_phrase_timestamps"
+        if any(candidate.granularity == "phrase" for candidate in (first_result, verbatim_result, small_retry_failed_result) if candidate is not None)
+        else "sarvam_native_timestamps_unavailable_after_retry"
+    )
     message = (
         "Sarvam returned phrase-level timestamps instead of native word timestamps."
         if category == "sarvam_phrase_timestamps"
         else "Sarvam did not return native word timestamps after retrying with verbatim mode and smaller audio chunks."
     )
-    raise TranscriptionProviderError(
-        "sarvam",
+    logger.info(
+        "sarvam_transcript_succeeded nativeWordsAvailable=false category=%s retryAttempts=%s requestId=%s",
         category,
-        message,
-        request_id=first_payload.get("request_id") or verbatim_payload.get("request_id"),
-        retryable=False,
+        len(retry_attempts),
+        first_payload.get("request_id") or verbatim_payload.get("request_id"),
+    )
+    return _sarvam_result_payload(
+        payload=first_payload,
+        words=best_non_native_result.words,
+        model=model,
+        requested_mode=mode,
+        timing_mode="phrase_only",
+        language_code=language_code,
+        timestamp_result=best_non_native_result,
+        retry_attempts=retry_attempts,
+        native_words_available=False,
+        native_failure_category=category,
+        native_failure_message=message,
     )
 
 

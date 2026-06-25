@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from typing import Any
 
@@ -32,6 +33,45 @@ def _module_available(*names: str) -> bool:
     return any(importlib.util.find_spec(name) is not None for name in names)
 
 
+def _module_import_status(name: str) -> dict[str, Any]:
+    if importlib.util.find_spec(name) is None:
+        return {"available": False, "importable": False, "version": None, "error": "module_not_found"}
+    try:
+        module = __import__(name)
+        return {
+            "available": True,
+            "importable": True,
+            "version": str(getattr(module, "__version__", "") or "") or None,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "available": True,
+            "importable": False,
+            "version": None,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def _dir_writable(path: str) -> tuple[bool, str | None]:
+    try:
+        os.makedirs(path, exist_ok=True)
+        with tempfile.NamedTemporaryFile(prefix=".capinsta-write-", dir=path, delete=True):
+            pass
+        return True, None
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _stable_ts_cache_dir() -> str:
+    return (
+        os.getenv("STABLE_TS_CACHE_DIR")
+        or os.getenv("WHISPER_CACHE_DIR")
+        or os.getenv("CAPINSTA_MODEL_CACHE_DIR")
+        or os.path.join(os.path.expanduser("~"), ".cache", "capinsta", "stable-ts")
+    )
+
+
 def alignment_provider_status() -> dict[str, Any]:
     """Report optional timing providers without importing heavy packages."""
     provider = (os.getenv("ALIGNMENT_PROVIDER", "auto") or "auto").strip().lower()
@@ -39,13 +79,27 @@ def alignment_provider_status() -> dict[str, Any]:
     stable_ts_enabled = os.getenv("ENABLE_STABLE_TS", "false").strip().lower() == "true"
     silero_enabled = os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true"
     whisperx_available = _module_available("whisperx")
-    torch_available = _module_available("torch")
+    torch_status = _module_import_status("torch")
+    stable_whisper_status = _module_import_status("stable_whisper")
+    stable_ts_legacy_status = _module_import_status("stable_ts")
+    torch_available = bool(torch_status["importable"])
     torchaudio_available = _module_available("torchaudio")
     librosa_available = _module_available("librosa")
-    stable_ts_available = _module_available("stable_whisper", "stable_ts")
+    stable_ts_available = bool(stable_whisper_status["importable"] or stable_ts_legacy_status["importable"])
     silero_available = _module_available("silero_vad") or _module_available("torch")
     ffmpeg_available = bool(shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg"))
     ffprobe_available = bool(shutil.which("ffprobe"))
+    stable_cache_dir = _stable_ts_cache_dir()
+    stable_cache_writable, stable_cache_error = _dir_writable(stable_cache_dir)
+    configured_device = os.getenv("STABLE_TS_DEVICE", "auto").strip() or "auto"
+    torch_cuda_available = False
+    if torch_status["importable"]:
+        try:
+            import torch  # type: ignore
+
+            torch_cuda_available = bool(torch.cuda.is_available())
+        except Exception:
+            torch_cuda_available = False
 
     selected = "provider"
     if provider == "whisperx" or (provider == "auto" and whisperx_enabled and whisperx_available):
@@ -64,7 +118,14 @@ def alignment_provider_status() -> dict[str, Any]:
         and ffmpeg_available
         and ffprobe_available
     )
-    stable_ts_ready = stable_ts_enabled and stable_ts_available and torch_available and ffmpeg_available and ffprobe_available
+    stable_ts_ready = (
+        stable_ts_enabled
+        and stable_ts_available
+        and torch_available
+        and ffmpeg_available
+        and ffprobe_available
+        and stable_cache_writable
+    )
     real_forced_alignment_available = (
         (selected == "whisperx" and whisperx_ready)
         or (selected == "stable_ts" and stable_ts_ready)
@@ -87,6 +148,7 @@ def alignment_provider_status() -> dict[str, Any]:
             ("torch", torch_available),
             ("ffmpeg", ffmpeg_available),
             ("ffprobe", ffprobe_available),
+            ("stable_ts_cache", stable_cache_writable),
         ):
             if not available:
                 unavailable_reasons.append(f"{name}_missing")
@@ -104,12 +166,23 @@ def alignment_provider_status() -> dict[str, Any]:
         "torchaudioAvailable": torchaudio_available,
         "librosaAvailable": librosa_available,
         "stableTsAvailable": stable_ts_available,
+        "stableTsImportAvailable": bool(stable_whisper_status["available"] or stable_ts_legacy_status["available"]),
+        "stableTsImportable": stable_ts_available,
+        "stableTsImportError": stable_whisper_status["error"] if stable_whisper_status["available"] and not stable_whisper_status["importable"] else stable_ts_legacy_status["error"],
+        "stableTsVersion": stable_whisper_status["version"] or stable_ts_legacy_status["version"],
         "sileroVadAvailable": silero_available,
         "ffmpegAvailable": ffmpeg_available,
         "ffprobeAvailable": ffprobe_available,
+        "configuredDevice": configured_device,
+        "torchVersion": torch_status["version"],
+        "torchImportError": torch_status["error"],
+        "torchCudaAvailable": torch_cuda_available,
+        "stableTsCacheDir": stable_cache_dir,
+        "stableTsCacheWritable": stable_cache_writable,
+        "stableTsCacheWriteError": stable_cache_error,
         "realForcedAlignmentAvailable": real_forced_alignment_available,
         "forcedAlignmentUnavailableReasons": sorted(set(unavailable_reasons)),
-        "modelCacheDir": os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or os.path.expanduser("~/.cache/huggingface"),
+        "modelCacheDir": os.getenv("HF_HOME") or os.getenv("TRANSFORMERS_CACHE") or stable_cache_dir,
     }
 
 

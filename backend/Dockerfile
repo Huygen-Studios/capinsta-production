@@ -39,6 +39,13 @@ ENV EXPORT_LEGACY_CAPTIONS_ONLY_DISK_PIPELINE=false
 ENV EXPORT_SPARSE_RENDER_ENABLED=true
 ENV EXPORT_SPARSE_RENDER_THEMES=*
 ENV EXPORT_SPARSE_MIN_FRAME_REDUCTION_PERCENT=30
+ENV CAPINSTA_MODEL_CACHE_DIR=/data/capinsta/model-cache
+ENV XDG_CACHE_HOME=/data/capinsta/model-cache/xdg
+ENV HF_HOME=/data/capinsta/model-cache/huggingface
+ENV TORCH_HOME=/data/capinsta/model-cache/torch
+ENV WHISPER_CACHE_DIR=/data/capinsta/model-cache/whisper
+ENV STABLE_TS_CACHE_DIR=/data/capinsta/model-cache/stable-ts
+ENV STABLE_TS_MAX_CONCURRENCY=1
 
 WORKDIR /app
 
@@ -50,10 +57,20 @@ RUN apt-get update \
     libsndfile1 \
   && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt ./
+COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
 RUN python -m pip install --upgrade pip \
   && python -m pip install -r requirements.txt \
+  && python -m pip install -r requirements-stable-ts.txt \
   && python -m playwright install --with-deps chromium
+
+RUN mkdir -p \
+    "$CAPINSTA_MODEL_CACHE_DIR" \
+    "$XDG_CACHE_HOME" \
+    "$HF_HOME" \
+    "$TORCH_HOME" \
+    "$WHISPER_CACHE_DIR" \
+    "$STABLE_TS_CACHE_DIR" \
+  && chmod -R 0775 /data/capinsta
 
 COPY backend/ .
 

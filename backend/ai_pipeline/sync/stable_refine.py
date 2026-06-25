@@ -5,7 +5,8 @@ import importlib.util
 import math
 import os
 import re
-from functools import lru_cache
+import tempfile
+import threading
 from typing import Any
 
 from .affine import validate_monotonic_word_timing
@@ -57,20 +58,93 @@ def stable_ts_available() -> bool:
     return importlib.util.find_spec("stable_whisper") is not None or importlib.util.find_spec("stable_ts") is not None
 
 
-@lru_cache(maxsize=2)
-def load_stable_ts_model(model_name: str, device: str):
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+_MODEL_LOAD_LOCK = threading.Lock()
+_STABLE_TS_MODELS: dict[tuple[str, str, str], Any] = {}
+_ALIGNMENT_SEMAPHORE = threading.BoundedSemaphore(max(1, _env_int("STABLE_TS_MAX_CONCURRENCY", 1)))
+
+
+def _stable_ts_cache_dir() -> str:
+    return (
+        os.getenv("STABLE_TS_CACHE_DIR")
+        or os.getenv("WHISPER_CACHE_DIR")
+        or os.getenv("CAPINSTA_MODEL_CACHE_DIR")
+        or os.path.join(os.path.expanduser("~"), ".cache", "capinsta", "stable-ts")
+    )
+
+
+def _cache_dir_writable(path: str) -> bool:
+    try:
+        os.makedirs(path, exist_ok=True)
+        with tempfile.NamedTemporaryFile(prefix=".capinsta-stable-ts-", dir=path, delete=True):
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_device(device: str) -> str:
+    value = (device or "auto").strip().lower()
+    if value and value != "auto":
+        return value
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def _import_stable_whisper():
     try:
         import stable_whisper
-    except Exception:
+
+        return stable_whisper
+    except ImportError:
         import stable_ts as stable_whisper  # type: ignore
 
-    kwargs: dict[str, Any] = {}
-    if device and device != "auto":
-        kwargs["device"] = device
-    try:
-        return stable_whisper.load_model(model_name, **kwargs)
-    except TypeError:
-        return stable_whisper.load_model(model_name)
+        return stable_whisper
+
+
+def _classify_stable_ts_exception(exc: BaseException) -> str:
+    message = str(exc).lower()
+    if isinstance(exc, ImportError) or "no module named" in message:
+        return "stable_ts_import_failed"
+    if isinstance(exc, MemoryError) or "out of memory" in message or "cannot allocate memory" in message:
+        return "stable_ts_out_of_memory"
+    if "ffmpeg" in message or "decode" in message or "audio" in message:
+        return "stable_ts_audio_decode_failed"
+    if "load_model" in message or "checkpoint" in message or "download" in message:
+        return "stable_ts_model_load_failed"
+    return "stable_ts_alignment_failed"
+
+
+def load_stable_ts_model(model_name: str, device: str):
+    cache_dir = _stable_ts_cache_dir()
+    resolved_device = _resolve_device(device)
+    cache_key = (model_name, resolved_device, cache_dir)
+    with _MODEL_LOAD_LOCK:
+        cached = _STABLE_TS_MODELS.get(cache_key)
+        if cached is not None:
+            return cached
+        stable_whisper = _import_stable_whisper()
+        kwargs: dict[str, Any] = {"device": resolved_device, "download_root": cache_dir}
+        try:
+            model = stable_whisper.load_model(model_name, **kwargs)
+        except TypeError:
+            kwargs.pop("download_root", None)
+            try:
+                model = stable_whisper.load_model(model_name, **kwargs)
+            except TypeError:
+                model = stable_whisper.load_model(model_name)
+        _STABLE_TS_MODELS[cache_key] = model
+        return model
 
 
 def _extract_words_from_result(result: Any) -> list[dict[str, Any]]:
@@ -244,6 +318,8 @@ def apply_stable_refinement(
         "matchCoverage": 0.0,
         "orderFallbackUsed": False,
         "reason": "",
+        "errorCategory": None,
+        "cacheDir": _stable_ts_cache_dir(),
         "warnings": [],
     }
     if not enabled:
@@ -251,6 +327,11 @@ def apply_stable_refinement(
         return SyncPassResult(copy.deepcopy(segments), base_report)
     if not stable_ts_available():
         base_report["reason"] = "stable-ts is not installed"
+        base_report["errorCategory"] = "stable_ts_not_installed"
+        return SyncPassResult(copy.deepcopy(segments), base_report)
+    if not _cache_dir_writable(str(base_report["cacheDir"])):
+        base_report["reason"] = "stable-ts model cache is not writable"
+        base_report["errorCategory"] = "stable_ts_cache_not_writable"
         return SyncPassResult(copy.deepcopy(segments), base_report)
 
     next_segments = copy.deepcopy(segments)
@@ -261,29 +342,40 @@ def apply_stable_refinement(
         base_report["reason"] = "no provider words"
         return SyncPassResult(next_segments, base_report)
 
+    acquired = _ALIGNMENT_SEMAPHORE.acquire(timeout=float(os.getenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", "300") or 300))
+    if not acquired:
+        base_report["reason"] = "stable-ts alignment timed out waiting for concurrency slot"
+        base_report["errorCategory"] = "stable_ts_timeout"
+        return SyncPassResult(next_segments, base_report)
     try:
-        model_name = str(config.get("model") or os.getenv("STABLE_TS_MODEL", "base") or "base")
-        device = str(config.get("device") or os.getenv("STABLE_TS_DEVICE", "auto") or "auto")
-        stable_words = force_align_provider_words(
-            next_segments,
-            audio_path,
-            language_mode,
-            model_name=model_name,
-            device=device,
-        )
-        stable_mode = "forced_align"
-        if not stable_words:
-            stable_words = transcribe_stable_words(
+        try:
+            model_name = str(config.get("model") or os.getenv("STABLE_TS_MODEL", "base") or "base")
+            device = str(config.get("device") or os.getenv("STABLE_TS_DEVICE", "auto") or "auto")
+            base_report["model"] = model_name
+            base_report["device"] = _resolve_device(device)
+            stable_words = force_align_provider_words(
+                next_segments,
                 audio_path,
                 language_mode,
                 model_name=model_name,
                 device=device,
             )
-            stable_mode = "transcribe"
-    except Exception as exc:
-        base_report["reason"] = "stable-ts failed"
-        base_report["warnings"] = [f"{type(exc).__name__}: {exc}"]
-        return SyncPassResult(next_segments, base_report)
+            stable_mode = "forced_align"
+            if not stable_words:
+                stable_words = transcribe_stable_words(
+                    audio_path,
+                    language_mode,
+                    model_name=model_name,
+                    device=device,
+                )
+                stable_mode = "transcribe"
+        except Exception as exc:
+            base_report["reason"] = "stable-ts failed"
+            base_report["errorCategory"] = _classify_stable_ts_exception(exc)
+            base_report["warnings"] = [f"{type(exc).__name__}: {exc}"]
+            return SyncPassResult(next_segments, base_report)
+    finally:
+        _ALIGNMENT_SEMAPHORE.release()
 
     match = match_stable_words_to_provider_words(provider_words, stable_words)
     base_report.update({k: v for k, v in match.items() if k != "matches"})
@@ -294,6 +386,7 @@ def apply_stable_refinement(
     ratio = float(match["wordRatio"])
     if ratio < min_ratio or ratio > max_ratio:
         base_report["reason"] = f"word ratio {ratio:.3f} outside allowed range"
+        base_report["errorCategory"] = "alignment_coverage_too_low"
         for word in provider_words:
             word["timingSourceDetail"] = "stable_ts_rejected"
         return SyncPassResult(next_segments, base_report)
@@ -323,4 +416,5 @@ def apply_stable_refinement(
         if allow_order_fallback
         else f"token coverage {coverage:.3f} below threshold and order fallback is disabled"
     )
+    base_report["errorCategory"] = "alignment_coverage_too_low"
     return SyncPassResult(next_segments, base_report)

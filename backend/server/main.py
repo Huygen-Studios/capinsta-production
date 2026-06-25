@@ -112,6 +112,27 @@ async def lifespan(app: FastAPI):
         print("WARNING: FFmpeg is not on PATH. Set FFMPEG_PATH or install FFmpeg.")
     if not shutil.which("ffprobe"):
         print("WARNING: FFprobe is not on PATH. Export and validation may fail.")
+    try:
+        from ai_pipeline.timing import alignment_provider_status
+
+        timing_status = alignment_provider_status()
+        if timing_status.get("stableTsEnabled"):
+            logger.info(
+                "stable_ts_startup_check importable=%s version=%s torch=%s torch_version=%s cuda=%s ffmpeg=%s ffprobe=%s device=%s cache_dir=%s cache_writable=%s unavailable=%s",
+                timing_status.get("stableTsImportable"),
+                timing_status.get("stableTsVersion") or "-",
+                timing_status.get("torchAvailable"),
+                timing_status.get("torchVersion") or "-",
+                timing_status.get("torchCudaAvailable"),
+                timing_status.get("ffmpegAvailable"),
+                timing_status.get("ffprobeAvailable"),
+                timing_status.get("configuredDevice"),
+                timing_status.get("stableTsCacheDir"),
+                timing_status.get("stableTsCacheWritable"),
+                ",".join(timing_status.get("forcedAlignmentUnavailableReasons") or []),
+            )
+    except Exception as exc:
+        logger.warning("stable_ts_startup_check_failed error=%s", exc)
     if frontend_dist_available():
         logger.info("frontend_static_enabled path=%s", FRONTEND_DIST_DIR)
     else:

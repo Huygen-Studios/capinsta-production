@@ -34,7 +34,10 @@ from ..transcription_control import (
     circuit_state,
     invalidate_transcription_config_cache,
 )
+from ai_pipeline.aligner import align_text
+from ai_pipeline.config import MODEL_ALIGN_EN
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
+from ai_pipeline.sync.stable_refine import apply_stable_refinement
 from . import export_jobs as export_runtime
 from ai_pipeline.transcriber import TranscriptionProviderError, is_real_secret, transcribe_audio
 
@@ -500,6 +503,8 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
     )
     started = time.monotonic()
     try:
+        resolved_pipeline = resolve_pipeline_config(body.pipelineOptions or DEFAULT_PIPELINE_OPTIONS)
+        stages: list[dict[str, object]] = []
         result = transcribe_audio(
             bundled_test_audio_path(),
             language_mode="english",
@@ -509,13 +514,76 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
         word_count = len(result.get("words") or [])
         if not str(result.get("text") or "").strip():
             raise TranscriptionProviderError(entry.provider, "empty_transcript", "empty transcript")
-        if entry.timestamp_strategy != "local_forced_alignment" and word_count < 1:
-            raise TranscriptionProviderError(entry.provider, "timestamps_missing", "missing timestamps")
+        stages.append({"name": "Sarvam transcription" if entry.provider == "sarvam" else "Provider transcription", "status": "passed"})
+
+        native_words_available = bool(result.get("nativeWordsAvailable", entry.timestamp_strategy == "provider_word"))
+        timing_provenance = "provider_native" if native_words_available else None
+        forced_word_count = 0
+        if entry.timestamp_strategy != "local_forced_alignment":
+            if native_words_available:
+                stages.append({"name": "Native word timing", "status": "passed", "wordCount": word_count})
+            else:
+                stages.append({
+                    "name": "Native word timing",
+                    "status": "unavailable",
+                    "category": result.get("nativeTimingFailureCategory") or "native_words_unavailable",
+                })
+                if resolved_pipeline.timingSourcePolicy == "native_required":
+                    raise TranscriptionProviderError(
+                        entry.provider,
+                        result.get("nativeTimingFailureCategory") or "sarvam_native_timestamps_unavailable_after_retry",
+                        result.get("nativeTimingFailureMessage") or "Provider did not return native word timestamps.",
+                        request_id=result.get("provider_request_id") or result.get("request_id"),
+                        retryable=False,
+                    )
+                if resolved_pipeline.timingSourcePolicy not in {"native_then_forced", "forced"}:
+                    raise TranscriptionProviderError(entry.provider, "timestamps_missing", "missing native word timestamps")
+
+                duration = float(result.get("duration") or 10.0)
+                seed_segments = align_text(
+                    [{"text": str(result.get("text") or ""), "start": 0.0, "end": duration}],
+                    bundled_test_audio_path(),
+                    MODEL_ALIGN_EN,
+                    allow_fallback=resolved_pipeline.alignment.stableTsEnabled,
+                    enable_whisperx=resolved_pipeline.alignment.whisperxEnabled,
+                    provider=resolved_pipeline.alignment.provider,
+                )
+                stable_result = apply_stable_refinement(
+                    seed_segments,
+                    bundled_test_audio_path(),
+                    "english",
+                    config={
+                        "enabled": resolved_pipeline.alignment.stableTsEnabled,
+                        "model": resolved_pipeline.alignment.stableTsModel,
+                        "device": resolved_pipeline.alignment.stableTsDevice,
+                        "minMatchCoverage": resolved_pipeline.alignment.stableTsMinMatchCoverage,
+                        "minWordRatio": resolved_pipeline.alignment.stableTsMinWordRatio,
+                        "maxWordRatio": resolved_pipeline.alignment.stableTsMaxWordRatio,
+                        "allowOrderFallback": resolved_pipeline.alignment.allowStableTsOrderFallback,
+                    },
+                )
+                forced_word_count = int(stable_result.report.get("appliedWords") or 0)
+                if not stable_result.report.get("applied"):
+                    raise TranscriptionProviderError(
+                        "stable_ts",
+                        str(stable_result.report.get("errorCategory") or "stable_ts_alignment_failed"),
+                        str(stable_result.report.get("reason") or "stable-ts alignment failed"),
+                        retryable=False,
+                    )
+                stages.append({"name": "Forced alignment", "status": "passed", "wordCount": forced_word_count})
+                timing_provenance = "realigned"
+        elif word_count < 1:
+            stages.append({"name": "Forced alignment", "status": "required"})
         return {
             "ok": True,
             "category": None,
             "latencyMs": latency_ms,
-            "wordCount": word_count,
+            "wordCount": forced_word_count or word_count,
+            "nativeWordCount": result.get("nativeWordCount") or (word_count if native_words_available else 0),
+            "phraseEntryCount": result.get("phraseEntryCount") or 0,
+            "timingGranularity": result.get("timing_granularity"),
+            "timingProvenance": timing_provenance,
+            "stages": stages + [{"name": "Final result", "status": "passed"}],
             "resolvedPipelineOptions": snapshot.resolved_pipeline_options,
             "providerRequestId": result.get("provider_request_id") or result.get("request_id"),
             "circuit": circuit_state(snapshot),

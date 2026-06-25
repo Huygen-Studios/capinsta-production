@@ -7,7 +7,7 @@ import { AccessSignOutButton } from "./access-sign-out-button";
 export function ComingSoonPage({ policy }: { policy: SitePolicy }) {
 	return (
 		<main className="min-h-svh bg-background text-foreground">
-			<div className="mx-auto grid min-h-svh max-w-6xl content-center gap-10 px-6 py-10 lg:grid-cols-[1fr_420px] lg:items-center">
+			<div className="mx-auto grid min-h-svh max-w-6xl content-center gap-10 px-6 py-10 lg:grid-cols-[1fr_340px] lg:items-center">
 				<section className="max-w-2xl">
 					<LogoStatic variant="wordmark" height={42} alt="Capinsta" priority />
 					<h1 className="mt-10 font-display text-5xl font-black leading-tight sm:text-6xl">
@@ -44,21 +44,18 @@ export function ComingSoonPage({ policy }: { policy: SitePolicy }) {
 						</Link>
 					</div>
 				</section>
-				<aside className="rounded-lg border-2 bg-card p-5 shadow-[4px_4px_0_var(--foreground)]">
-					<div className="aspect-[9/16] overflow-hidden rounded-md bg-foreground p-5 text-background">
-						<div className="flex h-full flex-col justify-end gap-4">
-							{["Cut the pause.", "Catch the beat.", "Land the line."].map(
-								(line, index) => (
-									<div
-										key={line}
-										className="rounded-md bg-background px-4 py-3 font-display text-xl font-black text-foreground"
-										style={{ opacity: 1 - index * 0.18 }}
-									>
-										{line}
-									</div>
-								),
-							)}
-						</div>
+				<aside className="mx-auto w-full max-w-[300px] rounded-lg border-2 bg-card p-3 shadow-[4px_4px_0_var(--foreground)] sm:max-w-[320px] lg:mx-0">
+					<div className="aspect-[9/16] overflow-hidden rounded-md bg-foreground">
+						<video
+							className="h-full w-full object-cover"
+							src="/logos/capinsta/capinsta%20waitlist%20launch.mp4"
+							autoPlay
+							muted
+							loop
+							playsInline
+							preload="metadata"
+							aria-label="Capinsta waitlist launch preview"
+						/>
 					</div>
 				</aside>
 			</div>

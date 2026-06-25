@@ -1,7 +1,9 @@
+import asyncio
 import pytest
 
 import ai_pipeline.transcriber as transcriber
 import ai_pipeline.timing as timing
+import server.api.admin as admin_api
 from server.transcription_catalog import TRANSCRIPTION_PROVIDER_CATALOG, model_runtime_availability, public_catalog
 from server import transcription_control
 
@@ -179,6 +181,94 @@ def test_native_timing_models_remain_production_ready_without_aligner(monkeypatc
 
     assert entries["saaras:v3"]["productionReady"] is True
     assert entries["whisper-1"]["productionReady"] is True
+
+
+def test_admin_configuration_test_runs_stable_ts_fallback_for_sarvam_phrase_timing(monkeypatch):
+    class AdminContext:
+        correlation_id = "corr-test"
+
+    monkeypatch.setattr(admin_api, "require_backend_admin_permission", lambda *_args, **_kwargs: AdminContext())
+    monkeypatch.setattr(admin_api, "is_real_secret", lambda _value: True)
+    monkeypatch.setenv("SARVAM_API_KEY", "real-sarvam-key")
+    monkeypatch.setattr(admin_api, "bundled_test_audio_path", lambda: "audio.wav")
+    monkeypatch.setattr(
+        admin_api,
+        "transcribe_audio",
+        lambda *_args, **_kwargs: {
+            "text": "hello world",
+            "duration": 1.0,
+            "provider": "sarvam",
+            "words": [
+                {
+                    "word": "hello world",
+                    "start": 0.0,
+                    "end": 1.0,
+                    "timingSource": "provider_phrase",
+                    "preservePhraseTiming": True,
+                }
+            ],
+            "nativeWordsAvailable": False,
+            "nativeTimingFailureCategory": "sarvam_phrase_timestamps",
+            "nativeTimingFailureMessage": "Sarvam returned phrase-level timestamps instead of native word timestamps.",
+            "nativeWordCount": 0,
+            "phraseEntryCount": 1,
+            "timing_granularity": "phrase",
+            "provider_request_id": "sarvam-req",
+        },
+    )
+    monkeypatch.setattr(
+        admin_api,
+        "align_text",
+        lambda *_args, **_kwargs: [
+            {
+                "text": "hello world",
+                "start": 0.0,
+                "end": 1.0,
+                "words": [
+                    {"word": "hello", "start": 0.0, "end": 0.4},
+                    {"word": "world", "start": 0.5, "end": 1.0},
+                ],
+            }
+        ],
+    )
+
+    class StableResult:
+        report = {"applied": True, "appliedWords": 2, "reason": "token match timing transfer"}
+        segments = []
+
+    monkeypatch.setattr(admin_api, "apply_stable_refinement", lambda *_args, **_kwargs: StableResult())
+
+    response = asyncio.run(
+        admin_api.transcription_test_config(
+            admin_api.TranscriptionTestRequest(
+                configurationId="cfg",
+                provider="sarvam",
+                model="saaras:v3",
+                version=1,
+                timestampStrategy="provider_word",
+                strictProvider=True,
+                providerOptions={},
+                pipelineOptions={
+                    "timingSourcePolicy": "native_then_forced",
+                    "alignment": {
+                        "stableTsEnabled": True,
+                        "stableTsModel": "base",
+                        "provider": "stable_ts",
+                        "whisperxEnabled": False,
+                    },
+                },
+                reason="regression test for stable ts fallback",
+            ),
+            object(),
+        )
+    )
+
+    assert response["ok"] is True
+    assert response["timingProvenance"] == "realigned"
+    assert response["wordCount"] == 2
+    assert response["stages"][1]["status"] == "unavailable"
+    assert response["stages"][2]["name"] == "Forced alignment"
+    assert response["stages"][2]["status"] == "passed"
 
 
 def test_strict_snapshot_fails_before_provider_call_when_aligner_unavailable(monkeypatch, tmp_path):

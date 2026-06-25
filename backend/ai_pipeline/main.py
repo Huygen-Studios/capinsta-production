@@ -189,33 +189,23 @@ def _caption_chunking_rules(config: Any) -> dict[str, Any]:
         "merge_gap": chunking.mergeGapSeconds,
         "phrase_hold": chunking.phraseHoldSeconds,
     }
-    logger.info("caption_timing_debug silenceGaps=%r", qualifying_gaps[:80])
-    logger.info(
-        "caption_timing_debug captionChunks=%r",
-        [
-            {
-                "start": chunk.get("start"),
-                "end": chunk.get("end"),
-                "text": chunk.get("text"),
-            }
-            for chunk in caption_chunks[:80]
-        ],
-    )
-    logger.info(
-        "caption_timing_debug crossingSilenceChunks=%r estimatedOrSyntheticWords=%r",
-        crossing_chunks[:80],
-        [
-            {
-                "word": word.get("displayedWord") or word.get("word"),
-                "start": word.get("start"),
-                "end": word.get("end"),
-                "timing_source": word.get("timingSourceDetail")
+
+
+def _mark_segments_realigned(segments: list[dict[str, Any]], *, provider: str) -> list[dict[str, Any]]:
+    for segment in segments:
+        for word in segment.get("words") or []:
+            detailed_source = (
+                word.get("timingSourceDetail")
+                or word.get("timingSource")
                 or word.get("timing_source")
-                or word.get("timingSource"),
-            }
-            for word in estimated_words[:80]
-        ],
-    )
+                or provider
+            )
+            word["timingProvenance"] = "realigned"
+            word["timingSourceDetail"] = detailed_source
+            word["timingSource"] = detailed_source
+            word["timing_source"] = detailed_source
+            word["timingSourceCategory"] = "realigned"
+    return segments
 
 
 def run_pipeline(
@@ -385,6 +375,26 @@ def run_pipeline(
                 "sourceLanguage": language_mode,
                 "outputLanguage": output_language,
             }
+            if str(transcription_result.get("provider") or "").lower() == "sarvam":
+                native_available = bool(transcription_result.get("nativeWordsAvailable"))
+                _stage_log(
+                    "sarvam_transcript_succeeded",
+                    chunk_index=i,
+                    mode=transcription_result.get("provider_mode"),
+                    language_code=transcription_result.get("provider_language_code"),
+                    timing_granularity=transcription_result.get("timing_granularity"),
+                    native_words_available=native_available,
+                    native_word_count=transcription_result.get("nativeWordCount"),
+                    phrase_entry_count=transcription_result.get("phraseEntryCount"),
+                    request_id=transcription_result.get("provider_request_id") or transcription_result.get("request_id"),
+                )
+                if not native_available:
+                    _stage_log(
+                        "native_words_unavailable",
+                        chunk_index=i,
+                        category=transcription_result.get("nativeTimingFailureCategory"),
+                        timing_granularity=transcription_result.get("timing_granularity"),
+                    )
             score = float(transcription_result.get("language_probability") or 1.0)
 
             if not clean_text.strip():
@@ -475,6 +485,7 @@ def run_pipeline(
         chunk_audit: list[dict[str, Any]] = []
         has_provider_word_timing = _chunks_have_provider_words(processed_chunks)
         has_any_provider_word_timing = _chunks_have_any_provider_words(processed_chunks)
+        alignment_was_forced = False
         use_provider_word_timing = (
             pipeline_config.timingSourcePolicy != "forced"
             and (
@@ -506,11 +517,20 @@ def run_pipeline(
                 chunk_count=len(processed_chunks),
             )
         else:
+            alignment_was_forced = True
             if pipeline_config.timingSourcePolicy == "native_required":
                 raise TranscriptValidationError(
                     "Configured timing policy requires native provider word timestamps, but native timing was unavailable."
                 )
             merged_text, merged_segments = merge_chunks(processed_chunks)
+            _stage_log(
+                "forced_alignment_started",
+                timing_source_policy=pipeline_config.timingSourcePolicy,
+                provider=pipeline_config.alignment.provider,
+                stable_ts_enabled=pipeline_config.alignment.stableTsEnabled,
+                stable_ts_model=pipeline_config.alignment.stableTsModel,
+                merged_word_count=len(merged_text.split()),
+            )
             _stage_log(
                 "word timestamps normalized",
                 merged_word_count=len(merged_text.split()),
@@ -546,7 +566,10 @@ def run_pipeline(
                     prompt_segments_with_time,
                     audio_path,
                     MODEL_ALIGN_EN,
-                    allow_fallback=pipeline_config.timingSourcePolicy == "estimated_debug_only",
+                    allow_fallback=(
+                        pipeline_config.timingSourcePolicy == "estimated_debug_only"
+                        or pipeline_config.alignment.stableTsEnabled
+                    ),
                     enable_whisperx=pipeline_config.alignment.whisperxEnabled,
                     provider=pipeline_config.alignment.provider,
                 )
@@ -571,6 +594,11 @@ def run_pipeline(
             is_valid = validate_alignment(clamped_segments, adaptive_thresholds_dict)
             if not is_valid:
                 logger.warning("Alignment validation failed. Output may have misaligned tokens.")
+            else:
+                _stage_log(
+                    "forced_alignment_validation_passed",
+                    segment_count=len(clamped_segments),
+                )
 
             clamped_segments = normalize_aligned_segments(clamped_segments, language_mode)
 
@@ -586,6 +614,8 @@ def run_pipeline(
 
         emit_progress("normalizing", 89, "Running caption sync engine.")
         try:
+            if pipeline_config.alignment.stableTsEnabled:
+                _stage_log("stable_ts_model_loading", model=pipeline_config.alignment.stableTsModel)
             stable_result = apply_stable_refinement(
                 clamped_segments,
                 audio_path,
@@ -601,9 +631,32 @@ def run_pipeline(
                 },
             )
             clamped_segments = stable_result.segments
+            if pipeline_config.alignment.stableTsEnabled:
+                _stage_log(
+                    "stable_ts_alignment_completed",
+                    applied=stable_result.report.get("applied"),
+                    reason=stable_result.report.get("reason"),
+                )
         except Exception as exc:
             logger.warning("stable-ts sync refinement failed safely: %s", exc)
             stable_result = SyncPassResult(clamped_segments, {"applied": False, "reason": str(exc), "warnings": [str(exc)]})
+        if alignment_was_forced:
+            if pipeline_config.alignment.stableTsEnabled and not stable_result.report.get("applied"):
+                reason = str(stable_result.report.get("reason") or "stable-ts alignment failed")
+                category = str(stable_result.report.get("errorCategory") or "")
+                if not category:
+                    if reason == "stable-ts is not installed":
+                        category = "stable_ts_not_installed"
+                    elif reason == "stable-ts failed":
+                        category = "stable_ts_alignment_failed"
+                    else:
+                        category = "alignment_coverage_too_low"
+                raise TranscriptValidationError(f"{category}: {reason}")
+            clamped_segments = _mark_segments_realigned(
+                clamped_segments,
+                provider="stable_ts_forced_align" if pipeline_config.alignment.stableTsEnabled else "whisperx_forced",
+            )
+            _stage_log("timing_provenance", timing_provenance="realigned")
 
         try:
             auto_sync_result = apply_auto_sync_if_confident(

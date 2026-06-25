@@ -264,3 +264,26 @@ def test_stable_ts_order_fallback_can_be_disabled(monkeypatch):
 
     assert result.report["applied"] is False
     assert "order fallback is disabled" in result.report["reason"]
+
+
+def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: False)
+    monkeypatch.setenv("STABLE_TS_CACHE_DIR", str(tmp_path / "stable-cache"))
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "text": "hello",
+                "start": 0.0,
+                "end": 1.0,
+                "words": [{"word": "hello", "start": 0.0, "end": 0.5}],
+            }
+        ],
+        "audio.wav",
+        "english",
+        config={"enabled": True},
+    )
+
+    assert result.report["applied"] is False
+    assert result.report["errorCategory"] == "stable_ts_cache_not_writable"
