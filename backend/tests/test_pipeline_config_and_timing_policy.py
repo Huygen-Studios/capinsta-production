@@ -463,6 +463,55 @@ def test_stable_ts_matching_bridges_hindi_romanized_tokens():
     assert result["matchCoverage"] == 1.0
 
 
+def test_stable_ts_order_fallback_fills_unmatched_words_after_good_token_match(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+    monkeypatch.setattr(
+        stable_refine,
+        "force_align_provider_words",
+        lambda *_args, **_kwargs: [
+            {"word": "one", "start": 0.1, "end": 0.2},
+            {"word": "two", "start": 0.25, "end": 0.35},
+            {"word": "teen", "start": 0.4, "end": 0.5},
+            {"word": "four", "start": 0.55, "end": 0.7},
+        ],
+    )
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "text": "one two three four",
+                "start": 0.0,
+                "end": 1.0,
+                "words": [
+                    {"word": "one", "start": 0.0, "end": 0.1, "timingSource": "deterministic_fallback"},
+                    {"word": "two", "start": 0.1, "end": 0.2, "timingSource": "deterministic_fallback"},
+                    {"word": "three", "start": 0.2, "end": 0.3, "timingSource": "deterministic_fallback"},
+                    {"word": "four", "start": 0.3, "end": 0.4, "timingSource": "deterministic_fallback"},
+                ],
+            }
+        ],
+        "audio.wav",
+        "hindi",
+        config={
+            "enabled": True,
+            "allowOrderFallback": True,
+            "minMatchCoverage": 0.5,
+            "minWordRatio": 0.5,
+            "maxWordRatio": 2.0,
+        },
+    )
+
+    words = result.segments[0]["words"]
+    assert result.report["applied"] is True
+    assert result.report["appliedWords"] == 4
+    assert result.report["orderFallbackUsed"] is True
+    assert result.report["orderFallbackAppliedWords"] == 1
+    assert words[2]["start"] == 0.4
+    assert words[2]["timingSource"] == "stable_ts_order_adjusted"
+    assert all("deterministic" not in word["timingSource"] for word in words)
+
+
 def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):
     monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
     monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: False)

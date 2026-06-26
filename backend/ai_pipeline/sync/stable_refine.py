@@ -315,6 +315,20 @@ def _apply_matched_timings(
     return applied
 
 
+def _unmatched_order_matches(
+    provider_word_count: int,
+    stable_word_count: int,
+    existing_matches: dict[int, int],
+) -> dict[int, int]:
+    used_stable_indexes = set(existing_matches.values())
+    matches: dict[int, int] = {}
+    for provider_index in range(min(provider_word_count, stable_word_count)):
+        if provider_index in existing_matches or provider_index in used_stable_indexes:
+            continue
+        matches[provider_index] = provider_index
+    return matches
+
+
 def apply_stable_refinement(
     segments: list[dict[str, Any]],
     audio_path: str,
@@ -418,12 +432,23 @@ def apply_stable_refinement(
         return SyncPassResult(next_segments, base_report)
 
     coverage = float(match["matchCoverage"])
+    allow_order_fallback = bool(config.get("allowOrderFallback")) if "allowOrderFallback" in config else True
     if coverage >= min_coverage:
         applied = _apply_matched_timings(next_segments, rows, stable_words, match["matches"], "stable_ts_forced_align" if stable_mode == "forced_align" else "stable_ts_adjusted")
-        base_report.update({"applied": applied > 0, "appliedWords": applied, "reason": "token match timing transfer"})
+        order_applied = 0
+        if allow_order_fallback:
+            order_matches = _unmatched_order_matches(len(provider_words), len(stable_words), match["matches"])
+            if order_matches:
+                order_applied = _apply_matched_timings(next_segments, rows, stable_words, order_matches, "stable_ts_order_adjusted")
+        base_report.update({
+            "applied": applied + order_applied > 0,
+            "appliedWords": applied + order_applied,
+            "orderFallbackUsed": order_applied > 0,
+            "orderFallbackAppliedWords": order_applied,
+            "reason": "token match timing transfer" if not order_applied else "token match timing transfer with order fallback for unmatched words",
+        })
         return SyncPassResult(next_segments, base_report)
 
-    allow_order_fallback = bool(config.get("allowOrderFallback")) if "allowOrderFallback" in config else True
     if allow_order_fallback and min_ratio <= ratio <= max_ratio:
         count = min(len(provider_words), len(stable_words))
         order_matches = {idx: idx for idx in range(count)}
