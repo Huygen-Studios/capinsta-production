@@ -105,6 +105,153 @@ function numericInputValue(value: unknown, fallback: number) {
 	return String(numberValue(value, fallback));
 }
 
+type BulkFieldType = "boolean" | "number" | "string" | "nullableNumber";
+
+type BulkField = {
+	key: string;
+	path: readonly [string, string] | readonly ["timingSourcePolicy"];
+	type: BulkFieldType;
+	min?: number;
+	max?: number;
+	aliases?: readonly string[];
+};
+
+const TIMING_FIX_PRESET = `# Short-form Telugu/Telgish timing preset
+TIMING_SOURCE_POLICY=native_then_forced
+VAD_TARGET_SECONDS=8
+VAD_MAX_SECONDS=12
+CHUNK_PADDING_SECONDS=0.18
+USE_VAD_CHUNKING=true
+PAUSE_SPLIT_SECONDS=0.25
+SILENCE_THRESHOLD_DB=adaptive
+ENABLE_SILERO_VAD=false
+SILERO_THRESHOLD=0.5
+ENABLE_STABLE_TS=true
+STABLE_TS_MODEL=small
+MIN_MATCH_COVERAGE=0.50
+ALLOW_STABLE_TS_ORDER_FALLBACK=true
+ENABLE_AUTO_GLOBAL_SYNC=false
+MAX_SHIFT_SECONDS=0.8
+MIN_SYNC_SCORE=0.58
+ALLOW_SPEED_SKEW_CORRECTION=false
+MAX_SKEW_DELTA=0.03
+CAPTION_MAX_WORDS=3
+CAPTION_MAX_CHARS=28
+MAX_DURATION_SECONDS=2
+PHRASE_HOLD_SECONDS=0.05
+PROVIDER_TIMEOUT_SECONDS=90
+SARVAM_CONCURRENCY=1
+ALLOW_ESTIMATED_WORDS=true
+MAXIMUM_ESTIMATED_WORD_RATIO=0.15`;
+
+const BULK_FIELDS: readonly BulkField[] = [
+	{ key: "TIMING_SOURCE_POLICY", path: ["timingSourcePolicy"], type: "string" },
+	{ key: "VAD_TARGET_SECONDS", path: ["audioChunking", "targetSeconds"], type: "number", min: 3, max: 120 },
+	{ key: "VAD_MAX_SECONDS", path: ["audioChunking", "maxSeconds"], type: "number", min: 3, max: 180 },
+	{ key: "CHUNK_PADDING_SECONDS", path: ["audioChunking", "paddingSeconds"], type: "number", min: 0, max: 2 },
+	{ key: "USE_VAD_CHUNKING", path: ["audioChunking", "vadEnabled"], type: "boolean" },
+	{
+		key: "PAUSE_SPLIT_SECONDS",
+		path: ["vad", "pauseThresholdSeconds"],
+		type: "number",
+		min: 0.05,
+		max: 3,
+		aliases: ["CAPTION_PAUSE_SPLIT_THRESHOLD_SECONDS"],
+	},
+	{ key: "SILENCE_THRESHOLD_DB", path: ["vad", "silenceThresholdDb"], type: "nullableNumber", min: -90, max: 0 },
+	{ key: "ENABLE_SILERO_VAD", path: ["vad", "sileroEnabled"], type: "boolean" },
+	{ key: "SILERO_THRESHOLD", path: ["vad", "sileroSpeechThreshold"], type: "number", min: 0.01, max: 0.99 },
+	{ key: "ENABLE_STABLE_TS", path: ["alignment", "stableTsEnabled"], type: "boolean" },
+	{ key: "STABLE_TS_MODEL", path: ["alignment", "stableTsModel"], type: "string" },
+	{ key: "MIN_MATCH_COVERAGE", path: ["alignment", "stableTsMinMatchCoverage"], type: "number", min: 0, max: 1 },
+	{ key: "ALLOW_STABLE_TS_ORDER_FALLBACK", path: ["alignment", "allowStableTsOrderFallback"], type: "boolean" },
+	{ key: "ENABLE_AUTO_GLOBAL_SYNC", path: ["autoSync", "enabled"], type: "boolean" },
+	{ key: "MAX_SHIFT_SECONDS", path: ["autoSync", "maxShiftSeconds"], type: "number", min: 0, max: 10 },
+	{ key: "MIN_SYNC_SCORE", path: ["autoSync", "minScore"], type: "number", min: 0, max: 1 },
+	{ key: "ALLOW_SPEED_SKEW_CORRECTION", path: ["autoSync", "allowSkew"], type: "boolean" },
+	{ key: "MAX_SKEW_DELTA", path: ["autoSync", "maxSkewDelta"], type: "number", min: 0, max: 1 },
+	{ key: "CAPTION_MAX_WORDS", path: ["captionChunking", "maxWords"], type: "number", min: 1, max: 24 },
+	{ key: "CAPTION_MAX_CHARS", path: ["captionChunking", "maxCharacters"], type: "number", min: 8, max: 120 },
+	{ key: "MAX_DURATION_SECONDS", path: ["captionChunking", "maxDurationSeconds"], type: "number", min: 0.1, max: 30 },
+	{ key: "PHRASE_HOLD_SECONDS", path: ["captionChunking", "phraseHoldSeconds"], type: "number", min: 0, max: 3 },
+	{ key: "PROVIDER_TIMEOUT_SECONDS", path: ["performance", "providerTimeoutSeconds"], type: "number", min: 5, max: 600 },
+	{ key: "SARVAM_CONCURRENCY", path: ["performance", "sarvamMaxConcurrency"], type: "number", min: 1, max: 8 },
+	{ key: "ALLOW_ESTIMATED_WORDS", path: ["quality", "allowEstimatedWords"], type: "boolean" },
+	{ key: "MAXIMUM_ESTIMATED_WORD_RATIO", path: ["quality", "maximumEstimatedWordRatio"], type: "number", min: 0, max: 1 },
+] as const;
+
+const BULK_FIELD_BY_KEY = new Map<string, BulkField>(
+	BULK_FIELDS.flatMap((field) => [
+		[field.key, field],
+		...(field.aliases ?? []).map((alias) => [alias, field] as const),
+	]),
+);
+
+function parseBooleanValue(value: string) {
+	const normalized = value.trim().toLowerCase();
+	if (["1", "true", "yes", "on", "enabled"].includes(normalized)) return true;
+	if (["0", "false", "no", "off", "disabled"].includes(normalized)) return false;
+	return null;
+}
+
+function parseBulkValue(field: BulkField, rawValue: string) {
+	const value = rawValue.trim();
+	if (field.type === "boolean") {
+		const parsed = parseBooleanValue(value);
+		if (parsed === null) throw new Error(`${field.key} must be true or false.`);
+		return parsed;
+	}
+	if (field.type === "string") {
+		return value;
+	}
+	if (field.type === "nullableNumber" && ["", "adaptive", "null", "none"].includes(value.toLowerCase())) {
+		return null;
+	}
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed)) throw new Error(`${field.key} must be a number.`);
+	if (field.min !== undefined && parsed < field.min) throw new Error(`${field.key} must be at least ${field.min}.`);
+	if (field.max !== undefined && parsed > field.max) throw new Error(`${field.key} must be at most ${field.max}.`);
+	return parsed;
+}
+
+function applyPipelineBulkText(current: PipelineOptions, text: string) {
+	const errors: string[] = [];
+	const applied: string[] = [];
+	let next: PipelineOptions = { ...current };
+
+	for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
+		const line = rawLine.trim();
+		if (!line || line.startsWith("#")) continue;
+		const separatorIndex = line.indexOf("=");
+		if (separatorIndex <= 0) {
+			errors.push(`Line ${index + 1}: use KEY=value.`);
+			continue;
+		}
+		const rawKey = line.slice(0, separatorIndex).trim().replace(/\./g, "_").toUpperCase();
+		const field = BULK_FIELD_BY_KEY.get(rawKey);
+		if (!field) {
+			errors.push(`Line ${index + 1}: unknown key ${rawKey}.`);
+			continue;
+		}
+		try {
+			const parsed = parseBulkValue(field, line.slice(separatorIndex + 1));
+			if (field.path.length === 1) {
+				next = { ...next, timingSourcePolicy: parsed };
+			} else {
+				next = updateNested(next, field.path[0], field.path[1], parsed);
+				if (field.key === "PAUSE_SPLIT_SECONDS") {
+					next = updateNested(next, "captionChunking", "pauseSplitThresholdSeconds", parsed);
+				}
+			}
+			applied.push(field.key);
+		} catch (error) {
+			errors.push(`Line ${index + 1}: ${error instanceof Error ? error.message : "invalid value"}`);
+		}
+	}
+
+	return { next, errors, applied };
+}
+
 function isConfiguration(value: unknown): value is Configuration {
 	return !!value && typeof value === "object" && "id" in value && "provider" in value && "model" in value;
 }
@@ -147,6 +294,8 @@ export function AdminTranscriptionControls({
 			active?.pipelineOptions ?? {},
 		),
 	);
+	const [bulkText, setBulkText] = useState(TIMING_FIX_PRESET);
+	const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 	const [reason, setReason] = useState("Initial transcription setup");
 	const [confirmation, setConfirmation] = useState("");
 	const [selectedConfigId, setSelectedConfigId] = useState(active?.id ?? drafts[0]?.id ?? "");
@@ -213,6 +362,16 @@ export function AdminTranscriptionControls({
 
 	const setPipelineValue = (key: string, field: string, value: unknown) => {
 		setPipelineOptions((current) => updateNested(current, key, field, value));
+	};
+
+	const applyBulkText = () => {
+		const result = applyPipelineBulkText(pipelineOptions, bulkText);
+		if (result.errors.length > 0) {
+			setBulkMessage(result.errors.slice(0, 4).join(" "));
+			return;
+		}
+		setPipelineOptions(result.next);
+		setBulkMessage(`Applied ${result.applied.length} parameter${result.applied.length === 1 ? "" : "s"}. Save a draft to persist these values.`);
 	};
 
 	return (
@@ -309,6 +468,35 @@ export function AdminTranscriptionControls({
 								</Select>
 							</div>
 						) : null}
+						<div className="grid gap-3 border p-4 md:col-span-2">
+							<div>
+								<Label>Paste Parameters</Label>
+								<p className="mt-1 text-xs text-muted-foreground">
+									Paste KEY=value lines like Coolify env vars. This updates the form below; it is saved only after Save draft.
+								</p>
+							</div>
+							<Textarea
+								value={bulkText}
+								onChange={(event) => {
+									setBulkText(event.currentTarget.value);
+									setBulkMessage(null);
+								}}
+								spellCheck={false}
+								className="min-h-72 font-mono text-xs"
+							/>
+							<div className="flex flex-wrap gap-2">
+								<Button type="button" variant="outline" onClick={() => {
+									setBulkText(TIMING_FIX_PRESET);
+									setBulkMessage("Loaded the short-form Telugu/Telgish timing preset. Apply it, then save a draft.");
+								}}>
+									Load timing preset
+								</Button>
+								<Button type="button" onClick={applyBulkText}>
+									Apply pasted values
+								</Button>
+							</div>
+							{bulkMessage ? <p className="text-sm text-muted-foreground">{bulkMessage}</p> : null}
+						</div>
 						<div className="grid gap-4 border p-4 md:col-span-2">
 							<div>
 								<Label>Timing source policy</Label>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	getAdminTranscriptionConfiguration,
@@ -10,6 +10,12 @@ import { DEFAULT_PIPELINE_OPTIONS, TRANSCRIPTION_PROVIDER_CATALOG, mergePipeline
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readAdminControlsSource() {
+	const rootPath = join(process.cwd(), "apps/web/src/components/admin/admin-transcription-controls.tsx");
+	const appPath = join(process.cwd(), "src/components/admin/admin-transcription-controls.tsx");
+	return readFileSync(existsSync(rootPath) ? rootPath : appPath, "utf8");
 }
 
 function legacyConfigRow(overrides: Record<string, unknown> = {}) {
@@ -106,7 +112,7 @@ describe("admin transcription configuration db compatibility", () => {
 		const captionChunking = merged.captionChunking;
 		const autoSync = merged.autoSync;
 		expect(isRecord(captionChunking) ? captionChunking.maxWords : undefined).toBe(3);
-		expect(isRecord(captionChunking) ? captionChunking.maxCharacters : undefined).toBe(36);
+		expect(isRecord(captionChunking) ? captionChunking.maxCharacters : undefined).toBe(28);
 		expect(isRecord(autoSync) ? autoSync.enabled : undefined).toBe(true);
 		expect(isRecord(autoSync) ? autoSync.minScore : undefined).toBe(0.58);
 		const quality = merged.quality;
@@ -122,15 +128,23 @@ describe("admin transcription configuration db compatibility", () => {
 	});
 
 	test("admin UI exposes disabled maximum estimated ratio control with helper text", () => {
-		const source = readFileSync(
-			join(process.cwd(), "src/components/admin/admin-transcription-controls.tsx"),
-			"utf8",
-		);
+		const source = readAdminControlsSource();
 
 		expect(source).toContain("Maximum estimated word ratio");
 		expect(source).toContain("quality\", \"maximumEstimatedWordRatio\"");
 		expect(source).toContain("disabled={!allowEstimatedWords}");
 		expect(source).toContain("Maximum fraction of caption words allowed to use estimated timing after alignment. 0.15 means 15%.");
+	});
+
+	test("admin UI exposes pasteable timing parameters with the short-form preset", () => {
+		const source = readAdminControlsSource();
+
+		expect(source).toContain("Paste Parameters");
+		expect(source).toContain("TIMING_FIX_PRESET");
+		expect(source).toContain("VAD_TARGET_SECONDS=8");
+		expect(source).toContain("STABLE_TS_MODEL=small");
+		expect(source).toContain("MAXIMUM_ESTIMATED_WORD_RATIO=0.15");
+		expect(source).toContain("Apply pasted values");
 	});
 
 	test("Gemini catalog entries require real local alignment", () => {

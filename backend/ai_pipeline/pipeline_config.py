@@ -10,41 +10,41 @@ TimingSourcePolicy = Literal["native_required", "native_then_forced", "forced", 
 class QualityConfig:
     minimumProviderTimestampCoverage: float = 0.90
     allowSegmentDerivedWords: bool = False
-    allowEstimatedWords: bool = False
+    allowEstimatedWords: bool = True
     maximumEstimatedWordRatio: float = 0.15
 
 
 @dataclass(frozen=True)
 class PerformanceConfig:
-    providerTimeoutSeconds: int = 60
-    sarvamMaxConcurrency: int = 2
+    providerTimeoutSeconds: int = 90
+    sarvamMaxConcurrency: int = 1
     alignmentRetries: int = 3
 
 
 @dataclass(frozen=True)
 class CaptionChunkingConfig:
     targetWords: int = 4
-    maxWords: int = 5
+    maxWords: int = 3
     minWords: int = 2
-    maxCharacters: int = 36
+    maxCharacters: int = 28
     minDurationSeconds: float = 0.8
-    maxDurationSeconds: float = 3.0
-    pauseSplitThresholdSeconds: float = 0.30
+    maxDurationSeconds: float = 2.0
+    pauseSplitThresholdSeconds: float = 0.25
     mergeGapSeconds: float = 0.12
-    phraseHoldSeconds: float = 0.12
+    phraseHoldSeconds: float = 0.05
 
 
 @dataclass(frozen=True)
 class AlignmentConfig:
     provider: str = "auto"
     whisperxEnabled: bool = False
-    stableTsEnabled: bool = False
-    stableTsModel: str = "base"
+    stableTsEnabled: bool = True
+    stableTsModel: str = "small"
     stableTsDevice: str = "auto"
     stableTsMinMatchCoverage: float = 0.50
     stableTsMinWordRatio: float = 0.45
     stableTsMaxWordRatio: float = 2.25
-    allowStableTsOrderFallback: bool = False
+    allowStableTsOrderFallback: bool = True
 
 
 @dataclass(frozen=True)
@@ -63,9 +63,9 @@ class RepairConfig:
 @dataclass(frozen=True)
 class AudioChunkingConfig:
     vadEnabled: bool = True
-    targetSeconds: float = 15.0
-    maxSeconds: float = 25.0
-    paddingSeconds: float = 0.08
+    targetSeconds: float = 8.0
+    maxSeconds: float = 12.0
+    paddingSeconds: float = 0.18
     legacyNormalSeconds: float = 20.0
     legacyNormalOverlapSeconds: float = 4.0
     legacyStrictSeconds: float = 12.0
@@ -75,7 +75,7 @@ class AudioChunkingConfig:
 
 @dataclass(frozen=True)
 class VadConfig:
-    pauseThresholdSeconds: float = 0.30
+    pauseThresholdSeconds: float = 0.25
     silenceThresholdDb: float | None = None
     sileroEnabled: bool = False
     sileroSpeechThreshold: float = 0.50

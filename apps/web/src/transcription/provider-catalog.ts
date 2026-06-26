@@ -157,9 +157,9 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 	audio: { sampleRate: 16000, channels: 1, codec: "pcm_s16le", bitrateKbps: null },
 	audioChunking: {
 		vadEnabled: true,
-		targetSeconds: 15,
-		maxSeconds: 25,
-		paddingSeconds: 0.08,
+		targetSeconds: 8,
+		maxSeconds: 12,
+		paddingSeconds: 0.18,
 		legacyNormalSeconds: 20,
 		legacyNormalOverlapSeconds: 4,
 		legacyStrictSeconds: 12,
@@ -167,7 +167,7 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 		fadeMs: 0,
 	},
 	vad: {
-		pauseThresholdSeconds: 0.3,
+		pauseThresholdSeconds: 0.25,
 		silenceThresholdDb: null,
 		sileroEnabled: false,
 		sileroSpeechThreshold: 0.5,
@@ -176,13 +176,13 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 	alignment: {
 		provider: "auto",
 		whisperxEnabled: false,
-		stableTsEnabled: false,
-		stableTsModel: "base",
+		stableTsEnabled: true,
+		stableTsModel: "small",
 		stableTsDevice: "auto",
 		stableTsMinMatchCoverage: 0.5,
 		stableTsMinWordRatio: 0.45,
 		stableTsMaxWordRatio: 2.25,
-		allowStableTsOrderFallback: false,
+		allowStableTsOrderFallback: true,
 	},
 	repair: {
 		speechSpanRetimerEnabled: true,
@@ -207,22 +207,22 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 	},
 	captionChunking: {
 		targetWords: 4,
-		maxWords: 5,
+		maxWords: 3,
 		minWords: 2,
-		maxCharacters: 36,
+		maxCharacters: 28,
 		minDurationSeconds: 0.8,
-		maxDurationSeconds: 3,
-		pauseSplitThresholdSeconds: 0.3,
+		maxDurationSeconds: 2,
+		pauseSplitThresholdSeconds: 0.25,
 		mergeGapSeconds: 0.12,
-		phraseHoldSeconds: 0.12,
+		phraseHoldSeconds: 0.05,
 	},
 	quality: {
 		minimumProviderTimestampCoverage: 0.9,
 		allowSegmentDerivedWords: false,
-		allowEstimatedWords: false,
+		allowEstimatedWords: true,
 		maximumEstimatedWordRatio: 0.15,
 	},
-	performance: { providerTimeoutSeconds: 60, sarvamMaxConcurrency: 2, alignmentRetries: 3 },
+	performance: { providerTimeoutSeconds: 90, sarvamMaxConcurrency: 1, alignmentRetries: 3 },
 } as const;
 
 type PlainObject = { readonly [key: string]: unknown };
