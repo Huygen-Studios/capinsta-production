@@ -22,7 +22,7 @@ from .logger import PipelineLogger
 from .quality_estimator import adaptive_thresholds, measure_audio_quality
 from .renderer import generate_srt, generate_vtt
 from .sentence_splitter import split_sentences_v2
-from .sync.aligned_words import build_segments_from_aligned_words, canonical_aligned_words_from_segments
+from .sync.aligned_words import build_segments_from_aligned_words, canonical_aligned_words_from_segments, sanitize_aligned_word_ranges
 from .sync.auto_sync import apply_auto_sync_if_confident
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement
@@ -729,6 +729,8 @@ def run_pipeline(
             diagnostics=pause_preservation_report,
         )
         sync_report["pausePreservation"] = pause_preservation_report
+        clamped_segments, word_range_repair_report = sanitize_aligned_word_ranges(clamped_segments)
+        sync_report["wordRangeRepair"] = word_range_repair_report
         aligned_words = canonical_aligned_words_from_segments(clamped_segments)
         caption_chunking_rules = _caption_chunking_rules(pipeline_config)
         rebuilt_from_aligned_words = build_segments_from_aligned_words(
