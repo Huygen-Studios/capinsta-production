@@ -427,6 +427,24 @@ def test_stable_ts_transcribe_fallback_runs_when_forced_align_fails(monkeypatch)
     assert result.segments[0]["words"][0]["timingSource"] == "stable_ts_adjusted"
 
 
+def test_stable_ts_matching_preserves_hindi_unicode_tokens():
+    result = stable_refine.match_stable_words_to_provider_words(
+        [
+            {"word": "नमस्ते"},
+            {"word": "दोस्तो"},
+            {"word": "आज"},
+        ],
+        [
+            {"word": "नमस्ते", "start": 0.1, "end": 0.3},
+            {"word": "दोस्तो", "start": 0.35, "end": 0.7},
+            {"word": "आज", "start": 0.75, "end": 0.9},
+        ],
+    )
+
+    assert result["matchedWordCount"] == 3
+    assert result["matchCoverage"] == 1.0
+
+
 def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):
     monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
     monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: False)

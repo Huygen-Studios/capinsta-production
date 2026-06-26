@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 import threading
+import unicodedata
 from typing import Any
 
 from .affine import validate_monotonic_word_timing
@@ -28,7 +29,13 @@ def _float_env(name: str, default: float) -> float:
 
 
 def _normalize_token(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    chars: list[str] = []
+    for char in normalized:
+        category = unicodedata.category(char)
+        if category[0] in {"L", "M", "N"}:
+            chars.append(char)
+    return "".join(chars)
 
 
 def _word_text(word: dict[str, Any]) -> str:
