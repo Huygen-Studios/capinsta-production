@@ -52,6 +52,7 @@ import {
 
 const reason = z.string().trim().min(8).max(1000);
 const pipelineOptions = z.record(z.string(), z.unknown()).optional();
+const TRANSCRIPTION_CONFIG_TEST_TIMEOUT_MS = 600_000;
 const appRoleKey = z.enum(["member", "developer"]);
 const appPermissionKey = z.enum([
 	"app.access",
@@ -323,12 +324,22 @@ function safeMutationError(error: unknown) {
 		"untested_configuration",
 		"target_not_found",
 		"provider_test_failed",
+		"provider_test_timeout",
+		"backend_unreachable",
 		"forced_alignment_unavailable",
 	]);
 	const normalized = raw.toLowerCase();
 	const code = allowedCodes.has(raw)
 		? raw
-		: normalized.includes("relation") || normalized.includes("column")
+		: normalized.includes("timeout") || normalized.includes("aborted")
+			? "provider_test_timeout"
+			: normalized.includes("fetch failed") ||
+				  normalized.includes("failed to fetch") ||
+				  normalized.includes("econnrefused") ||
+				  normalized.includes("enotfound") ||
+				  normalized.includes("network")
+				? "backend_unreachable"
+				: normalized.includes("relation") || normalized.includes("column")
 			? "database_schema_missing"
 			: normalized.includes("duplicate") || normalized.includes("constraint")
 				? "database_constraint"
@@ -340,6 +351,8 @@ function safeMutationError(error: unknown) {
 		untested_configuration: "This exact configuration version must pass a real-audio test before activation.",
 		target_not_found: "The selected configuration could not be found.",
 		provider_test_failed: "The backend provider test failed.",
+		provider_test_timeout: "The backend provider test timed out before returning a result.",
+		backend_unreachable: "The frontend could not reach the backend admin API. Check the backend deployment and BACKEND_INTERNAL_URL.",
 		forced_alignment_unavailable: "This model requires forced alignment, but the backend aligner is unavailable.",
 		database_schema_missing: "The transcription configuration database schema is missing or out of date.",
 		database_constraint: "The database rejected the configuration change.",
@@ -1009,25 +1022,36 @@ export async function POST(request: Request) {
 					}
 				}
 				beforeValue = current;
-				const response = await adminBackendFetch({
-					path: "/api/admin/transcription/test",
-					permission: "system.manage_providers",
-					init: {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({
-							configurationId: current.id,
-							provider: current.provider,
-							model: current.model,
-							version: current.version,
-							timestampStrategy: current.timestampStrategy,
-							strictProvider: current.strictProvider,
-							providerOptions: current.providerOptions,
-							pipelineOptions: current.pipelineOptions,
-							reason: value.reason,
-						}),
-					},
-				});
+				let response: Response;
+				try {
+					response = await adminBackendFetch({
+						path: "/api/admin/transcription/test",
+						permission: "system.manage_providers",
+						init: {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							signal: AbortSignal.timeout(TRANSCRIPTION_CONFIG_TEST_TIMEOUT_MS),
+							body: JSON.stringify({
+								configurationId: current.id,
+								provider: current.provider,
+								model: current.model,
+								version: current.version,
+								timestampStrategy: current.timestampStrategy,
+								strictProvider: current.strictProvider,
+								providerOptions: current.providerOptions,
+								pipelineOptions: current.pipelineOptions,
+								reason: value.reason,
+							}),
+						},
+					});
+				} catch (error) {
+					const name = error instanceof Error ? error.name : "";
+					const message = error instanceof Error ? error.message : "";
+					if (name === "TimeoutError" || name === "AbortError" || message.toLowerCase().includes("aborted")) {
+						throw new Error("provider_test_timeout");
+					}
+					throw error;
+				}
 				const rawTestResult: unknown = await response.json().catch(() => null);
 				const testResult = isRecord(rawTestResult) ? rawTestResult : null;
 				if (!response.ok || !testResult) throw new Error("provider_test_failed");
