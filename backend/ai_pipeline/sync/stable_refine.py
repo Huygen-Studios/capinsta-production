@@ -348,11 +348,14 @@ def apply_stable_refinement(
         base_report["errorCategory"] = "stable_ts_timeout"
         return SyncPassResult(next_segments, base_report)
     try:
+        model_name = str(config.get("model") or os.getenv("STABLE_TS_MODEL", "base") or "base")
+        device = str(config.get("device") or os.getenv("STABLE_TS_DEVICE", "auto") or "auto")
+        base_report["model"] = model_name
+        base_report["device"] = _resolve_device(device)
+        warnings: list[str] = []
+        stable_words: list[dict[str, Any]] = []
+        stable_mode = "forced_align"
         try:
-            model_name = str(config.get("model") or os.getenv("STABLE_TS_MODEL", "base") or "base")
-            device = str(config.get("device") or os.getenv("STABLE_TS_DEVICE", "auto") or "auto")
-            base_report["model"] = model_name
-            base_report["device"] = _resolve_device(device)
             stable_words = force_align_provider_words(
                 next_segments,
                 audio_path,
@@ -360,20 +363,27 @@ def apply_stable_refinement(
                 model_name=model_name,
                 device=device,
             )
-            stable_mode = "forced_align"
-            if not stable_words:
+        except Exception as exc:
+            warnings.append(f"forced_align_failed:{type(exc).__name__}: {exc}")
+            stable_words = []
+
+        if not stable_words:
+            stable_mode = "transcribe"
+            try:
                 stable_words = transcribe_stable_words(
                     audio_path,
                     language_mode,
                     model_name=model_name,
                     device=device,
                 )
-                stable_mode = "transcribe"
-        except Exception as exc:
-            base_report["reason"] = "stable-ts failed"
-            base_report["errorCategory"] = _classify_stable_ts_exception(exc)
-            base_report["warnings"] = [f"{type(exc).__name__}: {exc}"]
-            return SyncPassResult(next_segments, base_report)
+            except Exception as exc:
+                base_report["reason"] = "stable-ts failed"
+                base_report["errorCategory"] = _classify_stable_ts_exception(exc)
+                base_report["warnings"] = [*warnings, f"transcribe_failed:{type(exc).__name__}: {exc}"]
+                return SyncPassResult(next_segments, base_report)
+
+        if warnings:
+            base_report["warnings"] = warnings
     finally:
         _ALIGNMENT_SEMAPHORE.release()
 

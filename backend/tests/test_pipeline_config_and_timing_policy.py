@@ -379,6 +379,54 @@ def test_stable_ts_order_fallback_can_be_disabled(monkeypatch):
     assert "order fallback is disabled" in result.report["reason"]
 
 
+def test_stable_ts_transcribe_fallback_runs_when_forced_align_fails(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+
+    def fail_forced_align(*_args, **_kwargs):
+        raise RuntimeError("align_words failed for hindi input")
+
+    monkeypatch.setattr(stable_refine, "force_align_provider_words", fail_forced_align)
+    monkeypatch.setattr(
+        stable_refine,
+        "transcribe_stable_words",
+        lambda *_args, **_kwargs: [
+            {"word": "namaste", "start": 0.1, "end": 0.3},
+            {"word": "dosto", "start": 0.35, "end": 0.7},
+        ],
+    )
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "text": "namaste dosto",
+                "start": 0.0,
+                "end": 1.0,
+                "words": [
+                    {"word": "namaste", "start": 0.0, "end": 0.2},
+                    {"word": "dosto", "start": 0.25, "end": 0.5},
+                ],
+            }
+        ],
+        "audio.wav",
+        "hindi",
+        config={
+            "enabled": True,
+            "allowOrderFallback": False,
+            "minMatchCoverage": 0.9,
+            "minWordRatio": 0.5,
+            "maxWordRatio": 2.0,
+        },
+    )
+
+    assert result.report["applied"] is True
+    assert result.report["mode"] == "transcribe"
+    assert result.report["appliedWords"] == 2
+    assert result.report["warnings"][0].startswith("forced_align_failed:RuntimeError")
+    assert result.segments[0]["words"][0]["start"] == 0.1
+    assert result.segments[0]["words"][0]["timingSource"] == "stable_ts_adjusted"
+
+
 def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):
     monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
     monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: False)
