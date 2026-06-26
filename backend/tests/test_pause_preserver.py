@@ -1,6 +1,6 @@
 from ai_pipeline.sync.pause_preserver import preserve_detected_pauses
 
-def test_preserve_detected_pauses_clamping_and_shifting():
+def test_preserve_detected_pauses_repairs_locally_without_global_shift():
     segments = [
         {
             "words": [
@@ -26,25 +26,25 @@ def test_preserve_detected_pauses_clamping_and_shifting():
     # word1 should be clamped to silence start (2.0)
     assert result[0]["words"][0]["end"] == 2.0
     
-    # word2 should be shifted to silence end (5.0)
+    # word2 and word3 are repaired locally to the silence end. The pause
+    # preserver no longer shifts a cascade of later words across the transcript.
     assert result[0]["words"][1]["start"] == 5.0
     assert result[0]["words"][1]["end"] == 5.4 # original duration was 0.4s
-    
-    # word3 should be shifted to 5.4 to avoid overlap
-    assert result[0]["words"][2]["start"] == 5.4
-    assert result[0]["words"][2]["end"] == 5.8 # original duration was 0.4s
-    assert result[0]["words"][0]["timing_source"] == "pause_preserved"
-    assert result[0]["words"][1]["timing_source"] == "pause_preserved"
+    assert result[0]["words"][2]["start"] == 5.0
+    assert result[0]["words"][2]["end"] == 5.4
+    assert result[0]["words"][0]["timing_source"] == "provider_native_unconfirmed"
+    assert result[0]["words"][1]["timing_source"] == "provider_native_unconfirmed"
     assert diagnostics == {
         "pauseGapsApplied": 1,
         "pauseGapsAlreadyPreserved": 0,
-        "wordsShiftedForPause": 2,
-        "wordsClampedForPause": 1,
+        "wordsShiftedForPause": 0,
+        "wordsClampedForPause": 3,
+        "wordsRejectedForCrossingHardGap": 3,
     }
     
     # segment bounds should be recalculated
     assert result[0]["start"] == 1.0
-    assert result[0]["end"] == 5.8
+    assert result[0]["end"] == 5.4
 
 def test_preserve_detected_pauses_no_change_when_no_silence():
     segments = [
@@ -108,4 +108,5 @@ def test_already_preserved_gap_is_counted_without_retiming_words():
         "pauseGapsAlreadyPreserved": 1,
         "wordsShiftedForPause": 0,
         "wordsClampedForPause": 0,
+        "wordsRejectedForCrossingHardGap": 0,
     }

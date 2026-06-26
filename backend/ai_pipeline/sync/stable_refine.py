@@ -59,6 +59,14 @@ def _safe_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _optional_float(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _language_hint(language_mode: str) -> str | None:
     mode = (language_mode or "").lower()
     if mode in {"english", "en"}:
@@ -248,6 +256,57 @@ def force_align_provider_words(
     return _extract_words_from_result(result)
 
 
+def _group_id_for_segment(segment: dict[str, Any], seg_index: int) -> str:
+    for key in ("alignmentGroupId", "turnId", "speakerTurnId"):
+        value = segment.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    speaker = segment.get("speakerId")
+    source_chunk = segment.get("sourceChunkIndex")
+    return f"seg:{seg_index}:speaker:{speaker if speaker is not None else 'none'}:chunk:{source_chunk if source_chunk is not None else 'none'}"
+
+
+def ensure_alignment_groups(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach stable alignment-island metadata without inventing speakers."""
+    for seg_index, segment in enumerate(segments):
+        group_id = _group_id_for_segment(segment, seg_index)
+        source_start = _optional_float(segment.get("sourceStart"))
+        source_end = _optional_float(segment.get("sourceEnd"))
+        native_start = _optional_float(segment.get("nativeStart"))
+        native_end = _optional_float(segment.get("nativeEnd"))
+        seg_start = _safe_float(segment.get("start"))
+        seg_end = _safe_float(segment.get("end"), seg_start)
+        if source_start is None:
+            source_start = native_start if native_start is not None else seg_start
+        if source_end is None:
+            source_end = native_end if native_end is not None else seg_end
+        segment["alignmentGroupId"] = group_id
+        segment["sourceSegmentIndex"] = segment.get("sourceSegmentIndex", seg_index)
+        segment["sourceStart"] = round(source_start, 3)
+        segment["sourceEnd"] = round(max(source_end, source_start), 3)
+        if native_start is not None:
+            segment["nativeStart"] = native_start
+        if native_end is not None:
+            segment["nativeEnd"] = native_end
+        for word_index, word in enumerate(segment.get("words") or []):
+            if not isinstance(word, dict):
+                continue
+            word["alignmentGroupId"] = word.get("alignmentGroupId") or group_id
+            word["sourceSegmentIndex"] = word.get("sourceSegmentIndex", segment["sourceSegmentIndex"])
+            if "sourceChunkIndex" in segment and "sourceChunkIndex" not in word:
+                word["sourceChunkIndex"] = segment.get("sourceChunkIndex")
+            word["sourceWordIndex"] = word.get("sourceWordIndex", word_index)
+            word["sourceStart"] = word.get("sourceStart", segment["sourceStart"])
+            word["sourceEnd"] = word.get("sourceEnd", segment["sourceEnd"])
+            if "speakerId" in segment and "speakerId" not in word:
+                word["speakerId"] = segment.get("speakerId")
+            if "turnId" in segment and "turnId" not in word:
+                word["turnId"] = segment.get("turnId")
+            word.setdefault("nativeStart", word.get("start"))
+            word.setdefault("nativeEnd", word.get("end"))
+    return segments
+
+
 def _flatten_provider_words(segments: list[dict[str, Any]]) -> list[tuple[int, int, dict[str, Any]]]:
     rows: list[tuple[int, int, dict[str, Any]]] = []
     for seg_index, segment in enumerate(segments):
@@ -256,26 +315,80 @@ def _flatten_provider_words(segments: list[dict[str, Any]]) -> list[tuple[int, i
     return rows
 
 
+def _word_group_bounds(word: dict[str, Any], tolerance: float) -> tuple[float, float]:
+    start = _optional_float(word.get("sourceStart"))
+    end = _optional_float(word.get("sourceEnd"))
+    native_start = _optional_float(word.get("nativeStart"))
+    native_end = _optional_float(word.get("nativeEnd"))
+    word_start = _optional_float(word.get("start"))
+    word_end = _optional_float(word.get("end"))
+    if start is None and end is None and native_start is None and native_end is None and word_start is None and word_end is None:
+        return float("-inf"), float("inf")
+    if start is None:
+        start = _safe_float(native_start, _safe_float(word_start))
+    if end is None:
+        end = _safe_float(native_end, _safe_float(word_end, start))
+    if end < start:
+        end = start
+    return max(0.0, start - tolerance), end + tolerance
+
+
+def _stable_word_inside_provider_group(
+    provider_word: dict[str, Any],
+    stable_word: dict[str, Any],
+    *,
+    tolerance: float,
+) -> bool:
+    start = _optional_float(stable_word.get("start"))
+    end = _optional_float(stable_word.get("end"))
+    if start is None or end is None or end <= start:
+        return False
+    group_start, group_end = _word_group_bounds(provider_word, tolerance)
+    midpoint = (start + end) / 2
+    return group_start <= midpoint <= group_end
+
+
 def match_stable_words_to_provider_words(
     provider_words: list[dict[str, Any]],
     stable_words: list[dict[str, Any]],
+    *,
+    boundary_tolerance: float = 0.08,
 ) -> dict[str, Any]:
     provider_tokens = [_token_forms(_word_text(word)) for word in provider_words]
     stable_tokens = [_token_forms(word.get("word")) for word in stable_words]
     used: set[int] = set()
     matches: dict[int, int] = {}
-    search_from = 0
-    for provider_index, token in enumerate(provider_tokens):
-        if not token:
-            continue
-        for stable_index in range(search_from, len(stable_tokens)):
-            if stable_index in used:
+    provider_groups: dict[str, list[int]] = {}
+    for provider_index, word in enumerate(provider_words):
+        provider_groups.setdefault(str(word.get("alignmentGroupId") or f"global:{provider_index}"), []).append(provider_index)
+
+    for _group_id, provider_indexes in provider_groups.items():
+        group_stable_indexes = [
+            stable_index
+            for stable_index, stable_word in enumerate(stable_words)
+            if any(
+                _stable_word_inside_provider_group(provider_words[provider_index], stable_word, tolerance=boundary_tolerance)
+                for provider_index in provider_indexes
+            )
+        ]
+        search_position = 0
+        for provider_index in provider_indexes:
+            token = provider_tokens[provider_index]
+            if not token:
                 continue
-            if stable_tokens[stable_index] & token:
-                matches[provider_index] = stable_index
-                used.add(stable_index)
-                search_from = stable_index + 1
-                break
+            for stable_position in range(search_position, len(group_stable_indexes)):
+                stable_index = group_stable_indexes[stable_position]
+                if stable_index in used:
+                    continue
+                if stable_tokens[stable_index] & token and _stable_word_inside_provider_group(
+                    provider_words[provider_index],
+                    stable_words[stable_index],
+                    tolerance=boundary_tolerance,
+                ):
+                    matches[provider_index] = stable_index
+                    used.add(stable_index)
+                    search_position = stable_position + 1
+                    break
     coverage = len(matches) / max(1, len([token for token in provider_tokens if token]))
     ratio = len(stable_words) / max(1, len(provider_words))
     return {
@@ -288,12 +401,24 @@ def match_stable_words_to_provider_words(
     }
 
 
+def _mark_stable_rejected(word: dict[str, Any], reason: str) -> None:
+    word["timingNeedsReview"] = True
+    word["timingReviewRequired"] = True
+    word["timingRepairReason"] = reason
+    if not str(word.get("timingSource") or word.get("timing_source") or "").startswith("provider_native"):
+        word["timingSource"] = word.get("timingSource") or "provider_native_unconfirmed"
+        word["timing_source"] = word.get("timing_source") or "provider_native_unconfirmed"
+        word["timingSourceDetail"] = word.get("timingSourceDetail") or "provider_native_unconfirmed"
+
+
 def _apply_matched_timings(
     segments: list[dict[str, Any]],
     rows: list[tuple[int, int, dict[str, Any]]],
     stable_words: list[dict[str, Any]],
     matches: dict[int, int],
     source: str,
+    *,
+    boundary_tolerance: float = 0.08,
 ) -> int:
     applied = 0
     for provider_index, stable_index in matches.items():
@@ -304,6 +429,10 @@ def _apply_matched_timings(
         start = _safe_float(stable.get("start"))
         end = _safe_float(stable.get("end"), start + 0.04)
         if end <= start:
+            _mark_stable_rejected(word, "stable_ts_invalid_range_rejected")
+            continue
+        if not _stable_word_inside_provider_group(word, stable, tolerance=boundary_tolerance):
+            _mark_stable_rejected(word, "stable_ts_cross_boundary_rejected")
             continue
         word["start"] = round(start, 3)
         word["end"] = round(end, 3)
@@ -315,17 +444,35 @@ def _apply_matched_timings(
     return applied
 
 
-def _unmatched_order_matches(
-    provider_word_count: int,
-    stable_word_count: int,
+def _bounded_unmatched_order_matches(
+    provider_words: list[dict[str, Any]],
+    stable_words: list[dict[str, Any]],
     existing_matches: dict[int, int],
+    *,
+    boundary_tolerance: float,
 ) -> dict[int, int]:
     used_stable_indexes = set(existing_matches.values())
     matches: dict[int, int] = {}
-    for provider_index in range(min(provider_word_count, stable_word_count)):
-        if provider_index in existing_matches or provider_index in used_stable_indexes:
+    provider_groups: dict[str, list[int]] = {}
+    for provider_index, word in enumerate(provider_words):
+        provider_groups.setdefault(str(word.get("alignmentGroupId") or f"global:{provider_index}"), []).append(provider_index)
+    for _group_id, provider_indexes in provider_groups.items():
+        unmatched_providers = [idx for idx in provider_indexes if idx not in existing_matches]
+        if not unmatched_providers:
             continue
-        matches[provider_index] = provider_index
+        candidate_stable = [
+            stable_index
+            for stable_index, stable_word in enumerate(stable_words)
+            if stable_index not in used_stable_indexes
+            and any(
+                _stable_word_inside_provider_group(provider_words[provider_index], stable_word, tolerance=boundary_tolerance)
+                for provider_index in provider_indexes
+            )
+        ]
+        for provider_index, stable_index in zip(unmatched_providers, candidate_stable):
+            if _stable_word_inside_provider_group(provider_words[provider_index], stable_words[stable_index], tolerance=boundary_tolerance):
+                matches[provider_index] = stable_index
+                used_stable_indexes.add(stable_index)
     return matches
 
 
@@ -348,9 +495,10 @@ def apply_stable_refinement(
         "matchCoverage": 0.0,
         "orderFallbackUsed": False,
         "reason": "",
-        "errorCategory": None,
+    "errorCategory": None,
         "cacheDir": _stable_ts_cache_dir(),
         "warnings": [],
+        "boundaryRejectedWords": 0,
     }
     if not enabled:
         base_report["reason"] = "ENABLE_STABLE_TS is false"
@@ -364,7 +512,7 @@ def apply_stable_refinement(
         base_report["errorCategory"] = "stable_ts_cache_not_writable"
         return SyncPassResult(copy.deepcopy(segments), base_report)
 
-    next_segments = copy.deepcopy(segments)
+    next_segments = ensure_alignment_groups(copy.deepcopy(segments))
     rows = _flatten_provider_words(next_segments)
     provider_words = [row[2] for row in rows]
     base_report["providerWordCount"] = len(provider_words)
@@ -417,7 +565,8 @@ def apply_stable_refinement(
     finally:
         _ALIGNMENT_SEMAPHORE.release()
 
-    match = match_stable_words_to_provider_words(provider_words, stable_words)
+    boundary_tolerance = float(config.get("boundaryToleranceSeconds") or _float_env("STABLE_TS_BOUNDARY_TOLERANCE_SECONDS", 0.08))
+    match = match_stable_words_to_provider_words(provider_words, stable_words, boundary_tolerance=boundary_tolerance)
     base_report.update({k: v for k, v in match.items() if k != "matches"})
     base_report["mode"] = stable_mode
     min_coverage = float(config.get("minMatchCoverage") or _float_env("STABLE_TS_MIN_MATCH_COVERAGE", 0.50))
@@ -432,17 +581,37 @@ def apply_stable_refinement(
         return SyncPassResult(next_segments, base_report)
 
     coverage = float(match["matchCoverage"])
-    allow_order_fallback = bool(config.get("allowOrderFallback")) if "allowOrderFallback" in config else True
+    allow_order_fallback = bool(config.get("allowOrderFallback")) if "allowOrderFallback" in config else False
     if coverage >= min_coverage:
-        applied = _apply_matched_timings(next_segments, rows, stable_words, match["matches"], "stable_ts_forced_align" if stable_mode == "forced_align" else "stable_ts_adjusted")
+        applied = _apply_matched_timings(
+            next_segments,
+            rows,
+            stable_words,
+            match["matches"],
+            "stable_ts_forced_align" if stable_mode == "forced_align" else "stable_ts_adjusted",
+            boundary_tolerance=boundary_tolerance,
+        )
         order_applied = 0
         if allow_order_fallback:
-            order_matches = _unmatched_order_matches(len(provider_words), len(stable_words), match["matches"])
+            order_matches = _bounded_unmatched_order_matches(
+                provider_words,
+                stable_words,
+                match["matches"],
+                boundary_tolerance=boundary_tolerance,
+            )
             if order_matches:
-                order_applied = _apply_matched_timings(next_segments, rows, stable_words, order_matches, "stable_ts_order_adjusted")
+                order_applied = _apply_matched_timings(
+                    next_segments,
+                    rows,
+                    stable_words,
+                    order_matches,
+                    "stable_ts_order_adjusted",
+                    boundary_tolerance=boundary_tolerance,
+                )
         base_report.update({
             "applied": applied + order_applied > 0,
             "appliedWords": applied + order_applied,
+            "boundaryRejectedWords": sum(1 for word in provider_words if word.get("timingRepairReason") == "stable_ts_cross_boundary_rejected"),
             "orderFallbackUsed": order_applied > 0,
             "orderFallbackAppliedWords": order_applied,
             "reason": "token match timing transfer" if not order_applied else "token match timing transfer with order fallback for unmatched words",
@@ -450,14 +619,27 @@ def apply_stable_refinement(
         return SyncPassResult(next_segments, base_report)
 
     if allow_order_fallback and min_ratio <= ratio <= max_ratio:
-        count = min(len(provider_words), len(stable_words))
-        order_matches = {idx: idx for idx in range(count)}
-        applied = _apply_matched_timings(next_segments, rows, stable_words, order_matches, "stable_ts_order_adjusted")
+        order_matches = _bounded_unmatched_order_matches(
+            provider_words,
+            stable_words,
+            {},
+            boundary_tolerance=boundary_tolerance,
+        )
+        applied = _apply_matched_timings(
+            next_segments,
+            rows,
+            stable_words,
+            order_matches,
+            "stable_ts_order_adjusted",
+            boundary_tolerance=boundary_tolerance,
+        )
         base_report.update({
             "applied": applied > 0,
             "appliedWords": applied,
+            "boundaryRejectedWords": sum(1 for word in provider_words if word.get("timingRepairReason") == "stable_ts_cross_boundary_rejected"),
             "orderFallbackUsed": True,
-            "reason": "order fallback timing transfer",
+            "orderFallbackAppliedWords": applied,
+            "reason": "bounded same-group order fallback timing transfer",
             "warnings": [f"token coverage {coverage:.3f} below threshold {min_coverage:.3f}"],
         })
         return SyncPassResult(next_segments, base_report)

@@ -23,9 +23,12 @@ def _mark_pause_preserved(word: dict[str, Any]) -> None:
     details = [part.strip() for part in previous_detail.split("|") if part.strip()]
     if "pause_preserved" not in details:
         details.append("pause_preserved")
-    word["timing_source"] = "pause_preserved"
-    word["timingSource"] = "pause_preserved"
+    word["timing_source"] = "provider_native_unconfirmed"
+    word["timingSource"] = "provider_native_unconfirmed"
     word["timingSourceDetail"] = " | ".join(details)
+    word["timingNeedsReview"] = True
+    word["timingReviewRequired"] = True
+    word["timingRepairReason"] = "hard_speech_gap_boundary_repair"
 
 
 def preserve_detected_pauses(
@@ -35,23 +38,18 @@ def preserve_detected_pauses(
     *,
     diagnostics: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Make the canonical word timeline respect detected audio silence.
+    """Make the canonical word timeline respect hard speech pauses locally.
 
-    Provider/estimated word timings sometimes compress a spoken pause into a
-    few milliseconds. For each qualifying silence interval this pass:
-
-    * clamps words that cross the start of silence;
-    * moves the first word placed inside silence to the end of silence; and
-    * shifts only following overlapping words, preserving order and duration.
-
-    The input segments are intentionally mutated because the surrounding
-    pipeline already treats timing optimization passes as in-place transforms.
+    This function deliberately avoids global shifting. A bad refined timestamp
+    near one pause must not steal visible duration from the following phrase or
+    speaker turn.
     """
     stats = {
         "pauseGapsApplied": 0,
         "pauseGapsAlreadyPreserved": 0,
         "wordsShiftedForPause": 0,
         "wordsClampedForPause": 0,
+        "wordsRejectedForCrossingHardGap": 0,
     }
     if diagnostics is not None:
         diagnostics.update(stats)
@@ -94,39 +92,60 @@ def preserve_detected_pauses(
         for word in words:
             word_start = float(word["start"])
             word_end = float(word["end"])
-            if word_start < gap_start < word_end:
-                word["end"] = round(gap_start, 3)
-                word["pausePreservedOriginalEnd"] = round(word_end, 3)
+            if word_end <= gap_start + 1e-6 or word_start >= gap_end - 1e-6:
+                continue
+            original_start = word_start
+            original_end = word_end
+            native_start = _finite_time(word.get("nativeStart") or word.get("providerStart"))
+            native_end = _finite_time(word.get("nativeEnd") or word.get("providerEnd"))
+            if (
+                native_start is not None
+                and native_end is not None
+                and native_end > native_start
+                and not (native_start < gap_end and native_end > gap_start)
+            ):
+                word_start = native_start
+                word_end = native_end
+            else:
+                midpoint = (word_start + word_end) / 2.0
+                duration = max(0.04, word_end - word_start)
+                if word_start >= gap_start:
+                    word_start = max(word_start, gap_end)
+                    word_end = max(word_end, word_start + duration)
+                elif midpoint <= gap_start:
+                    word_end = min(word_end, gap_start)
+                    word_start = min(word_start, max(0.0, word_end - 0.04))
+                elif midpoint >= gap_end:
+                    word_start = max(word_start, gap_end)
+                    word_end = max(word_end, word_start + duration)
+                else:
+                    group_start = _finite_time(word.get("sourceStart"))
+                    group_end = _finite_time(word.get("sourceEnd"))
+                    if group_end is not None and group_end <= gap_start + 1e-6:
+                        word_end = min(group_end, gap_start)
+                        word_start = max(group_start or 0.0, word_end - duration)
+                    elif group_start is not None and group_start >= gap_end - 1e-6:
+                        word_start = max(group_start, gap_end)
+                        word_end = min(group_end or word_start + duration, word_start + duration)
+                    else:
+                        word_end = min(word_end, gap_start)
+                        word_start = min(word_start, max(0.0, word_end - duration))
+
+            if word_end <= word_start:
+                if word_start < gap_start:
+                    word_end = gap_start
+                    word_start = max(0.0, word_end - 0.04)
+                else:
+                    word_start = gap_end
+                    word_end = word_start + 0.04
+            word["start"] = round(word_start, 3)
+            word["end"] = round(word_end, 3)
+            word["pausePreservedOriginalStart"] = round(original_start, 3)
+            word["pausePreservedOriginalEnd"] = round(original_end, 3)
+            if original_start != word["start"] or original_end != word["end"]:
                 _mark_pause_preserved(word)
                 stats["wordsClampedForPause"] += 1
-                gap_changed = True
-
-        first_inside_index = next(
-            (
-                index
-                for index, word in enumerate(words)
-                if gap_start <= float(word["start"]) < gap_end
-            ),
-            None,
-        )
-        if first_inside_index is not None:
-            previous_adjusted_end: float | None = None
-            for index in range(first_inside_index, len(words)):
-                word = words[index]
-                original_start = float(word["start"])
-                original_end = float(word["end"])
-                target_start = gap_end if index == first_inside_index else previous_adjusted_end
-                if target_start is None or original_start >= target_start - 1e-6:
-                    break
-
-                duration = max(0.001, original_end - original_start)
-                word["start"] = round(target_start, 3)
-                word["end"] = round(target_start + duration, 3)
-                word["pausePreservedOriginalStart"] = round(original_start, 3)
-                word["pausePreservedShiftSeconds"] = round(target_start - original_start, 3)
-                _mark_pause_preserved(word)
-                previous_adjusted_end = float(word["end"])
-                stats["wordsShiftedForPause"] += 1
+                stats["wordsRejectedForCrossingHardGap"] += 1
                 gap_changed = True
 
         gap_is_clear = not any(

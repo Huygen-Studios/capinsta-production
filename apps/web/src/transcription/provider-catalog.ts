@@ -169,7 +169,10 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 	vad: {
 		pauseThresholdSeconds: 0.25,
 		silenceThresholdDb: null,
-		sileroEnabled: false,
+		sileroEnabled: true,
+		sileroMinSpeechDurationMs: 80,
+		sileroMinSilenceDurationMs: 180,
+		sileroSpeechPadMs: 30,
 		sileroSpeechThreshold: 0.5,
 		speechMergeGapSeconds: null,
 	},
@@ -182,7 +185,7 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 		stableTsMinMatchCoverage: 0.5,
 		stableTsMinWordRatio: 0.45,
 		stableTsMaxWordRatio: 2.25,
-		allowStableTsOrderFallback: true,
+		allowStableTsOrderFallback: false,
 	},
 	repair: {
 		speechSpanRetimerEnabled: true,

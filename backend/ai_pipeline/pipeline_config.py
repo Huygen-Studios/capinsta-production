@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import os
 from typing import Any, Literal
 
 TimingSourcePolicy = Literal["native_required", "native_then_forced", "forced", "estimated_debug_only"]
@@ -44,7 +45,7 @@ class AlignmentConfig:
     stableTsMinMatchCoverage: float = 0.50
     stableTsMinWordRatio: float = 0.45
     stableTsMaxWordRatio: float = 2.25
-    allowStableTsOrderFallback: bool = True
+    allowStableTsOrderFallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,8 +78,11 @@ class AudioChunkingConfig:
 class VadConfig:
     pauseThresholdSeconds: float = 0.25
     silenceThresholdDb: float | None = None
-    sileroEnabled: bool = False
+    sileroEnabled: bool = True
     sileroSpeechThreshold: float = 0.50
+    sileroMinSpeechDurationMs: int = 80
+    sileroMinSilenceDurationMs: int = 180
+    sileroSpeechPadMs: int = 30
     speechMergeGapSeconds: float | None = None
 
 
@@ -86,7 +90,7 @@ class VadConfig:
 class AutoSyncConfig:
     enabled: bool = False
     frameStepSeconds: float = 0.02
-    maxShiftSeconds: float = 2.0
+    maxShiftSeconds: float = 0.8
     minScore: float = 0.58
     minImprovement: float = 0.04
     maxEstimatedWordRatio: float = 0.70
@@ -150,8 +154,92 @@ def _bool(value: Any, default: bool) -> bool:
     return default
 
 
+def _env_value(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return None
+    return value
+
+
+def _env_bool(name: str, default: bool) -> bool | None:
+    value = _env_value(name)
+    if value is None:
+        return None
+    return _bool(value, default)
+
+
+def _env_num(name: str) -> float | None:
+    value = _env_value(name)
+    if value is None:
+        return None
+    if value.strip().lower() == "adaptive":
+        return None
+    return float(value)
+
+
+def _env_str(name: str) -> str | None:
+    return _env_value(name)
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if value is None:
+            continue
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def environment_pipeline_options() -> dict[str, Any]:
+    options: dict[str, Any] = {}
+
+    def set_path(section: str, key: str, value: Any) -> None:
+        if value is None:
+            return
+        options.setdefault(section, {})[key] = value
+
+    policy = _env_str("TIMING_SOURCE_POLICY")
+    if policy:
+        options["timingSourcePolicy"] = policy
+    set_path("audioChunking", "targetSeconds", _env_num("VAD_TARGET_SECONDS"))
+    set_path("audioChunking", "maxSeconds", _env_num("VAD_MAX_SECONDS"))
+    set_path("audioChunking", "paddingSeconds", _env_num("CHUNK_PADDING_SECONDS"))
+    set_path("audioChunking", "vadEnabled", _env_bool("USE_VAD_CHUNKING", True))
+    set_path("vad", "pauseThresholdSeconds", _env_num("PAUSE_SPLIT_SECONDS"))
+    if _env_value("SILENCE_THRESHOLD_DB") and _env_value("SILENCE_THRESHOLD_DB").strip().lower() != "adaptive":
+        set_path("vad", "silenceThresholdDb", _env_num("SILENCE_THRESHOLD_DB"))
+    set_path("vad", "sileroEnabled", _env_bool("ENABLE_SILERO_VAD", True))
+    set_path("vad", "sileroSpeechThreshold", _env_num("SILERO_THRESHOLD"))
+    set_path("vad", "sileroMinSpeechDurationMs", _env_num("SILERO_MIN_SPEECH_DURATION_MS"))
+    set_path("vad", "sileroMinSilenceDurationMs", _env_num("SILERO_MIN_SILENCE_DURATION_MS"))
+    set_path("vad", "sileroSpeechPadMs", _env_num("SILERO_SPEECH_PAD_MS"))
+    set_path("alignment", "stableTsEnabled", _env_bool("ENABLE_STABLE_TS", True))
+    set_path("alignment", "stableTsModel", _env_str("STABLE_TS_MODEL"))
+    set_path("alignment", "stableTsMinMatchCoverage", _env_num("MIN_MATCH_COVERAGE"))
+    set_path("alignment", "allowStableTsOrderFallback", _env_bool("ALLOW_STABLE_TS_ORDER_FALLBACK", False))
+    set_path("autoSync", "enabled", _env_bool("ENABLE_AUTO_GLOBAL_SYNC", False))
+    set_path("autoSync", "maxShiftSeconds", _env_num("MAX_SHIFT_SECONDS"))
+    set_path("autoSync", "minScore", _env_num("MIN_SYNC_SCORE"))
+    set_path("autoSync", "allowSkew", _env_bool("ALLOW_SPEED_SKEW_CORRECTION", False))
+    set_path("autoSync", "maxSkewDelta", _env_num("MAX_SKEW_DELTA"))
+    set_path("captionChunking", "maxWords", _env_num("CAPTION_MAX_WORDS"))
+    set_path("captionChunking", "maxCharacters", _env_num("CAPTION_MAX_CHARS"))
+    set_path("captionChunking", "maxDurationSeconds", _env_num("MAX_DURATION_SECONDS"))
+    set_path("captionChunking", "pauseSplitThresholdSeconds", _env_num("PAUSE_SPLIT_SECONDS"))
+    set_path("captionChunking", "phraseHoldSeconds", _env_num("PHRASE_HOLD_SECONDS"))
+    set_path("performance", "providerTimeoutSeconds", _env_num("PROVIDER_TIMEOUT_SECONDS"))
+    set_path("performance", "sarvamMaxConcurrency", _env_num("SARVAM_CONCURRENCY"))
+    set_path("quality", "allowEstimatedWords", _env_bool("ALLOW_ESTIMATED_WORDS", True))
+    set_path("quality", "maximumEstimatedWordRatio", _env_num("MAXIMUM_ESTIMATED_WORD_RATIO"))
+    return options
+
+
 def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipelineConfig:
-    raw = value if isinstance(value, dict) else {}
+    env_options = environment_pipeline_options()
+    raw = _deep_merge(env_options, value if isinstance(value, dict) else {})
     policy = str(raw.get("timingSourcePolicy") or "native_then_forced")
     if policy not in {"native_required", "native_then_forced", "forced", "estimated_debug_only"}:
         raise ValueError("invalid_timing_source_policy")
@@ -175,9 +263,9 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
         ),
         audioChunking=AudioChunkingConfig(
             vadEnabled=_bool(chunking.get("vadEnabled"), True),
-            targetSeconds=_num(chunking.get("targetSeconds"), 15.0, 3.0, 120.0),
-            maxSeconds=_num(chunking.get("maxSeconds"), 25.0, 3.0, 180.0),
-            paddingSeconds=_num(chunking.get("paddingSeconds"), 0.08, 0.0, 2.0),
+            targetSeconds=_num(chunking.get("targetSeconds"), AudioChunkingConfig.targetSeconds, 3.0, 120.0),
+            maxSeconds=_num(chunking.get("maxSeconds"), AudioChunkingConfig.maxSeconds, 3.0, 180.0),
+            paddingSeconds=_num(chunking.get("paddingSeconds"), AudioChunkingConfig.paddingSeconds, 0.0, 2.0),
             legacyNormalSeconds=_num(chunking.get("legacyNormalSeconds"), 20.0, 3.0, 120.0),
             legacyNormalOverlapSeconds=_num(chunking.get("legacyNormalOverlapSeconds"), 4.0, 0.0, 30.0),
             legacyStrictSeconds=_num(chunking.get("legacyStrictSeconds"), 12.0, 3.0, 120.0),
@@ -185,22 +273,25 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
             fadeMs=_int(chunking.get("fadeMs"), 0, 0, 1000),
         ),
         vad=VadConfig(
-            pauseThresholdSeconds=_num(vad.get("pauseThresholdSeconds"), 0.30, 0.05, 3.0),
+            pauseThresholdSeconds=_num(vad.get("pauseThresholdSeconds"), VadConfig.pauseThresholdSeconds, 0.05, 3.0),
             silenceThresholdDb=None if vad.get("silenceThresholdDb") is None else _num(vad.get("silenceThresholdDb"), -35.0, -90.0, 0.0),
-            sileroEnabled=_bool(vad.get("sileroEnabled"), False),
+            sileroEnabled=_bool(vad.get("sileroEnabled"), VadConfig.sileroEnabled),
             sileroSpeechThreshold=_num(vad.get("sileroSpeechThreshold"), 0.50, 0.01, 0.99),
+            sileroMinSpeechDurationMs=_int(vad.get("sileroMinSpeechDurationMs"), VadConfig.sileroMinSpeechDurationMs, 0, 2000),
+            sileroMinSilenceDurationMs=_int(vad.get("sileroMinSilenceDurationMs"), VadConfig.sileroMinSilenceDurationMs, 0, 3000),
+            sileroSpeechPadMs=_int(vad.get("sileroSpeechPadMs"), VadConfig.sileroSpeechPadMs, 0, 1000),
             speechMergeGapSeconds=None if vad.get("speechMergeGapSeconds") is None else _num(vad.get("speechMergeGapSeconds"), 0.08, 0.0, 2.0),
         ),
         alignment=AlignmentConfig(
             provider=str(alignment.get("provider") or "auto"),
             whisperxEnabled=_bool(alignment.get("whisperxEnabled"), False),
-            stableTsEnabled=_bool(alignment.get("stableTsEnabled"), False),
-            stableTsModel=str(alignment.get("stableTsModel") or "base"),
+            stableTsEnabled=_bool(alignment.get("stableTsEnabled"), AlignmentConfig.stableTsEnabled),
+            stableTsModel=str(alignment.get("stableTsModel") or AlignmentConfig.stableTsModel),
             stableTsDevice=str(alignment.get("stableTsDevice") or "auto"),
             stableTsMinMatchCoverage=_num(alignment.get("stableTsMinMatchCoverage"), 0.50, 0.0, 1.0),
             stableTsMinWordRatio=_num(alignment.get("stableTsMinWordRatio"), 0.45, 0.0, 10.0),
             stableTsMaxWordRatio=_num(alignment.get("stableTsMaxWordRatio"), 2.25, 0.1, 10.0),
-            allowStableTsOrderFallback=_bool(alignment.get("allowStableTsOrderFallback"), False),
+            allowStableTsOrderFallback=_bool(alignment.get("allowStableTsOrderFallback"), AlignmentConfig.allowStableTsOrderFallback),
         ),
         repair=RepairConfig(
             speechSpanRetimerEnabled=_bool(repair.get("speechSpanRetimerEnabled"), True),
@@ -216,7 +307,7 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
         autoSync=AutoSyncConfig(
             enabled=_bool(auto_sync.get("enabled"), False),
             frameStepSeconds=_num(auto_sync.get("frameStepSeconds"), 0.02, 0.001, 0.5),
-            maxShiftSeconds=_num(auto_sync.get("maxShiftSeconds"), 2.0, 0.0, 10.0),
+            maxShiftSeconds=_num(auto_sync.get("maxShiftSeconds"), AutoSyncConfig.maxShiftSeconds, 0.0, 10.0),
             minScore=_num(auto_sync.get("minScore"), 0.58, 0.0, 1.0),
             minImprovement=_num(auto_sync.get("minImprovement"), 0.04, 0.0, 1.0),
             maxEstimatedWordRatio=_num(auto_sync.get("maxEstimatedWordRatio"), 0.70, 0.0, 1.0),
@@ -225,27 +316,53 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
         ),
         captionChunking=CaptionChunkingConfig(
             targetWords=_int(caption.get("targetWords"), 4, 1, 20),
-            maxWords=_int(caption.get("maxWords"), 5, 1, 24),
+            maxWords=_int(caption.get("maxWords"), CaptionChunkingConfig.maxWords, 1, 24),
             minWords=_int(caption.get("minWords"), 2, 1, 12),
-            maxCharacters=_int(caption.get("maxCharacters"), 36, 8, 120),
+            maxCharacters=_int(caption.get("maxCharacters"), CaptionChunkingConfig.maxCharacters, 8, 120),
             minDurationSeconds=_num(caption.get("minDurationSeconds"), 0.8, 0.05, 10.0),
-            maxDurationSeconds=_num(caption.get("maxDurationSeconds"), 3.0, 0.1, 30.0),
-            pauseSplitThresholdSeconds=_num(caption.get("pauseSplitThresholdSeconds"), 0.30, 0.05, 3.0),
+            maxDurationSeconds=_num(caption.get("maxDurationSeconds"), CaptionChunkingConfig.maxDurationSeconds, 0.1, 30.0),
+            pauseSplitThresholdSeconds=_num(caption.get("pauseSplitThresholdSeconds"), CaptionChunkingConfig.pauseSplitThresholdSeconds, 0.05, 3.0),
             mergeGapSeconds=_num(caption.get("mergeGapSeconds"), 0.12, 0.0, 3.0),
-            phraseHoldSeconds=_num(caption.get("phraseHoldSeconds"), 0.12, 0.0, 3.0),
+            phraseHoldSeconds=_num(caption.get("phraseHoldSeconds"), CaptionChunkingConfig.phraseHoldSeconds, 0.0, 3.0),
         ),
         quality=QualityConfig(
             minimumProviderTimestampCoverage=_num(quality.get("minimumProviderTimestampCoverage"), 0.90, 0.0, 1.0),
             allowSegmentDerivedWords=_bool(quality.get("allowSegmentDerivedWords"), False),
-            allowEstimatedWords=_bool(quality.get("allowEstimatedWords"), False),
+            allowEstimatedWords=_bool(quality.get("allowEstimatedWords"), QualityConfig.allowEstimatedWords),
             maximumEstimatedWordRatio=_num(quality.get("maximumEstimatedWordRatio"), 0.15, 0.0, 1.0),
         ),
         performance=PerformanceConfig(
-            providerTimeoutSeconds=_int(performance.get("providerTimeoutSeconds"), 60, 5, 600),
-            sarvamMaxConcurrency=_int(performance.get("sarvamMaxConcurrency"), 2, 1, 8),
+            providerTimeoutSeconds=_int(performance.get("providerTimeoutSeconds"), PerformanceConfig.providerTimeoutSeconds, 5, 600),
+            sarvamMaxConcurrency=_int(performance.get("sarvamMaxConcurrency"), PerformanceConfig.sarvamMaxConcurrency, 1, 8),
             alignmentRetries=_int(performance.get("alignmentRetries"), 3, 0, 10),
         ),
     )
 
 
-DEFAULT_PIPELINE_OPTIONS = resolve_pipeline_config().to_dict()
+def resolve_pipeline_config_with_sources(value: dict[str, Any] | None = None) -> dict[str, Any]:
+    env_options = environment_pipeline_options()
+    resolved = resolve_pipeline_config(value).to_dict()
+    snapshot = value if isinstance(value, dict) else {}
+    sources: dict[str, Any] = {}
+
+    def walk(node: dict[str, Any], path: tuple[str, ...] = ()) -> None:
+        for key, child in node.items():
+            child_path = (*path, key)
+            if isinstance(child, dict):
+                walk(child, child_path)
+                continue
+            cursor_snapshot: Any = snapshot
+            cursor_env: Any = env_options
+            for part in child_path:
+                cursor_snapshot = cursor_snapshot.get(part) if isinstance(cursor_snapshot, dict) else None
+                cursor_env = cursor_env.get(part) if isinstance(cursor_env, dict) else None
+            target = sources
+            for part in child_path[:-1]:
+                target = target.setdefault(part, {})
+            target[child_path[-1]] = "snapshot" if cursor_snapshot is not None else "environment" if cursor_env is not None else "default"
+
+    walk(resolved)
+    return {"resolved": resolved, "sources": sources}
+
+
+DEFAULT_PIPELINE_OPTIONS = CaptionPipelineConfig().to_dict()

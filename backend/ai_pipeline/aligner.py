@@ -121,6 +121,10 @@ class TranscriptAligner:
         enable_stable_ts: bool | None = None,
         enable_whisperx: bool | None = None,
         pause_threshold: float | None = None,
+        silero_speech_threshold: float | None = None,
+        silero_min_speech_duration_ms: int | None = None,
+        silero_min_silence_duration_ms: int | None = None,
+        silero_speech_pad_ms: int | None = None,
     ) -> None:
         self.enable_silero_vad = (
             _env_bool("ENABLE_SILERO_VAD", False)
@@ -145,11 +149,46 @@ class TranscriptAligner:
                 else _env_float("PAUSE_SPLIT_THRESHOLD", DEFAULT_PAUSE_SPLIT_THRESHOLD)
             ),
         )
+        self.silero_speech_threshold = max(
+            0.01,
+            min(
+                0.99,
+                float(
+                    silero_speech_threshold
+                    if silero_speech_threshold is not None
+                    else _env_float("SILERO_THRESHOLD", _env_float("SILERO_VAD_SPEECH_THRESHOLD", 0.5))
+                ),
+            ),
+        )
+        self.silero_min_speech_duration_ms = max(
+            0,
+            int(
+                silero_min_speech_duration_ms
+                if silero_min_speech_duration_ms is not None
+                else _env_float("SILERO_MIN_SPEECH_DURATION_MS", 80)
+            ),
+        )
+        self.silero_min_silence_duration_ms = max(
+            0,
+            int(
+                silero_min_silence_duration_ms
+                if silero_min_silence_duration_ms is not None
+                else _env_float("SILERO_MIN_SILENCE_DURATION_MS", 180)
+            ),
+        )
+        self.silero_speech_pad_ms = max(
+            0,
+            int(
+                silero_speech_pad_ms
+                if silero_speech_pad_ms is not None
+                else _env_float("SILERO_SPEECH_PAD_MS", 30)
+            ),
+        )
         self._silero_model: Any | None = None
         self._silero_device = "cpu"
         self._stable_ts_model: Any | None = None
         self._stable_ts_model_name: str | None = None
-        self._vad_cache: dict[tuple[str, float, float], dict[str, Any]] = {}
+        self._vad_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
 
     def status(self) -> dict[str, Any]:
         return {
@@ -159,6 +198,10 @@ class TranscriptAligner:
             "pauseSplitThreshold": self.pause_threshold,
             "stableTsModel": os.getenv("STABLE_TS_MODEL", "base"),
             "sileroVadDevice": self._silero_device,
+            "sileroSpeechThreshold": self.silero_speech_threshold,
+            "sileroMinSpeechDurationMs": self.silero_min_speech_duration_ms,
+            "sileroMinSilenceDurationMs": self.silero_min_silence_duration_ms,
+            "sileroSpeechPadMs": self.silero_speech_pad_ms,
         }
 
     def snap_timestamps_to_vad(
@@ -574,35 +617,16 @@ class TranscriptAligner:
         import torch
 
         device = self._pick_torch_device(torch)
-        hub_error: Exception | None = None
         try:
-            try:
-                loaded = torch.hub.load(
-                    repo_or_dir="snakers4/silero-vad",
-                    model="silero_vad",
-                    force_reload=False,
-                    onnx=False,
-                    trust_repo=True,
-                )
-            except TypeError:
-                loaded = torch.hub.load(
-                    repo_or_dir="snakers4/silero-vad",
-                    model="silero_vad",
-                    force_reload=False,
-                    onnx=False,
-                )
-            model = loaded[0] if isinstance(loaded, tuple) else loaded
-        except Exception as exc:
-            hub_error = exc
-            try:
-                from silero_vad import load_silero_vad
+            from silero_vad import load_silero_vad
 
-                model = load_silero_vad()
-            except Exception as package_exc:
-                raise RuntimeError(
-                    f"Could not initialize Silero VAD through torch.hub ({hub_error}) "
-                    f"or silero-vad package ({package_exc})."
-                ) from package_exc
+            model = load_silero_vad()
+        except Exception as package_exc:
+            raise RuntimeError(
+                "Could not initialize Silero VAD from the packaged silero-vad runtime. "
+                "Install the silero-vad package in the backend image; online torch.hub "
+                "downloads are disabled during transcription jobs."
+            ) from package_exc
 
         try:
             model.to(device)
@@ -616,11 +640,27 @@ class TranscriptAligner:
         self._silero_model = model
         return self._silero_model, self._silero_device
 
-    def _compute_vad_speech_map(self, audio_path: str) -> dict[str, Any]:
+    def _compute_vad_speech_map(
+        self,
+        audio_path: str,
+        *,
+        speech_threshold: float | None = None,
+        min_speech_duration_ms: int | None = None,
+        min_silence_duration_ms: int | None = None,
+        speech_pad_ms: int | None = None,
+    ) -> dict[str, Any]:
+        vad_threshold = max(0.01, min(0.99, float(speech_threshold if speech_threshold is not None else self.silero_speech_threshold)))
+        min_speech_ms = max(0, int(min_speech_duration_ms if min_speech_duration_ms is not None else self.silero_min_speech_duration_ms))
+        min_silence_ms = max(0, int(min_silence_duration_ms if min_silence_duration_ms is not None else self.silero_min_silence_duration_ms))
+        pad_ms = max(0, int(speech_pad_ms if speech_pad_ms is not None else self.silero_speech_pad_ms))
         cache_key = (
             os.path.abspath(audio_path),
             os.path.getmtime(audio_path),
             self.pause_threshold,
+            vad_threshold,
+            min_speech_ms,
+            min_silence_ms,
+            pad_ms,
         )
         if cache_key in self._vad_cache:
             return self._vad_cache[cache_key]
@@ -633,7 +673,6 @@ class TranscriptAligner:
         waveform = waveform.to(device)
         duration = waveform.numel() / float(sample_rate) if sample_rate else 0.0
         window_size = 512 if sample_rate == 16000 else 256
-        vad_threshold = _env_float("SILERO_VAD_SPEECH_THRESHOLD", 0.5)
 
         if hasattr(model, "reset_states"):
             model.reset_states()
@@ -667,15 +706,35 @@ class TranscriptAligner:
                     }
                 )
 
-        speech_ranges = self._probability_windows_to_speech_ranges(windows, vad_threshold)
+        speech_ranges = self._probability_windows_to_speech_ranges(
+            windows,
+            vad_threshold,
+            min_speech_duration_ms=min_speech_ms,
+            min_silence_duration_ms=min_silence_ms,
+            speech_pad_ms=0,
+            duration_seconds=duration,
+        )
+        padded_ranges = self._probability_windows_to_speech_ranges(
+            windows,
+            vad_threshold,
+            min_speech_duration_ms=min_speech_ms,
+            min_silence_duration_ms=min_silence_ms,
+            speech_pad_ms=pad_ms,
+            duration_seconds=duration,
+        )
         speech_map = {
             "provider": "silero_vad",
             "sampleRate": sample_rate,
             "duration": _round_time(duration),
             "windowMs": round(window_size * 1000 / sample_rate, 3),
             "speechThreshold": vad_threshold,
+            "minSpeechDurationMs": min_speech_ms,
+            "minSilenceDurationMs": min_silence_ms,
+            "speechPadMs": pad_ms,
             "windows": windows,
             "speechRanges": speech_ranges,
+            "rawSpeechRanges": speech_ranges,
+            "paddedSpeechRanges": padded_ranges,
         }
         self._vad_cache[cache_key] = speech_map
         return speech_map
@@ -684,11 +743,18 @@ class TranscriptAligner:
         self,
         windows: list[dict[str, float]],
         speech_threshold: float,
+        *,
+        min_speech_duration_ms: int | None = None,
+        min_silence_duration_ms: int | None = None,
+        speech_pad_ms: int = 0,
+        duration_seconds: float | None = None,
     ) -> list[dict[str, float]]:
         ranges: list[dict[str, float]] = []
         active_start: float | None = None
         active_end: float | None = None
-        merge_gap_seconds = max(0.04, min(0.14, self.pause_threshold * 0.4))
+        min_speech_seconds = max(0.0, float(min_speech_duration_ms or 0) / 1000.0)
+        merge_gap_seconds = max(0.0, float(min_silence_duration_ms or 0) / 1000.0)
+        pad_seconds = max(0.0, float(speech_pad_ms or 0) / 1000.0)
 
         for window in windows:
             probability = float(window.get("probability") or 0.0)
@@ -701,24 +767,38 @@ class TranscriptAligner:
                 elif active_end is not None and start - active_end <= merge_gap_seconds:
                     active_end = end
                 else:
-                    self._append_speech_range(ranges, active_start, active_end)
+                    self._append_speech_range(ranges, active_start, active_end, min_duration=min_speech_seconds, pad_seconds=pad_seconds, duration_seconds=duration_seconds)
                     active_start = start
                     active_end = end
             elif active_start is not None and active_end is not None and start - active_end > merge_gap_seconds:
-                self._append_speech_range(ranges, active_start, active_end)
+                self._append_speech_range(ranges, active_start, active_end, min_duration=min_speech_seconds, pad_seconds=pad_seconds, duration_seconds=duration_seconds)
                 active_start = None
                 active_end = None
 
         if active_start is not None and active_end is not None:
-            self._append_speech_range(ranges, active_start, active_end)
+            self._append_speech_range(ranges, active_start, active_end, min_duration=min_speech_seconds, pad_seconds=pad_seconds, duration_seconds=duration_seconds)
 
         return ranges
 
-    def _append_speech_range(self, ranges: list[dict[str, float]], start: float, end: float | None) -> None:
+    def _append_speech_range(
+        self,
+        ranges: list[dict[str, float]],
+        start: float,
+        end: float | None,
+        *,
+        min_duration: float = 0.04,
+        pad_seconds: float = 0.0,
+        duration_seconds: float | None = None,
+    ) -> None:
         if end is None:
             return
-        if end - start < 0.04:
+        if end - start < max(0.0, min_duration):
             return
+        start = max(0.0, start - pad_seconds)
+        if duration_seconds is not None:
+            end = min(float(duration_seconds), end + pad_seconds)
+        else:
+            end = end + pad_seconds
         if ranges and start - ranges[-1]["end"] <= 0.04:
             ranges[-1]["end"] = _round_time(max(ranges[-1]["end"], end))
             ranges[-1]["duration"] = _round_time(ranges[-1]["end"] - ranges[-1]["start"])

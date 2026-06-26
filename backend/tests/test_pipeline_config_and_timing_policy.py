@@ -29,15 +29,41 @@ def _chunk(words, *, basis="chunk_local"):
     return chunk
 
 
-def test_pipeline_config_defaults_are_production_safe():
+def test_pipeline_config_defaults_are_production_safe(monkeypatch):
+    for name in (
+        "VAD_TARGET_SECONDS",
+        "VAD_MAX_SECONDS",
+        "CHUNK_PADDING_SECONDS",
+        "ENABLE_STABLE_TS",
+        "STABLE_TS_MODEL",
+        "CAPTION_MAX_WORDS",
+        "CAPTION_MAX_CHARS",
+        "MAX_DURATION_SECONDS",
+        "ALLOW_STABLE_TS_ORDER_FALLBACK",
+        "ENABLE_SILERO_VAD",
+        "SILERO_THRESHOLD",
+        "SILERO_MIN_SPEECH_DURATION_MS",
+        "SILERO_MIN_SILENCE_DURATION_MS",
+        "SILERO_SPEECH_PAD_MS",
+        "PROVIDER_TIMEOUT_SECONDS",
+        "SARVAM_CONCURRENCY",
+        "ALLOW_ESTIMATED_WORDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
     config = resolve_pipeline_config()
     assert config.timingSourcePolicy == "native_then_forced"
-    assert config.quality.allowEstimatedWords is False
+    assert config.quality.allowEstimatedWords is True
     assert config.quality.allowSegmentDerivedWords is False
     assert config.quality.maximumEstimatedWordRatio == 0.15
     assert config.quality.minimumProviderTimestampCoverage == 0.90
-    assert config.performance.providerTimeoutSeconds == 60
-    assert config.captionChunking.maxWords == 5
+    assert config.performance.providerTimeoutSeconds == 90
+    assert config.captionChunking.maxWords == 3
+    assert config.captionChunking.maxCharacters == 28
+    assert config.audioChunking.targetSeconds == 8
+    assert config.audioChunking.maxSeconds == 12
+    assert config.audioChunking.paddingSeconds == 0.18
+    assert config.alignment.stableTsModel == "small"
+    assert config.alignment.allowStableTsOrderFallback is False
     assert config.to_dict() == DEFAULT_PIPELINE_OPTIONS
 
 

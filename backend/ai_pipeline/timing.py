@@ -82,11 +82,12 @@ def alignment_provider_status() -> dict[str, Any]:
     torch_status = _module_import_status("torch")
     stable_whisper_status = _module_import_status("stable_whisper")
     stable_ts_legacy_status = _module_import_status("stable_ts")
+    silero_status = _module_import_status("silero_vad")
     torch_available = bool(torch_status["importable"])
     torchaudio_available = _module_available("torchaudio")
     librosa_available = _module_available("librosa")
     stable_ts_available = bool(stable_whisper_status["importable"] or stable_ts_legacy_status["importable"])
-    silero_available = _module_available("silero_vad") or _module_available("torch")
+    silero_available = bool(silero_status["importable"] and torch_available)
     ffmpeg_available = bool(shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg"))
     ffprobe_available = bool(shutil.which("ffprobe"))
     stable_cache_dir = _stable_ts_cache_dir()
@@ -152,6 +153,13 @@ def alignment_provider_status() -> dict[str, Any]:
         ):
             if not available:
                 unavailable_reasons.append(f"{name}_missing")
+    if silero_enabled:
+        for name, available in (
+            ("silero_vad", silero_available),
+            ("torch", torch_available),
+        ):
+            if not available:
+                unavailable_reasons.append(f"{name}_missing")
     if not whisperx_enabled and not stable_ts_enabled:
         unavailable_reasons.append("forced_alignment_disabled")
 
@@ -171,6 +179,12 @@ def alignment_provider_status() -> dict[str, Any]:
         "stableTsImportError": stable_whisper_status["error"] if stable_whisper_status["available"] and not stable_whisper_status["importable"] else stable_ts_legacy_status["error"],
         "stableTsVersion": stable_whisper_status["version"] or stable_ts_legacy_status["version"],
         "sileroVadAvailable": silero_available,
+        "sileroVadImportAvailable": bool(silero_status["available"]),
+        "sileroVadImportable": bool(silero_status["importable"]),
+        "sileroVadImportError": silero_status["error"],
+        "sileroVadVersion": silero_status["version"],
+        "pauseDetectionProvider": "silero" if silero_enabled and silero_available else "ffmpeg_energy_fallback",
+        "pauseDetectionDegraded": bool(silero_enabled and not silero_available),
         "ffmpegAvailable": ffmpeg_available,
         "ffprobeAvailable": ffprobe_available,
         "configuredDevice": configured_device,
@@ -203,43 +217,103 @@ def _ffprobe_duration(audio_path: str) -> float | None:
         return None
 
 
-def detect_silence_gaps(audio_path: str, min_silence: float | None = None, threshold_db: str | None = None) -> dict[str, Any]:
-    """Detect pauses using Silero VAD (if enabled) or FFmpeg silencedetect."""
+def _speech_ranges_to_gaps(
+    speech_ranges: list[dict[str, Any]],
+    *,
+    duration: float,
+    min_silence: float,
+) -> list[dict[str, float]]:
+    gaps: list[dict[str, float]] = []
+    cursor = 0.0
+    for raw_range in sorted(speech_ranges or [], key=lambda item: float(item.get("start", 0.0))):
+        try:
+            start = max(0.0, float(raw_range.get("start", 0.0)))
+            end = min(duration, float(raw_range.get("end", 0.0)))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        if start > cursor and start - cursor + 1e-6 >= min_silence:
+            gaps.append({"start": _round_time(cursor), "end": _round_time(start), "duration": _round_time(start - cursor)})
+        cursor = max(cursor, end)
+    if duration > cursor and duration - cursor + 1e-6 >= min_silence:
+        gaps.append({"start": _round_time(cursor), "end": _round_time(duration), "duration": _round_time(duration - cursor)})
+    return gaps
+
+
+def _pad_speech_ranges(
+    speech_ranges: list[dict[str, Any]],
+    *,
+    duration: float,
+    padding_seconds: float,
+) -> list[dict[str, float]]:
+    padded: list[dict[str, float]] = []
+    padding = max(0.0, float(padding_seconds))
+    for raw_range in speech_ranges or []:
+        try:
+            start = max(0.0, float(raw_range.get("start", 0.0)) - padding)
+            end = min(duration, float(raw_range.get("end", 0.0)) + padding)
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        if padded and start - padded[-1]["end"] <= 0.04:
+            padded[-1]["end"] = _round_time(max(padded[-1]["end"], end))
+            padded[-1]["duration"] = _round_time(padded[-1]["end"] - padded[-1]["start"])
+        else:
+            padded.append({"start": _round_time(start), "end": _round_time(end), "duration": _round_time(end - start)})
+    return padded
+
+
+def detect_silence_gaps(
+    audio_path: str,
+    min_silence: float | None = None,
+    threshold_db: str | None = None,
+    *,
+    silero_enabled: bool | None = None,
+    silero_speech_threshold: float = 0.50,
+    silero_min_speech_duration_ms: int = 80,
+    silero_min_silence_duration_ms: int = 180,
+    silero_speech_pad_ms: int = 30,
+) -> dict[str, Any]:
+    """Detect speech pauses using Silero VAD first, with FFmpeg as a degraded fallback."""
     min_silence = DEFAULT_PAUSE_SPLIT_THRESHOLD if min_silence is None else max(0.1, float(min_silence))
     duration = _ffprobe_duration(audio_path)
 
-    # 1. Try Silero VAD if enabled
-    enable_silero = os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true"
+    enable_silero = (
+        os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true"
+        if silero_enabled is None
+        else bool(silero_enabled)
+    )
     if enable_silero:
         try:
             from .aligner import TranscriptAligner
-            aligner = TranscriptAligner()
-            speech_map = aligner._compute_vad_speech_map(audio_path)
+            aligner = TranscriptAligner(
+                enable_silero_vad=True,
+                pause_threshold=min_silence,
+                silero_speech_threshold=silero_speech_threshold,
+                silero_min_speech_duration_ms=silero_min_speech_duration_ms,
+                silero_min_silence_duration_ms=silero_min_silence_duration_ms,
+                silero_speech_pad_ms=silero_speech_pad_ms,
+            )
+            speech_map = aligner._compute_vad_speech_map(
+                audio_path,
+                speech_threshold=silero_speech_threshold,
+                min_speech_duration_ms=silero_min_speech_duration_ms,
+                min_silence_duration_ms=silero_min_silence_duration_ms,
+                speech_pad_ms=silero_speech_pad_ms,
+            )
             duration_val = speech_map.get("duration") or duration or 0.0
-            speech_ranges = speech_map.get("speechRanges") or []
-
-            silence_gaps = []
-            cursor = 0.0
-            for r in speech_ranges:
-                r_start = float(r["start"])
-                r_end = float(r["end"])
-                if r_start > cursor + min_silence:
-                    silence_gaps.append({
-                        "start": _round_time(cursor),
-                        "end": _round_time(r_start),
-                        "duration": _round_time(r_start - cursor)
-                    })
-                cursor = max(cursor, r_end)
-            if duration_val > cursor + min_silence:
-                silence_gaps.append({
-                    "start": _round_time(cursor),
-                    "end": _round_time(duration_val),
-                    "duration": _round_time(duration_val - cursor)
-                })
-
+            raw_speech_ranges = speech_map.get("rawSpeechRanges") or speech_map.get("speechRanges") or []
+            padded_speech_ranges = speech_map.get("paddedSpeechRanges") or raw_speech_ranges
+            silence_gaps = _speech_ranges_to_gaps(raw_speech_ranges, duration=float(duration_val), min_silence=min_silence)
             speech_segments = [
                 {"start": _round_time(r["start"]), "end": _round_time(r["end"]), "confidence": 0.85}
-                for r in speech_ranges
+                for r in raw_speech_ranges
+            ]
+            padded_segments = [
+                {"start": _round_time(r["start"]), "end": _round_time(r["end"]), "confidence": 0.85}
+                for r in padded_speech_ranges
             ]
 
             logger.info(
@@ -250,13 +324,28 @@ def detect_silence_gaps(audio_path: str, min_silence: float | None = None, thres
             )
             return {
                 "provider": "silero_vad",
+                "pauseDetectionProvider": "silero",
+                "pauseDetectionDegraded": False,
                 "audioDuration": _round_time(duration_val),
                 "speechSegments": speech_segments,
+                "rawSpeechRanges": speech_segments,
+                "paddedSpeechRanges": padded_segments,
                 "silenceGaps": silence_gaps,
+                "hardSpeechGaps": silence_gaps,
                 "thresholdSeconds": min_silence,
+                "silero": {
+                    "enabled": True,
+                    "speechThreshold": silero_speech_threshold,
+                    "minSpeechDurationMs": silero_min_speech_duration_ms,
+                    "minSilenceDurationMs": silero_min_silence_duration_ms,
+                    "speechPadMs": silero_speech_pad_ms,
+                },
             }
         except Exception as exc:
             logger.warning("Silero VAD silence detection failed: %s. Falling back to FFmpeg.", exc)
+            silero_error = str(exc)
+    else:
+        silero_error = None
 
     # 2. Fall back to FFmpeg silencedetect
     if threshold_db is None:
@@ -284,7 +373,19 @@ def detect_silence_gaps(audio_path: str, min_silence: float | None = None, thres
 
     ffmpeg = shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg")
     if not ffmpeg:
-        return {"provider": "none", "audioDuration": duration, "speechSegments": [], "silenceGaps": [], "error": "ffmpeg unavailable"}
+        return {
+            "provider": "none",
+            "pauseDetectionProvider": "none",
+            "pauseDetectionDegraded": bool(enable_silero),
+            "audioDuration": duration,
+            "speechSegments": [],
+            "rawSpeechRanges": [],
+            "paddedSpeechRanges": [],
+            "silenceGaps": [],
+            "hardSpeechGaps": [],
+            "error": "ffmpeg unavailable",
+            "sileroError": silero_error if enable_silero else None,
+        }
 
     cmd = [
         ffmpeg,
@@ -302,7 +403,19 @@ def detect_silence_gaps(audio_path: str, min_silence: float | None = None, thres
         result = subprocess.run(cmd, check=False, capture_output=True, text=True)
     except Exception as exc:
         logger.warning("silencedetect failed for %s: %s", audio_path, exc)
-        return {"provider": "ffmpeg_silencedetect", "audioDuration": duration, "speechSegments": [], "silenceGaps": [], "error": str(exc)}
+        return {
+            "provider": "ffmpeg_silencedetect",
+            "pauseDetectionProvider": "ffmpeg_energy_fallback",
+            "pauseDetectionDegraded": True,
+            "audioDuration": duration,
+            "speechSegments": [],
+            "rawSpeechRanges": [],
+            "paddedSpeechRanges": [],
+            "silenceGaps": [],
+            "hardSpeechGaps": [],
+            "error": str(exc),
+            "sileroError": silero_error if enable_silero else None,
+        }
 
     silence_starts: list[float] = []
     silence_gaps: list[dict[str, float]] = []
@@ -344,11 +457,21 @@ def detect_silence_gaps(audio_path: str, min_silence: float | None = None, thres
     )
     return {
         "provider": "ffmpeg_silencedetect",
+        "pauseDetectionProvider": "ffmpeg_energy_fallback",
+        "pauseDetectionDegraded": True,
         "audioDuration": _round_time(duration or 0.0) if duration else None,
         "speechSegments": speech_segments,
+        "rawSpeechRanges": speech_segments,
+        "paddedSpeechRanges": _pad_speech_ranges(
+            speech_segments,
+            duration=float(duration or 0.0),
+            padding_seconds=max(0.0, float(silero_speech_pad_ms) / 1000.0),
+        ) if duration else speech_segments,
         "silenceGaps": silence_gaps,
+        "hardSpeechGaps": silence_gaps,
         "thresholdSeconds": min_silence,
         "thresholdDb": threshold_db,
+        "sileroError": silero_error if enable_silero else None,
     }
 
 

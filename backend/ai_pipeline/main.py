@@ -22,7 +22,12 @@ from .logger import PipelineLogger
 from .quality_estimator import adaptive_thresholds, measure_audio_quality
 from .renderer import generate_srt, generate_vtt
 from .sentence_splitter import split_sentences_v2
-from .sync.aligned_words import build_segments_from_aligned_words, canonical_aligned_words_from_segments, sanitize_aligned_word_ranges
+from .sync.aligned_words import (
+    assign_alignment_groups_from_speech_gaps,
+    build_segments_from_aligned_words,
+    canonical_aligned_words_from_segments,
+    sanitize_aligned_word_ranges,
+)
 from .sync.auto_sync import apply_auto_sync_if_confident
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement
@@ -283,6 +288,10 @@ def run_pipeline(
             enable_stable_ts=pipeline_config.alignment.stableTsEnabled,
             enable_whisperx=pipeline_config.alignment.whisperxEnabled,
             pause_threshold=pipeline_config.vad.pauseThresholdSeconds,
+            silero_speech_threshold=pipeline_config.vad.sileroSpeechThreshold,
+            silero_min_speech_duration_ms=pipeline_config.vad.sileroMinSpeechDurationMs,
+            silero_min_silence_duration_ms=pipeline_config.vad.sileroMinSilenceDurationMs,
+            silero_speech_pad_ms=pipeline_config.vad.sileroSpeechPadMs,
         )
         timing_provider_status["transcriptAligner"] = transcript_aligner.status()
         vad_report = detect_silence_gaps(
@@ -293,6 +302,11 @@ def run_pipeline(
                 if pipeline_config.vad.silenceThresholdDb is not None
                 else None
             ),
+            silero_enabled=pipeline_config.vad.sileroEnabled,
+            silero_speech_threshold=pipeline_config.vad.sileroSpeechThreshold,
+            silero_min_speech_duration_ms=pipeline_config.vad.sileroMinSpeechDurationMs,
+            silero_min_silence_duration_ms=pipeline_config.vad.sileroMinSilenceDurationMs,
+            silero_speech_pad_ms=pipeline_config.vad.sileroSpeechPadMs,
         )
         adaptive_thresholds_dict = adaptive_thresholds(metrics["snr_db"], metrics["speech_rate"])
         logger.info(f"Adaptive Thresholds Applied: {adaptive_thresholds_dict}")
@@ -303,7 +317,7 @@ def run_pipeline(
         chunks = overlap_chunk(
             audio_path,
             mode="strict" if is_strict else "normal",
-            speech_segments=vad_report.get("speechSegments") or [],
+            speech_segments=vad_report.get("paddedSpeechRanges") or vad_report.get("speechSegments") or [],
             vad_enabled=chunking_options.vadEnabled,
             target_seconds=chunking_options.targetSeconds,
             max_seconds=chunking_options.maxSeconds,
@@ -650,6 +664,12 @@ def run_pipeline(
                 )
 
         emit_progress("normalizing", 89, "Running caption sync engine.")
+        hard_speech_gaps = vad_report.get("hardSpeechGaps") or vad_report.get("silenceGaps") or []
+        clamped_segments, pre_refine_group_report = assign_alignment_groups_from_speech_gaps(
+            clamped_segments,
+            hard_speech_gaps,
+            pause_threshold=transcript_aligner.pause_threshold,
+        )
         try:
             if pipeline_config.alignment.stableTsEnabled:
                 _stage_log("stable_ts_model_loading", model=pipeline_config.alignment.stableTsModel)
@@ -721,10 +741,18 @@ def run_pipeline(
             auto_global_sync=auto_sync_result.report,
             manual_sync={"applied": False, "reason": "no manual sync applied during pipeline"},
         )
+        sync_report["preRefineAlignmentGroups"] = pre_refine_group_report
         pause_preservation_report: dict[str, int] = {}
+        alignment_group_report: dict[str, Any] = {}
+        clamped_segments, alignment_group_report = assign_alignment_groups_from_speech_gaps(
+            clamped_segments,
+            hard_speech_gaps,
+            pause_threshold=transcript_aligner.pause_threshold,
+        )
+        sync_report["alignmentGroups"] = alignment_group_report
         clamped_segments = preserve_detected_pauses(
             clamped_segments,
-            vad_report.get("silenceGaps") or [],
+            hard_speech_gaps,
             pause_threshold=transcript_aligner.pause_threshold,
             diagnostics=pause_preservation_report,
         )
@@ -750,11 +778,11 @@ def run_pipeline(
         aligned_words = canonical_aligned_words_from_segments(clamped_segments)
         _log_caption_timing_debug(
             aligned_words,
-            vad_report.get("silenceGaps") or [],
+            hard_speech_gaps,
             clamped_segments,
             transcript_aligner.pause_threshold,
         )
-        timing_report = build_timing_report(clamped_segments, vad_report.get("silenceGaps") or [], sync_report)
+        timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
 
         original_segments = [dict(segment, words=[dict(word) for word in segment.get("words") or []]) for segment in clamped_segments]
         emit_progress("normalizing", 91, "Applying caption output settings.")
@@ -769,7 +797,7 @@ def run_pipeline(
             raise RuntimeError(f"Caption output transformation failed: {exc}") from exc
         if transformation_report.get("transformation") != "none":
             aligned_words = canonical_aligned_words_from_segments(clamped_segments)
-            timing_report = build_timing_report(clamped_segments, vad_report.get("silenceGaps") or [], sync_report)
+            timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
 
         _stage_log("caption chunks generated", segment_count=len(clamped_segments))
         emit_progress("chunking", 92, "Preparing readable caption chunks.")

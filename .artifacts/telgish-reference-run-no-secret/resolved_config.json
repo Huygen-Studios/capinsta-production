@@ -1,0 +1,166 @@
+{
+  "resolved": {
+    "schemaVersion": 1,
+    "timingSourcePolicy": "native_then_forced",
+    "audio": {
+      "sampleRate": 16000,
+      "channels": 1,
+      "codec": "pcm_s16le",
+      "bitrateKbps": null
+    },
+    "audioChunking": {
+      "vadEnabled": true,
+      "targetSeconds": 8.0,
+      "maxSeconds": 12.0,
+      "paddingSeconds": 0.18,
+      "legacyNormalSeconds": 20.0,
+      "legacyNormalOverlapSeconds": 4.0,
+      "legacyStrictSeconds": 12.0,
+      "legacyStrictOverlapSeconds": 5.0,
+      "fadeMs": 0
+    },
+    "vad": {
+      "pauseThresholdSeconds": 0.25,
+      "silenceThresholdDb": null,
+      "sileroEnabled": false,
+      "sileroSpeechThreshold": 0.5,
+      "speechMergeGapSeconds": null
+    },
+    "alignment": {
+      "provider": "auto",
+      "whisperxEnabled": false,
+      "stableTsEnabled": true,
+      "stableTsModel": "small",
+      "stableTsDevice": "auto",
+      "stableTsMinMatchCoverage": 0.5,
+      "stableTsMinWordRatio": 0.45,
+      "stableTsMaxWordRatio": 2.25,
+      "allowStableTsOrderFallback": false
+    },
+    "repair": {
+      "speechSpanRetimerEnabled": true,
+      "minimumWordDurationSeconds": 0.04,
+      "minimumInterWordGapSeconds": 0.0,
+      "cadenceMinSeconds": 0.075,
+      "cadenceMaxSeconds": 0.35,
+      "minimumSpeechRetimeWords": 6,
+      "minimumSpeechRetimeTrailingGapSeconds": 1.0,
+      "speechRetimeCompressionRatio": 0.78,
+      "minimumPhraseRetimeWords": 4
+    },
+    "autoSync": {
+      "enabled": false,
+      "frameStepSeconds": 0.02,
+      "maxShiftSeconds": 0.8,
+      "minScore": 0.58,
+      "minImprovement": 0.04,
+      "maxEstimatedWordRatio": 0.7,
+      "allowSkew": false,
+      "maxSkewDelta": 0.03
+    },
+    "captionChunking": {
+      "targetWords": 4,
+      "maxWords": 3,
+      "minWords": 2,
+      "maxCharacters": 28,
+      "minDurationSeconds": 0.8,
+      "maxDurationSeconds": 2.0,
+      "pauseSplitThresholdSeconds": 0.25,
+      "mergeGapSeconds": 0.12,
+      "phraseHoldSeconds": 0.05
+    },
+    "quality": {
+      "minimumProviderTimestampCoverage": 0.9,
+      "allowSegmentDerivedWords": false,
+      "allowEstimatedWords": true,
+      "maximumEstimatedWordRatio": 0.15
+    },
+    "performance": {
+      "providerTimeoutSeconds": 5,
+      "sarvamMaxConcurrency": 1,
+      "alignmentRetries": 3
+    }
+  },
+  "sources": {
+    "schemaVersion": "default",
+    "timingSourcePolicy": "environment",
+    "audio": {
+      "sampleRate": "default",
+      "channels": "default",
+      "codec": "default",
+      "bitrateKbps": "default"
+    },
+    "audioChunking": {
+      "vadEnabled": "environment",
+      "targetSeconds": "environment",
+      "maxSeconds": "environment",
+      "paddingSeconds": "environment",
+      "legacyNormalSeconds": "default",
+      "legacyNormalOverlapSeconds": "default",
+      "legacyStrictSeconds": "default",
+      "legacyStrictOverlapSeconds": "default",
+      "fadeMs": "default"
+    },
+    "vad": {
+      "pauseThresholdSeconds": "environment",
+      "silenceThresholdDb": "default",
+      "sileroEnabled": "environment",
+      "sileroSpeechThreshold": "environment",
+      "speechMergeGapSeconds": "default"
+    },
+    "alignment": {
+      "provider": "default",
+      "whisperxEnabled": "default",
+      "stableTsEnabled": "environment",
+      "stableTsModel": "environment",
+      "stableTsDevice": "default",
+      "stableTsMinMatchCoverage": "environment",
+      "stableTsMinWordRatio": "default",
+      "stableTsMaxWordRatio": "default",
+      "allowStableTsOrderFallback": "environment"
+    },
+    "repair": {
+      "speechSpanRetimerEnabled": "default",
+      "minimumWordDurationSeconds": "default",
+      "minimumInterWordGapSeconds": "default",
+      "cadenceMinSeconds": "default",
+      "cadenceMaxSeconds": "default",
+      "minimumSpeechRetimeWords": "default",
+      "minimumSpeechRetimeTrailingGapSeconds": "default",
+      "speechRetimeCompressionRatio": "default",
+      "minimumPhraseRetimeWords": "default"
+    },
+    "autoSync": {
+      "enabled": "environment",
+      "frameStepSeconds": "default",
+      "maxShiftSeconds": "environment",
+      "minScore": "environment",
+      "minImprovement": "default",
+      "maxEstimatedWordRatio": "default",
+      "allowSkew": "environment",
+      "maxSkewDelta": "environment"
+    },
+    "captionChunking": {
+      "targetWords": "default",
+      "maxWords": "environment",
+      "minWords": "default",
+      "maxCharacters": "environment",
+      "minDurationSeconds": "default",
+      "maxDurationSeconds": "environment",
+      "pauseSplitThresholdSeconds": "environment",
+      "mergeGapSeconds": "default",
+      "phraseHoldSeconds": "environment"
+    },
+    "quality": {
+      "minimumProviderTimestampCoverage": "default",
+      "allowSegmentDerivedWords": "default",
+      "allowEstimatedWords": "environment",
+      "maximumEstimatedWordRatio": "environment"
+    },
+    "performance": {
+      "providerTimeoutSeconds": "environment",
+      "sarvamMaxConcurrency": "environment",
+      "alignmentRetries": "default"
+    }
+  }
+}

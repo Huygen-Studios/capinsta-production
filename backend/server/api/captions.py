@@ -9,6 +9,7 @@ from ..database import get_db
 from ..auth import get_owned_job
 from ai_pipeline.sync.aligned_words import aligned_word_quality, canonical_aligned_words_from_segments
 from ai_pipeline.sync.high_quality import high_quality_alignment_status
+from ai_pipeline.pipeline_config import resolve_pipeline_config_with_sources
 from ai_pipeline.timing import DEFAULT_PAUSE_SPLIT_THRESHOLD, build_timing_report, classify_caption_gaps, normalize_timing_source
 
 router = APIRouter(prefix="/captions/jobs", tags=["captions"])
@@ -86,10 +87,25 @@ async def timing_debug(
                 "start": word.get("start"),
                 "end": word.get("end"),
                 "timingSource": source,
+                "alignmentGroupId": word.get("alignmentGroupId") or segment.get("alignmentGroupId"),
+                "sourceSegmentIndex": word.get("sourceSegmentIndex"),
+                "sourceChunkIndex": word.get("sourceChunkIndex"),
+                "sourceStart": word.get("sourceStart"),
+                "sourceEnd": word.get("sourceEnd"),
+                "speakerId": word.get("speakerId"),
+                "turnId": word.get("turnId"),
                 "captionBlockId": segment.get("id"),
                 "timingNeedsReview": bool(word.get("timingNeedsReview") or word.get("timingReviewRequired")),
                 "confidence": word.get("confidence", word.get("score")),
             })
+    group_summary: dict[str, dict[str, Any]] = {}
+    for word in words:
+        group_id = str(word.get("alignmentGroupId") or "unknown")
+        group = group_summary.setdefault(group_id, {"wordCount": 0, "timingSources": Counter(), "needsReview": 0})
+        group["wordCount"] += 1
+        group["timingSources"][word.get("timingSource") or "unknown"] += 1
+        if word.get("timingNeedsReview"):
+            group["needsReview"] += 1
 
     timing_meta = metadata.get("timing") if isinstance(metadata.get("timing"), dict) else {}
     configuration_snapshot = transcript.get("transcriptionConfiguration") if isinstance(transcript, dict) else None
@@ -107,6 +123,9 @@ async def timing_debug(
     aligned_words = transcript.get("alignedWords") if isinstance(transcript, dict) and isinstance(transcript.get("alignedWords"), list) else canonical_aligned_words_from_segments(segments)
     speech_segments = vad.get("speechSegments", []) if isinstance(vad.get("speechSegments"), list) else []
     quality = aligned_word_quality(segments)
+    resolved_with_sources = resolve_pipeline_config_with_sources(
+        resolved_pipeline_options if isinstance(resolved_pipeline_options, dict) else {}
+    )
 
     return {
         "jobId": job_id,
@@ -123,6 +142,9 @@ async def timing_debug(
         "autoSyncQuality": report.get("autoSyncQuality", 0),
         "autoSyncImprovement": report.get("autoSyncImprovement", 0),
         "stableTsCoverage": report.get("stableTsCoverage", 0),
+        "stableTsMatchesAccepted": (sync_meta.get("stableTs") or {}).get("appliedWords", report.get("stableTsAppliedWords", 0)) if isinstance(sync_meta, dict) else report.get("stableTsAppliedWords", 0),
+        "stableTsBoundaryRejected": (sync_meta.get("stableTs") or {}).get("boundaryRejectedWords", 0) if isinstance(sync_meta, dict) else 0,
+        "stableTsOrderFallbackEnabled": bool(((resolved_with_sources.get("resolved") or {}).get("alignment") or {}).get("allowStableTsOrderFallback")),
         "speechActivityRanges": report.get("speechActivityRanges", []),
         "captionActivityRanges": report.get("captionActivityRanges", []),
         "chunks": _caption_chunks_from_segments(segments)[:200],
@@ -140,7 +162,15 @@ async def timing_debug(
         "captionGaps": classify_caption_gaps(segments, speech_segments),
         "pauseThresholdUsed": vad.get("thresholdSeconds") or DEFAULT_PAUSE_SPLIT_THRESHOLD,
         "configurationSnapshot": configuration_snapshot,
-        "resolvedPipelineOptions": resolved_pipeline_options,
+        "resolvedPipelineOptions": resolved_with_sources.get("resolved") or resolved_pipeline_options,
+        "resolvedPipelineOptionSources": resolved_with_sources.get("sources") or {},
+        "alignmentGroupSummary": {
+            group_id: {
+                **{key: value for key, value in group.items() if key != "timingSources"},
+                "timingSources": dict(group["timingSources"]),
+            }
+            for group_id, group in group_summary.items()
+        },
         "configurationAppliedExactly": bool(timing_meta.get("configurationAppliedExactly")),
         "report": report,
     }

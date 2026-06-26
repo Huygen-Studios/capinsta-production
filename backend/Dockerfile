@@ -54,6 +54,7 @@ RUN apt-get update \
     curl \
     ca-certificates \
     ffmpeg \
+    libgomp1 \
     libsndfile1 \
   && rm -rf /var/lib/apt/lists/*
 
@@ -61,9 +62,7 @@ COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
 RUN python -m pip install --upgrade pip \
   && python -m pip install --upgrade setuptools wheel \
   && python -m pip install -r requirements.txt \
-  && python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu torch==2.3.1+cpu torchaudio==2.3.1+cpu \
-  && python -m pip install more-itertools numba tiktoken \
-  && python -m pip install --no-build-isolation --no-deps openai-whisper==20250625 stable-ts==2.19.1 \
+  && python -m pip install -r requirements-stable-ts.txt \
   && python -m playwright install-deps chromium \
   && rm -rf /var/lib/apt/lists/* \
   && python -m playwright install --only-shell chromium
@@ -78,6 +77,8 @@ RUN mkdir -p \
   && chmod -R 0775 /data/capinsta
 
 COPY backend/ .
+
+RUN ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke
 
 EXPOSE 10000
 

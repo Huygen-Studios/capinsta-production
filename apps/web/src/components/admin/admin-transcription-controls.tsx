@@ -124,12 +124,15 @@ CHUNK_PADDING_SECONDS=0.18
 USE_VAD_CHUNKING=true
 PAUSE_SPLIT_SECONDS=0.25
 SILENCE_THRESHOLD_DB=adaptive
-ENABLE_SILERO_VAD=false
+ENABLE_SILERO_VAD=true
 SILERO_THRESHOLD=0.5
+SILERO_MIN_SPEECH_DURATION_MS=80
+SILERO_MIN_SILENCE_DURATION_MS=180
+SILERO_SPEECH_PAD_MS=30
 ENABLE_STABLE_TS=true
 STABLE_TS_MODEL=small
 MIN_MATCH_COVERAGE=0.50
-ALLOW_STABLE_TS_ORDER_FALLBACK=true
+ALLOW_STABLE_TS_ORDER_FALLBACK=false
 ENABLE_AUTO_GLOBAL_SYNC=false
 MAX_SHIFT_SECONDS=0.8
 MIN_SYNC_SCORE=0.58
@@ -161,6 +164,9 @@ const BULK_FIELDS: readonly BulkField[] = [
 	{ key: "SILENCE_THRESHOLD_DB", path: ["vad", "silenceThresholdDb"], type: "nullableNumber", min: -90, max: 0 },
 	{ key: "ENABLE_SILERO_VAD", path: ["vad", "sileroEnabled"], type: "boolean" },
 	{ key: "SILERO_THRESHOLD", path: ["vad", "sileroSpeechThreshold"], type: "number", min: 0.01, max: 0.99 },
+	{ key: "SILERO_MIN_SPEECH_DURATION_MS", path: ["vad", "sileroMinSpeechDurationMs"], type: "number", min: 0, max: 2000 },
+	{ key: "SILERO_MIN_SILENCE_DURATION_MS", path: ["vad", "sileroMinSilenceDurationMs"], type: "number", min: 0, max: 3000 },
+	{ key: "SILERO_SPEECH_PAD_MS", path: ["vad", "sileroSpeechPadMs"], type: "number", min: 0, max: 1000 },
 	{ key: "ENABLE_STABLE_TS", path: ["alignment", "stableTsEnabled"], type: "boolean" },
 	{ key: "STABLE_TS_MODEL", path: ["alignment", "stableTsModel"], type: "string" },
 	{ key: "MIN_MATCH_COVERAGE", path: ["alignment", "stableTsMinMatchCoverage"], type: "number", min: 0, max: 1 },
@@ -608,7 +614,7 @@ export function AdminTranscriptionControls({
 								<label className="flex items-center gap-2 text-sm font-medium">
 									<input
 										type="checkbox"
-										checked={booleanValue(vad.sileroEnabled, false)}
+										checked={booleanValue(vad.sileroEnabled, true)}
 										onChange={(event) => setPipelineValue("vad", "sileroEnabled", event.currentTarget.checked)}
 									/>
 									Enable Silero VAD

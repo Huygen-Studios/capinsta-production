@@ -131,8 +131,32 @@ async def lifespan(app: FastAPI):
                 timing_status.get("stableTsCacheWritable"),
                 ",".join(timing_status.get("forcedAlignmentUnavailableReasons") or []),
             )
+        if timing_status.get("sileroVadEnabled"):
+            logger.info(
+                "silero_vad_startup_check importable=%s version=%s torch=%s provider=%s degraded=%s unavailable=%s",
+                timing_status.get("sileroVadImportable"),
+                timing_status.get("sileroVadVersion") or "-",
+                timing_status.get("torchAvailable"),
+                timing_status.get("pauseDetectionProvider"),
+                timing_status.get("pauseDetectionDegraded"),
+                ",".join(timing_status.get("forcedAlignmentUnavailableReasons") or []),
+            )
+            from ai_pipeline.tools.silero_vad_smoke import run_smoke
+
+            smoke = run_smoke()
+            logger.info(
+                "silero_vad_startup_smoke status=%s provider=%s degraded=%s duration=%s raw_speech_ranges=%s hard_gaps=%s",
+                smoke.get("sileroVadSmoke"),
+                smoke.get("pauseDetectionProvider"),
+                smoke.get("pauseDetectionDegraded"),
+                smoke.get("audioDuration"),
+                smoke.get("rawSpeechRangeCount"),
+                smoke.get("hardSpeechGapCount"),
+            )
     except Exception as exc:
-        logger.warning("stable_ts_startup_check_failed error=%s", exc)
+        logger.warning("timing_startup_check_failed error=%s", exc)
+        if os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true":
+            raise
     if frontend_dist_available():
         logger.info("frontend_static_enabled path=%s", FRONTEND_DIST_DIR)
     else:

@@ -31,14 +31,14 @@ logger = logging.getLogger(__name__)
 # SRT/VTT matches what a user sees in the editor and the reference.
 DEFAULT_CAPTION_RULES: dict[str, Any] = {
     "target_words": 4,
-    "max_words": 5,
+    "max_words": 3,
     "min_words": 2,
-    "max_chars": 36,
+    "max_chars": 28,
     "min_duration": 0.8,
-    "max_duration": 3.0,
-    "pause_split_threshold": 0.3,
+    "max_duration": 2.0,
+    "pause_split_threshold": 0.25,
     "merge_gap": 0.12,
-    "phrase_hold": 0.12,
+    "phrase_hold": 0.05,
 }
 
 # Hallucination filter tolerance: words ending more than this many seconds
@@ -61,7 +61,18 @@ def _round_time(value: Any) -> float:
 
 
 def _word_text(word: dict[str, Any]) -> str:
-    return str(word.get("word") or word.get("text") or "").strip()
+    return str(word.get("displayedWord") or word.get("displayedText") or word.get("word") or word.get("text") or "").strip()
+
+
+def _hard_boundary_between(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    for key in ("alignmentGroupId", "speakerId", "turnId"):
+        left_value = left.get(key)
+        right_value = right.get(key)
+        if left_value is not None and right_value is not None and left_value != right_value:
+            return True
+    if bool(left.get("hardBoundaryAfter")) or bool(right.get("hardBoundaryBefore")):
+        return True
+    return False
 
 
 def _flatten_words(segments: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -246,13 +257,14 @@ def chunk_words_into_captions(
             prospective_dur = (end or 0.0) - current[0]["start"]
 
             pause_break = gap >= cfg["pause_split_threshold"]
+            hard_boundary_break = _hard_boundary_between(current[-1], w)
             last_word_text = _word_text(current[-1]).strip()
             punctuation_break = bool(last_word_text and last_word_text[-1] in ".,!?;:")
             overflow_break = len(prospective_text) > max_chars
             too_long = prospective_dur > cfg["max_duration"]
             too_many_words = prospective_words > max_words
 
-            if pause_break or punctuation_break or overflow_break or too_long or too_many_words:
+            if hard_boundary_break or pause_break or punctuation_break or overflow_break or too_long or too_many_words:
                 flush()
         current.append(w)
     flush()
@@ -261,6 +273,8 @@ def chunk_words_into_captions(
     # and they aren't separated by silence (gap >= pause_split_threshold).
     def _can_merge(left: dict[str, Any], right: dict[str, Any]) -> bool:
         gap = _round_time(right["start"] - left["words"][-1]["end"])
+        if _hard_boundary_between(left["words"][-1], right["words"][0]):
+            return False
         if gap >= cfg["pause_split_threshold"]:
             return False
 
@@ -295,6 +309,9 @@ def chunk_words_into_captions(
         last = captions.pop()
         prev = captions[-1]
         gap = last["start"] - prev["words"][-1]["end"]
+        if _hard_boundary_between(prev["words"][-1], last["words"][0]):
+            captions.append(last)
+            break
 
         merged_text = (prev["text"] + " " + last["text"]).strip()
         would_overflow = len(merged_text) > max_chars
