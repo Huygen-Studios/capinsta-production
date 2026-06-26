@@ -12,6 +12,7 @@ from typing import Any
 
 from .affine import validate_monotonic_word_timing
 from .report import SyncPassResult
+from ..language_modes import romanizeMixedIndianText
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -36,6 +37,14 @@ def _normalize_token(value: Any) -> str:
         if category[0] in {"L", "M", "N"}:
             chars.append(char)
     return "".join(chars)
+
+
+def _token_forms(value: Any) -> set[str]:
+    raw = str(value or "").strip()
+    forms = {_normalize_token(raw)}
+    romanized = romanizeMixedIndianText(raw)
+    forms.add(_normalize_token(romanized))
+    return {form for form in forms if form}
 
 
 def _word_text(word: dict[str, Any]) -> str:
@@ -251,8 +260,8 @@ def match_stable_words_to_provider_words(
     provider_words: list[dict[str, Any]],
     stable_words: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    provider_tokens = [_normalize_token(_word_text(word)) for word in provider_words]
-    stable_tokens = [_normalize_token(word.get("word")) for word in stable_words]
+    provider_tokens = [_token_forms(_word_text(word)) for word in provider_words]
+    stable_tokens = [_token_forms(word.get("word")) for word in stable_words]
     used: set[int] = set()
     matches: dict[int, int] = {}
     search_from = 0
@@ -262,7 +271,7 @@ def match_stable_words_to_provider_words(
         for stable_index in range(search_from, len(stable_tokens)):
             if stable_index in used:
                 continue
-            if stable_tokens[stable_index] == token:
+            if stable_tokens[stable_index] & token:
                 matches[provider_index] = stable_index
                 used.add(stable_index)
                 search_from = stable_index + 1
