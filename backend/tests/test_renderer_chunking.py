@@ -181,3 +181,32 @@ def test_caption_validation_rejects_rounded_export_overlap():
         validate_caption_cues(captions, stage="srt_generation")
 
     assert exc.value.report["overlapCount"] == 1
+
+
+def test_caption_validation_reports_non_contiguous_tokens_without_blocking_export():
+    captions = [
+        {
+            "text": "kept first",
+            "start": 0.0,
+            "end": 0.4,
+            "words": [
+                {"word": "kept", "start": 0.0, "end": 0.2, "providerTokenId": "g1:0:0", "finalTokenSequenceIndex": 0},
+                {"word": "first", "start": 0.2, "end": 0.4, "providerTokenId": "g1:0:1", "finalTokenSequenceIndex": 1},
+            ],
+        },
+        {
+            "text": "after rejected",
+            "start": 0.5,
+            "end": 0.9,
+            "words": [
+                {"word": "after", "start": 0.5, "end": 0.7, "providerTokenId": "g1:0:3", "finalTokenSequenceIndex": 3},
+                {"word": "rejected", "start": 0.7, "end": 0.9, "providerTokenId": "g1:0:4", "finalTokenSequenceIndex": 4},
+            ],
+        },
+    ]
+
+    report = validate_caption_cues(captions, stage="srt_generation")
+
+    assert report["nonContiguousTokenCount"] == 1
+    assert report["overlapCount"] == 0
+    assert report["duplicateTokenCount"] == 0

@@ -411,10 +411,24 @@ def validate_caption_cues(captions: list[dict[str, Any]], *, stage: str) -> dict
         "nonContiguousTokenCount": non_contiguous_tokens,
         "samples": samples[:20],
     }
-    if invalid_ranges or overlaps or boundary_crossings or duplicate_tokens or non_contiguous_tokens:
+    fatal_failures = invalid_ranges or overlaps or boundary_crossings or duplicate_tokens
+    if fatal_failures:
         logger.error("caption_cue_validation_failed report=%s", report)
-        code = "caption_cue_overlap" if overlaps else "caption_cue_invalid"
-        raise CaptionCueValidationError(code, "Caption cue validation failed before export.", report)
+        if overlaps:
+            code = "caption_cue_overlap"
+            message = f"{overlaps} caption cue overlap(s) remain before export."
+        elif invalid_ranges:
+            code = "caption_cue_invalid_range"
+            message = f"{invalid_ranges} caption cue(s) have invalid timestamp ranges."
+        elif boundary_crossings:
+            code = "caption_cue_crosses_hard_boundary"
+            message = f"{boundary_crossings} caption cue(s) cross a hard timing boundary."
+        else:
+            code = "caption_token_duplicate"
+            message = f"{duplicate_tokens} caption token occurrence(s) are duplicated."
+        raise CaptionCueValidationError(code, message, report)
+    if non_contiguous_tokens:
+        logger.warning("caption_cue_validation_non_contiguous_tokens report=%s", report)
     return report
 
 
