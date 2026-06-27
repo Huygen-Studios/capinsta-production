@@ -23,6 +23,14 @@ class CatalogEntry:
     supported_provider_modes: tuple[str, ...]
     local_alignment_required: bool
     retryable_http_statuses: tuple[int, ...]
+    native_word_timing_support: bool = False
+    native_segment_timing_support: bool = False
+    vad_chunking_support: bool = True
+    stable_ts_compatibility: bool = True
+    supported_stable_ts_models: tuple[str, ...] = ("tiny", "base", "small", "medium")
+    estimated_timing_compatibility: bool = False
+    activation_preflight: str = "credential_check_plus_real_audio_test"
+    availability_status: Literal["production_ready", "experimental", "disabled", "unavailable"] = "experimental"
 
 
 LANGUAGE_MODES = ("english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian")
@@ -75,6 +83,14 @@ TRANSCRIPTION_PROVIDER_CATALOG: tuple[CatalogEntry, ...] = (
         ("transcribe",),
         False,
         (429, 500, 503, 504),
+        True,
+        True,
+        True,
+        False,
+        (),
+        False,
+        "credential_check_plus_verbose_json_word_timestamp_test",
+        "experimental",
     ),
     CatalogEntry(
         "openai",
@@ -123,6 +139,14 @@ TRANSCRIPTION_PROVIDER_CATALOG: tuple[CatalogEntry, ...] = (
         ("transcribe", "verbatim", "translit", "codemix"),
         False,
         (429, 500, 503),
+        True,
+        True,
+        True,
+        True,
+        ("tiny", "base", "small", "medium"),
+        False,
+        "credential_check_plus_rest_speech_to_text_with_timestamps",
+        "experimental",
     ),
 )
 
@@ -200,6 +224,14 @@ def public_catalog() -> list[dict]:
             "supportedProviderModes": list(entry.supported_provider_modes),
             "localAlignmentRequired": entry.local_alignment_required,
             "retryableHttpStatuses": list(entry.retryable_http_statuses),
+            "nativeWordTimingSupport": entry.native_word_timing_support,
+            "nativeSegmentTimingSupport": entry.native_segment_timing_support,
+            "vadChunkingSupport": entry.vad_chunking_support,
+            "stableTsCompatibility": entry.stable_ts_compatibility,
+            "supportedStableTsModels": list(entry.supported_stable_ts_models),
+            "estimatedTimingCompatibility": entry.estimated_timing_compatibility,
+            "activationPreflight": entry.activation_preflight,
+            "availabilityStatus": entry.availability_status,
             **model_runtime_availability(entry),
         }
         for entry in TRANSCRIPTION_PROVIDER_CATALOG

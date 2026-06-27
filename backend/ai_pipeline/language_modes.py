@@ -114,6 +114,13 @@ TELGISH_CANONICAL = {
     "baagundhi": "baagundi",
     "tO": "tho",
     "to": "tho",
+    "ramdi": "randi",
+    "emta": "enta",
+    "amdukane": "andukane",
+    "kimda": "kinda",
+    "umdi": "undi",
+    "kottimdaam": "kottindaam",
+    "aagamdi": "aagandi",
 }
 
 HINGLISH_CANONICAL = {

@@ -1,5 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { requireAdminPermission } from "@/admin/auth";
+import { adminBackendFetch } from "@/admin/backend";
 import { listAdminTranscriptionConfigurations } from "@/admin/transcription-config-db";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminTranscriptionControls } from "@/components/admin/admin-transcription-controls";
@@ -19,8 +20,9 @@ export default async function TranscriptionPage() {
 		| { completedAt: Date | null; provider: string | null; model: string | null }[]
 		| [];
 	let timingHealth: Record<string, unknown> | null = null;
+	let transcriptionCatalog: Record<string, unknown> | null = null;
 	try {
-		[configs, health, lastRequest, timingHealth] = await Promise.all([
+		[configs, health, lastRequest, timingHealth, transcriptionCatalog] = await Promise.all([
 			listAdminTranscriptionConfigurations(db, 20),
 			db
 				.select({ status: providerHealthEvents.status })
@@ -40,6 +42,10 @@ export default async function TranscriptionPage() {
 				.limit(1),
 			fetch(`${webEnv.BACKEND_INTERNAL_URL}/health/timing`, {
 				cache: "no-store",
+			}).then((response) => response.ok ? response.json() : null).catch(() => null),
+			adminBackendFetch({
+				path: "/api/admin/transcription/catalog",
+				permission: "system.read",
 			}).then((response) => response.ok ? response.json() : null).catch(() => null),
 		]);
 	} catch (error) {
@@ -85,6 +91,7 @@ export default async function TranscriptionPage() {
 				configurations={serializedConfigs}
 				healthStatus={healthStatus}
 				timingHealth={timingHealth}
+				transcriptionCatalog={transcriptionCatalog}
 				lastProductionRequest={last}
 			/>
 		</>

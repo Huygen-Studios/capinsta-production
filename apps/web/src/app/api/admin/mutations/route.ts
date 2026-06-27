@@ -7,6 +7,7 @@ import { recordAdminAuditEvent } from "@/admin/audit";
 import { adminBackendFetch } from "@/admin/backend";
 import {
 	getAdminTranscriptionConfiguration,
+	transcriptionPresetColumnsExist,
 	transcriptionPipelineOptionsColumnExists,
 } from "@/admin/transcription-config-db";
 import {
@@ -52,6 +53,8 @@ import {
 
 const reason = z.string().trim().min(8).max(1000);
 const pipelineOptions = z.record(z.string(), z.unknown()).optional();
+const presetId = z.string().trim().min(1).max(120).nullable().optional();
+const presetVersion = z.number().int().min(1).nullable().optional();
 const TRANSCRIPTION_CONFIG_TEST_TIMEOUT_MS = 600_000;
 const appRoleKey = z.enum(["member", "developer"]);
 const appPermissionKey = z.enum([
@@ -270,6 +273,9 @@ const schema = z.discriminatedUnion("action", [
 		model: z.string().trim().min(1).max(120),
 		providerOptions: transcriptionProviderOptions,
 		pipelineOptions,
+		presetId,
+		presetVersion,
+		pipelineOptionSources: z.record(z.string(), z.unknown()).optional(),
 		reason,
 	}),
 	z.object({
@@ -298,6 +304,9 @@ const transcriptionConfigurationReturning = {
 	model: transcriptionConfigurations.model,
 	providerOptions: transcriptionConfigurations.providerOptions,
 	timestampStrategy: transcriptionConfigurations.timestampStrategy,
+	presetId: transcriptionConfigurations.presetId,
+	presetVersion: transcriptionConfigurations.presetVersion,
+	pipelineOptionSources: transcriptionConfigurations.pipelineOptionSources,
 	strictProvider: transcriptionConfigurations.strictProvider,
 	status: transcriptionConfigurations.status,
 	version: transcriptionConfigurations.version,
@@ -981,6 +990,7 @@ export async function POST(request: Request) {
 				beforeValue = null;
 				const hasPipelineOptions =
 					await transcriptionPipelineOptionsColumnExists(tx);
+				const hasPresetColumns = await transcriptionPresetColumnsExist(tx);
 				const createValues = {
 					provider: value.provider,
 					model: value.model,
@@ -990,9 +1000,19 @@ export async function POST(request: Request) {
 					status: "draft",
 					testStatus: "untested",
 				};
-				const values = hasPipelineOptions
-					? { ...createValues, pipelineOptions: resolvedPipelineOptions }
-					: createValues;
+				const values = {
+					...createValues,
+					...(hasPipelineOptions
+						? { pipelineOptions: resolvedPipelineOptions }
+						: {}),
+					...(hasPresetColumns
+						? {
+								presetId: value.presetId ?? null,
+								presetVersion: value.presetVersion ?? null,
+								pipelineOptionSources: value.pipelineOptionSources ?? {},
+							}
+						: {}),
+				};
 				const [created] = await tx
 					.insert(transcriptionConfigurations)
 					.values(values)
@@ -1000,6 +1020,9 @@ export async function POST(request: Request) {
 				afterValue = {
 					...created,
 					pipelineOptions: resolvedPipelineOptions,
+					presetId: value.presetId ?? null,
+					presetVersion: value.presetVersion ?? null,
+					pipelineOptionSources: value.pipelineOptionSources ?? {},
 					createdBy: context!.userId,
 					activationEligibility: false,
 				};
@@ -1053,6 +1076,8 @@ export async function POST(request: Request) {
 								strictProvider: current.strictProvider,
 								providerOptions: current.providerOptions,
 								pipelineOptions: current.pipelineOptions,
+								presetId: current.presetId,
+								presetVersion: current.presetVersion,
 								reason: value.reason,
 							}),
 						},

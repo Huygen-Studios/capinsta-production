@@ -126,6 +126,11 @@ async def timing_debug(
     resolved_with_sources = resolve_pipeline_config_with_sources(
         resolved_pipeline_options if isinstance(resolved_pipeline_options, dict) else {}
     )
+    saved_source_map = (
+        (configuration_snapshot or {}).get("pipeline_option_sources")
+        or (configuration_snapshot or {}).get("pipelineOptionSources")
+        or {}
+    )
 
     return {
         "jobId": job_id,
@@ -163,7 +168,11 @@ async def timing_debug(
         "pauseThresholdUsed": vad.get("thresholdSeconds") or DEFAULT_PAUSE_SPLIT_THRESHOLD,
         "configurationSnapshot": configuration_snapshot,
         "resolvedPipelineOptions": resolved_with_sources.get("resolved") or resolved_pipeline_options,
-        "resolvedPipelineOptionSources": resolved_with_sources.get("sources") or {},
+        "resolvedPipelineOptionSources": saved_source_map if isinstance(saved_source_map, dict) and saved_source_map else (resolved_with_sources.get("sources") or {}),
+        "resolvedPreset": {
+            "id": (configuration_snapshot or {}).get("preset_id") or (configuration_snapshot or {}).get("presetId"),
+            "version": (configuration_snapshot or {}).get("preset_version") or (configuration_snapshot or {}).get("presetVersion"),
+        },
         "alignmentGroupSummary": {
             group_id: {
                 **{key: value for key, value in group.items() if key != "timingSources"},

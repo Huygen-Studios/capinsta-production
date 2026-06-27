@@ -37,6 +37,12 @@ from ..transcription_control import (
 from ai_pipeline.aligner import align_text
 from ai_pipeline.config import MODEL_ALIGN_EN
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
+from ai_pipeline.timing_presets import (
+    public_preset_registry,
+    resolve_preset_pipeline_options,
+    timing_preset,
+    validate_preset_compatibility,
+)
 from ai_pipeline.sync.stable_refine import apply_stable_refinement
 from . import export_jobs as export_runtime
 from ai_pipeline.transcriber import TranscriptionProviderError, is_real_secret, transcribe_audio
@@ -85,6 +91,8 @@ class TranscriptionTestRequest(BaseModel):
     strictProvider: bool = True
     providerOptions: dict = Field(default_factory=dict)
     pipelineOptions: dict = Field(default_factory=dict)
+    presetId: str | None = Field(default=None, max_length=120)
+    presetVersion: int | None = Field(default=None, ge=1)
     reason: str = Field(min_length=8, max_length=1000)
 
 
@@ -469,7 +477,12 @@ async def reconcile_operations(body: ReasonRequest, request: Request):
 @router.get("/transcription/catalog")
 async def transcription_catalog(request: Request):
     admin = require_backend_admin_permission(request, "system.read")
-    return {"items": public_catalog(), "correlationId": admin.correlation_id}
+    catalog = public_catalog()
+    return {
+        "items": catalog,
+        "presets": public_preset_registry(catalog),
+        "correlationId": admin.correlation_id,
+    }
 
 
 @router.post("/transcription/cache/invalidate")
@@ -488,6 +501,12 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
             body.model,
             body.timestampStrategy,
             body.providerOptions,
+        )
+        validate_preset_compatibility(
+            body.presetId,
+            entry.provider,
+            entry.model,
+            timestamp_strategy=entry.timestamp_strategy,
         )
     except ValueError as exc:
         return {
@@ -513,6 +532,11 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
             "retryable": False,
             "correlationId": admin.correlation_id,
         }
+    preset = timing_preset(body.presetId)
+    resolved_pipeline_options = resolve_preset_pipeline_options(
+        body.presetId,
+        body.pipelineOptions or {},
+    )
     snapshot = TranscriptionConfigSnapshot(
         configuration_id=body.configurationId,
         provider=entry.provider,
@@ -521,12 +545,14 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
         provider_options=dict(body.providerOptions or {}),
         timestamp_strategy=entry.timestamp_strategy,
         strict_provider=True,
-        pipeline_options=resolve_pipeline_config(body.pipelineOptions or DEFAULT_PIPELINE_OPTIONS).to_dict(),
-        resolved_pipeline_options=resolve_pipeline_config(body.pipelineOptions or DEFAULT_PIPELINE_OPTIONS).to_dict(),
+        preset_id=preset.id if preset else None,
+        preset_version=preset.version if preset else None,
+        pipeline_options=resolved_pipeline_options,
+        resolved_pipeline_options=resolved_pipeline_options,
     )
     started = time.monotonic()
     try:
-        resolved_pipeline = resolve_pipeline_config(body.pipelineOptions or DEFAULT_PIPELINE_OPTIONS)
+        resolved_pipeline = resolve_pipeline_config(resolved_pipeline_options)
         stages: list[dict[str, object]] = []
         result = transcribe_audio(
             bundled_test_audio_path(),
@@ -608,6 +634,8 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
             "timingProvenance": timing_provenance,
             "stages": stages + [{"name": "Final result", "status": "passed"}],
             "resolvedPipelineOptions": snapshot.resolved_pipeline_options,
+            "presetId": snapshot.preset_id,
+            "presetVersion": snapshot.preset_version,
             "providerRequestId": result.get("provider_request_id") or result.get("request_id"),
             "circuit": circuit_state(snapshot),
             "correlationId": admin.correlation_id,

@@ -496,6 +496,12 @@ export const transcriptionConfigurations = pgTable(
 			.$type<Record<string, unknown>>()
 			.default({})
 			.notNull(),
+		presetId: text("preset_id"),
+		presetVersion: integer("preset_version"),
+		pipelineOptionSources: jsonb("pipeline_option_sources")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
 		timestampStrategy: text("timestamp_strategy").notNull(),
 		strictProvider: boolean("strict_provider").default(true).notNull(),
 		status: text("status").default("draft").notNull(),

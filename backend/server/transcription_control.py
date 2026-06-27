@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from .settings import DB_PATH
 from .transcription_catalog import catalog_entry, model_runtime_availability, validate_catalog_selection
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
+from ai_pipeline.timing_presets import resolve_preset_pipeline_options, validate_preset_compatibility
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,11 @@ class TranscriptionConfigSnapshot:
     output_language: str | None = None
     resolved_provider_mode: str | None = None
     resolved_provider_language_code: str | None = None
+    preset_id: str | None = None
+    preset_version: int | None = None
     pipeline_options: dict[str, Any] | None = None
     resolved_pipeline_options: dict[str, Any] | None = None
+    pipeline_option_sources: dict[str, Any] | None = None
 
     @property
     def provider_mode(self) -> str:
@@ -56,6 +60,9 @@ class TranscriptionConfigSnapshot:
         resolved_pipeline_options = self.resolved_pipeline_options or resolve_pipeline_config(pipeline_options).to_dict()
         payload["pipeline_options"] = pipeline_options
         payload["resolved_pipeline_options"] = resolved_pipeline_options
+        payload["preset_id"] = self.preset_id
+        payload["preset_version"] = self.preset_version
+        payload["pipeline_option_sources"] = self.pipeline_option_sources or {}
         payload["provider_mode"] = self.provider_mode
         payload["provider_language_code"] = self.provider_language_code
         return payload
@@ -143,6 +150,7 @@ def _env_snapshot() -> TranscriptionConfigSnapshot | None:
         strict_provider=True,
         pipeline_options=DEFAULT_PIPELINE_OPTIONS,
         resolved_pipeline_options=DEFAULT_PIPELINE_OPTIONS,
+        pipeline_option_sources={},
     )
 
 
@@ -205,12 +213,26 @@ def _snapshot_from_row(row: dict[str, Any]) -> TranscriptionConfigSnapshot:
     pipeline_options = row.get("pipeline_options") or {}
     if isinstance(pipeline_options, str):
         pipeline_options = json.loads(pipeline_options or "{}")
-    resolved_pipeline_options = resolve_pipeline_config(pipeline_options).to_dict()
+    preset_id = row.get("preset_id")
+    preset_version = row.get("preset_version")
+    pipeline_option_sources = row.get("pipeline_option_sources") or {}
+    if isinstance(pipeline_option_sources, str):
+        pipeline_option_sources = json.loads(pipeline_option_sources or "{}")
+    resolved_pipeline_options = resolve_preset_pipeline_options(
+        str(preset_id) if preset_id else None,
+        dict(pipeline_options),
+    )
     validate_catalog_selection(
         str(row["provider"]),
         str(row["model"]),
         str(row["timestamp_strategy"]),
         provider_options,
+    )
+    validate_preset_compatibility(
+        str(preset_id) if preset_id else None,
+        str(row["provider"]),
+        str(row["model"]),
+        timestamp_strategy=str(row["timestamp_strategy"]),
     )
     return TranscriptionConfigSnapshot(
         configuration_id=str(row["id"]),
@@ -220,8 +242,11 @@ def _snapshot_from_row(row: dict[str, Any]) -> TranscriptionConfigSnapshot:
         provider_options=dict(provider_options),
         timestamp_strategy=str(row["timestamp_strategy"]),
         strict_provider=bool(row.get("strict_provider", True)),
+        preset_id=str(preset_id) if preset_id else None,
+        preset_version=int(preset_version) if preset_version else None,
         pipeline_options=resolved_pipeline_options,
         resolved_pipeline_options=resolved_pipeline_options,
+        pipeline_option_sources=dict(pipeline_option_sources),
     )
 
 
@@ -235,11 +260,15 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
     if database_url and psycopg is not None:
         try:
             try:
-                row = _active_config_row(database_url, include_pipeline_options=True)
+                row = _active_config_row(database_url, include_pipeline_options=True, include_preset_columns=True)
             except Exception as exc:
-                if "pipeline_options" not in str(exc):
+                text = str(exc)
+                if "pipeline_options" in text:
+                    row = _active_config_row(database_url, include_pipeline_options=False, include_preset_columns=False)
+                elif "preset_id" in text or "preset_version" in text or "pipeline_option_sources" in text:
+                    row = _active_config_row(database_url, include_pipeline_options=True, include_preset_columns=False)
+                else:
                     raise
-                row = _active_config_row(database_url, include_pipeline_options=False)
             if row:
                 snapshot = _snapshot_from_row(row)
                 _set_db_status(
@@ -299,14 +328,15 @@ def active_transcription_config() -> TranscriptionConfigSnapshot | None:
     return snapshot
 
 
-def _active_config_row(database_url: str, *, include_pipeline_options: bool) -> dict[str, Any] | None:
+def _active_config_row(database_url: str, *, include_pipeline_options: bool, include_preset_columns: bool = False) -> dict[str, Any] | None:
     pipeline_select = ", pipeline_options" if include_pipeline_options else ""
+    preset_select = ", preset_id, preset_version, pipeline_option_sources" if include_preset_columns else ""
     with psycopg.connect(database_url, row_factory=dict_row, connect_timeout=4) as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT id, provider, model, provider_options, timestamp_strategy,
-                       strict_provider, version{pipeline_select}
+                       strict_provider, version{pipeline_select}{preset_select}
                 FROM transcription_configurations
                 WHERE status = 'active'
                 LIMIT 1
@@ -416,8 +446,19 @@ def coerce_snapshot(value: TranscriptionConfigSnapshot | dict[str, Any] | str | 
                 or value.get("provider_language_code")
                 or value.get("providerLanguageCode")
             ),
+            preset_id=value.get("preset_id") or value.get("presetId"),
+            preset_version=(
+                int(value.get("preset_version") or value.get("presetVersion"))
+                if (value.get("preset_version") or value.get("presetVersion"))
+                else None
+            ),
             pipeline_options=pipeline_options,
             resolved_pipeline_options=pipeline_options,
+            pipeline_option_sources=(
+                value.get("pipeline_option_sources")
+                or value.get("pipelineOptionSources")
+                or {}
+            ),
         )
     except Exception:
         return None

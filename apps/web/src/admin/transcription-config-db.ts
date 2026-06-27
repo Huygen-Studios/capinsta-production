@@ -13,6 +13,9 @@ export type AdminTranscriptionConfigurationRecord = {
 	model: string;
 	providerOptions: Record<string, unknown>;
 	pipelineOptions: Record<string, unknown>;
+	presetId: string | null;
+	presetVersion: number | null;
+	pipelineOptionSources: Record<string, unknown>;
 	timestampStrategy: string;
 	strictProvider: boolean;
 	status: string;
@@ -73,6 +76,12 @@ function coerceConfig(row: Record<string, unknown>): AdminTranscriptionConfigura
 			DEFAULT_PIPELINE_OPTIONS,
 			isRecord(row.pipelineOptions) ? row.pipelineOptions : {},
 		),
+		presetId: row.presetId ? String(row.presetId) : null,
+		presetVersion:
+			typeof row.presetVersion === "number" ? row.presetVersion : null,
+		pipelineOptionSources: isRecord(row.pipelineOptionSources)
+			? row.pipelineOptionSources
+			: {},
 		timestampStrategy: String(row.timestampStrategy),
 		strictProvider: row.strictProvider !== false,
 		status: String(row.status),
@@ -106,11 +115,30 @@ export async function transcriptionPipelineOptionsColumnExists(
 	return rowsFrom(result)[0]?.exists === true;
 }
 
+export async function transcriptionPresetColumnsExist(
+	executor: QueryExecutor,
+): Promise<boolean> {
+	const result = await executor.execute(sql`
+		select exists (
+			select 1
+			from information_schema.columns
+			where table_schema = 'public'
+				and table_name = 'transcription_configurations'
+				and column_name = 'preset_id'
+		) as exists
+	`);
+	return rowsFrom(result)[0]?.exists === true;
+}
+
 export async function listAdminTranscriptionConfigurations(
 	executor: QueryExecutor,
 	limit = 20,
 ): Promise<AdminTranscriptionConfigurationRecord[]> {
 	const hasPipelineOptions = await transcriptionPipelineOptionsColumnExists(executor);
+	const hasPresetColumns = await transcriptionPresetColumnsExist(executor);
+	const presetSelect = hasPresetColumns
+		? sql`preset_id as "presetId", preset_version as "presetVersion", pipeline_option_sources as "pipelineOptionSources",`
+		: sql`null::text as "presetId", null::int as "presetVersion", '{}'::jsonb as "pipelineOptionSources",`;
 	const result = hasPipelineOptions
 		? await executor.execute(sql`
 			select
@@ -119,6 +147,7 @@ export async function listAdminTranscriptionConfigurations(
 				model,
 				provider_options as "providerOptions",
 				pipeline_options as "pipelineOptions",
+				${presetSelect}
 				timestamp_strategy as "timestampStrategy",
 				strict_provider as "strictProvider",
 				status,
@@ -144,6 +173,7 @@ export async function listAdminTranscriptionConfigurations(
 				model,
 				provider_options as "providerOptions",
 				null::jsonb as "pipelineOptions",
+				${presetSelect}
 				timestamp_strategy as "timestampStrategy",
 				strict_provider as "strictProvider",
 				status,
@@ -170,6 +200,10 @@ export async function getAdminTranscriptionConfiguration(
 	id: string,
 ): Promise<AdminTranscriptionConfigurationRecord | null> {
 	const hasPipelineOptions = await transcriptionPipelineOptionsColumnExists(executor);
+	const hasPresetColumns = await transcriptionPresetColumnsExist(executor);
+	const presetSelect = hasPresetColumns
+		? sql`preset_id as "presetId", preset_version as "presetVersion", pipeline_option_sources as "pipelineOptionSources",`
+		: sql`null::text as "presetId", null::int as "presetVersion", '{}'::jsonb as "pipelineOptionSources",`;
 	const result = hasPipelineOptions
 		? await executor.execute(sql`
 			select
@@ -178,6 +212,7 @@ export async function getAdminTranscriptionConfiguration(
 				model,
 				provider_options as "providerOptions",
 				pipeline_options as "pipelineOptions",
+				${presetSelect}
 				timestamp_strategy as "timestampStrategy",
 				strict_provider as "strictProvider",
 				status,
@@ -203,6 +238,7 @@ export async function getAdminTranscriptionConfiguration(
 				model,
 				provider_options as "providerOptions",
 				null::jsonb as "pipelineOptions",
+				${presetSelect}
 				timestamp_strategy as "timestampStrategy",
 				strict_provider as "strictProvider",
 				status,

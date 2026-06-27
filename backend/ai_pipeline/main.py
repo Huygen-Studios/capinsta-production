@@ -260,6 +260,11 @@ def run_pipeline(
     pipeline_options_snapshot = active_snapshot.resolved_pipeline_options if active_snapshot else None
     pipeline_config = resolve_pipeline_config(pipeline_options_snapshot)
     pipeline_config_with_sources = resolve_pipeline_config_with_sources(pipeline_options_snapshot)
+    pipeline_option_sources = (
+        active_snapshot.pipeline_option_sources
+        if active_snapshot and isinstance(active_snapshot.pipeline_option_sources, dict) and active_snapshot.pipeline_option_sources
+        else pipeline_config_with_sources.get("sources")
+    )
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -269,8 +274,10 @@ def run_pipeline(
     try:
         _stage_log(
             "resolved_timing_configuration",
+            preset_id=active_snapshot.preset_id if active_snapshot else None,
+            preset_version=active_snapshot.preset_version if active_snapshot else None,
             resolved=pipeline_config_with_sources.get("resolved"),
-            sources=pipeline_config_with_sources.get("sources"),
+            sources=pipeline_option_sources,
         )
         _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
         emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")

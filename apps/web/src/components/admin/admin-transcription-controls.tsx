@@ -20,6 +20,9 @@ type Configuration = {
 	model: string;
 	providerOptions: Record<string, unknown>;
 	pipelineOptions: Record<string, unknown>;
+	presetId: string | null;
+	presetVersion: number | null;
+	pipelineOptionSources: Record<string, unknown>;
 	timestampStrategy: string;
 	status: string;
 	version: number;
@@ -67,6 +70,31 @@ async function mutate(body: Record<string, unknown>) {
 
 type PipelineOptions = Record<string, unknown>;
 
+type TimingPreset = {
+	id: string;
+	displayName: string;
+	family: string;
+	purpose: string;
+	status: string;
+	version: number;
+	supportedProviders: string[];
+	supportedModels: string[];
+	performanceCost: string;
+	qualityThreshold: string;
+	lockedFields: string[];
+	adjustableFields: string[];
+	pipelineOptions: Record<string, unknown>;
+	expectedTimingSourcePolicy: string;
+	compatibilities?: { provider: string; model: string; state: string; reason?: string | null }[];
+};
+
+type BackendCatalogPayload = {
+	presets?: {
+		presets?: TimingPreset[];
+		fieldRanges?: Record<string, unknown>;
+	};
+};
+
 function section(options: PipelineOptions, key: string): PipelineOptions {
 	const value = options[key];
 	return value && typeof value === "object" && !Array.isArray(value)
@@ -101,6 +129,31 @@ function updateNested(
 	};
 }
 
+function sourceTreeForPreset(preset: TimingPreset, overrides: Record<string, unknown> = {}) {
+	const sources: Record<string, unknown> = {
+		preset: {
+			id: preset.id,
+			version: preset.version,
+		},
+	};
+	for (const path of [...preset.lockedFields, ...preset.adjustableFields]) {
+		const parts = path.split(".");
+		let target: Record<string, unknown> = sources;
+		for (const part of parts.slice(0, -1)) {
+			const next = target[part];
+			if (!next || typeof next !== "object" || Array.isArray(next)) {
+				target[part] = {};
+			}
+			target = target[part] as Record<string, unknown>;
+		}
+		target[parts[parts.length - 1] ?? path] = "preset";
+	}
+	for (const key of Object.keys(overrides)) {
+		sources[key] = "explicit_job_override";
+	}
+	return sources;
+}
+
 function numericInputValue(value: unknown, fallback: number) {
 	return String(numberValue(value, fallback));
 }
@@ -114,6 +167,13 @@ type BulkField = {
 	min?: number;
 	max?: number;
 	aliases?: readonly string[];
+};
+
+type BackendFieldRange = {
+	type?: string;
+	min?: number;
+	max?: number;
+	values?: string[];
 };
 
 const TIMING_FIX_PRESET = `# Short-form Telugu/Telgish timing preset
@@ -200,7 +260,7 @@ function parseBooleanValue(value: string) {
 	return null;
 }
 
-function parseBulkValue(field: BulkField, rawValue: string) {
+function parseBulkValue(field: BulkField, rawValue: string, backendRange?: BackendFieldRange) {
 	const value = rawValue.trim();
 	if (field.type === "boolean") {
 		const parsed = parseBooleanValue(value);
@@ -215,12 +275,18 @@ function parseBulkValue(field: BulkField, rawValue: string) {
 	}
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed)) throw new Error(`${field.key} must be a number.`);
-	if (field.min !== undefined && parsed < field.min) throw new Error(`${field.key} must be at least ${field.min}.`);
-	if (field.max !== undefined && parsed > field.max) throw new Error(`${field.key} must be at most ${field.max}.`);
+	const min = typeof backendRange?.min === "number" ? backendRange.min : field.min;
+	const max = typeof backendRange?.max === "number" ? backendRange.max : field.max;
+	if (min !== undefined && parsed < min) throw new Error(`${field.key} must be at least ${min}.`);
+	if (max !== undefined && parsed > max) throw new Error(`${field.key} must be at most ${max}.`);
 	return parsed;
 }
 
-function applyPipelineBulkText(current: PipelineOptions, text: string) {
+function applyPipelineBulkText(
+	current: PipelineOptions,
+	text: string,
+	fieldRanges: Record<string, BackendFieldRange> = {},
+) {
 	const errors: string[] = [];
 	const applied: string[] = [];
 	let next: PipelineOptions = { ...current };
@@ -240,7 +306,10 @@ function applyPipelineBulkText(current: PipelineOptions, text: string) {
 			continue;
 		}
 		try {
-			const parsed = parseBulkValue(field, line.slice(separatorIndex + 1));
+			const backendRange = field.path.length === 1
+				? fieldRanges.timingSourcePolicy
+				: fieldRanges[`${field.path[0]}.${field.path[1]}`];
+			const parsed = parseBulkValue(field, line.slice(separatorIndex + 1), backendRange);
 			if (field.path.length === 1) {
 				next = { ...next, timingSourcePolicy: parsed };
 			} else {
@@ -274,12 +343,14 @@ export function AdminTranscriptionControls({
 	configurations,
 	healthStatus,
 	timingHealth,
+	transcriptionCatalog,
 	lastProductionRequest,
 }: {
 	active: Configuration | null;
 	configurations: Configuration[];
 	healthStatus: string;
 	timingHealth: Record<string, unknown> | null;
+	transcriptionCatalog: Record<string, unknown> | null;
 	lastProductionRequest: string | null;
 }) {
 	const router = useRouter();
@@ -293,12 +364,40 @@ export function AdminTranscriptionControls({
 	);
 	const [model, setModel] = useState<string>(active?.model ?? "saaras:v3");
 	const selectedEntry = models.find((entry) => entry.model === model) ?? models[0];
+	const backendCatalog = transcriptionCatalog as BackendCatalogPayload | null;
+	const backendFieldRanges = (backendCatalog?.presets?.fieldRanges ?? {}) as Record<string, BackendFieldRange>;
+	const timingPresets = useMemo(
+		() => backendCatalog?.presets?.presets ?? [],
+		[backendCatalog],
+	);
+	const compatiblePresets = useMemo(
+		() =>
+			timingPresets.filter((preset) =>
+				(preset.compatibilities ?? []).some(
+					(item) =>
+						item.provider === provider &&
+						item.model === model &&
+						item.state !== "unsupported",
+				),
+			),
+		[timingPresets, provider, model],
+	);
+	const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
+		active?.presetId ?? "sarvam_telgish_balanced",
+	);
+	const selectedPreset =
+		compatiblePresets.find((preset) => preset.id === selectedPresetId) ??
+		compatiblePresets[0] ??
+		null;
 	const [sarvamMode, setSarvamMode] = useState("transcribe");
 	const [pipelineOptions, setPipelineOptions] = useState<PipelineOptions>(() =>
 		mergePipelineOptions(
 			DEFAULT_PIPELINE_OPTIONS,
 			active?.pipelineOptions ?? {},
 		),
+	);
+	const [pipelineOptionSources, setPipelineOptionSources] = useState<Record<string, unknown>>(
+		active?.pipelineOptionSources ?? {},
 	);
 	const [bulkText, setBulkText] = useState(TIMING_FIX_PRESET);
 	const [bulkMessage, setBulkMessage] = useState<string | null>(null);
@@ -371,13 +470,24 @@ export function AdminTranscriptionControls({
 	};
 
 	const applyBulkText = () => {
-		const result = applyPipelineBulkText(pipelineOptions, bulkText);
+		const result = applyPipelineBulkText(pipelineOptions, bulkText, backendFieldRanges);
 		if (result.errors.length > 0) {
 			setBulkMessage(result.errors.slice(0, 4).join(" "));
 			return;
 		}
 		setPipelineOptions(result.next);
+		setPipelineOptionSources((current) => ({
+			...current,
+			bulkOverrides: result.applied,
+		}));
 		setBulkMessage(`Applied ${result.applied.length} parameter${result.applied.length === 1 ? "" : "s"}. Save a draft to persist these values.`);
+	};
+
+	const applyPreset = (preset: TimingPreset) => {
+		setSelectedPresetId(preset.id);
+		setPipelineOptions(mergePipelineOptions(DEFAULT_PIPELINE_OPTIONS, preset.pipelineOptions));
+		setPipelineOptionSources(sourceTreeForPreset(preset));
+		setBulkMessage(`${preset.displayName} applied. Save a draft to persist this immutable preset snapshot.`);
 	};
 
 	return (
@@ -475,6 +585,66 @@ export function AdminTranscriptionControls({
 							</div>
 						) : null}
 						<div className="grid gap-3 border p-4 md:col-span-2">
+							<div className="flex flex-wrap items-end justify-between gap-3">
+								<div>
+									<Label>Timing presets</Label>
+									<p className="mt-1 text-xs text-muted-foreground">
+										Backend-defined presets change VAD, stable-ts, chunking, quality gates, and timing policy for new jobs.
+									</p>
+								</div>
+								{selectedPreset ? (
+									<Badge variant="outline">
+										Selected: {selectedPreset.displayName} v{selectedPreset.version}
+									</Badge>
+								) : null}
+							</div>
+							{compatiblePresets.length > 0 ? (
+								<div className="grid gap-3 lg:grid-cols-2">
+									{compatiblePresets.map((preset) => {
+										const activePreset = selectedPreset?.id === preset.id;
+										const compatibility = (preset.compatibilities ?? []).find(
+											(item) => item.provider === provider && item.model === model,
+										);
+										const options = preset.pipelineOptions;
+										const presetAlignment = section(options, "alignment");
+										const presetVad = section(options, "vad");
+										const presetCaption = section(options, "captionChunking");
+										const presetQuality = section(options, "quality");
+										return (
+											<button
+												key={preset.id}
+												type="button"
+												onClick={() => applyPreset(preset)}
+												className={`border p-3 text-left transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+													activePreset ? "border-primary bg-primary/10" : "border-border bg-background"
+												}`}
+											>
+												<div className="flex items-start justify-between gap-3">
+													<div>
+														<p className="font-semibold">{preset.displayName}</p>
+														<p className="mt-1 text-xs text-muted-foreground">{preset.purpose}</p>
+													</div>
+													<Badge variant="outline">{compatibility?.state ?? preset.status}</Badge>
+												</div>
+												<div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+													<span>VAD {String(section(options, "audioChunking").targetSeconds)}-{String(section(options, "audioChunking").maxSeconds)}s</span>
+													<span>Pause {String(presetVad.pauseThresholdSeconds)}s</span>
+													<span>stable-ts {String(presetAlignment.stableTsEnabled ? presetAlignment.stableTsModel : "off")}</span>
+													<span>Fallback {String(presetAlignment.allowStableTsOrderFallback ? "on" : "off")}</span>
+													<span>Words {String(presetCaption.maxWords)}</span>
+													<span>Estimated max {Math.round(numberValue(presetQuality.maximumEstimatedWordRatio, 0) * 100)}%</span>
+												</div>
+											</button>
+										);
+									})}
+								</div>
+							) : (
+								<p className="text-sm text-muted-foreground">
+									No backend preset is compatible with this provider/model. Choose a supported model or use Advanced settings.
+								</p>
+							)}
+						</div>
+						<div className="grid gap-3 border p-4 md:col-span-2">
 							<div>
 								<Label>Paste Parameters</Label>
 								<p className="mt-1 text-xs text-muted-foreground">
@@ -503,7 +673,14 @@ export function AdminTranscriptionControls({
 							</div>
 							{bulkMessage ? <p className="text-sm text-muted-foreground">{bulkMessage}</p> : null}
 						</div>
-						<div className="grid gap-4 border p-4 md:col-span-2">
+						<details className="border p-4 md:col-span-2">
+							<summary className="cursor-pointer font-semibold">
+								Advanced settings
+							</summary>
+							<p className="mt-1 text-xs text-muted-foreground">
+								Clone and customize the selected preset. Values must stay within the backend-defined ranges and are saved into the immutable job snapshot.
+							</p>
+							<div className="mt-4 grid gap-4">
 							<div>
 								<Label>Timing source policy</Label>
 								<Select
@@ -809,7 +986,8 @@ export function AdminTranscriptionControls({
 									</p>
 								</div>
 							</div>
-						</div>
+							</div>
+						</details>
 						<div className="grid gap-2 md:col-span-2">
 							<Label>Reason</Label>
 							<Textarea value={reason} onChange={(event) => setReason(event.target.value)} className="min-h-24" />
@@ -824,6 +1002,9 @@ export function AdminTranscriptionControls({
 								model,
 								providerOptions: provider === "sarvam" ? { ...defaultProviderOptions("sarvam"), mode: sarvamMode } : {},
 								pipelineOptions,
+								presetId: selectedPreset?.id ?? null,
+								presetVersion: selectedPreset?.version ?? null,
+								pipelineOptionSources,
 								reason,
 							})}
 						>
@@ -857,6 +1038,7 @@ export function AdminTranscriptionControls({
 						<div className="grid gap-2 rounded-md border p-3 text-sm">
 							<p><strong>{configurationLabel(selectedConfig)}</strong></p>
 							<p>Configuration ID: {selectedConfig.id}</p>
+							<p>Preset: {selectedConfig.presetId ? `${selectedConfig.presetId} / v${selectedConfig.presetVersion ?? "?"}` : "Custom"}</p>
 							<p>{selectedConfig.timestampStrategy}</p>
 							<p>Timing policy: {String(selectedConfig.pipelineOptions?.timingSourcePolicy ?? "native_then_forced")}</p>
 							<p>Test: {selectedConfig.testStatus}{selectedConfig.testErrorCode ? ` (${selectedConfig.testErrorCode})` : ""}</p>
