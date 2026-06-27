@@ -126,7 +126,7 @@ def cap_same_group_word_overlaps(
             next_start = _finite_time(next_word.get("start"))
             if current_start is None or current_end is None or next_start is None:
                 continue
-            if current_end <= next_start - WORD_BOUNDARY_EPSILON_SECONDS:
+            if current_end <= next_start:
                 continue
 
             original_start = current_start
@@ -150,8 +150,36 @@ def cap_same_group_word_overlaps(
                     current_start, safe_end = native_range
                     repair_reason = "overlap_reverted_to_native_before_next_word"
                 else:
-                    safe_end = current_start
-                    repair_reason = "overlap_unrepairable_before_next_word"
+                    if diagnostics is not None:
+                        diagnostics["sameGroupOverlapUnrepairable"] = int(diagnostics.get("sameGroupOverlapUnrepairable") or 0) + 1
+                        diagnostics.setdefault("timingMutationSamples", []).append(
+                            {
+                                "stage": stage,
+                                "alignmentGroupId": group_id,
+                                "word": _word_text(current),
+                                "originalStart": round(original_start, 3),
+                                "originalEnd": round(original_end, 3),
+                                "newStart": original_start,
+                                "newEnd": original_end,
+                                "nextWord": _word_text(next_word),
+                                "nextStart": round(next_start, 3),
+                                "reason": "overlap_unrepairable_before_next_word",
+                                "sourceStart": group_start,
+                                "sourceEnd": group_end,
+                                "decision": "kept_original_timing",
+                            }
+                        )
+                    logger.warning(
+                        "timing_same_group_overlap_unrepairable stage=%s alignmentGroupId=%s word=%r start=%.3f end=%.3f nextWord=%r nextStart=%.3f",
+                        stage,
+                        group_id,
+                        _word_text(current),
+                        original_start,
+                        original_end,
+                        _word_text(next_word),
+                        next_start,
+                    )
+                    continue
 
             new_start = round(current_start, 3)
             new_end = round(safe_end, 3)
@@ -430,6 +458,7 @@ def sanitize_aligned_word_ranges(
         "repairedWords": repaired_words,
         "droppedWords": dropped_words,
         "sameGroupOverlapCaps": overlap_caps,
+        "sameGroupOverlapUnrepairable": overlap_caps_report.get("sameGroupOverlapUnrepairable") or 0,
         "timingMutationSamples": overlap_caps_report.get("timingMutationSamples") or [],
     }
     if repaired_words or dropped_words:

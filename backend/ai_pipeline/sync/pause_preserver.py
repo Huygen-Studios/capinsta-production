@@ -33,6 +33,64 @@ def _mark_pause_preserved(word: dict[str, Any]) -> None:
     word["timingRepairReason"] = "hard_speech_gap_boundary_repair"
 
 
+def _word_text(word: dict[str, Any]) -> str:
+    return str(word.get("displayedWord") or word.get("word") or word.get("spokenWord") or "").strip()
+
+
+def _group_id(word: dict[str, Any], fallback: str) -> str:
+    return str(word.get("alignmentGroupId") or fallback)
+
+
+def _group_bounds(words: list[dict[str, Any]]) -> tuple[float | None, float | None]:
+    starts = [_finite_time(word.get("sourceStart")) for word in words]
+    ends = [_finite_time(word.get("sourceEnd")) for word in words]
+    group_start = min((value for value in starts if value is not None), default=None)
+    group_end = max((value for value in ends if value is not None), default=None)
+    return group_start, group_end
+
+
+def _group_timing_snapshot(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "word": _word_text(word),
+            "start": _finite_time(word.get("start")),
+            "end": _finite_time(word.get("end")),
+            "timingSource": word.get("timingSourceDetail") or word.get("timingSource") or word.get("timing_source"),
+        }
+        for word in words
+    ]
+
+
+def _group_full_snapshot(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(word) for word in words]
+
+
+def _restore_group_snapshot(words: list[dict[str, Any]], snapshot: list[dict[str, Any]]) -> None:
+    for word, original in zip(words, snapshot):
+        word.clear()
+        word.update(original)
+
+
+def _first_group_timing_violation(words: list[dict[str, Any]]) -> str | None:
+    group_start, group_end = _group_bounds(words)
+    previous_end: float | None = None
+    for index, word in enumerate(words):
+        start = _finite_time(word.get("start"))
+        end = _finite_time(word.get("end"))
+        if start is None or end is None:
+            return f"word[{index}] has non-finite timing"
+        if end <= start:
+            return f"word[{index}] end <= start"
+        if group_start is not None and start < group_start - 1e-6:
+            return f"word[{index}] starts before groupStart"
+        if group_end is not None and end > group_end + 1e-6:
+            return f"word[{index}] ends after groupEnd"
+        if previous_end is not None and start < previous_end - 1e-6:
+            return f"word[{index}] starts before previous word end"
+        previous_end = end
+    return None
+
+
 def preserve_detected_pauses(
     segments: list[dict[str, Any]],
     silence_gaps: list[dict[str, Any]],
@@ -53,6 +111,7 @@ def preserve_detected_pauses(
         "wordsClampedForPause": 0,
         "wordsRejectedForCrossingHardGap": 0,
         "sameGroupOverlapCaps": 0,
+        "pauseCandidateRollbacks": 0,
     }
     if diagnostics is not None:
         diagnostics.update(stats)
@@ -78,6 +137,9 @@ def preserve_detected_pauses(
         )
     )
     words = [word for _, word in indexed_words]
+    group_words: dict[str, list[dict[str, Any]]] = {}
+    for index, word in enumerate(words):
+        group_words.setdefault(_group_id(word, f"sequence:{index}"), []).append(word)
     valid_gaps: list[tuple[float, float]] = []
     for gap in silence_gaps:
         start = _finite_time(gap.get("start")) if isinstance(gap, dict) else None
@@ -88,11 +150,25 @@ def preserve_detected_pauses(
         if duration + 1e-6 >= max(0.0, pause_threshold):
             valid_gaps.append((start, end))
     valid_gaps.sort()
+    invalid_pause_groups: set[str] = set()
 
     for gap_start, gap_end in valid_gaps:
         gap_changed = False
+        group_snapshots: dict[str, list[dict[str, Any]]] = {
+            group_id: _group_full_snapshot(group)
+            for group_id, group in group_words.items()
+        }
+        group_timing_snapshots: dict[str, list[dict[str, Any]]] = {
+            group_id: _group_timing_snapshot(group)
+            for group_id, group in group_words.items()
+        }
+        changed_groups: set[str] = set()
+        changed_word_count_by_group: dict[str, int] = {}
 
-        for word in words:
+        for word_index, word in enumerate(words):
+            group_id = _group_id(word, f"sequence:{word_index}")
+            if group_id in invalid_pause_groups:
+                continue
             word_start = float(word["start"])
             word_end = float(word["end"])
             if word_end <= gap_start + 1e-6 or word_start >= gap_end - 1e-6:
@@ -160,7 +236,38 @@ def preserve_detected_pauses(
                 _mark_pause_preserved(word)
                 stats["wordsClampedForPause"] += 1
                 stats["wordsRejectedForCrossingHardGap"] += 1
+                changed_groups.add(group_id)
+                changed_word_count_by_group[group_id] = changed_word_count_by_group.get(group_id, 0) + 1
                 gap_changed = True
+
+        for group_id in sorted(changed_groups):
+            group = group_words.get(group_id) or []
+            violation = _first_group_timing_violation(group)
+            if violation is None:
+                continue
+            candidate_snapshot = _group_timing_snapshot(group)
+            _restore_group_snapshot(group, group_snapshots[group_id])
+            invalid_pause_groups.add(group_id)
+            stats["pauseCandidateRollbacks"] += 1
+            reverted_count = changed_word_count_by_group.get(group_id, 0)
+            stats["wordsClampedForPause"] = max(0, stats["wordsClampedForPause"] - reverted_count)
+            stats["wordsRejectedForCrossingHardGap"] = max(0, stats["wordsRejectedForCrossingHardGap"] - reverted_count)
+            gap_changed = False
+            rollback_sample = {
+                "stage": "pause_preservation",
+                "alignmentGroupId": group_id,
+                "gapStart": round(gap_start, 3),
+                "gapEnd": round(gap_end, 3),
+                "decision": "rollback",
+                "violation": violation,
+                "sourceStart": _group_bounds(group)[0],
+                "sourceEnd": _group_bounds(group)[1],
+                "preMutationTimings": group_timing_snapshots[group_id],
+                "candidateTimings": candidate_snapshot,
+            }
+            if diagnostics is not None:
+                diagnostics.setdefault("pauseCandidateDecisions", []).append(rollback_sample)
+            logger.warning("pause_preservation_skipped_invalid_candidate %s", rollback_sample)
 
         gap_is_clear = not any(
             float(word["start"]) < gap_end - 1e-6
@@ -180,6 +287,10 @@ def preserve_detected_pauses(
         diagnostics=overlap_diagnostics,
         stage="pause_preservation",
     )
+    for key, value in overlap_diagnostics.items():
+        if key == "timingMutationSamples":
+            continue
+        stats[key] = value
     if overlap_diagnostics.get("timingMutationSamples") and diagnostics is not None:
         diagnostics["timingMutationSamples"] = overlap_diagnostics["timingMutationSamples"]
 

@@ -134,3 +134,48 @@ def test_final_gate_pass_report_contains_sources_and_counts():
     assert report["stableTsOrderAdjustedCount"] == 0
     assert report["estimatedWordRatio"] == 0
     assert report["resolvedConfigSources"]["vad"]["sileroEnabled"] == "snapshot"
+
+
+def test_final_gate_accepts_restored_ag_0027_sequence():
+    report = validate_final_timing_quality(
+        [
+            {
+                "words": [
+                    {
+                        "word": "istaav",
+                        "start": 38.064,
+                        "end": 38.104,
+                        "alignmentGroupId": "ag-0027",
+                        "sourceStart": 38.0,
+                        "sourceEnd": 40.7,
+                        "timingSource": "stable_ts_forced_align",
+                    },
+                    {
+                        "word": "ippudu",
+                        "start": 38.104,
+                        "end": 39.164,
+                        "alignmentGroupId": "ag-0027",
+                        "sourceStart": 38.0,
+                        "sourceEnd": 40.7,
+                        "timingSource": "stable_ts_forced_align",
+                    },
+                    {
+                        "word": "gaa",
+                        "start": 39.204,
+                        "end": 40.604,
+                        "alignmentGroupId": "ag-0027",
+                        "sourceStart": 38.0,
+                        "sourceEnd": 40.7,
+                        "timingSource": "stable_ts_forced_align",
+                    },
+                ]
+            }
+        ],
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
+
+    assert report["invalidRangeCount"] == 0
+    assert report["overlapCount"] == 0
+    assert report["passed"] is True

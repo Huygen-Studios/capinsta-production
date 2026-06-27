@@ -89,3 +89,59 @@ def test_sanitizer_trims_previous_word_instead_of_shifting_next_word():
     assert words[1]["start"] == 17.446
     assert words[1]["end"] == 17.486
     assert words[0]["timingRepairReason"] == "overlap_trimmed_before_next_word"
+
+
+def test_sanitizer_leaves_exact_adjacent_words_unchanged():
+    segments = [
+        {
+            "words": [
+                {"word": "istaav", "start": 38.064, "end": 38.104, "alignmentGroupId": "ag-0027"},
+                {"word": "ippudu", "start": 38.104, "end": 39.164, "alignmentGroupId": "ag-0027"},
+            ]
+        }
+    ]
+
+    repaired, report = sanitize_aligned_word_ranges(segments)
+    words = repaired[0]["words"]
+
+    assert report["sameGroupOverlapCaps"] == 0
+    assert words[0]["start"] == 38.064
+    assert words[0]["end"] == 38.104
+    assert words[1]["start"] == 38.104
+    assert words[1]["end"] == 39.164
+
+
+def test_sanitizer_unrepairable_overlap_never_commits_zero_duration_word():
+    segments = [
+        {
+            "words": [
+                {
+                    "word": "istaav",
+                    "start": 38.064,
+                    "end": 38.104,
+                    "alignmentGroupId": "ag-0027",
+                    "sourceStart": 38.0,
+                    "sourceEnd": 40.7,
+                },
+                {
+                    "word": "ippudu",
+                    "start": 38.064,
+                    "end": 38.496,
+                    "alignmentGroupId": "ag-0027",
+                    "sourceStart": 38.0,
+                    "sourceEnd": 40.7,
+                },
+            ]
+        }
+    ]
+
+    repaired, report = sanitize_aligned_word_ranges(segments)
+    words = repaired[0]["words"]
+
+    assert report["sameGroupOverlapCaps"] == 0
+    assert report["sameGroupOverlapUnrepairable"] == 1
+    assert words[0]["start"] == 38.064
+    assert words[0]["end"] == 38.104
+    assert words[0]["end"] > words[0]["start"]
+    assert words[1]["start"] == 38.064
+    assert words[1]["end"] == 38.496
