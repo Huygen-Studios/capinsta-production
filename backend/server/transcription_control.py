@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from .settings import DB_PATH
-from .transcription_catalog import catalog_entry, model_runtime_availability, validate_catalog_selection
+from .transcription_catalog import catalog_entry, canonical_catalog_selection, model_runtime_availability, validate_catalog_selection
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
 from ai_pipeline.timing_presets import resolve_preset_pipeline_options, validate_preset_compatibility
 
@@ -222,22 +222,36 @@ def _snapshot_from_row(row: dict[str, Any]) -> TranscriptionConfigSnapshot:
         str(preset_id) if preset_id else None,
         dict(pipeline_options),
     )
-    validate_catalog_selection(
+    canonical_provider, canonical_model, alias_sources = canonical_catalog_selection(
         str(row["provider"]),
         str(row["model"]),
+    )
+    validate_catalog_selection(
+        canonical_provider,
+        canonical_model,
         str(row["timestamp_strategy"]),
         provider_options,
     )
     validate_preset_compatibility(
         str(preset_id) if preset_id else None,
-        str(row["provider"]),
-        str(row["model"]),
+        canonical_provider,
+        canonical_model,
         timestamp_strategy=str(row["timestamp_strategy"]),
     )
+    if alias_sources:
+        logger.warning(
+            "transcription_config_legacy_provider_model_alias configuration_id=%s provider=%s model=%s canonical_provider=%s canonical_model=%s aliases=%s",
+            row.get("id"),
+            row.get("provider"),
+            row.get("model"),
+            canonical_provider,
+            canonical_model,
+            ",".join(alias_sources),
+        )
     return TranscriptionConfigSnapshot(
         configuration_id=str(row["id"]),
-        provider=str(row["provider"]),
-        model=str(row["model"]),
+        provider=canonical_provider,
+        model=canonical_model,
         version=int(row["version"]),
         provider_options=dict(provider_options),
         timestamp_strategy=str(row["timestamp_strategy"]),

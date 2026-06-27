@@ -640,7 +640,9 @@ export function AdminTranscriptionControls({
 								</div>
 							) : (
 								<p className="text-sm text-muted-foreground">
-									No backend preset is compatible with this provider/model. Choose a supported model or use Advanced settings.
+									{backendCatalog
+										? "No backend preset is compatible with this provider/model. Choose a supported model or use Advanced settings."
+										: "Backend preset catalog is unavailable. Restore the backend readiness endpoint and admin catalog route before testing presets."}
 								</p>
 							)}
 						</div>

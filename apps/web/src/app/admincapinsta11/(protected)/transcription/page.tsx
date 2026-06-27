@@ -10,7 +10,7 @@ import {
 	providerHealthEvents,
 } from "@/db/schema";
 import { webEnv } from "@/env/web";
-import { isTranscriptionProvider } from "@/transcription/provider-catalog";
+import { canonicalizeTranscriptionSelection } from "@/transcription/provider-catalog";
 
 export default async function TranscriptionPage() {
 	await requireAdminPermission("system.read");
@@ -56,14 +56,26 @@ export default async function TranscriptionPage() {
 		});
 		return <TranscriptionLoadError correlationId={correlationId} />;
 	}
-	const serializedConfigs = configs.map((item) => ({
-		...item,
-		provider: isTranscriptionProvider(item.provider) ? item.provider : "gemini",
-		testedAt: item.testedAt?.toISOString() ?? null,
-		activatedAt: item.activatedAt?.toISOString() ?? null,
-		createdAt: item.createdAt.toISOString(),
-		updatedAt: item.updatedAt.toISOString(),
-	}));
+	const serializedConfigs = configs.map((item) => {
+		const canonical = canonicalizeTranscriptionSelection({
+			provider: item.provider,
+			model: item.model,
+		});
+		if (!canonical) {
+			throw new Error(
+				`unsupported_transcription_configuration_provider_model provider=${item.provider} model=${item.model}`,
+			);
+		}
+		return {
+			...item,
+			provider: canonical.provider,
+			model: canonical.model,
+			testedAt: item.testedAt?.toISOString() ?? null,
+			activatedAt: item.activatedAt?.toISOString() ?? null,
+			createdAt: item.createdAt.toISOString(),
+			updatedAt: item.updatedAt.toISOString(),
+		};
+	});
 	const serializedActive =
 		serializedConfigs.find((item) => item.status === "active") ?? null;
 	const healthStatus =

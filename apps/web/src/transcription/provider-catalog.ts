@@ -141,6 +141,64 @@ export function getTranscriptionCatalogEntry({
 	);
 }
 
+function aliasKey(value: string): string {
+	return value.trim().toLowerCase().replace(/[-_]/g, " ").replace(/\s+/g, " ");
+}
+
+const PROVIDER_ALIASES: Record<string, TranscriptionProvider> = {
+	gemini: "gemini",
+	"google gemini": "gemini",
+	openai: "openai",
+	"openai whisper": "openai",
+	sarvam: "sarvam",
+	"sarvam saaras": "sarvam",
+	"sarvam saaras v3": "sarvam",
+};
+
+export function canonicalizeTranscriptionSelection({
+	provider,
+	model,
+}: {
+	provider: string;
+	model: string;
+}): { provider: TranscriptionProvider; model: string; aliases: string[] } | null {
+	const exact = getTranscriptionCatalogEntry({ provider, model });
+	if (exact) return { provider: exact.provider, model: exact.model, aliases: [] };
+
+	const aliases: string[] = [];
+	let providerKey = PROVIDER_ALIASES[aliasKey(provider)];
+	let modelKey = model.trim();
+
+	for (const entry of TRANSCRIPTION_PROVIDER_CATALOG) {
+		if (aliasKey(provider) === aliasKey(entry.displayName)) {
+			providerKey = entry.provider;
+			aliases.push("provider_display_label");
+			if (!modelKey || aliasKey(modelKey) === aliasKey(entry.displayName)) {
+				modelKey = entry.model;
+				aliases.push("model_display_label");
+				return { provider: entry.provider, model: entry.model, aliases };
+			}
+			break;
+		}
+	}
+
+	if (!providerKey) return null;
+	if (providerKey !== provider) aliases.push("provider_alias");
+
+	for (const entry of TRANSCRIPTION_PROVIDER_CATALOG) {
+		if (entry.provider !== providerKey) continue;
+		if (
+			aliasKey(modelKey) === aliasKey(entry.model) ||
+			aliasKey(modelKey) === aliasKey(entry.displayName)
+		) {
+			if (modelKey !== entry.model) aliases.push("model_alias");
+			return { provider: entry.provider, model: entry.model, aliases };
+		}
+	}
+
+	return null;
+}
+
 export function defaultProviderOptions(provider: TranscriptionProvider) {
 	if (provider === "sarvam") {
 		return {

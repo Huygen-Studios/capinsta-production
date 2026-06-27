@@ -151,6 +151,66 @@ TRANSCRIPTION_PROVIDER_CATALOG: tuple[CatalogEntry, ...] = (
 )
 
 
+def _alias_key(value: str) -> str:
+    return " ".join(value.strip().lower().replace("-", " ").replace("_", " ").split())
+
+
+_PROVIDER_ALIASES: dict[str, TranscriptionProvider] = {
+    "google gemini": "gemini",
+    "gemini": "gemini",
+    "openai": "openai",
+    "openai whisper": "openai",
+    "sarvam": "sarvam",
+    "sarvam saaras": "sarvam",
+    "sarvam saaras v3": "sarvam",
+}
+
+
+def canonical_catalog_selection(provider: str, model: str) -> tuple[str, str, list[str]]:
+    """Resolve legacy/display values to canonical provider/model keys.
+
+    This is intentionally separate from ``catalog_entry`` so display labels are
+    never accepted as stored internal keys by accident.
+    """
+    raw_provider = provider.strip()
+    raw_model = model.strip()
+    aliases: list[str] = []
+
+    exact = catalog_entry(raw_provider, raw_model)
+    if exact is not None:
+        return exact.provider, exact.model, aliases
+
+    provider_key = _PROVIDER_ALIASES.get(_alias_key(raw_provider), raw_provider.lower())
+    if provider_key != raw_provider:
+        aliases.append("provider_alias")
+
+    for entry in TRANSCRIPTION_PROVIDER_CATALOG:
+        if _alias_key(raw_provider) == _alias_key(entry.display_name):
+            provider_key = entry.provider
+            if not raw_model or _alias_key(raw_model) == _alias_key(entry.display_name):
+                aliases.extend(["provider_display_label", "model_display_label"])
+                return entry.provider, entry.model, aliases
+            aliases.append("provider_display_label")
+            break
+
+    model_key = raw_model
+    for entry in TRANSCRIPTION_PROVIDER_CATALOG:
+        if entry.provider != provider_key:
+            continue
+        candidates = {
+            _alias_key(entry.model),
+            _alias_key(entry.display_name),
+            _alias_key(entry.display_name.replace(entry.provider, "")),
+        }
+        if _alias_key(raw_model) in candidates:
+            model_key = entry.model
+            if raw_model != entry.model:
+                aliases.append("model_alias")
+            break
+
+    return str(provider_key), model_key, aliases
+
+
 def catalog_entry(provider: str, model: str) -> CatalogEntry | None:
     provider = provider.strip().lower()
     model = model.strip()
@@ -161,7 +221,8 @@ def catalog_entry(provider: str, model: str) -> CatalogEntry | None:
 
 
 def validate_catalog_selection(provider: str, model: str, timestamp_strategy: str, provider_options: dict | None = None) -> CatalogEntry:
-    entry = catalog_entry(provider, model)
+    canonical_provider, canonical_model, _aliases = canonical_catalog_selection(provider, model)
+    entry = catalog_entry(canonical_provider, canonical_model)
     if entry is None:
         raise ValueError("unsupported_model")
     if timestamp_strategy != entry.timestamp_strategy:

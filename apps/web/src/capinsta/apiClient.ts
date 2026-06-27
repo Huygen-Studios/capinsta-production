@@ -19,6 +19,7 @@ import { CAPINSTA_PRESET_IDS } from "./styles/presetRegistry";
 import type { CapinstaCaptionPresetId } from "./styles/styleTypes";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { readJsonApiResponse } from "./api-response";
+import { buildCapinstaApiUrl, buildCapinstaHealthUrl } from "./api-url";
 
 export class CapinstaApiError extends Error {
 	constructor(
@@ -28,10 +29,6 @@ export class CapinstaApiError extends Error {
 		super(message);
 		this.name = "CapinstaApiError";
 	}
-}
-
-function joinUrl(baseUrl: string, path: string): string {
-	return `${baseUrl.replace(/\/+$/, "")}${path}`;
 }
 
 async function readJsonResponse<T>({
@@ -82,7 +79,7 @@ export async function checkCapinstaHealth({
 	signal?: AbortSignal;
 }): Promise<CapinstaHealthResponse> {
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
-	const endpoint = joinUrl(baseUrl, "/health");
+	const endpoint = buildCapinstaHealthUrl({ baseUrl });
 	const response = await fetchImpl(endpoint, { signal });
 	return readJsonResponse<CapinstaHealthResponse>({ response, endpoint });
 }
@@ -108,8 +105,9 @@ export async function startCapinstaCaptionJob({
 	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
 	else if (file) formData.append("file", file);
 	else throw new CapinstaApiError("Caption media is unavailable.");
+	const endpoint = buildCapinstaApiUrl({ baseUrl, path: "/jobs" });
 	console.debug("[Capinsta captions] Upload request", {
-		endpoint: "/api/jobs",
+		endpoint,
 		fileName: file?.name,
 		fileType: file?.type,
 		fileSize: file?.size,
@@ -119,7 +117,6 @@ export async function startCapinstaCaptionJob({
 		captionOutput,
 	});
 
-	const endpoint = joinUrl(baseUrl, "/api/jobs");
 	const response = await authenticatedFetch(
 		endpoint,
 		{
@@ -148,7 +145,7 @@ export async function getCapinstaJob({
 	fetchImpl?: typeof fetch;
 	signal?: AbortSignal;
 }): Promise<CapinstaJobDetailResponse> {
-	const endpoint = joinUrl(baseUrl, `/api/jobs/${jobId}`);
+	const endpoint = buildCapinstaApiUrl({ baseUrl, path: `/jobs/${jobId}` });
 	const response = await authenticatedFetch(
 		endpoint,
 		{
@@ -180,7 +177,10 @@ export async function cancelCapinstaJob({
 	jobId: string;
 	fetchImpl?: typeof fetch;
 }): Promise<CapinstaJobCreateResponse> {
-	const endpoint = joinUrl(baseUrl, `/api/jobs/${jobId}/cancel`);
+	const endpoint = buildCapinstaApiUrl({
+		baseUrl,
+		path: `/jobs/${jobId}/cancel`,
+	});
 	const response = await authenticatedFetch(
 		endpoint,
 		{
@@ -265,7 +265,10 @@ export async function sendCapinstaProjectHeartbeat({
 	signal?: AbortSignal;
 }): Promise<{ job_id: string; last_seen_at: string; expires_at: string }> {
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
-	const endpoint = joinUrl(baseUrl, `/api/jobs/${jobId}/heartbeat`);
+	const endpoint = buildCapinstaApiUrl({
+		baseUrl,
+		path: `/jobs/${jobId}/heartbeat`,
+	});
 	const response = await authenticatedFetch(
 		endpoint,
 		{

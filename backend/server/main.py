@@ -37,7 +37,7 @@ import uuid
 from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
 from .api import admin, captions, health, jobs, export_jobs, media_assets, projects
-from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, validate_storage_startup
+from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, DB_PATH, validate_storage_startup
 from .auth import (
     AuthBoundaryError,
     authenticate_request,
@@ -64,9 +64,37 @@ from .runtime_policy import (
 
 logger = logging.getLogger(__name__)
 
+
+def _log_startup_operational_summary() -> None:
+    try:
+        from ai_pipeline.timing_presets import TIMING_PRESETS
+        from .transcription_catalog import public_catalog
+
+        catalog = public_catalog()
+        logger.info(
+            "backend_startup bind_host=%s port=%s api_prefix=%s readiness_route=%s "
+            "db_path=%s provider_catalog_count=%s provider_models=%s "
+            "preset_catalog_count=%s silero_check=%s stable_ts_check=%s",
+            "0.0.0.0",
+            os.getenv("PORT", "10000"),
+            "/api",
+            "/health/ready",
+            DB_PATH,
+            len(catalog),
+            ",".join(
+                sorted(f"{item.get('provider')}:{item.get('model')}" for item in catalog)
+            ),
+            len(TIMING_PRESETS),
+            "deferred_to_health_timing",
+            "deferred_to_health_timing",
+        )
+    except Exception as exc:
+        logger.warning("backend_startup_summary_failed error=%s", exc)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize Database
+    _log_startup_operational_summary()
     ensure_runtime_dirs()
     validate_storage_startup()
     await init_db()
@@ -319,6 +347,16 @@ app.include_router(admin.internal_router, prefix="/api")
 @app.get("/health", response_model=health.HealthResponse)
 async def root_health_check():
     return await health.health_payload()
+
+
+@app.get("/health/ready", response_model=health.ReadinessResponse)
+async def root_readiness_check():
+    return health.readiness_payload()
+
+
+@app.get("/health/startup")
+async def root_startup_diagnostics_check():
+    return health.startup_diagnostics_payload()
 
 
 @app.get("/health/export")

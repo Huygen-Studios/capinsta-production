@@ -304,9 +304,6 @@ const transcriptionConfigurationReturning = {
 	model: transcriptionConfigurations.model,
 	providerOptions: transcriptionConfigurations.providerOptions,
 	timestampStrategy: transcriptionConfigurations.timestampStrategy,
-	presetId: transcriptionConfigurations.presetId,
-	presetVersion: transcriptionConfigurations.presetVersion,
-	pipelineOptionSources: transcriptionConfigurations.pipelineOptionSources,
 	strictProvider: transcriptionConfigurations.strictProvider,
 	status: transcriptionConfigurations.status,
 	version: transcriptionConfigurations.version,
@@ -1116,6 +1113,9 @@ export async function POST(request: Request) {
 				afterValue = {
 					...tested,
 					pipelineOptions: current.pipelineOptions,
+					presetId: current.presetId,
+					presetVersion: current.presetVersion,
+					pipelineOptionSources: current.pipelineOptionSources,
 					createdBy: context!.userId,
 					activationEligibility: tested.testStatus === "passed",
 				};
@@ -1171,6 +1171,9 @@ export async function POST(request: Request) {
 				afterValue = {
 					...activated,
 					pipelineOptions: current.pipelineOptions,
+					presetId: current.presetId,
+					presetVersion: current.presetVersion,
+					pipelineOptionSources: current.pipelineOptionSources,
 					createdBy: context!.userId,
 					activationEligibility: true,
 				};
@@ -1199,6 +1202,9 @@ export async function POST(request: Request) {
 				afterValue = {
 					...deactivated,
 					pipelineOptions: current.pipelineOptions,
+					presetId: current.presetId,
+					presetVersion: current.presetVersion,
+					pipelineOptionSources: current.pipelineOptionSources,
 					createdBy: context!.userId,
 					activationEligibility: false,
 				};

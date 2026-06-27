@@ -11,6 +11,7 @@ import { formatTimecode } from "opencut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { downloadBlob } from "@/utils/browser";
 import { buildCapinstaPreviewTracks } from "@/capinsta/captionTimelineSync";
+import { buildCapinstaApiUrl } from "@/capinsta/api-url";
 import { getCapinstaApiBaseUrl } from "@/capinsta/featureFlags";
 import { readJsonApiResponse } from "@/capinsta/api-response";
 import { mountCapinstaExportOverlayHost } from "@/capinsta/export/CapinstaExportOverlayHost";
@@ -280,7 +281,7 @@ export class RendererManager {
 				let sourceJobId = "";
 				if (capinstaDoc) {
 					const note = capinstaDoc.manualEdits?.notes?.[0] || "";
-					const match = note.match(/Generated from Capinsta job ([a-f0-9\-]+)/);
+					const match = note.match(/Generated from Capinsta job ([a-f0-9-]+)/);
 					if (match) {
 						sourceJobId = match[1];
 					}
@@ -395,7 +396,10 @@ export class RendererManager {
 				// 4. Send POST request to start export job
 				const apiBase = getCapinstaApiBaseUrl();
 				onProgress?.({ progress: 0.05 });
-				const exportEndpoint = `${apiBase}/api/export/jobs`;
+				const exportEndpoint = buildCapinstaApiUrl({
+					baseUrl: apiBase,
+					path: "/export/jobs",
+				});
 				const idempotencyKey = crypto.randomUUID();
 				let response: Response;
 				try {
@@ -465,7 +469,10 @@ export class RendererManager {
 				}
 
 				// 5. Poll status
-				const statusUrl = `${apiBase}/api/export/jobs/${jobId}`;
+				const statusUrl = buildCapinstaApiUrl({
+					baseUrl: apiBase,
+					path: `/export/jobs/${jobId}`,
+				});
 				let isComplete = false;
 				let pollError: string | null = null;
 				let downloadUrl: string | null = null;
@@ -659,6 +666,7 @@ export class RendererManager {
 			const seekToExportTime = (timeSeconds: number) => {
 				const timeTicks = Math.round(timeSeconds * TICKS_PER_SECOND);
 				editorPlayback.seek({
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- MediaTime is an opaque wasm brand; ticks are created immediately above.
 					time: timeTicks as unknown as import("@/wasm").MediaTime,
 				});
 			};

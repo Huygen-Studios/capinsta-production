@@ -30,6 +30,16 @@ from ..transcription_control import active_transcription_config, transcription_d
 
 router = APIRouter(prefix="/health", tags=["health"])
 
+
+class ReadinessResponse(BaseModel):
+    status: str = "ok"
+    service: str = "capinsta-backend"
+    version: str
+    ready: bool = True
+    apiPrefix: str = "/api"
+    readinessRoute: str = "/health/ready"
+    commit: str | None = None
+
 class HealthResponse(BaseModel):
     status: str
     service: str = "huygen-caps-backend"
@@ -47,6 +57,49 @@ class HealthResponse(BaseModel):
     controlPlaneDatabase: str = "unknown"
     jwtMode: str = "unknown"
     transcription: dict[str, object] = Field(default_factory=dict)
+
+
+def readiness_payload() -> ReadinessResponse:
+    """Lightweight process readiness for Coolify/proxy routing.
+
+    This intentionally avoids database, provider, storage-tree, Silero, and
+    stable-ts checks. Those belong to the diagnostic health routes; the reverse
+    proxy only needs to know that the ASGI process is accepting requests.
+    """
+    commit = (os.getenv("COMMIT_SHA") or "").strip() or None
+    return ReadinessResponse(version="5.0.0", commit=commit)
+
+
+def startup_diagnostics_payload() -> dict[str, object]:
+    from ai_pipeline.timing_presets import TIMING_PRESETS, public_preset_registry
+    from ..transcription_catalog import public_catalog
+
+    catalog = public_catalog()
+    preset_registry = public_preset_registry(catalog)
+    return {
+        "status": "ok",
+        "service": "capinsta-backend",
+        "version": "5.0.0",
+        "commit": (os.getenv("COMMIT_SHA") or "").strip() or None,
+        "apiPrefix": "/api",
+        "readinessRoute": "/health/ready",
+        "configuredPort": os.getenv("PORT", "10000"),
+        "databaseMigrationState": transcription_database_status(),
+        "providerCatalogCount": len(catalog),
+        "providerKeys": sorted({str(item.get("provider")) for item in catalog}),
+        "providerModels": sorted(
+            f"{item.get('provider')}:{item.get('model')}" for item in catalog
+        ),
+        "presetCatalogCount": len(TIMING_PRESETS),
+        "presetIds": [preset.id for preset in TIMING_PRESETS],
+        "publicPresetCount": len(preset_registry.get("presets") or []),
+        "startupHeavyChecks": {
+            "database": "deferred_to_health",
+            "providerCredentials": "deferred_to_health",
+            "silero": "deferred_to_health_timing",
+            "stableTs": "deferred_to_health_timing",
+        },
+    }
 
 def _has_key(name: str) -> bool:
     return is_real_secret(os.getenv(name))
@@ -329,6 +382,16 @@ async def export_health_payload_async() -> dict[str, object]:
 async def health_check():
     """Runtime health check for Render and the editor connectivity probe."""
     return await health_payload()
+
+
+@router.get("/ready", response_model=ReadinessResponse)
+async def readiness_check():
+    return readiness_payload()
+
+
+@router.get("/startup")
+async def startup_diagnostics_check():
+    return startup_diagnostics_payload()
 
 
 @router.get("/export")

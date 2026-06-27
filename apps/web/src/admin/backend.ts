@@ -43,7 +43,8 @@ export async function adminBackendFetch({
   const headers = new Headers(init?.headers);
   headers.set("x-capinsta-admin-assertion", `${payload}.${signature}`);
   headers.set("x-correlation-id", request.correlationId);
-  return fetch(`${webEnv.BACKEND_INTERNAL_URL}${path}`, {
+  const target = `${webEnv.BACKEND_INTERNAL_URL.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+  return fetch(target, {
     ...init,
     headers,
     cache: "no-store",

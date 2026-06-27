@@ -25,7 +25,8 @@ describe("Capinsta API routing", () => {
 			"utf8",
 		);
 
-		expect(rendererManager).toContain("/api/export/jobs");
+		expect(rendererManager).toContain("buildCapinstaApiUrl({");
+		expect(rendererManager).toContain('path: "/export/jobs"');
 		expect(rendererManager).not.toMatch(/\/api\/jobs\/.*\/export/);
 		expect(rendererManager).not.toContain("http://localhost:8000");
 	});

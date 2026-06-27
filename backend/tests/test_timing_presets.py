@@ -11,6 +11,7 @@ from ai_pipeline.timing_presets import (
 )
 from ai_pipeline.language_modes import normalize_word_token_with_metadata
 from server.transcription_catalog import TRANSCRIPTION_PROVIDER_CATALOG, catalog_entry, public_catalog
+from server.transcription_catalog import canonical_catalog_selection, validate_catalog_selection
 
 
 def test_all_required_timing_presets_are_declared_and_resolve():
@@ -81,6 +82,22 @@ def test_provider_display_names_are_not_provider_keys():
     for entry in TRANSCRIPTION_PROVIDER_CATALOG:
         assert catalog_entry(entry.display_name, entry.model) is None
         assert catalog_entry(entry.provider, entry.model) is not None
+
+
+def test_legacy_display_labels_resolve_only_through_explicit_alias_map():
+    provider, model, aliases = canonical_catalog_selection(
+        "Sarvam Saaras v3",
+        "Sarvam Saaras v3",
+    )
+
+    assert (provider, model) == ("sarvam", "saaras:v3")
+    assert "provider_display_label" in aliases
+    assert "model_display_label" in aliases
+    assert validate_catalog_selection(
+        "Sarvam Saaras v3",
+        "Sarvam Saaras v3",
+        "provider_word",
+    ).model == "saaras:v3"
 
 
 def test_telgish_display_normalization_keeps_reviewed_mappings_conservative():

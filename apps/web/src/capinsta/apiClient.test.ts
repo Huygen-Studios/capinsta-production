@@ -22,7 +22,7 @@ describe("Capinsta API client", () => {
 		const health = await checkCapinstaHealth({
 			baseUrl: "http://127.0.0.1:8000",
 			fetchImpl: async (url) => {
-				expect(url).toBe("http://127.0.0.1:8000/health");
+				expect(url).toBe("http://127.0.0.1:8000/health/ready");
 				return jsonResponse({ status: "ok", version: "5.0.0" });
 			},
 		});

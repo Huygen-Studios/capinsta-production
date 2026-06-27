@@ -83,6 +83,6 @@ RUN ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke
 EXPOSE 10000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:10000/health || exit 1
+  CMD curl -fsS http://127.0.0.1:${PORT:-10000}/health/ready || exit 1
 
 CMD ["sh", "-c", "uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
