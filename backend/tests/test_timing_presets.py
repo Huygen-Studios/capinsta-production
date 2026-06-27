@@ -10,6 +10,7 @@ from ai_pipeline.timing_presets import (
     validate_preset_compatibility,
 )
 from ai_pipeline.language_modes import normalize_word_token_with_metadata
+from ai_pipeline.transcript_normalizer import _normalize_word
 from server.transcription_catalog import TRANSCRIPTION_PROVIDER_CATALOG, catalog_entry, public_catalog
 from server.transcription_catalog import canonical_catalog_selection, validate_catalog_selection
 
@@ -123,3 +124,12 @@ def test_telgish_script_mismatch_is_diagnostic_not_rewritten():
     assert token["suspectedScriptMismatch"] is True
     assert token["scriptMismatchReason"] == "unsupported_script_for_selected_language_mode"
     assert token["word"] == "ஆம"
+
+
+def test_telgish_unsupported_script_token_is_excluded_from_final_caption():
+    word = _normalize_word({"word": "ஆம", "start": 1.0, "end": 1.2}, "telgish")
+
+    assert word is not None
+    assert word["suspectedScriptMismatch"] is True
+    assert word["excludeFromFinalCaption"] is True
+    assert word["excludedFromFinalReason"] == "unsupported_script_for_selected_language_mode"

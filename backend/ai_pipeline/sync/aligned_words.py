@@ -32,7 +32,7 @@ def canonical_aligned_words_from_segments(segments: list[dict[str, Any]]) -> lis
             word = dict(raw_word)
             display_word = str(word.get("displayedWord") or word.get("word") or "").strip()
             spoken_word = str(word.get("spokenWord") or word.get("originalWord") or word.get("word") or "").strip()
-            if not display_word:
+            if word.get("excludeFromFinalCaption") or not display_word:
                 continue
             word["displayedWord"] = display_word
             word["spokenWord"] = spoken_word or display_word
@@ -413,6 +413,10 @@ def sanitize_aligned_word_ranges(
                 or ""
             ).strip()
             if not text:
+                dropped_words += 1
+                continue
+            if raw_word.get("excludeFromFinalCaption"):
+                raw_word["excludedFromFinalReason"] = raw_word.get("excludedFromFinalReason") or "excluded_from_final_caption"
                 dropped_words += 1
                 continue
             start = _finite_time(raw_word.get("start"))

@@ -232,8 +232,8 @@ def chunk_words_into_captions(
       * split on a pause longer than ``pause_split_threshold``
       * split when the candidate chunk exceeds ``max_words``, ``max_chars``,
         or ``max_duration``
-      * prefer chunks of ``target_words`` (4) but never go below
-        ``min_words`` (2) unless the next word is on a new pause
+      * word-count targets are soft layout preferences; one-word captions are
+        valid and hard timing boundaries always win
       * caption end = last word's end + ``phrase_hold``, clamped before
         the next caption's start
     """
@@ -281,6 +281,7 @@ def chunk_words_into_captions(
             prospective_dur = (end or 0.0) - current[0]["start"]
 
             pause_break = gap >= cfg["pause_split_threshold"]
+            merge_gap_break = gap > cfg.get("merge_gap", DEFAULT_CAPTION_RULES["merge_gap"])
             hard_boundary_break = _hard_boundary_between(current[-1], w)
             last_word_text = _word_text(current[-1]).strip()
             punctuation_break = bool(last_word_text and last_word_text[-1] in ".,!?;:")
@@ -288,7 +289,7 @@ def chunk_words_into_captions(
             too_long = prospective_dur > cfg["max_duration"]
             too_many_words = prospective_words > max_words
 
-            if hard_boundary_break or pause_break or punctuation_break or overflow_break or too_long or too_many_words:
+            if hard_boundary_break or pause_break or merge_gap_break or punctuation_break or overflow_break or too_long or too_many_words:
                 flush()
         current.append(w)
     flush()
@@ -300,6 +301,8 @@ def chunk_words_into_captions(
         if _hard_boundary_between(left["words"][-1], right["words"][0]):
             return False
         if gap >= cfg["pause_split_threshold"]:
+            return False
+        if gap > cfg.get("merge_gap", DEFAULT_CAPTION_RULES["merge_gap"]):
             return False
 
         combined_words = len(left["words"]) + len(right["words"])

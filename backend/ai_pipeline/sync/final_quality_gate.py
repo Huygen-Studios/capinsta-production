@@ -165,6 +165,8 @@ def validate_final_timing_quality(
         failures.append(("word_outside_alignment_group", f"{outside_group_count} word timing boundary violation(s) remain."))
     if caption_cross_boundary_count:
         failures.append(("caption_crosses_hard_boundary", f"{caption_cross_boundary_count} caption group(s) cross a hard boundary."))
+    if suspected_script_mismatch_count:
+        failures.append(("suspected_script_mismatch", f"{suspected_script_mismatch_count} unsupported script token(s) remain in final captions."))
 
     final_report["passed"] = not failures
     final_report["failures"] = [{"category": category, "message": message} for category, message in failures]

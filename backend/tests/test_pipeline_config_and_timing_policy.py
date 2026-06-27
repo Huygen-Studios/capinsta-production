@@ -321,7 +321,7 @@ def test_caption_chunking_rules_change_visible_output():
             "min_duration": 0.1,
             "max_duration": 3.0,
             "pause_split_threshold": 1.0,
-            "merge_gap": 0.0,
+            "merge_gap": 0.1,
             "phrase_hold": 0.0,
         },
     )

@@ -121,22 +121,7 @@ def test_final_gate_blocks_caption_crossing_hard_boundary():
 def test_final_gate_pass_report_contains_sources_and_counts():
     config_sources = resolve_pipeline_config_with_sources({"vad": {"sileroEnabled": True}})["sources"]
     report = validate_final_timing_quality(
-        [
-            {
-                "words": [
-                    {
-                        "word": "ok",
-                        "start": 0.0,
-                        "end": 0.2,
-                        "timingSource": "provider_native",
-                        "alignmentGroupId": "g1",
-                        "sourceStart": 0.0,
-                        "sourceEnd": 0.3,
-                        "suspectedScriptMismatch": True,
-                    }
-                ]
-            }
-        ],
+        [{"words": [{"word": "ok", "start": 0.0, "end": 0.2, "timingSource": "provider_native", "alignmentGroupId": "g1", "sourceStart": 0.0, "sourceEnd": 0.3}]}],
         pipeline_config=_base_config(),
         vad_report=_vad(),
         sync_report={"alignmentGroups": {"alignmentGroupCount": 1, "boundariesFromRawSpeechGaps": 0}},
@@ -148,8 +133,36 @@ def test_final_gate_pass_report_contains_sources_and_counts():
     assert report["overlapCount"] == 0
     assert report["stableTsOrderAdjustedCount"] == 0
     assert report["estimatedWordRatio"] == 0
-    assert report["suspectedScriptMismatchCount"] == 1
+    assert report["suspectedScriptMismatchCount"] == 0
     assert report["resolvedConfigSources"]["vad"]["sileroEnabled"] == "snapshot"
+
+
+def test_final_gate_blocks_surviving_unsupported_script_tokens():
+    with pytest.raises(TimingQualityError) as exc:
+        validate_final_timing_quality(
+            [
+                {
+                    "words": [
+                        {
+                            "word": "ஆம",
+                            "start": 0.0,
+                            "end": 0.2,
+                            "timingSource": "provider_native",
+                            "alignmentGroupId": "g1",
+                            "sourceStart": 0.0,
+                            "sourceEnd": 0.3,
+                            "suspectedScriptMismatch": True,
+                        }
+                    ]
+                }
+            ],
+            pipeline_config=_base_config(),
+            vad_report=_vad(),
+            sync_report={},
+        )
+
+    assert exc.value.category == "suspected_script_mismatch"
+    assert exc.value.report["suspectedScriptMismatchCount"] == 1
 
 
 def test_final_gate_accepts_restored_ag_0027_sequence():

@@ -179,6 +179,9 @@ def _normalize_word(raw_word: dict[str, Any], language_mode: str) -> dict[str, A
         normalized["timingReviewRequired"] = True
         normalized["scriptMismatchReason"] = word_meta.get("scriptMismatchReason") or "suspected_script_mismatch"
         normalized["timingRepairReason"] = normalized.get("timingRepairReason") or "suspected_script_mismatch"
+        if normalized["scriptMismatchReason"] == "unsupported_script_for_selected_language_mode":
+            normalized["excludeFromFinalCaption"] = True
+            normalized["excludedFromFinalReason"] = "unsupported_script_for_selected_language_mode"
     if raw_word.get("confidence") is not None:
         normalized["confidence"] = _as_float(raw_word.get("confidence"))
     if raw_word.get("timing_source"):
