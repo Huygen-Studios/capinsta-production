@@ -29,9 +29,10 @@ def test_preserve_detected_pauses_repairs_locally_without_global_shift():
     # word2 and word3 are repaired locally to the silence end. The pause
     # preserver no longer shifts a cascade of later words across the transcript.
     assert result[0]["words"][1]["start"] == 5.0
-    assert result[0]["words"][1]["end"] == 5.4 # original duration was 0.4s
+    assert result[0]["words"][1]["end"] == 5.0
     assert result[0]["words"][2]["start"] == 5.0
     assert result[0]["words"][2]["end"] == 5.4
+    assert result[0]["words"][1]["timingRepairReason"] == "overlap_unrepairable_before_next_word"
     assert result[0]["words"][0]["timing_source"] == "provider_native_unconfirmed"
     assert result[0]["words"][1]["timing_source"] == "provider_native_unconfirmed"
     assert diagnostics == {
@@ -40,6 +41,23 @@ def test_preserve_detected_pauses_repairs_locally_without_global_shift():
         "wordsShiftedForPause": 0,
         "wordsClampedForPause": 3,
         "wordsRejectedForCrossingHardGap": 3,
+        "sameGroupOverlapCaps": 1,
+        "timingMutationSamples": [
+            {
+                "stage": "pause_preservation",
+                "alignmentGroupId": "segment:0",
+                "word": "word2",
+                "originalStart": 5.0,
+                "originalEnd": 5.4,
+                "newStart": 5.0,
+                "newEnd": 5.0,
+                "nextWord": "word3",
+                "nextStart": 5.0,
+                "reason": "overlap_unrepairable_before_next_word",
+                "sourceStart": None,
+                "sourceEnd": None,
+            }
+        ],
     }
     
     # segment bounds should be recalculated
@@ -109,4 +127,48 @@ def test_already_preserved_gap_is_counted_without_retiming_words():
         "wordsShiftedForPause": 0,
         "wordsClampedForPause": 0,
         "wordsRejectedForCrossingHardGap": 0,
+        "sameGroupOverlapCaps": 0,
     }
+
+
+def test_pause_preserved_previous_word_is_capped_before_next_word():
+    segments = [
+        {
+            "words": [
+                {
+                    "word": "sare",
+                    "start": 17.248,
+                    "end": 17.486,
+                    "alignmentGroupId": "turn-1",
+                    "sourceStart": 17.0,
+                    "sourceEnd": 17.6,
+                    "timingSource": "stable_ts_forced_align",
+                },
+                {
+                    "word": "ippudu",
+                    "start": 17.446,
+                    "end": 17.486,
+                    "alignmentGroupId": "turn-1",
+                    "sourceStart": 17.0,
+                    "sourceEnd": 17.6,
+                    "timingSource": "stable_ts_forced_align",
+                },
+            ]
+        }
+    ]
+    diagnostics = {}
+
+    result = preserve_detected_pauses(
+        segments,
+        [{"start": 16.9, "end": 17.0, "duration": 0.1}],
+        0.05,
+        diagnostics=diagnostics,
+    )
+
+    words = result[0]["words"]
+    assert words[0]["end"] == 17.445
+    assert words[1]["start"] == 17.446
+    assert words[1]["end"] == 17.486
+    assert words[0]["timingRepairReason"] == "overlap_trimmed_before_next_word"
+    assert diagnostics["sameGroupOverlapCaps"] == 1
+    assert diagnostics["timingMutationSamples"][0]["word"] == "sare"

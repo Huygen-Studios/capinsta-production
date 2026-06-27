@@ -60,6 +60,8 @@ def validate_final_timing_quality(
     outside_group_count = 0
     caption_cross_boundary_count = 0
     prev_end: float | None = None
+    prev_word: dict[str, Any] | None = None
+    overlap_samples: list[dict[str, Any]] = []
 
     for word in words:
         source = _word_source(word)
@@ -82,7 +84,23 @@ def validate_final_timing_quality(
             outside_group_count += 1
         if prev_end is not None and start < prev_end - 0.002:
             overlap_count += 1
+            if prev_word is not None and len(overlap_samples) < 10:
+                overlap_samples.append(
+                    {
+                        "previousWord": str(prev_word.get("displayedWord") or prev_word.get("word") or prev_word.get("spokenWord") or ""),
+                        "previousStart": _finite(prev_word.get("start")),
+                        "previousEnd": _finite(prev_word.get("end")),
+                        "previousTimingSource": str(prev_word.get("timingSourceDetail") or prev_word.get("timingSource") or prev_word.get("timing_source") or ""),
+                        "word": str(word.get("displayedWord") or word.get("word") or word.get("spokenWord") or ""),
+                        "start": start,
+                        "end": end,
+                        "timingSource": str(word.get("timingSourceDetail") or word.get("timingSource") or word.get("timing_source") or ""),
+                        "alignmentGroupId": word.get("alignmentGroupId"),
+                        "overlapSeconds": round(prev_end - start, 3),
+                    }
+                )
         prev_end = max(prev_end or 0.0, end)
+        prev_word = word
 
     for segment in segments:
         segment_words = [word for word in segment.get("words") or [] if isinstance(word, dict)]
@@ -107,6 +125,7 @@ def validate_final_timing_quality(
         "stableTsOrderFallbackAppliedWords": int((stable_ts or {}).get("orderFallbackAppliedWords") or 0),
         "invalidRangeCount": invalid_ranges,
         "overlapCount": overlap_count,
+        "overlapSamples": overlap_samples,
         "outsideAlignmentGroupWindowCount": outside_group_count,
         "captionCrossBoundaryCount": caption_cross_boundary_count,
         "alignmentGroupCount": (sync_report.get("alignmentGroups") or {}).get("alignmentGroupCount") if isinstance(sync_report, dict) else None,

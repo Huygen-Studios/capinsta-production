@@ -4,6 +4,8 @@ import logging
 import math
 from typing import Any
 
+from .aligned_words import cap_same_group_word_overlaps
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +52,7 @@ def preserve_detected_pauses(
         "wordsShiftedForPause": 0,
         "wordsClampedForPause": 0,
         "wordsRejectedForCrossingHardGap": 0,
+        "sameGroupOverlapCaps": 0,
     }
     if diagnostics is not None:
         diagnostics.update(stats)
@@ -143,6 +146,17 @@ def preserve_detected_pauses(
             word["pausePreservedOriginalStart"] = round(original_start, 3)
             word["pausePreservedOriginalEnd"] = round(original_end, 3)
             if original_start != word["start"] or original_end != word["end"]:
+                logger.info(
+                    "timing_word_mutated stage=pause_preservation alignmentGroupId=%s word=%r originalStart=%.3f originalEnd=%.3f newStart=%.3f newEnd=%.3f reason=hard_speech_gap_boundary_repair sourceStart=%r sourceEnd=%r",
+                    word.get("alignmentGroupId"),
+                    word.get("displayedWord") or word.get("word") or word.get("spokenWord"),
+                    original_start,
+                    original_end,
+                    word["start"],
+                    word["end"],
+                    word.get("sourceStart"),
+                    word.get("sourceEnd"),
+                )
                 _mark_pause_preserved(word)
                 stats["wordsClampedForPause"] += 1
                 stats["wordsRejectedForCrossingHardGap"] += 1
@@ -159,6 +173,15 @@ def preserve_detected_pauses(
             stats["pauseGapsApplied"] += 1
             if not gap_changed:
                 stats["pauseGapsAlreadyPreserved"] += 1
+
+    overlap_diagnostics: dict[str, Any] = {}
+    stats["sameGroupOverlapCaps"] = cap_same_group_word_overlaps(
+        segments,
+        diagnostics=overlap_diagnostics,
+        stage="pause_preservation",
+    )
+    if overlap_diagnostics.get("timingMutationSamples") and diagnostics is not None:
+        diagnostics["timingMutationSamples"] = overlap_diagnostics["timingMutationSamples"]
 
     for segment in segments:
         valid_words = [

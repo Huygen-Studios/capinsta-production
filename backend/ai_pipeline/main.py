@@ -890,7 +890,12 @@ def run_pipeline(
             },
             "timing": {
                 "configurationAppliedExactly": bool(active_snapshot),
+                "resolvedPreset": {
+                    "id": active_snapshot.preset_id if active_snapshot else None,
+                    "version": active_snapshot.preset_version if active_snapshot else None,
+                },
                 "resolvedPipelineOptions": pipeline_config.to_dict(),
+                "resolvedPipelineOptionSources": pipeline_option_sources,
                 "alignment": timing_provider_status,
                 "vad": vad_report,
                 "report": timing_report,

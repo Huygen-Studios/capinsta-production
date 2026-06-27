@@ -53,3 +53,39 @@ def test_invalid_stable_word_range_is_repaired_before_caption_build():
     assert words[1]["end"] > words[1]["start"]
     assert words[1]["timingNeedsReview"] is True
     assert all(segment["end"] > segment["start"] for segment in rebuilt)
+
+
+def test_sanitizer_trims_previous_word_instead_of_shifting_next_word():
+    segments = [
+        {
+            "words": [
+                {
+                    "word": "sare",
+                    "start": 17.248,
+                    "end": 17.486,
+                    "alignmentGroupId": "turn-1",
+                    "sourceStart": 17.0,
+                    "sourceEnd": 17.6,
+                    "timingSource": "stable_ts_forced_align | pause_preserved",
+                },
+                {
+                    "word": "ippudu",
+                    "start": 17.446,
+                    "end": 17.486,
+                    "alignmentGroupId": "turn-1",
+                    "sourceStart": 17.0,
+                    "sourceEnd": 17.6,
+                    "timingSource": "stable_ts_forced_align",
+                },
+            ]
+        }
+    ]
+
+    repaired, report = sanitize_aligned_word_ranges(segments)
+    words = repaired[0]["words"]
+
+    assert report["sameGroupOverlapCaps"] == 1
+    assert words[0]["end"] == 17.445
+    assert words[1]["start"] == 17.446
+    assert words[1]["end"] == 17.486
+    assert words[0]["timingRepairReason"] == "overlap_trimmed_before_next_word"
