@@ -121,7 +121,22 @@ def test_final_gate_blocks_caption_crossing_hard_boundary():
 def test_final_gate_pass_report_contains_sources_and_counts():
     config_sources = resolve_pipeline_config_with_sources({"vad": {"sileroEnabled": True}})["sources"]
     report = validate_final_timing_quality(
-        [{"words": [{"word": "ok", "start": 0.0, "end": 0.2, "timingSource": "provider_native", "alignmentGroupId": "g1", "sourceStart": 0.0, "sourceEnd": 0.3}]}],
+        [
+            {
+                "words": [
+                    {
+                        "word": "ok",
+                        "start": 0.0,
+                        "end": 0.2,
+                        "timingSource": "provider_native",
+                        "alignmentGroupId": "g1",
+                        "sourceStart": 0.0,
+                        "sourceEnd": 0.3,
+                        "suspectedScriptMismatch": True,
+                    }
+                ]
+            }
+        ],
         pipeline_config=_base_config(),
         vad_report=_vad(),
         sync_report={"alignmentGroups": {"alignmentGroupCount": 1, "boundariesFromRawSpeechGaps": 0}},
@@ -133,6 +148,7 @@ def test_final_gate_pass_report_contains_sources_and_counts():
     assert report["overlapCount"] == 0
     assert report["stableTsOrderAdjustedCount"] == 0
     assert report["estimatedWordRatio"] == 0
+    assert report["suspectedScriptMismatchCount"] == 1
     assert report["resolvedConfigSources"]["vad"]["sileroEnabled"] == "snapshot"
 
 

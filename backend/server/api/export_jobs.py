@@ -801,9 +801,22 @@ async def start_export_job(
         )
     await ensure_project_available(row, db)
 
-    original_video_path, media_access_mode = await resolve_job_video_path(
-        db, source_job_id, row
-    )
+    try:
+        original_video_path, media_access_mode = await resolve_job_video_path(
+            db, source_job_id, row
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {
+            "code": "source_media_unavailable",
+            "message": str(exc.detail or "Source media is unavailable."),
+        }
+        logger.warning(
+            "export_source_media_resolution_failed source_job_id=%s status=%s code=%s",
+            source_job_id,
+            exc.status_code,
+            detail.get("code"),
+        )
+        return JSONResponse({"error": detail}, status_code=exc.status_code)
     is_captions_only = export_mode in {
         "captions_only",
         "captions_only_solid_background",

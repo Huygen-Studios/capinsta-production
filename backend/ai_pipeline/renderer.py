@@ -64,6 +64,13 @@ def _word_text(word: dict[str, Any]) -> str:
     return str(word.get("displayedWord") or word.get("displayedText") or word.get("word") or word.get("text") or "").strip()
 
 
+class CaptionCueValidationError(ValueError):
+    def __init__(self, code: str, message: str, report: dict[str, Any]) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.report = report
+
+
 def _hard_boundary_between(left: dict[str, Any], right: dict[str, Any]) -> bool:
     for key in ("alignmentGroupId", "speakerId", "turnId"):
         left_value = left.get(key)
@@ -76,12 +83,15 @@ def _hard_boundary_between(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 
 def _flatten_words(segments: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pull every word out of every segment, in segment order."""
+    """Pull every word out of every segment while preserving provenance."""
     words: list[dict[str, Any]] = []
+    sequence_index = 0
     for seg in segments or []:
         if not isinstance(seg, dict):
             continue
-        for w in seg.get("words") or []:
+        segment_group_id = seg.get("alignmentGroupId")
+        segment_source_index = seg.get("sourceSegmentIndex")
+        for local_word_index, w in enumerate(seg.get("words") or []):
             if not isinstance(w, dict):
                 continue
             start = w.get("start")
@@ -89,13 +99,27 @@ def _flatten_words(segments: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
             text = _word_text(w)
             if not text or start is None or end is None:
                 continue
-            words.append(
-                {
-                    "word": text,
-                    "start": _round_time(start),
-                    "end": _round_time(end),
-                }
+            word = dict(w)
+            group_id = word.get("alignmentGroupId") or segment_group_id
+            source_segment_index = word.get("sourceSegmentIndex", segment_source_index)
+            source_word_index = word.get("sourceWordIndex", word.get("originalTokenIndex", local_word_index))
+            word["word"] = text
+            word["displayedWord"] = text
+            word["start"] = _round_time(start)
+            word["end"] = _round_time(end)
+            if group_id is not None:
+                word["alignmentGroupId"] = group_id
+            if source_segment_index is not None:
+                word["sourceSegmentIndex"] = source_segment_index
+            word["sourceWordIndex"] = source_word_index
+            word["originalTokenIndex"] = word.get("originalTokenIndex", source_word_index)
+            word["providerTokenId"] = word.get(
+                "providerTokenId",
+                f"{group_id if group_id is not None else 'ungrouped'}:{source_segment_index if source_segment_index is not None else 'segment'}:{source_word_index}",
             )
+            word["finalTokenSequenceIndex"] = sequence_index
+            sequence_index += 1
+            words.append(word)
     return words
 
 
@@ -269,8 +293,8 @@ def chunk_words_into_captions(
         current.append(w)
     flush()
 
-    # Pass 2: Greedy Merge adjacent captions if they fit within max_words and max_chars,
-    # and they aren't separated by silence (gap >= pause_split_threshold).
+    # Pass 2: Greedy merge adjacent captions only when this preserves hard
+    # timing boundaries and layout limits.
     def _can_merge(left: dict[str, Any], right: dict[str, Any]) -> bool:
         gap = _round_time(right["start"] - left["words"][-1]["end"])
         if _hard_boundary_between(left["words"][-1], right["words"][0]):
@@ -304,33 +328,94 @@ def chunk_words_into_captions(
                 merged_captions.append(right)
         captions = merged_captions
 
-    # Pass 3: Clean up single-word or short captions if they are under min_words
-    while len(captions) >= 2 and len(captions[-1]["words"]) < cfg["min_words"]:
-        last = captions.pop()
-        prev = captions[-1]
-        gap = last["start"] - prev["words"][-1]["end"]
-        if _hard_boundary_between(prev["words"][-1], last["words"][0]):
-            captions.append(last)
-            break
+    # A minimum word count is a soft layout preference only. One-word captions
+    # are valid, so never borrow from a following cue merely to satisfy min_words.
 
-        merged_text = (prev["text"] + " " + last["text"]).strip()
-        would_overflow = len(merged_text) > max_chars
-        combined_words = len(prev["words"]) + len(last["words"])
-
-        if gap >= cfg["pause_split_threshold"] or would_overflow or combined_words > max_words:
-            captions.append(last)
-            break
-        prev["end"] = last["end"]
-        prev["text"] = merged_text
-        prev["words"].extend(last["words"])
-
-    # Clamp ends so each caption finishes just before the next one starts.
+    # Clamp ends so each caption finishes no later than the next one starts.
     for i in range(len(captions) - 1):
-        max_end = captions[i + 1]["start"] - 0.01
+        max_end = captions[i + 1]["start"]
         if captions[i]["end"] > max_end:
             captions[i]["end"] = _round_time(max_end)
 
     return captions
+
+
+def _token_identity(word: dict[str, Any]) -> str | None:
+    if word.get("providerTokenId") is not None:
+        return str(word.get("providerTokenId"))
+    has_source_identity = any(
+        word.get(key) is not None
+        for key in ("alignmentGroupId", "sourceSegmentIndex", "sourceWordIndex", "originalTokenIndex", "finalTokenSequenceIndex")
+    )
+    if not has_source_identity:
+        return None
+    return str(
+        f"{word.get('alignmentGroupId', 'ungrouped')}:{word.get('sourceSegmentIndex', 'segment')}:{word.get('sourceWordIndex', word.get('originalTokenIndex', word.get('finalTokenSequenceIndex', 'unknown')))}"
+    )
+
+
+def validate_caption_cues(captions: list[dict[str, Any]], *, stage: str) -> dict[str, Any]:
+    invalid_ranges = 0
+    overlaps = 0
+    boundary_crossings = 0
+    duplicate_tokens = 0
+    non_contiguous_tokens = 0
+    seen_tokens: set[str] = set()
+    previous_end: float | None = None
+    previous_sequence_index: int | None = None
+    samples: list[dict[str, Any]] = []
+
+    for cue_index, caption in enumerate(captions):
+        start = _round_time(caption.get("start"))
+        end = _round_time(caption.get("end"))
+        if end <= start:
+            invalid_ranges += 1
+            samples.append({"cueIndex": cue_index, "reason": "invalid_range", "start": start, "end": end, "text": caption.get("text")})
+        if previous_end is not None and start < previous_end:
+            overlaps += 1
+            samples.append({"cueIndex": cue_index, "reason": "cue_overlap", "start": start, "previousEnd": previous_end, "text": caption.get("text")})
+        previous_end = max(previous_end or 0.0, end)
+
+        words = [word for word in caption.get("words") or [] if isinstance(word, dict)]
+        for left, right in zip(words, words[1:]):
+            if _hard_boundary_between(left, right):
+                boundary_crossings += 1
+                samples.append({"cueIndex": cue_index, "reason": "hard_boundary_crossing", "left": _word_text(left), "right": _word_text(right)})
+                break
+        group_ids = {str(word.get("alignmentGroupId")) for word in words if word.get("alignmentGroupId") is not None}
+        if len(group_ids) > 1:
+            boundary_crossings += 1
+            samples.append({"cueIndex": cue_index, "reason": "multi_group_caption", "groups": sorted(group_ids), "text": caption.get("text")})
+
+        for word in words:
+            token = _token_identity(word)
+            if token is not None:
+                if token in seen_tokens:
+                    duplicate_tokens += 1
+                    samples.append({"cueIndex": cue_index, "reason": "duplicate_token", "token": token, "word": _word_text(word)})
+                seen_tokens.add(token)
+            sequence_index = word.get("finalTokenSequenceIndex")
+            if isinstance(sequence_index, int):
+                if previous_sequence_index is not None and sequence_index != previous_sequence_index + 1:
+                    non_contiguous_tokens += 1
+                    samples.append({"cueIndex": cue_index, "reason": "non_contiguous_token_order", "previous": previous_sequence_index, "current": sequence_index})
+                previous_sequence_index = sequence_index
+
+    report = {
+        "stage": stage,
+        "cueCount": len(captions),
+        "invalidRangeCount": invalid_ranges,
+        "overlapCount": overlaps,
+        "boundaryCrossingCount": boundary_crossings,
+        "duplicateTokenCount": duplicate_tokens,
+        "nonContiguousTokenCount": non_contiguous_tokens,
+        "samples": samples[:20],
+    }
+    if invalid_ranges or overlaps or boundary_crossings or duplicate_tokens or non_contiguous_tokens:
+        logger.error("caption_cue_validation_failed report=%s", report)
+        code = "caption_cue_overlap" if overlaps else "caption_cue_invalid"
+        raise CaptionCueValidationError(code, "Caption cue validation failed before export.", report)
+    return report
 
 
 def _interpolate_missing_timestamps(
@@ -490,6 +575,7 @@ def generate_srt(
 
     words = _clean_words(words, audio_path)
     captions = chunk_words_into_captions(words, chunking_rules)
+    validate_caption_cues(captions, stage="srt_generation")
     return _build_srt_lines(captions)
 
 
@@ -512,4 +598,5 @@ def generate_vtt(
 
     words = _clean_words(words, audio_path)
     captions = chunk_words_into_captions(words, chunking_rules)
+    validate_caption_cues(captions, stage="vtt_generation")
     return _build_vtt_lines(captions)

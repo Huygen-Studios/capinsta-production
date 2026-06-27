@@ -268,6 +268,7 @@ def _group_id_for_segment(segment: dict[str, Any], seg_index: int) -> str:
 
 def ensure_alignment_groups(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Attach stable alignment-island metadata without inventing speakers."""
+    local_group_counts: dict[str, int] = {}
     for seg_index, segment in enumerate(segments):
         group_id = _group_id_for_segment(segment, seg_index)
         source_start = _optional_float(segment.get("sourceStart"))
@@ -296,6 +297,14 @@ def ensure_alignment_groups(segments: list[dict[str, Any]]) -> list[dict[str, An
             if "sourceChunkIndex" in segment and "sourceChunkIndex" not in word:
                 word["sourceChunkIndex"] = segment.get("sourceChunkIndex")
             word["sourceWordIndex"] = word.get("sourceWordIndex", word_index)
+            word["originalTokenIndex"] = word.get("originalTokenIndex", word["sourceWordIndex"])
+            local_index = local_group_counts.get(str(word["alignmentGroupId"]), 0)
+            word["localGroupTokenIndex"] = word.get("localGroupTokenIndex", local_index)
+            local_group_counts[str(word["alignmentGroupId"])] = local_index + 1
+            word["providerTokenId"] = word.get(
+                "providerTokenId",
+                f"{word['alignmentGroupId']}:{word['sourceSegmentIndex']}:{word['sourceWordIndex']}",
+            )
             word["sourceStart"] = word.get("sourceStart", segment["sourceStart"])
             word["sourceEnd"] = word.get("sourceEnd", segment["sourceEnd"])
             if "speakerId" in segment and "speakerId" not in word:
@@ -436,6 +445,9 @@ def _apply_matched_timings(
             continue
         word["start"] = round(start, 3)
         word["end"] = round(end, 3)
+        word["stableTsTokenIndex"] = stable_index
+        word["stableTsCandidateStart"] = round(start, 3)
+        word["stableTsCandidateEnd"] = round(end, 3)
         word["timingSource"] = source
         word["timing_source"] = source
         word["timingSourceDetail"] = source

@@ -1,19 +1,32 @@
 import asyncio
+import json
 import sqlite3
 from pathlib import Path
 
+import aiosqlite
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from server.api import export_jobs
+from server.api import jobs as jobs_api
 from server.api import media_assets
 from server.main import app
 from scripts import audit_migrate_disk_storage
+from server.auth import AuthenticatedUser, reset_current_user, set_current_user
 from server.storage_paths import (
     path_inside,
     public_download_name,
     resolve_existing_file_inside,
 )
+
+
+JOBS_API_SOURCE = (Path(__file__).resolve().parents[1] / "server" / "api" / "jobs.py").read_text("utf-8")
+
+
+def test_export_media_resolution_query_projects_canonical_media_fields():
+    assert "SELECT\n                id,\n                user_id,\n                project_id,\n                storage_path\n            FROM media_assets" in JOBS_API_SOURCE
+    assert "SELECT storage_path FROM media_assets" not in JOBS_API_SOURCE
 
 
 def test_resolve_existing_file_inside_accepts_contained_file(tmp_path: Path):
@@ -103,6 +116,186 @@ def test_legacy_media_asset_path_is_not_servable(monkeypatch, tmp_path: Path):
 
     assert error.value.status_code == 410
     assert error.value.detail["code"] == "media_asset_requires_migration"
+
+
+def test_media_asset_row_missing_required_keys_is_structured_error():
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.execute("CREATE TABLE media_assets (storage_path TEXT)")
+    db.execute("INSERT INTO media_assets VALUES ('/tmp/missing.mp4')")
+    row = db.execute("SELECT storage_path FROM media_assets").fetchone()
+
+    with pytest.raises(HTTPException) as error:
+        media_assets.resolve_owned_media_asset_file(row)
+
+    assert error.value.status_code == 500
+    assert error.value.detail["code"] == "media_asset_row_incomplete"
+    assert "user_id" in error.value.detail["missingFields"]
+
+
+def test_resolve_job_video_path_selects_complete_owned_media_row(monkeypatch, tmp_path: Path):
+    async def run():
+        media_root = tmp_path / "media"
+        monkeypatch.setattr(media_assets, "MEDIA_DIR", media_root)
+        asset_path = media_assets._asset_path("user_a", "project_a", "asset_a")
+        asset_path.parent.mkdir(parents=True)
+        asset_path.write_bytes(b"video")
+
+        async with aiosqlite.connect(":memory:") as db:
+            db.row_factory = aiosqlite.Row
+            await db.executescript(
+                """
+                CREATE TABLE media_assets (
+                  id TEXT, project_id TEXT, user_id TEXT, storage_path TEXT, deleted_at TEXT
+                );
+                CREATE TABLE jobs (
+                  id TEXT, user_id TEXT, project_id TEXT, filename TEXT, media_asset_id TEXT
+                );
+                """
+            )
+            await db.execute(
+                "INSERT INTO media_assets VALUES (?, ?, ?, ?, NULL)",
+                ("asset_a", "project_a", "user_a", str(asset_path)),
+            )
+            await db.execute(
+                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?)",
+                ("job_a", "user_a", "project_a", "video.mp4", "asset_a"),
+            )
+            await db.commit()
+            row = await (await db.execute("SELECT * FROM jobs WHERE id = ?", ("job_a",))).fetchone()
+
+            context = set_current_user(AuthenticatedUser(id="user_a"))
+            try:
+                resolved, mode = await jobs_api.resolve_job_video_path(db, "job_a", row)
+            finally:
+                reset_current_user(context)
+
+        assert Path(resolved) == asset_path.resolve()
+        assert mode == "direct_media_path"
+
+    asyncio.run(run())
+
+
+def test_cross_user_media_asset_cannot_be_resolved_for_export(monkeypatch, tmp_path: Path):
+    async def run():
+        media_root = tmp_path / "media"
+        monkeypatch.setattr(media_assets, "MEDIA_DIR", media_root)
+        asset_path = media_assets._asset_path("user_a", "project_a", "asset_a")
+        asset_path.parent.mkdir(parents=True)
+        asset_path.write_bytes(b"video")
+
+        async with aiosqlite.connect(":memory:") as db:
+            db.row_factory = aiosqlite.Row
+            await db.executescript(
+                """
+                CREATE TABLE media_assets (
+                  id TEXT, project_id TEXT, user_id TEXT, storage_path TEXT, deleted_at TEXT
+                );
+                CREATE TABLE jobs (
+                  id TEXT, user_id TEXT, project_id TEXT, filename TEXT, media_asset_id TEXT
+                );
+                """
+            )
+            await db.execute(
+                "INSERT INTO media_assets VALUES (?, ?, ?, ?, NULL)",
+                ("asset_a", "project_a", "user_a", str(asset_path)),
+            )
+            await db.execute(
+                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?)",
+                ("job_b", "user_b", "project_b", "video.mp4", "asset_a"),
+            )
+            await db.commit()
+            row = await (await db.execute("SELECT * FROM jobs WHERE id = ?", ("job_b",))).fetchone()
+
+            context = set_current_user(AuthenticatedUser(id="user_b"))
+            try:
+                with pytest.raises(HTTPException) as error:
+                    await jobs_api.resolve_job_video_path(db, "job_b", row)
+            finally:
+                reset_current_user(context)
+
+        assert error.value.status_code == 410
+        assert error.value.detail["code"] == "legacy_job_media_requires_migration"
+
+    asyncio.run(run())
+
+
+def test_export_start_returns_json_for_incomplete_media_row(monkeypatch):
+    async def run():
+        async with aiosqlite.connect(":memory:") as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute(
+                "CREATE TABLE jobs (id TEXT, user_id TEXT, project_id TEXT, filename TEXT, media_asset_id TEXT)"
+            )
+            await db.execute(
+                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?)",
+                ("job_a", "user_a", "project_a", "video.mp4", "asset_a"),
+            )
+            await db.commit()
+
+            async def skip(*args, **kwargs):
+                return None
+
+            async def fail_resolution(*args, **kwargs):
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "code": "media_asset_row_incomplete",
+                        "message": "The source media metadata is incomplete. Please retry after refreshing the project.",
+                        "diagnosticId": "diag-test",
+                        "missingFields": ["user_id"],
+                    },
+                )
+
+            monkeypatch.setattr(export_jobs, "_prune_jobs", skip)
+            monkeypatch.setattr(export_jobs, "require_feature", skip)
+            monkeypatch.setattr(export_jobs, "enforce_export_quota", skip)
+            monkeypatch.setattr(export_jobs, "require_disk_capacity", lambda **kwargs: None)
+            monkeypatch.setattr(export_jobs, "ensure_project_available", skip)
+            monkeypatch.setattr(export_jobs, "resolve_job_video_path", fail_resolution)
+
+            request = Request({"type": "http", "headers": []})
+            context = set_current_user(AuthenticatedUser(id="user_a"))
+            try:
+                response = await export_jobs.start_export_job(
+                    request,
+                    db=db,
+                    source_job_id="job_a",
+                    captions_json="[]",
+                    theme="word_highlight_box",
+                    style_config_json=None,
+                    resolution="1080p",
+                    export_width=None,
+                    export_height=None,
+                    export_fps=30,
+                    include_audio=True,
+                    quality="standard",
+                    bitrate="auto",
+                    custom_bitrate_mbps=None,
+                    export_mode="full_video",
+                    captions_only=False,
+                    background_color="#101010",
+                    duration_override=1.0,
+                    duration_source=None,
+                    duration_mode=None,
+                    custom_duration=None,
+                    visible_tracks_count=None,
+                    source_media_count=None,
+                    caption_chunks_count=None,
+                    hardware_acceleration=False,
+                    render_mode="headless",
+                    composition_json=None,
+                )
+            finally:
+                reset_current_user(context)
+
+        assert response.status_code == 500
+        assert response.media_type == "application/json"
+        body = json.loads(response.body.decode("utf-8"))
+        assert body["error"]["code"] == "media_asset_row_incomplete"
+        assert body["error"]["missingFields"] == ["user_id"]
+
+    asyncio.run(run())
 
 
 def test_public_download_name_strips_path_and_control_characters():

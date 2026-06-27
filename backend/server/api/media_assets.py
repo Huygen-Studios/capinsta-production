@@ -3,6 +3,7 @@ import json
 import shutil
 import asyncio
 import uuid
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from ..storage_paths import path_inside, public_download_name, resolve_existing_
 from ..storage_pressure import require_disk_capacity
 
 router = APIRouter(prefix="/media/assets", tags=["media-assets"])
+logger = logging.getLogger(__name__)
 
 _ALLOWED_MEDIA_EXTENSIONS = {
     ".mp4",
@@ -52,7 +54,44 @@ def _asset_path(user_id: str, project_id: str, asset_id: str) -> Path:
     return path_inside(MEDIA_DIR, user_id, project_id, asset_id)
 
 
+def _row_keys(row: aiosqlite.Row) -> set[str]:
+    try:
+        return set(row.keys())
+    except AttributeError:
+        return set()
+
+
+def _media_asset_row_incomplete(missing_fields: list[str]) -> HTTPException:
+    diagnostic_id = str(uuid.uuid4())
+    logger.error(
+        "media_asset_row_incomplete diagnostic_id=%s missing_fields=%s",
+        diagnostic_id,
+        missing_fields,
+    )
+    return HTTPException(
+        status_code=500,
+        detail={
+            "code": "media_asset_row_incomplete",
+            "message": "The source media metadata is incomplete. Please retry after refreshing the project.",
+            "diagnosticId": diagnostic_id,
+            "missingFields": missing_fields,
+        },
+    )
+
+
+def validate_media_asset_row(row: aiosqlite.Row) -> None:
+    required_fields = ("id", "user_id", "project_id", "storage_path")
+    keys = _row_keys(row)
+    missing = [field for field in required_fields if field not in keys]
+    if missing:
+        raise _media_asset_row_incomplete(missing)
+    empty = [field for field in ("id", "user_id", "project_id") if not str(row[field] or "").strip()]
+    if empty:
+        raise _media_asset_row_incomplete(empty)
+
+
 def expected_media_asset_path(row: aiosqlite.Row) -> Path:
+    validate_media_asset_row(row)
     return _asset_path(str(row["user_id"]), str(row["project_id"]), str(row["id"]))
 
 
@@ -223,6 +262,7 @@ async def get_owned_media_asset(
 
 
 def resolve_owned_media_asset_file(row: aiosqlite.Row) -> Path:
+    validate_media_asset_row(row)
     expected = expected_media_asset_path(row).resolve()
     try:
         actual = resolve_existing_file_inside(MEDIA_DIR, row["storage_path"], label="media asset")

@@ -4,7 +4,7 @@ import logging
 import math
 from typing import Any
 
-from ai_pipeline.renderer import chunk_words_into_captions
+from ai_pipeline.renderer import chunk_words_into_captions, validate_caption_cues
 
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,12 @@ def is_estimated_timing(word: dict[str, Any]) -> bool:
 
 def canonical_aligned_words_from_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     words: list[dict[str, Any]] = []
-    for segment in segments:
-        for raw_word in segment.get("words") or []:
+    local_group_counts: dict[str, int] = {}
+    sequence_index = 0
+    for segment_index, segment in enumerate(segments):
+        segment_group_id = segment.get("alignmentGroupId")
+        segment_source_index = segment.get("sourceSegmentIndex", segment_index)
+        for word_index, raw_word in enumerate(segment.get("words") or []):
             word = dict(raw_word)
             display_word = str(word.get("displayedWord") or word.get("word") or "").strip()
             spoken_word = str(word.get("spokenWord") or word.get("originalWord") or word.get("word") or "").strip()
@@ -33,6 +37,22 @@ def canonical_aligned_words_from_segments(segments: list[dict[str, Any]]) -> lis
             word["displayedWord"] = display_word
             word["spokenWord"] = spoken_word or display_word
             word["word"] = display_word
+            group_id = str(word.get("alignmentGroupId") or segment_group_id or f"segment:{segment_index}")
+            source_segment_index = word.get("sourceSegmentIndex", segment_source_index)
+            source_word_index = word.get("sourceWordIndex", word.get("originalTokenIndex", word_index))
+            local_index = local_group_counts.get(group_id, 0)
+            word["alignmentGroupId"] = group_id
+            word["sourceSegmentIndex"] = source_segment_index
+            word["sourceWordIndex"] = source_word_index
+            word["originalTokenIndex"] = word.get("originalTokenIndex", source_word_index)
+            word["localGroupTokenIndex"] = word.get("localGroupTokenIndex", local_index)
+            word["providerTokenId"] = word.get(
+                "providerTokenId",
+                f"{group_id}:{source_segment_index}:{source_word_index}",
+            )
+            word["finalTokenSequenceIndex"] = word.get("finalTokenSequenceIndex", sequence_index)
+            local_group_counts[group_id] = local_index + 1
+            sequence_index += 1
             if is_estimated_timing(word):
                 word["timingNeedsReview"] = True
                 word["timingReviewRequired"] = True
@@ -472,6 +492,7 @@ def build_segments_from_aligned_words(
     chunking_rules: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     captions = chunk_words_into_captions(aligned_words, chunking_rules)
+    validate_caption_cues(captions, stage="aligned_word_caption_build")
     segments: list[dict[str, Any]] = []
     for index, caption in enumerate(captions):
         words = [dict(word) for word in caption.get("words") or []]

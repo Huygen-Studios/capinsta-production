@@ -114,3 +114,12 @@ def test_telgish_display_normalization_keeps_reviewed_mappings_conservative():
     for raw, expected in mappings.items():
         token = normalize_word_token_with_metadata(raw, "telgish")
         assert token["word"] == expected
+
+
+def test_telgish_script_mismatch_is_diagnostic_not_rewritten():
+    token = normalize_word_token_with_metadata("ஆம", "telgish")
+
+    assert token["scriptHint"] == "tamil"
+    assert token["suspectedScriptMismatch"] is True
+    assert token["scriptMismatchReason"] == "unsupported_script_for_selected_language_mode"
+    assert token["word"] == "ஆம"

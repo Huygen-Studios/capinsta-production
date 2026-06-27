@@ -13,6 +13,7 @@ except Exception:  # pragma: no cover - dependency fallback for partial installs
 CaptionLanguageMode = Literal["auto", "english", "hindi", "telugu", "hinglish", "telgish", "auto_mixed_indian"]
 CaptionOutputLanguage = Literal["original", "english", "hindi", "telugu", "hinglish", "telgish"]
 LanguageHint = Literal["english", "hindi", "telugu", "unknown"]
+ScriptHint = Literal["latin", "telugu", "devanagari", "tamil", "mixed", "unknown"]
 
 SUPPORTED_LANGUAGE_MODES: tuple[CaptionLanguageMode, ...] = (
     "auto",
@@ -74,6 +75,7 @@ TELGISH_PROVIDER_ERROR = TELUGU_CAPABLE_PROVIDER_ERROR
 
 TELUGU_RE = re.compile(r"[\u0C00-\u0C7F]")
 DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
+TAMIL_RE = re.compile(r"[\u0B80-\u0BFF]")
 NATIVE_INDIAN_RE = re.compile(r"[\u0900-\u097F\u0C00-\u0C7F]")
 ASCII_WORD_RE = re.compile(r"[A-Za-z]")
 LIGHT_PUNCT_RE = re.compile(r"[^\w\s\u0900-\u097F\u0C00-\u0C7F'-]")
@@ -85,7 +87,10 @@ class NormalizedWordToken(TypedDict, total=False):
     word: str
     originalWord: str
     languageHint: LanguageHint
+    scriptHint: ScriptHint
     romanized: bool
+    suspectedScriptMismatch: bool
+    scriptMismatchReason: str
 
 
 TELGISH_CANONICAL = {
@@ -194,6 +199,10 @@ def containsDevanagariScript(text: str | None) -> bool:
     return bool(text and DEVANAGARI_RE.search(text))
 
 
+def containsTamilScript(text: str | None) -> bool:
+    return bool(text and TAMIL_RE.search(text))
+
+
 def containsNativeIndianScript(text: str | None) -> bool:
     return bool(text and NATIVE_INDIAN_RE.search(text))
 
@@ -265,6 +274,38 @@ def _token_language_hint(token: str) -> LanguageHint:
     return "unknown"
 
 
+def _token_script_hint(token: str) -> ScriptHint:
+    scripts: set[str] = set()
+    if ASCII_WORD_RE.search(token):
+        scripts.add("latin")
+    if containsTeluguScript(token):
+        scripts.add("telugu")
+    if containsDevanagariScript(token):
+        scripts.add("devanagari")
+    if containsTamilScript(token):
+        scripts.add("tamil")
+    if len(scripts) > 1:
+        return "mixed"
+    if scripts:
+        return next(iter(scripts))  # type: ignore[return-value]
+    return "unknown"
+
+
+def _script_mismatch_reason(script_hint: ScriptHint, mode: CaptionLanguageMode) -> str | None:
+    if script_hint in {"unknown", "latin"}:
+        return None
+    if mode == "telugu" and script_hint != "telugu":
+        return "script_not_expected_for_telugu"
+    if mode == "hindi" and script_hint != "devanagari":
+        return "script_not_expected_for_hindi"
+    # Code-mixed modes currently support Latin output and Telugu/Devanagari
+    # romanization. Other Indic scripts are diagnostic-only until a provider
+    # explicitly reports them as supported for the selected language mode.
+    if mode in CODE_MIXED_LANGUAGE_MODES and script_hint == "tamil":
+        return "unsupported_script_for_selected_language_mode"
+    return None
+
+
 def _romanize_token(token: str) -> str:
     if containsTeluguScript(token):
         return romanizeTeluguText(token)
@@ -322,12 +363,18 @@ def normalize_word_token_with_metadata(word: str, language_mode: str) -> Normali
     original = (word or "").strip()
     mode = normalize_language_mode(language_mode)
     language_hint = _token_language_hint(original)
+    script_hint = _token_script_hint(original)
     normalized = normalize_caption_text(original, mode)
     result: NormalizedWordToken = {
         "word": normalized,
         "languageHint": language_hint,
+        "scriptHint": script_hint,
         "romanized": bool(original and normalized and original != normalized),
     }
+    mismatch_reason = _script_mismatch_reason(script_hint, mode)
+    if mismatch_reason:
+        result["suspectedScriptMismatch"] = True
+        result["scriptMismatchReason"] = mismatch_reason
     if result["romanized"]:
         result["originalWord"] = original
     return result

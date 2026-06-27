@@ -282,7 +282,12 @@ async def resolve_job_video_path(
     if media_asset_id:
         cursor = await db.execute(
             """
-            SELECT storage_path FROM media_assets
+            SELECT
+                id,
+                user_id,
+                project_id,
+                storage_path
+            FROM media_assets
             WHERE id = ? AND user_id = ? AND deleted_at IS NULL
             """,
             (media_asset_id, current_user().id),

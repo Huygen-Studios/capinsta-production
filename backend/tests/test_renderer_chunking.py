@@ -1,5 +1,5 @@
 import pytest
-from ai_pipeline.renderer import chunk_words_into_captions
+from ai_pipeline.renderer import CaptionCueValidationError, chunk_words_into_captions, validate_caption_cues
 
 def test_chunking_punctuation_split():
     # Under tight word limits, punctuation splits are preserved where merging is blocked by limits
@@ -120,3 +120,64 @@ def test_caption_chunk_does_not_span_preserved_silence():
     ]
     assert captions[0]["end"] <= 1.2
     assert captions[1]["start"] >= 2.4
+
+
+def test_min_words_does_not_borrow_across_hard_boundary_for_one_word_reply():
+    words = [
+        {"word": "asked", "start": 0.0, "end": 0.3, "alignmentGroupId": "a"},
+        {"word": "wait", "start": 0.32, "end": 0.6, "alignmentGroupId": "a", "hardBoundaryAfter": True},
+        {"word": "no", "start": 0.9, "end": 1.05, "alignmentGroupId": "b", "hardBoundaryBefore": True},
+    ]
+
+    captions = chunk_words_into_captions(
+        words,
+        {
+            "target_words": 2,
+            "min_words": 2,
+            "max_words": 3,
+            "max_chars": 50,
+            "pause_split_threshold": 10,
+            "phrase_hold": 0.0,
+        },
+    )
+
+    assert [caption["text"] for caption in captions] == ["asked wait", "no"]
+
+
+def test_caption_validation_rejects_duplicate_token_occurrence():
+    captions = [
+        {
+            "text": "2 roopaayalu",
+            "start": 0.0,
+            "end": 0.5,
+            "words": [
+                {"word": "2", "start": 0.0, "end": 0.1, "providerTokenId": "g1:0:0", "finalTokenSequenceIndex": 0},
+                {"word": "roopaayalu", "start": 0.1, "end": 0.5, "providerTokenId": "g1:0:1", "finalTokenSequenceIndex": 1},
+            ],
+        },
+        {
+            "text": "2",
+            "start": 0.6,
+            "end": 0.8,
+            "words": [
+                {"word": "2", "start": 0.6, "end": 0.8, "providerTokenId": "g1:0:0", "finalTokenSequenceIndex": 2},
+            ],
+        },
+    ]
+
+    with pytest.raises(CaptionCueValidationError) as exc:
+        validate_caption_cues(captions, stage="test")
+
+    assert exc.value.report["duplicateTokenCount"] == 1
+
+
+def test_caption_validation_rejects_rounded_export_overlap():
+    captions = [
+        {"text": "previous", "start": 59.981, "end": 60.361, "words": [{"word": "previous", "providerTokenId": "g1:0:0", "finalTokenSequenceIndex": 0}]},
+        {"text": "next", "start": 60.347, "end": 60.621, "words": [{"word": "next", "providerTokenId": "g2:1:0", "finalTokenSequenceIndex": 1}]},
+    ]
+
+    with pytest.raises(CaptionCueValidationError) as exc:
+        validate_caption_cues(captions, stage="srt_generation")
+
+    assert exc.value.report["overlapCount"] == 1

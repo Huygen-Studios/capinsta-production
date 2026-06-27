@@ -59,6 +59,7 @@ def validate_final_timing_quality(
     overlap_count = 0
     outside_group_count = 0
     caption_cross_boundary_count = 0
+    suspected_script_mismatch_count = 0
     prev_end: float | None = None
     prev_word: dict[str, Any] | None = None
     overlap_samples: list[dict[str, Any]] = []
@@ -70,6 +71,8 @@ def validate_final_timing_quality(
             estimated_count += 1
         if _is_order_adjusted(word):
             stable_order_count += 1
+        if word.get("suspectedScriptMismatch"):
+            suspected_script_mismatch_count += 1
         start = _finite(word.get("start"))
         end = _finite(word.get("end"))
         if start is None or end is None or end <= start:
@@ -128,6 +131,7 @@ def validate_final_timing_quality(
         "overlapSamples": overlap_samples,
         "outsideAlignmentGroupWindowCount": outside_group_count,
         "captionCrossBoundaryCount": caption_cross_boundary_count,
+        "suspectedScriptMismatchCount": suspected_script_mismatch_count,
         "alignmentGroupCount": (sync_report.get("alignmentGroups") or {}).get("alignmentGroupCount") if isinstance(sync_report, dict) else None,
         "alignmentBoundariesFromRawSpeechGaps": (sync_report.get("alignmentGroups") or {}).get("boundariesFromRawSpeechGaps") if isinstance(sync_report, dict) else None,
         "pauseDetectionProvider": vad_report.get("pauseDetectionProvider") or vad_report.get("provider"),
