@@ -586,13 +586,10 @@ def check_export_runtime() -> dict[str, object]:
     return {
         "status": "ok" if shutil.which("ffmpeg") and shutil.which("ffprobe") and export_writable and playwright_package else "degraded",
         "ffmpeg": bool(shutil.which("ffmpeg")),
-        "ffmpeg_path": shutil.which("ffmpeg"),
         "ffprobe": bool(shutil.which("ffprobe")),
-        "ffprobe_path": shutil.which("ffprobe"),
         "playwright_package": playwright_package,
-        "exports_dir": str(EXPORT_DIR),
         "exports_writable": export_writable,
-        "exports_write_error": export_write_error,
+        "exports_write_error": type(export_write_error).__name__ if export_write_error else None,
         "render_page_url": default_render_page_url(),
         "bundled_render_page_url": bundled_render_page_url(),
         "frontend_dist_available": frontend_dist_available(),
@@ -839,12 +836,12 @@ async def export_headless(
 
     media_exists = os.path.exists(video_path)
     if is_captions_only and include_audio and not media_exists:
-        logger.warning("captions_only_audio_requested_without_source_media job_id=%s media=%s", job_id, video_path)
+        logger.warning("captions_only_audio_requested_without_source_media job_id=%s", job_id)
         include_audio = False
     if not is_captions_only and not media_exists:
         raise ExportStageError(
             "media_resolution",
-            f"Source media file was not found for export: {video_path}",
+            "Source media file was not found for export.",
         )
     if not shutil.which("ffmpeg"):
         raise ExportStageError("runtime_check", "FFmpeg was not found on PATH. Install FFmpeg or set FFMPEG_PATH.")
@@ -889,7 +886,6 @@ async def export_headless(
         exportJobId=export_job_id,
         jobId=job_id,
         mode=export_mode,
-        mediaPath=video_path,
         mediaExists=media_exists,
         captions=len(parsed_captions),
         width=width,
@@ -905,7 +901,7 @@ async def export_headless(
         renderSafeMode=render_safe_mode,
         maxLongEdge=max_long_edge,
         ffmpegThreads=ffmpeg_threads,
-        outputPath=output_path,
+        outputFile=Path(output_path).name,
     )
     if (width, height) != (requested_width, requested_height) or export_fps != requested_fps or quality != requested_quality:
         logger.warning(
@@ -2610,10 +2606,10 @@ async def export_headless(
                         f"FFmpeg failed while encoding captions-only MP4 (exit {proc.returncode}). {stderr_text}".strip(),
                     )
                 if not os.path.exists(output_path):
-                    raise ExportStageError("output_validation", f"FFmpeg finished but output file was not created: {output_path}")
+                    raise ExportStageError("output_validation", "FFmpeg finished but the output file was not created.")
                 output_size = os.path.getsize(output_path)
                 if output_size <= 0:
-                    raise ExportStageError("output_validation", f"FFmpeg created an empty output file: {output_path}")
+                    raise ExportStageError("output_validation", "FFmpeg created an empty output file.")
 
                 await progress_callback("finalizing", 98, "Finalizing export...")
                 await shutdown_renderer()
@@ -2622,7 +2618,7 @@ async def export_headless(
                 _log_export_event(
                     "export_job_complete",
                     exportJobId=export_job_id,
-                    outputPath=output_path,
+                    outputFile=Path(output_path).name,
                     bytes=output_size,
                     elapsedSeconds=round(time.perf_counter() - render_started_at, 3),
                 )
@@ -2971,11 +2967,11 @@ async def export_headless(
 
         if not os.path.exists(output_path):
             await shutdown_renderer()
-            raise ExportStageError("output_validation", f"FFmpeg finished but output file was not created: {output_path}")
+            raise ExportStageError("output_validation", "FFmpeg finished but the output file was not created.")
         output_size = os.path.getsize(output_path)
         if output_size <= 0:
             await shutdown_renderer()
-            raise ExportStageError("output_validation", f"FFmpeg created an empty output file: {output_path}")
+            raise ExportStageError("output_validation", "FFmpeg created an empty output file.")
 
         await shutdown_renderer()
         await progress_callback("export_complete", 100, "Done!")
@@ -2983,7 +2979,7 @@ async def export_headless(
         _log_export_event(
             "export_job_complete",
             exportJobId=export_job_id,
-            outputPath=output_path,
+            outputFile=Path(output_path).name,
             bytes=output_size,
             elapsedSeconds=round(time.perf_counter() - render_started_at, 3),
         )

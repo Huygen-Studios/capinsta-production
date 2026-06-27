@@ -18,6 +18,7 @@ import {
 	siteAccessPolicy,
 } from "@/db/schema";
 import { createClient } from "@/lib/supabase/server";
+import { accessDenialForContext } from "./decision";
 import {
 	type AppPermission,
 	isAppPermission,
@@ -248,41 +249,7 @@ export function accessDenial(
 	context: AccessContext | null,
 	permission: AppPermission,
 ) {
-	if (!context) return { status: 401, code: "unauthenticated" } as const;
-	if (context.accountStatus !== "active")
-		return { status: 403, code: "account_inactive" } as const;
-	if (context.productAccessStatus === "revoked")
-		return { status: 403, code: "product_access_revoked" } as const;
-	if (context.productAccessExpired)
-		return { status: 403, code: "product_access_expired" } as const;
-	if (context.isSuperAdmin) return null;
-	if (context.sitePolicy.mode === "maintenance" && !canBypassMaintenance(context))
-		return { status: 503, code: "maintenance_mode" } as const;
-	if (
-		context.sitePolicy.mode === "coming_soon" &&
-		context.productAccessStatus !== "approved" &&
-		!context.permissions.has("app.access")
-	)
-		return { status: 403, code: "product_access_pending" } as const;
-	if (
-		context.sitePolicy.mode !== "public" &&
-		context.productAccessStatus !== "approved" &&
-		!context.permissions.has(permission)
-	)
-		return { status: 403, code: "product_access_pending" } as const;
-	if (
-		context.sitePolicy.mode !== "public" &&
-		context.productAccessStatus === "approved" &&
-		!context.permissions.has(permission)
-	)
-		return { status: 403, code: "insufficient_product_permission" } as const;
-	if (
-		context.sitePolicy.mode === "public" &&
-		!context.permissions.has(permission) &&
-		!["app.access", "projects.access", "editor.access", "exports.access", "render.access"].includes(permission)
-	)
-		return { status: 403, code: "insufficient_product_permission" } as const;
-	return null;
+	return accessDenialForContext(context, permission);
 }
 
 export async function requireAuthenticatedUser(pathname: string) {

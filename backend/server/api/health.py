@@ -164,6 +164,7 @@ def _render_artifact_metadata() -> dict[str, object] | None:
             parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
                 metadata.update(parsed)
+                metadata.pop("containerPath", None)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -171,7 +172,6 @@ def _render_artifact_metadata() -> dict[str, object] | None:
     artifact_stat = artifact_path.stat()
     actual_sha256 = hashlib.sha256(artifact_bytes).hexdigest()
     metadata.update({
-        "containerPath": str(artifact_path),
         "modifiedTimeUtc": datetime.fromtimestamp(
             artifact_stat.st_mtime,
             tz=timezone.utc,
@@ -262,12 +262,10 @@ def export_health_payload() -> dict[str, object]:
         "ffmpegAvailable": bool(payload.get("ffmpeg")),
         "ffprobeAvailable": bool(payload.get("ffprobe")),
         "tempDirWritable": temp_writable,
-        "tempDirWriteError": temp_error,
+        "tempDirWriteError": type(temp_error).__name__ if temp_error else None,
         "exportDirWritable": export_writable,
-        "exportDirWriteError": export_error,
+        "exportDirWriteError": type(export_error).__name__ if export_error else None,
         "rendererAvailable": renderer_available,
-        "tempDir": str(TEMP_DIR),
-        "exportDir": str(EXPORT_DIR),
         **export_job_metrics(),
     })
     if not (payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and temp_writable and export_writable and renderer_available):
@@ -315,12 +313,10 @@ async def export_health_payload_async() -> dict[str, object]:
         "ffmpegAvailable": bool(payload.get("ffmpeg")),
         "ffprobeAvailable": bool(payload.get("ffprobe")),
         "tempDirWritable": temp_writable,
-        "tempDirWriteError": temp_error,
+        "tempDirWriteError": type(temp_error).__name__ if temp_error else None,
         "exportDirWritable": export_writable,
-        "exportDirWriteError": export_error,
+        "exportDirWriteError": type(export_error).__name__ if export_error else None,
         "rendererAvailable": renderer_available,
-        "tempDir": str(TEMP_DIR),
-        "exportDir": str(EXPORT_DIR),
         **export_job_metrics(),
     })
     if not (payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and temp_writable and export_writable and renderer_available):

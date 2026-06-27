@@ -483,7 +483,47 @@ export async function getAdminDetail({
   switch (module) {
     case "users":
       rows = await db
-        .select()
+        .select({
+          userId: profiles.userId,
+          emailSnapshot: profiles.emailSnapshot,
+          displayName: profiles.displayName,
+          accountStatus: profiles.accountStatus,
+          productAccessStatus: profiles.productAccessStatus,
+          productAccessExpiresAt: profiles.productAccessExpiresAt,
+          effectiveAdmin: sql<boolean>`exists (
+            select 1
+            from admin_role_members arm
+            where arm.user_id = ${profiles.userId}
+              and arm.active = true
+          )`,
+          effectiveAdminRoles: sql<string | null>`(
+            select string_agg(ar.key, ', ' order by ar.key)
+            from admin_role_members arm
+            join admin_roles ar on ar.id = arm.role_id
+            where arm.user_id = ${profiles.userId}
+              and arm.active = true
+          )`,
+          effectiveProductRoles: sql<string | null>`(
+            select string_agg(ar.key, ', ' order by ar.key)
+            from app_role_members arm
+            join app_roles ar on ar.id = arm.role_id
+            where arm.user_id = ${profiles.userId}
+              and arm.active = true
+              and (arm.expires_at is null or arm.expires_at > now())
+          )`,
+          roleAccessSource: sql<string>`'admin_role_members/app_role_members'`,
+          authProviderSnapshot: profiles.authProviderSnapshot,
+          emailConfirmedAt: profiles.emailConfirmedAt,
+          lastSignInAt: profiles.lastSignInAt,
+          productAccessApprovedAt: profiles.productAccessApprovedAt,
+          productAccessUpdatedAt: profiles.productAccessUpdatedAt,
+          productAccessUpdatedBy: profiles.productAccessUpdatedBy,
+          productAccessReason: profiles.productAccessReason,
+          scheduledDeletionAt: profiles.scheduledDeletionAt,
+          createdAt: profiles.createdAt,
+          updatedAt: profiles.updatedAt,
+          lastSeenAt: profiles.lastSeenAt,
+        })
         .from(profiles)
         .where(eq(profiles.userId, id))
         .limit(1);

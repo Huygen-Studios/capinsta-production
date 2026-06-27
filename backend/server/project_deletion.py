@@ -292,7 +292,7 @@ async def delete_project_resources(project_id: str, user_id: str) -> dict:
         }
         for row in media_rows:
             removed += _remove_path(Path(row["storage_path"]), MEDIA_DIR)
-        removed += _remove_path(path_inside(MEDIA_DIR, project_id), MEDIA_DIR)
+        removed += _remove_path(path_inside(MEDIA_DIR, user_id, project_id), MEDIA_DIR)
         for row in job_rows:
             prefix = f"{row['id']}_"
             for path in UPLOAD_DIR.glob(f"{prefix}*"):

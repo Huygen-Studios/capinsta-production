@@ -258,6 +258,79 @@ def test_database_password_failure_has_safe_reason():
     assert policy.control_plane_error_reason(error) == "database_authentication_failed"
 
 
+def test_public_mode_backend_requires_approved_product_access(monkeypatch):
+    user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    calls = iter([
+        ("pending", None),
+        ("public",),
+    ])
+
+    async def query_one(query, params=()):
+        return next(calls)
+
+    async def permissions(unused):
+        return {"editor.access"}
+
+    async def super_admin(unused):
+        return False
+
+    monkeypatch.setattr(policy, "_query_one", query_one)
+    monkeypatch.setattr(policy, "effective_app_permissions", permissions)
+    monkeypatch.setattr(policy, "is_super_admin", super_admin)
+
+    with pytest.raises(policy.ProductAccessDeniedError) as error:
+        asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
+    assert error.value.reason == "product_access_pending"
+
+
+def test_public_mode_backend_requires_exact_app_permission(monkeypatch):
+    user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    calls = iter([
+        ("approved", None),
+        ("public",),
+    ])
+
+    async def query_one(query, params=()):
+        return next(calls)
+
+    async def permissions(unused):
+        return {"editor.access"}
+
+    async def super_admin(unused):
+        return False
+
+    monkeypatch.setattr(policy, "_query_one", query_one)
+    monkeypatch.setattr(policy, "effective_app_permissions", permissions)
+    monkeypatch.setattr(policy, "is_super_admin", super_admin)
+
+    with pytest.raises(policy.ProductAccessDeniedError) as error:
+        asyncio.run(policy.require_backend_capability(user, "/api/export/jobs"))
+    assert error.value.reason == "missing_permission:exports.access"
+
+
+def test_public_mode_backend_allows_approved_member_with_permission(monkeypatch):
+    user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    calls = iter([
+        ("approved", None),
+        ("public",),
+    ])
+
+    async def query_one(query, params=()):
+        return next(calls)
+
+    async def permissions(unused):
+        return {"editor.access"}
+
+    async def super_admin(unused):
+        return False
+
+    monkeypatch.setattr(policy, "_query_one", query_one)
+    monkeypatch.setattr(policy, "effective_app_permissions", permissions)
+    monkeypatch.setattr(policy, "is_super_admin", super_admin)
+
+    asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
+
+
 def test_feature_disabled_and_quota_exceeded_keep_status(monkeypatch):
     async def disabled(key, default=True):
         return False

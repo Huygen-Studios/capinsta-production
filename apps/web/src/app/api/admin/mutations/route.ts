@@ -327,6 +327,9 @@ function safeMutationError(error: unknown) {
 		"provider_test_timeout",
 		"backend_unreachable",
 		"forced_alignment_unavailable",
+		"self_role_change_denied",
+		"super_admin_required",
+		"final_super_admin_protected",
 	]);
 	const normalized = raw.toLowerCase();
 	const code = allowedCodes.has(raw)
@@ -354,6 +357,9 @@ function safeMutationError(error: unknown) {
 		provider_test_timeout: "The backend provider test timed out before returning a result.",
 		backend_unreachable: "The frontend could not reach the backend admin API. Check the backend deployment and BACKEND_INTERNAL_URL.",
 		forced_alignment_unavailable: "This model requires forced alignment, but the backend aligner is unavailable.",
+		self_role_change_denied: "Administrators cannot change their own role membership.",
+		super_admin_required: "Only a super admin can assign or revoke administrator roles.",
+		final_super_admin_protected: "At least one active super admin must remain.",
 		database_schema_missing: "The transcription configuration database schema is missing or out of date.",
 		database_constraint: "The database rejected the configuration change.",
 		mutation_failed: "The operation could not be completed.",
@@ -514,6 +520,13 @@ export async function POST(request: Request) {
 			value.targetId === context.userId
 		) {
 			throw new Error("self_role_change_denied");
+		}
+		if (
+			(value.action === "admin.role.assign" ||
+				value.action === "admin.role.revoke") &&
+			!context.roleKeys.includes("super_admin")
+		) {
+			throw new Error("super_admin_required");
 		}
 
 		let securityBlock:

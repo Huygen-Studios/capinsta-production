@@ -19,9 +19,15 @@ from ..database import get_db, DB_PATH
 from ..models import JobResponse, JobDetailResponse
 from ..progress import manager
 from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, MEDIA_DIR, UPLOAD_DIR, ensure_runtime_dirs
+from ..storage_paths import path_inside, public_download_name, resolve_existing_file_inside
 from ..project_cleanup import ensure_project_available, heartbeat_project, iso_utc, project_expiry
 from ..storage_pressure import require_disk_capacity
-from .media_assets import get_owned_media_asset
+from .media_assets import (
+    _asset_path,
+    get_owned_media_asset,
+    resolve_owned_media_asset_file,
+    validate_media_file_contents,
+)
 from ..worker_startup import start_pipeline_worker
 from ..auth import current_user, get_owned_job, verify_access_token
 from ..operational_mirror import mirror_caption_job
@@ -244,7 +250,7 @@ async def _media_duration_seconds(file_path: str) -> float:
         if process.returncode == 0:
             return max(0.0, float(stdout.decode().strip()))
     except (FileNotFoundError, ValueError, asyncio.TimeoutError):
-        logger.warning("media_duration_probe_failed path=%s", file_path)
+        logger.warning("media_duration_probe_failed")
     return 0.0
 
 
@@ -265,7 +271,7 @@ def _load_json(value: str | None, fallback: Any) -> Any:
 
 
 def _legacy_video_path_for_row(job_id: str, row: aiosqlite.Row) -> str:
-    return str(UPLOAD_DIR / f"{job_id}_{row['filename']}")
+    return str(path_inside(UPLOAD_DIR, f"{job_id}_{row['filename']}"))
 
 
 async def resolve_job_video_path(
@@ -283,21 +289,14 @@ async def resolve_job_video_path(
         )
         media_row = await cursor.fetchone()
         if media_row and media_row["storage_path"]:
-            path = Path(str(media_row["storage_path"]))
-            try:
-                path.resolve().relative_to(MEDIA_DIR.resolve())
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=500,
-                    detail={
-                        "code": "invalid_media_storage_path",
-                        "message": "Media storage path is outside the approved root.",
-                    },
-                ) from exc
-            if path.is_file():
-                return str(path), "direct_media_path"
-    legacy_path = _legacy_video_path_for_row(job_id, row)
-    return legacy_path, "legacy_upload_workspace"
+            return str(resolve_owned_media_asset_file(media_row)), "direct_media_path"
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "legacy_job_media_requires_migration",
+            "message": "This job's source media must be migrated before it can be served.",
+        },
+    )
 
 
 def _flatten_word_debug(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -414,8 +413,33 @@ def _public_export_stage(stage: str) -> str:
     }.get(stage, stage)
 
 
-def _export_download_url(filename: str) -> str:
-    return f"/api/export/jobs/download/{filename}"
+def _legacy_export_download_url(job_id: str) -> str:
+    return f"/api/jobs/{job_id}/export"
+
+
+def _scoped_legacy_export_path(row: aiosqlite.Row, job_id: str, filename: str) -> Path:
+    project_id = str(row["project_id"] if "project_id" in row.keys() and row["project_id"] else job_id)
+    return path_inside(
+        EXPORT_DIR,
+        current_user().id,
+        project_id,
+        job_id,
+        public_download_name(filename, fallback="captioned.mp4"),
+    )
+
+
+def _move_legacy_export_into_scope(
+    source: Path,
+    row: aiosqlite.Row,
+    job_id: str,
+    filename: str | None = None,
+) -> Path:
+    destination = _scoped_legacy_export_path(row, job_id, filename or source.name)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() == destination.resolve():
+        return destination
+    os.replace(source, destination)
+    return destination
 
 
 def _dimensions_from_export_filename(filename: str, fallback_width: int, fallback_height: int) -> tuple[int, int]:
@@ -538,34 +562,25 @@ async def create_job(
         transcription_snapshot_payload["providerLanguageCode"] = sarvam_options["language_code"]
         transcription_snapshot_payload["resolved_provider_language_code"] = sarvam_options["language_code"]
     
-    file_path = str(UPLOAD_DIR / f"{job_id}_{filename}")
-    media_access_mode = "legacy_upload_workspace"
+    project_id = project_id or job_id
+    file_path = ""
+    media_access_mode = "direct_media_path"
     max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
     bytes_written = 0
     if media_row is not None:
-        source_path = Path(str(media_row["storage_path"]))
-        try:
-            source_path.resolve().relative_to(MEDIA_DIR.resolve())
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail={
-                    "code": "invalid_media_storage_path",
-                    "message": "Media storage path is outside the approved root.",
-                },
-            ) from exc
-        if not source_path.is_file():
-            raise HTTPException(status_code=410, detail="Media asset has expired.")
+        source_path = resolve_owned_media_asset_file(media_row)
         file_path = str(source_path)
-        media_access_mode = "direct_media_path"
         bytes_written = int(media_row["size_bytes"])
     else:
         assert file is not None
+        media_asset_id = str(uuid.uuid4())
+        destination = _asset_path(current_user().id, project_id, media_asset_id)
+        destination.parent.mkdir(parents=True, exist_ok=True)
         require_disk_capacity(
             operation="upload",
             required_bytes=int(file.size or 0),
         )
-        temp_file_path = str(UPLOAD_DIR / f".{job_id}_{filename}.uploading")
+        temp_file_path = str(destination.with_name(f".{media_asset_id}.uploading"))
         try:
             async with aiofiles.open(temp_file_path, 'wb') as out_file:
                 while True:
@@ -579,22 +594,30 @@ async def create_job(
                             detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_SIZE_MB} MB.",
                         )
                     await out_file.write(chunk)
-            os.replace(temp_file_path, file_path)
+            await validate_media_file_contents(
+                Path(temp_file_path),
+                original_name=filename,
+                require_video=True,
+            )
+            os.replace(temp_file_path, destination)
+            file_path = str(destination)
         except Exception as e:
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
-            if os.path.exists(file_path):
+            if file_path and os.path.exists(file_path):
                 os.remove(file_path)
             if isinstance(e, HTTPException):
                 raise e
-            raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save uploaded media. Please retry.",
+            )
         finally:
             await file.close()
 
     _log_stage(
         job_id,
         "file saved",
-        file_path=file_path,
         bytes=bytes_written,
         media_access_mode=media_access_mode,
     )
@@ -611,9 +634,30 @@ async def create_job(
 
     # Insert initial job state
     async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
         now = datetime.now(timezone.utc)
         now_text = iso_utc(now)
         expires_text = iso_utc(project_expiry(now, now_text))
+        if media_row is None:
+            await db.execute(
+                """
+                INSERT INTO media_assets (
+                    id, project_id, user_id, original_name, mime_type, size_bytes,
+                    storage_path, status, created_at, last_accessed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)
+                """,
+                (
+                    media_asset_id,
+                    project_id,
+                    current_user().id,
+                    filename,
+                    file.content_type if file else "video/mp4",
+                    bytes_written,
+                    file_path,
+                    now_text,
+                    now_text,
+                ),
+            )
         await db.execute(
             """
             INSERT INTO jobs
@@ -626,7 +670,7 @@ async def create_job(
             """,
             (
                 job_id, "queued", filename, normalized_mode, now_text, now_text,
-                expires_text, current_user().id, project_id or job_id,
+                expires_text, current_user().id, project_id,
                 request.headers.get("x-correlation-id") or str(uuid.uuid4()),
                 media_duration or None, media_asset_id, "Caption job queued.",
                 now_text, now_text, transcription_snapshot.provider,
@@ -962,7 +1006,22 @@ async def get_video(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Video file not found")
     _log_stage(job_id, "video_stream_resolved", media_access_mode=media_access_mode)
     
-    return FileResponse(file_path, media_type="video/mp4")
+    return FileResponse(
+        file_path,
+        media_type="video/mp4",
+        filename=public_download_name(r["filename"], fallback="source.mp4"),
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
+    )
+
+
+@router.head("/{job_id}/video")
+async def head_video(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
+    r = await get_owned_job(db, job_id)
+    await ensure_project_available(r, db)
+    file_path, _ = await resolve_job_video_path(db, job_id, r)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Video file not found")
+    return None
 
 @router.post("/{job_id}/export")
 async def export_video(
@@ -1041,7 +1100,6 @@ async def export_video(
         "export_request",
         render_mode=render_mode,
         export_mode=export_mode,
-        media_path=original_video_path,
         media_access_mode=media_access_mode,
         media_exists=os.path.exists(original_video_path),
         export_width=export_width,
@@ -1094,11 +1152,13 @@ async def export_video(
                 composition_json=composition_json,
                 hardware_acceleration=hardware_acceleration,
             )
-            output_filename = Path(output_path).name
-            output_bytes = os.path.getsize(output_path)
+            output_file = resolve_existing_file_inside(EXPORT_DIR, output_path, label="export file")
+            output_file = _move_legacy_export_into_scope(output_file, r, job_id, output_file.name)
+            output_filename = output_file.name
+            output_bytes = output_file.stat().st_size
             if output_bytes <= 0:
                 return _export_failure("write_output", "Export finished but the MP4 file is empty.", response_format)
-            download_url = _export_download_url(output_filename)
+            download_url = _legacy_export_download_url(job_id)
             if response_format == "json":
                 fallback_width, fallback_height = _resolve_export_dimensions(resolution, export_width, export_height)
                 width, height = _dimensions_from_export_filename(output_filename, fallback_width, fallback_height)
@@ -1117,13 +1177,14 @@ async def export_video(
                     "bytes": output_bytes,
                 }
             return FileResponse(
-                output_path,
+                output_file,
                 media_type="video/mp4",
                 filename=f"captioned_{export_width or resolution}_{r['filename']}",
                 headers={
                     "X-Export-File": output_filename,
-                    "X-Export-Url": download_url,
                     "X-Export-Bytes": str(output_bytes),
+                    "X-Content-Type-Options": "nosniff",
+                    "Cache-Control": "private, no-store",
                 },
             )
         except HTTPException:
@@ -1155,7 +1216,7 @@ async def export_video(
     await manager.broadcast(job_id, {"status": "export_started", "percent": 0, "details": "Preparing export..."})
 
     ass_filename = f"{job_id}_temp.ass"
-    ass_filepath = str(UPLOAD_DIR / ass_filename)
+    ass_filepath = str(path_inside(UPLOAD_DIR, ass_filename))
     with open(ass_filepath, 'w', encoding='utf-8') as f:
         f.write(ass_content)
 
@@ -1165,7 +1226,7 @@ async def export_video(
 
     output_suffix = f"{output_dims[0]}x{output_dims[1]}" if output_dims else resolution
     output_filename = f"{job_id}_exported_{output_suffix}.mp4"
-    output_filepath = str(EXPORT_DIR / output_filename)
+    output_filepath = str(path_inside(EXPORT_DIR, f".{job_id}_{output_filename}.rendering"))
 
     scale_filter = ""
     if output_dims:
@@ -1201,7 +1262,7 @@ async def export_video(
         "-vf", vf_string,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
         "-c:a", "copy", "-progress", "pipe:1",
-        str(EXPORT_DIR / output_filename),
+        output_filepath,
     ]
 
     try:
@@ -1228,13 +1289,13 @@ async def export_video(
         await process.wait()
         if process.returncode != 0:
             stderr_bytes = await process.stderr.read() if process.stderr else b""
-            logger.error(f"FFmpeg subtitle burn failed: {stderr_bytes.decode()}")
+            logger.error("ffmpeg_subtitle_burn_failed job_id=%s", job_id)
             await manager.broadcast(job_id, {"status": "export_failed", "percent": -1, "details": "FFmpeg error"})
             raise HTTPException(status_code=500, detail="Failed to burn subtitles into video.")
         await manager.broadcast(job_id, {"status": "export_complete", "percent": 100, "details": "Done!"})
     except Exception as e:
-        logger.error(f"Export exception: {e}")
-        await manager.broadcast(job_id, {"status": "export_failed", "percent": -1, "details": str(e)})
+        logger.exception("legacy_export_failed job_id=%s error_type=%s", job_id, type(e).__name__)
+        await manager.broadcast(job_id, {"status": "export_failed", "percent": -1, "details": "Export process failed."})
         raise HTTPException(status_code=500, detail="Export process failed.")
     finally:
         if os.path.exists(ass_filepath):
@@ -1243,11 +1304,13 @@ async def export_video(
     if response_format == "json":
         if not os.path.exists(output_filepath) or os.path.getsize(output_filepath) <= 0:
             return _export_failure("write_output", "ASS export finished but the MP4 file is missing or empty.", response_format)
+        output_file = _move_legacy_export_into_scope(Path(output_filepath), r, job_id, output_filename)
+        output_filepath = str(output_file)
         width, height = _resolve_export_dimensions(resolution, export_width, export_height)
         return {
             "success": True,
             "exportJobId": Path(output_filename).stem,
-            "downloadUrl": _export_download_url(output_filename),
+            "downloadUrl": _legacy_export_download_url(job_id),
             "filename": output_filename,
             "duration": total_duration,
             "width": width,
@@ -1256,14 +1319,17 @@ async def export_video(
             "bytes": os.path.getsize(output_filepath),
         }
 
+    output_file = _move_legacy_export_into_scope(Path(output_filepath), r, job_id, output_filename)
+    output_filepath = str(output_file)
     return FileResponse(
         output_filepath,
         media_type="video/mp4",
         filename=f"captioned_{r['filename']}",
         headers={
             "X-Export-File": output_filename,
-            "X-Export-Url": _export_download_url(output_filename),
             "X-Export-Bytes": str(os.path.getsize(output_filepath)) if os.path.exists(output_filepath) else "0",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
         },
     )
 

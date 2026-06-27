@@ -7,7 +7,7 @@ def test_background_export_router_is_mounted_under_api_prefix():
 
     assert "post" in paths["/api/export/jobs"]
     assert "get" in paths["/api/export/jobs/{export_job_id}"]
-    assert "get" in paths["/api/export/jobs/download/{filename}"]
+    assert "get" in paths["/api/export/jobs/{export_job_id}/download"]
 
 
 def test_failed_export_status_exposes_stage_and_correlation_id():
@@ -35,12 +35,12 @@ def test_completed_export_status_exposes_download_url():
         status="completed",
         stage="completed",
         progress=100,
-        download_url="/api/export/jobs/download/capinsta-export-2.mp4",
+        download_url="/api/export/jobs/export-2/download",
         filename="capinsta-export-2.mp4",
         user_id="user-1",
     ).to_public_dict()
 
     assert payload["downloadUrl"] == (
-        "/api/export/jobs/download/capinsta-export-2.mp4"
+        "/api/export/jobs/export-2/download"
     )
     assert payload["filename"].endswith(".mp4")

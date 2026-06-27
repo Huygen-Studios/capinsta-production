@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from dataclasses import dataclass
 
@@ -7,6 +8,8 @@ from fastapi import HTTPException
 
 from .auth import AuthenticatedUser
 from .settings import DB_PATH
+
+logger = logging.getLogger(__name__)
 
 try:
     import psycopg
@@ -191,20 +194,38 @@ async def require_backend_capability(user: AuthenticatedUser, request_path: str)
     super_admin = await is_super_admin(user.id)
 
     if super_admin:
+        logger.info(
+            "auth_allow user_id=%s path=%s permission=%s product_status=%s admin=super_admin",
+            user.id,
+            request_path,
+            permission,
+            product_status,
+        )
         return
     if mode == "maintenance":
         if "maintenance.bypass" in permissions:
+            logger.info(
+                "auth_allow user_id=%s path=%s permission=%s product_status=%s reason=maintenance_bypass",
+                user.id,
+                request_path,
+                permission,
+                product_status,
+            )
             return
         raise ProductAccessDeniedError("maintenance_mode", 503)
-    if mode == "coming_soon":
-        if product_status == "approved" or permission in permissions or "app.access" in permissions:
-            return
+    if mode not in {"public", "coming_soon"}:
+        raise ProductAccessDeniedError("control_plane_unavailable", 503)
+    if product_status != "approved":
         raise ProductAccessDeniedError("product_access_pending")
-    if mode == "public":
-        if product_status == "revoked":
-            raise ProductAccessDeniedError("product_access_revoked")
-        return
-    raise ProductAccessDeniedError("control_plane_unavailable", 503)
+    if permission not in permissions:
+        raise ProductAccessDeniedError(f"missing_permission:{permission}")
+    logger.info(
+        "auth_allow user_id=%s path=%s permission=%s product_status=%s",
+        user.id,
+        request_path,
+        permission,
+        product_status,
+    )
 
 
 async def _execute(query: str, params: tuple = ()) -> None:

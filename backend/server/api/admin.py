@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import secrets
-import shutil
 import time
 import uuid
 from datetime import datetime, timezone
@@ -22,7 +21,8 @@ from ..operational_mirror import (
     sanitize_error,
 )
 from ..progress import manager
-from ..settings import EXPORT_DIR, UPLOAD_DIR
+from ..settings import EXPORT_DIR, MEDIA_DIR
+from ..storage_paths import resolve_existing_file_inside
 from ..worker_startup import start_pipeline_worker
 from ..project_cleanup import ACTIVE_JOB_STATUSES
 from ..project_deletion import delete_project_resources
@@ -43,6 +43,33 @@ from ai_pipeline.transcriber import TranscriptionProviderError, is_real_secret, 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 internal_router = APIRouter(prefix="/internal/admin", tags=["internal-admin"])
+
+
+async def _admin_source_media_path(db: aiosqlite.Connection, source_row: aiosqlite.Row) -> str:
+    media_asset_id = source_row["media_asset_id"] if "media_asset_id" in source_row.keys() else None
+    if not media_asset_id:
+        raise HTTPException(status_code=410, detail="Source media requires migration before retry.")
+    media = await (
+        await db.execute(
+            """
+            SELECT * FROM media_assets
+            WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+            """,
+            (media_asset_id, source_row["user_id"]),
+        )
+    ).fetchone()
+    if not media:
+        raise HTTPException(status_code=410, detail="Source media is no longer available.")
+    expected = (MEDIA_DIR / str(media["user_id"]) / str(media["project_id"]) / str(media["id"])).resolve()
+    try:
+        actual = resolve_existing_file_inside(MEDIA_DIR, media["storage_path"], label="media asset")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=410, detail="Source media is no longer available.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Invalid media storage path.") from exc
+    if actual != expected:
+        raise HTTPException(status_code=410, detail="Source media requires migration before retry.")
+    return str(actual)
 
 
 class ReasonRequest(BaseModel):
@@ -187,12 +214,8 @@ async def retry_admin_job(
         raise HTTPException(status_code=404, detail="Job not found")
     if row["status"] not in {"failed", "closed"}:
         raise HTTPException(status_code=409, detail="Only failed or closed jobs can be retried")
-    source = UPLOAD_DIR / f"{job_id}_{row['filename']}"
-    if not source.exists():
-        raise HTTPException(status_code=409, detail="Immutable source media is no longer available")
     retry_id = str(uuid.uuid4())
-    destination = UPLOAD_DIR / f"{retry_id}_{row['filename']}"
-    shutil.copy2(source, destination)
+    source = await _admin_source_media_path(db, row)
     now = datetime.now(timezone.utc).isoformat()
     correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
     await db.execute(
@@ -220,7 +243,7 @@ async def retry_admin_job(
     )
     await db.commit()
     await mirror_caption_job(retry_id)
-    start_pipeline_worker(job_id=retry_id, file_path=str(destination), language_mode=row["target_lang"])
+    start_pipeline_worker(job_id=retry_id, file_path=source, language_mode=row["target_lang"])
     result = {"ok": True, "jobId": retry_id, "correlationId": admin.correlation_id}
     await _remember_result(db, request, "caption.retry", job_id, result)
     return result
@@ -388,7 +411,7 @@ async def retry_admin_export(
         caption_chunks_count=None,
         hardware_acceleration=bool(immutable.get("hardware_acceleration", False)),
         render_mode=immutable.get("render_mode", "headless"),
-        original_video_path=str(UPLOAD_DIR / f"{row['source_job_id']}_{source_row['filename']}"),
+        original_video_path=await _admin_source_media_path(db, source_row),
         composition_json=immutable.get("composition_json"),
     )
     async with export_runtime._jobs_lock:

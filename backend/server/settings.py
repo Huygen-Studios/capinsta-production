@@ -237,8 +237,8 @@ def dependency_status() -> dict[str, bool | str]:
     return {
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "ffprobe": bool(shutil.which("ffprobe")),
-        "storage": str(TEMP_DIR),
-        "uploads": str(UPLOAD_DIR),
-        "exports": str(EXPORT_DIR),
+        "storageWritable": TEMP_DIR.exists() and os.access(TEMP_DIR, os.W_OK),
+        "uploadsWritable": UPLOAD_DIR.exists() and os.access(UPLOAD_DIR, os.W_OK),
+        "exportsWritable": EXPORT_DIR.exists() and os.access(EXPORT_DIR, os.W_OK),
         "frontend_static": frontend_dist_available(),
     }

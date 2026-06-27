@@ -35,6 +35,7 @@ from .jobs import _public_export_stage, _resolve_export_dimensions, resolve_job_
 from ..auth import current_user, get_owned_job
 from ..operational_mirror import mirror_export_job
 from ..runtime_policy import enforce_export_quota, require_feature
+from ..storage_paths import path_inside, public_download_name, resolve_existing_file_inside, safe_identifier
 from ..storage_pressure import require_disk_capacity
 
 
@@ -315,21 +316,55 @@ async def recover_orphaned_export_jobs() -> int:
         return cursor.rowcount or 0
 
 
-def _export_download_url(filename: str) -> str:
-    return f"/api/export/jobs/download/{filename}"
+def _export_download_url(export_job_id: str) -> str:
+    return f"/api/export/jobs/{export_job_id}/download"
 
 
-def _resolve_export_file(filename: str) -> Path:
-    safe_name = Path(filename).name
-    if safe_name != filename or not safe_name.lower().endswith(".mp4"):
-        raise HTTPException(status_code=400, detail="Invalid export filename.")
+def _scoped_export_path(user_id: str, project_id: str, export_job_id: str, filename: str) -> Path:
+    safe_identifier(user_id, label="user id")
+    safe_identifier(project_id, label="project id")
+    safe_identifier(export_job_id, label="export job id")
+    return path_inside(EXPORT_DIR, user_id, project_id, export_job_id, public_download_name(filename, fallback="capinsta-export.mp4"))
 
-    export_root = EXPORT_DIR.resolve()
-    file_path = (export_root / safe_name).resolve()
-    if export_root not in file_path.parents and file_path != export_root:
-        raise HTTPException(status_code=400, detail="Invalid export path.")
-    if not file_path.exists() or not file_path.is_file():
+
+def _expected_export_parent(row: aiosqlite.Row) -> Path:
+    project_id = str(row["project_id"] if "project_id" in row.keys() and row["project_id"] else row["source_job_id"])
+    return path_inside(EXPORT_DIR, str(row["user_id"]), project_id, str(row["id"]))
+
+
+def _move_export_into_scope(source: Path, job: ExportJobStatus) -> Path:
+    destination = _scoped_export_path(
+        job.user_id,
+        job.project_id or job.source_job_id,
+        job.id,
+        source.name,
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() == destination.resolve():
+        return destination
+    os.replace(source, destination)
+    return destination
+
+
+def _resolve_export_file(raw_path: str | Path) -> Path:
+    try:
+        return resolve_existing_file_inside(EXPORT_DIR, raw_path, label="export file")
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Invalid export storage path.") from exc
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Export file was not found or has expired.")
+
+
+def _resolve_scoped_export_file(row: aiosqlite.Row) -> Path:
+    file_path = _resolve_export_file(row["output_path"])
+    if file_path.parent.resolve() != _expected_export_parent(row).resolve():
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "code": "export_requires_migration",
+                "message": "Export file must be migrated before it can be downloaded.",
+            },
+        )
     return file_path
 
 
@@ -571,7 +606,9 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 performance_callback=performance_cb,
             )
 
-            output = Path(output_path)
+            output = _resolve_export_file(output_path)
+            running_snapshot = await _set_job(export_job_id)
+            output = _move_export_into_scope(output, running_snapshot)
             async with _jobs_lock:
                 current_job = _jobs.get(export_job_id)
                 cancelled = current_job is not None and current_job.status == "cancelled"
@@ -580,7 +617,7 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 return
             output_bytes = output.stat().st_size if output.exists() else 0
             if output_bytes <= 0:
-                raise ExportStageError("output_write", f"FFmpeg finished but output file is missing or empty: {output_path}")
+                raise ExportStageError("output_write", "FFmpeg finished but the output file is missing or empty.")
 
             fallback_width, fallback_height = _resolve_export_dimensions(
                 request.resolution,
@@ -588,7 +625,7 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 request.export_height,
             )
             width, height = _dimensions_from_export_filename(output.name, fallback_width, fallback_height)
-            download_url = _export_download_url(output.name)
+            download_url = _export_download_url(export_job_id)
             completed = await _set_job(
                 export_job_id,
                 status="completed",
@@ -606,10 +643,9 @@ async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
                 fps=request.export_fps,
             )
             logger.info(
-                "export_job_completed export_job_id=%s source_job_id=%s output=%s bytes=%s memory_mb=%s",
+                "export_job_completed export_job_id=%s source_job_id=%s bytes=%s memory_mb=%s",
                 export_job_id,
                 request.source_job_id,
-                output,
                 output_bytes,
                 _memory_mb(),
             )
@@ -863,14 +899,13 @@ async def start_export_job(
     await _persist_job(queued_job)
 
     logger.info(
-        "export_job_queued export_job_id=%s source_job_id=%s mode=%s duration=%s fps=%s captions=%s output_dir=%s",
+        "export_job_queued export_job_id=%s source_job_id=%s mode=%s duration=%s fps=%s captions=%s",
         export_job_id,
         source_job_id,
         export_mode,
         duration_override,
         export_fps,
         caption_chunks_count,
-        EXPORT_DIR,
     )
     task = asyncio.create_task(_run_export_job(export_job_id, request))
     _export_tasks[export_job_id] = task
@@ -924,37 +959,72 @@ async def list_export_jobs():
 async def download_export_file(
     filename: str, db: aiosqlite.Connection = Depends(get_db)
 ):
+    raise HTTPException(
+        status_code=410,
+        detail="Filename-based export downloads are no longer supported. Use the export job download endpoint.",
+    )
+
+
+@router.get("/{export_job_id}/download")
+async def download_export_job(
+    export_job_id: str, db: aiosqlite.Connection = Depends(get_db)
+):
+    user_id = current_user().id
     cursor = await db.execute(
         """
         SELECT e.*, j.deleted_at AS source_deleted_at, j.status AS source_status
         FROM export_jobs e JOIN jobs j ON j.id = e.source_job_id
-        WHERE (e.filename = ? OR e.output_path LIKE ?) AND e.user_id = ?
+        WHERE e.id = ? AND e.user_id = ?
         ORDER BY e.created_at DESC LIMIT 1
         """,
-        (Path(filename).name, f"%{Path(filename).name}", current_user().id),
+        (export_job_id, user_id),
     )
     row = await cursor.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Export file was not found or has expired.")
-    if row and (
-        is_deleted_row(row)
-        or row["source_deleted_at"]
-        or row["source_status"] == "expired"
-    ):
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if is_deleted_row(row) or row["source_deleted_at"] or row["source_status"] == "expired":
         raise HTTPException(status_code=410, detail=EXPIRED_MESSAGE)
+    if row["status"] != "completed" or not row["output_path"]:
+        raise HTTPException(status_code=409, detail="Export is not ready for download.")
     source_row = await get_owned_job(db, row["source_job_id"])
     await ensure_project_available(source_row, db)
-    file_path = _resolve_export_file(filename)
+    file_path = _resolve_scoped_export_file(row)
     return FileResponse(
         file_path,
         media_type="video/mp4",
-        filename=file_path.name,
+        filename=public_download_name(row["filename"], fallback="capinsta-export.mp4"),
         headers={
-            "Content-Disposition": f'attachment; filename="{file_path.name}"',
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, max-age=86400",
         },
     )
+
+
+@router.head("/{export_job_id}/download")
+async def head_export_job(
+    export_job_id: str, db: aiosqlite.Connection = Depends(get_db)
+):
+    user_id = current_user().id
+    cursor = await db.execute(
+        """
+        SELECT e.*, j.deleted_at AS source_deleted_at, j.status AS source_status
+        FROM export_jobs e JOIN jobs j ON j.id = e.source_job_id
+        WHERE e.id = ? AND e.user_id = ?
+        ORDER BY e.created_at DESC LIMIT 1
+        """,
+        (export_job_id, user_id),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if is_deleted_row(row) or row["source_deleted_at"] or row["source_status"] == "expired":
+        raise HTTPException(status_code=410, detail=EXPIRED_MESSAGE)
+    if row["status"] != "completed" or not row["output_path"]:
+        raise HTTPException(status_code=409, detail="Export is not ready for download.")
+    source_row = await get_owned_job(db, row["source_job_id"])
+    await ensure_project_available(source_row, db)
+    _resolve_scoped_export_file(row)
+    return None
 
 
 @router.get("/{export_job_id}")

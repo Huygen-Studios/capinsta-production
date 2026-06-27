@@ -296,7 +296,7 @@ For captions-only export, choose a background color and duration source: caption
 
 After a successful MP4 export, the modal shows a `Download MP4` button with the rendered file ready to save.
 
-The export API also verifies that FFmpeg created a non-empty file before returning the response. Successful exports include `X-Export-File`, `X-Export-Url`, and `X-Export-Bytes` headers, and production serves generated MP4s from `/exports/<filename>` for the lifetime of the current Render instance.
+The export API also verifies that FFmpeg created a non-empty file before returning the response. Generated MP4s stay on backend disk storage and are only served through authenticated, owner-checked API routes such as `/api/export/jobs/{exportJobId}/download`; production must not expose `/exports`, `/uploads`, `/media`, `/storage`, or temp directories as public static paths.
 
 ## Word Highlight Box
 
