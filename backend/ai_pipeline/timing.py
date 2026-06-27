@@ -541,8 +541,14 @@ def build_timing_report(
     max_gap = 0.0
     prev_end: float | None = None
     estimated_words = 0
+    stable_ts_order_adjusted = 0
+    overlap_count = 0
 
     for index, word in enumerate(words):
+        source_blob = " ".join(
+            str(word.get(key) or "")
+            for key in ("timingSourceCategory", "timing_source", "timingSource", "timingSourceDetail")
+        ).lower()
         source = normalize_timing_source(
             word.get("timingSourceCategory") or word.get("timing_source") or word.get("timingSource"),
             word.get("provider"),
@@ -550,6 +556,8 @@ def build_timing_report(
         source_counts[source] += 1
         if source in PRODUCTION_INVALID_TIMING_SOURCES:
             estimated_words += 1
+        if "stable_ts_order_adjusted" in source_blob:
+            stable_ts_order_adjusted += 1
         start = word.get("start")
         end = word.get("end")
         if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or not math.isfinite(start) or not math.isfinite(end):
@@ -566,6 +574,7 @@ def build_timing_report(
         if prev_end is not None:
             if start < prev_end - 0.02:
                 suspicious.append(f"word[{index}] overlaps previous word")
+                overlap_count += 1
             max_gap = max(max_gap, start - prev_end)
         prev_end = end
 
@@ -578,6 +587,9 @@ def build_timing_report(
         "silenceGapCount": len(silence_gaps or []),
         "suspiciousWordCount": len(suspicious),
         "estimatedWordCount": estimated_words,
+        "estimatedWordRatio": round(estimated_words / max(1, len(words)), 4),
+        "stableTsOrderAdjustedCount": stable_ts_order_adjusted,
+        "overlapCount": overlap_count,
         "maxGapBetweenWords": _round_time(max_gap),
         "warnings": suspicious[:80],
         "syncMode": "auto" if auto_sync.get("applied") else "manual" if (sync_report or {}).get("manualSync", {}).get("applied") else "provider",

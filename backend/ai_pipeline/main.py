@@ -29,10 +29,11 @@ from .sync.aligned_words import (
     sanitize_aligned_word_ranges,
 )
 from .sync.auto_sync import apply_auto_sync_if_confident
+from .sync.final_quality_gate import validate_final_timing_quality
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement
 from .sync.pause_preserver import preserve_detected_pauses
-from .pipeline_config import resolve_pipeline_config
+from .pipeline_config import resolve_pipeline_config, resolve_pipeline_config_with_sources
 from .timing import (
     alignment_provider_status,
     annotate_word_timing_sources,
@@ -256,7 +257,9 @@ def run_pipeline(
     transcription_providers: set[str] = set()
     transcription_fallback_from: set[str] = set()
     active_snapshot = coerce_snapshot(transcription_config_snapshot)
-    pipeline_config = resolve_pipeline_config(active_snapshot.resolved_pipeline_options if active_snapshot else None)
+    pipeline_options_snapshot = active_snapshot.resolved_pipeline_options if active_snapshot else None
+    pipeline_config = resolve_pipeline_config(pipeline_options_snapshot)
+    pipeline_config_with_sources = resolve_pipeline_config_with_sources(pipeline_options_snapshot)
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -264,6 +267,11 @@ def run_pipeline(
             progress_callback(status, percent, details)
 
     try:
+        _stage_log(
+            "resolved_timing_configuration",
+            resolved=pipeline_config_with_sources.get("resolved"),
+            sources=pipeline_config_with_sources.get("sources"),
+        )
         _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
         emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")
         audio_options = pipeline_config.audio
@@ -798,6 +806,15 @@ def run_pipeline(
         if transformation_report.get("transformation") != "none":
             aligned_words = canonical_aligned_words_from_segments(clamped_segments)
             timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
+        final_quality_report = validate_final_timing_quality(
+            clamped_segments,
+            pipeline_config=pipeline_config,
+            vad_report=vad_report,
+            sync_report=sync_report,
+            resolved_config_sources=pipeline_config_with_sources.get("sources"),
+        )
+        sync_report["finalTimingQuality"] = final_quality_report
+        timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
 
         _stage_log("caption chunks generated", segment_count=len(clamped_segments))
         emit_progress("chunking", 92, "Preparing readable caption chunks.")
