@@ -69,34 +69,52 @@ export async function AdminModulePage({
                     {columns.map((column) => (
                       <TableHead key={column}>{humanize(column)}</TableHead>
                     ))}
+                    {detailLinks ? <TableHead>Actions</TableHead> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.rows.map((row, rowIndex) => (
-                    <TableRow key={String(row.id ?? rowIndex)}>
-                      {columns.map((column) => (
-                        <TableCell
-                          key={column}
-                          className="max-w-72 truncate font-mono text-xs"
-                        >
-                          {column === "id" && detailLinks ? (
-                            <Link
-                              className="font-semibold text-primary hover:underline"
-                              href={`/admincapinsta11/${module}/${encodeURIComponent(String(row[column]))}`}
-                            >
-                              {formatValue(row[column])}
-                            </Link>
-                          ) : isStatus(column) ? (
-                            <Badge variant="outline">
-                              {formatValue(row[column])}
-                            </Badge>
-                          ) : (
-                            formatValue(row[column])
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
+                  {data.rows.map((row, rowIndex) => {
+                    const detailHref =
+                      row.id === null || row.id === undefined
+                        ? null
+                        : `/admincapinsta11/${module}/${encodeURIComponent(String(row.id))}`;
+                    return (
+                      <TableRow key={String(row.id ?? rowIndex)}>
+                        {columns.map((column) => (
+                          <TableCell
+                            key={column}
+                            className="max-w-72 truncate font-mono text-xs"
+                          >
+                            {column === "id" && detailLinks && detailHref ? (
+                              <Link
+                                className="font-semibold text-primary hover:underline"
+                                href={detailHref}
+                              >
+                                {formatValue(row[column])}
+                              </Link>
+                            ) : isStatus(column) ? (
+                              <Badge variant="outline">
+                                {formatValue(row[column])}
+                              </Badge>
+                            ) : (
+                              formatValue(row[column])
+                            )}
+                          </TableCell>
+                        ))}
+                        {detailLinks ? (
+                          <TableCell className="whitespace-nowrap">
+                            {detailHref ? (
+                              <Button asChild size="sm" variant="outline">
+                                <Link href={detailHref}>Manage</Link>
+                              </Button>
+                            ) : (
+                              formatValue(null)
+                            )}
+                          </TableCell>
+                        ) : null}
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
