@@ -203,6 +203,7 @@ function wordToNeutral(word: CapinstaTranscriptV1["words"][number]): NeutralCapt
     timingWarning: word.timingWarning,
     timingNeedsReview: word.timingNeedsReview,
     timingRepair: word.timingRepair,
+    disableActiveWordHighlighting: word.disableActiveWordHighlighting,
     sourceWordId: word.id,
   }
 }
@@ -273,6 +274,7 @@ function neutralWordToAligned(word: NeutralCaptionWord): AlignedWord & { id: str
     timingWarning: word.timingSourceDetail,
     timing_warning: word.timingSourceDetail,
     timingNeedsReview: word.timingNeedsReview,
+    disableActiveWordHighlighting: word.disableActiveWordHighlighting,
   };
 }
 
@@ -315,6 +317,8 @@ function buildNeutralClipsWithOriginalChunking({
       manuallyEdited: Boolean(clip.manuallyEdited),
       timingNeedsReview: Boolean(clip.timingNeedsReview),
       timingSource: clip.timingNeedsReview ? "estimated" : "provider",
+      disableActiveWordHighlighting:
+        Boolean(clip.disableActiveWordHighlighting) || clip.wordIds.length === 0,
       sourceClipId: clip.id,
     }));
   }
@@ -375,6 +379,9 @@ function buildNeutralClipsWithOriginalChunking({
       timingSource: orderedPage.some((word) => Boolean(word.timingNeedsReview))
         ? "estimated"
         : "provider",
+      disableActiveWordHighlighting: orderedPage.every((word) =>
+        Boolean(word.disableActiveWordHighlighting),
+      ),
       sourceClipId: orderedPage.map((word) => word.id).join(":"),
     };
   });
@@ -563,9 +570,11 @@ export function getActiveWordIdsAtTime(
 ): string[] {
   const activeCaption = getActiveCaptionAtTime(document, timeSeconds)
   if (!activeCaption) return []
+  if (activeCaption.disableActiveWordHighlighting) return []
   const activeWordIdSet = new Set(activeCaption.wordIds)
   return document.words
     .filter((word) => activeWordIdSet.has(word.id))
+    .filter((word) => !word.disableActiveWordHighlighting)
     .filter((word) => word.start <= timeSeconds && timeSeconds < word.end)
     .map((word) => word.id)
 }

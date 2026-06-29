@@ -205,6 +205,14 @@ def _normalize_word(raw_word: dict[str, Any], language_mode: str) -> dict[str, A
         normalized["originalWord"] = word_meta["originalWord"]
     elif raw_word.get("originalWord"):
         normalized["originalWord"] = raw_word.get("originalWord")
+    if word_meta.get("normalizationRule"):
+        normalized["displayedWord"] = word_meta.get("displayedWord") or normalized["displayedWord"]
+        normalized["normalizationRule"] = word_meta["normalizationRule"]
+        normalized["wordNormalization"] = dict(word_meta.get("wordNormalization") or {
+            "originalWord": normalized.get("originalWord") or raw_text,
+            "displayedWord": normalized["displayedWord"],
+            "normalizationRule": word_meta["normalizationRule"],
+        })
     if word_meta.get("languageHint"):
         normalized["languageHint"] = word_meta["languageHint"]
     if word_meta.get("scriptHint"):

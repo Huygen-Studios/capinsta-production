@@ -11,6 +11,7 @@ from ai_pipeline.main import (
 from ai_pipeline.sync.aligned_words import build_segments_from_aligned_words
 from ai_pipeline.audio import build_vad_chunk_ranges
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
+from ai_pipeline.renderer import generate_srt, generate_vtt
 from ai_pipeline.transcript_normalizer import (
     TranscriptValidationError,
     build_word_timed_transcript_from_chunks,
@@ -36,6 +37,10 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
         "CHUNK_PADDING_SECONDS",
         "ENABLE_STABLE_TS",
         "STABLE_TS_MODEL",
+        "STABLE_TS_MIN_MATCH_COVERAGE",
+        "STABLE_TS_MIN_WORD_RATIO",
+        "STABLE_TS_MAX_WORD_RATIO",
+        "MIN_MATCH_COVERAGE",
         "CAPTION_MAX_WORDS",
         "CAPTION_MAX_CHARS",
         "MAX_DURATION_SECONDS",
@@ -67,6 +72,20 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
     assert config.alignment.stableTsModel == "small"
     assert config.alignment.allowStableTsOrderFallback is False
     assert config.to_dict() == DEFAULT_PIPELINE_OPTIONS
+
+
+def test_pipeline_config_resolves_stable_ts_threshold_env_aliases(monkeypatch):
+    monkeypatch.setenv("STABLE_TS_MIN_MATCH_COVERAGE", "0.62")
+    monkeypatch.setenv("STABLE_TS_MIN_WORD_RATIO", "0.33")
+    monkeypatch.setenv("STABLE_TS_MAX_WORD_RATIO", "1.75")
+    monkeypatch.setenv("ALLOW_STABLE_TS_ORDER_FALLBACK", "false")
+
+    config = resolve_pipeline_config()
+
+    assert config.alignment.stableTsMinMatchCoverage == 0.62
+    assert config.alignment.stableTsMinWordRatio == 0.33
+    assert config.alignment.stableTsMaxWordRatio == 1.75
+    assert config.alignment.allowStableTsOrderFallback is False
 
 
 def test_pipeline_config_rejects_invalid_policy_and_ranges():
@@ -412,7 +431,8 @@ def test_stable_ts_order_fallback_can_be_disabled(monkeypatch):
     )
 
     assert result.report["applied"] is False
-    assert "order fallback is disabled" in result.report["reason"]
+    assert "token coverage 0.000 below threshold" in result.report["reason"]
+    assert result.report["orderFallbackUsed"] is False
 
 
 def test_stable_ts_transcribe_fallback_runs_when_forced_align_fails(monkeypatch):
@@ -499,7 +519,25 @@ def test_stable_ts_matching_bridges_hindi_romanized_tokens():
     assert result["matchCoverage"] == 1.0
 
 
-def test_stable_ts_order_fallback_fills_unmatched_words_after_good_token_match(monkeypatch):
+def test_stable_ts_matching_bridges_telugu_romanized_code_switched_tokens():
+    result = stable_refine.match_stable_words_to_provider_words(
+        [
+            {"spokenWord": "సందీప్", "displayedWord": "sandeep"},
+            {"spokenWord": "బడ్జెట్", "displayedWord": "budget"},
+            {"spokenWord": "plan", "displayedWord": "plan"},
+        ],
+        [
+            {"word": "sandeep", "start": 0.1, "end": 0.3},
+            {"word": "budget", "start": 0.35, "end": 0.6},
+            {"word": "plan", "start": 0.65, "end": 0.9},
+        ],
+    )
+
+    assert result["matchedWordCount"] == 3
+    assert result["matchCoverage"] == 1.0
+
+
+def test_stable_ts_does_not_order_fill_unmatched_words_after_good_token_match(monkeypatch):
     monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
     monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
     monkeypatch.setattr(
@@ -522,8 +560,8 @@ def test_stable_ts_order_fallback_fills_unmatched_words_after_good_token_match(m
                 "words": [
                     {"word": "one", "start": 0.0, "end": 0.1, "timingSource": "deterministic_fallback"},
                     {"word": "two", "start": 0.1, "end": 0.2, "timingSource": "deterministic_fallback"},
-                    {"word": "three", "start": 0.2, "end": 0.3, "timingSource": "deterministic_fallback"},
-                    {"word": "four", "start": 0.3, "end": 0.4, "timingSource": "deterministic_fallback"},
+                    {"word": "three", "start": 0.36, "end": 0.45, "timingSource": "deterministic_fallback"},
+                    {"word": "four", "start": 0.5, "end": 0.6, "timingSource": "deterministic_fallback"},
                 ],
             }
         ],
@@ -540,12 +578,187 @@ def test_stable_ts_order_fallback_fills_unmatched_words_after_good_token_match(m
 
     words = result.segments[0]["words"]
     assert result.report["applied"] is True
-    assert result.report["appliedWords"] == 4
-    assert result.report["orderFallbackUsed"] is True
-    assert result.report["orderFallbackAppliedWords"] == 1
-    assert words[2]["start"] == 0.4
-    assert words[2]["timingSource"] == "stable_ts_order_adjusted"
-    assert all("deterministic" not in word["timingSource"] for word in words)
+    assert result.report["appliedWords"] == 3
+    assert result.report["orderFallbackUsed"] is False
+    assert result.report["orderFallbackAppliedWords"] == 0
+    assert words[2]["start"] == 0.36
+    assert words[2]["timingSource"] == "deterministic_fallback"
+    assert words[2]["timingQualityMode"] == "word_timed_estimated"
+    assert {words[index]["timingSource"] for index in (0, 1, 3)} == {"stable_ts_forced_align"}
+
+
+def test_stable_ts_low_global_coverage_recovers_from_provider_native_words(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+    monkeypatch.setattr(
+        stable_refine,
+        "force_align_provider_words",
+        lambda *_args, **_kwargs: [
+            {"word": f"w{index}", "start": index * 0.1, "end": index * 0.1 + 0.05}
+            for index in range(37)
+        ],
+    )
+    provider_words = [
+        {
+            "word": f"w{index}",
+            "start": index * 0.1,
+            "end": index * 0.1 + 0.05,
+            "nativeStart": index * 0.1,
+            "nativeEnd": index * 0.1 + 0.05,
+            "timingSource": "provider_native_word",
+        }
+        for index in range(100)
+    ]
+
+    result = stable_refine.apply_stable_refinement(
+        [{"text": " ".join(word["word"] for word in provider_words), "start": 0.0, "end": 10.0, "words": provider_words}],
+        "audio.wav",
+        "english",
+        config={"enabled": True, "minMatchCoverage": 0.5, "minWordRatio": 0.45, "maxWordRatio": 2.25},
+    )
+
+    assert result.report["matchCoverage"] == 0.37
+    assert result.report["wordRatio"] == 0.37
+    assert result.report["errorCategory"] is None
+    assert result.report["finalTimingQualityMode"] == "word_timed_verified"
+    assert result.report["verifiedWordCount"] == 100
+    assert result.report["recoveryByGroup"]
+    assert all(word["timingQualityMode"] == "word_timed_verified" for word in result.segments[0]["words"])
+
+
+def test_stable_ts_accepts_successful_group_and_recovers_failed_group(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+    monkeypatch.setattr(
+        stable_refine,
+        "force_align_provider_words",
+        lambda *_args, **_kwargs: [
+            {"word": "alpha", "start": 0.0, "end": 0.2},
+            {"word": "bravo", "start": 0.25, "end": 0.45},
+            {"word": "charlie", "start": 0.5, "end": 0.7},
+        ],
+    )
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "id": "good",
+                "text": "alpha bravo charlie",
+                "start": 0.0,
+                "end": 1.0,
+                "words": [
+                    {"word": "alpha", "start": 0.0, "end": 0.15, "timingSource": "provider_word"},
+                    {"word": "bravo", "start": 0.2, "end": 0.35, "timingSource": "provider_word"},
+                    {"word": "charlie", "start": 0.4, "end": 0.55, "timingSource": "provider_word"},
+                ],
+            },
+            {
+                "id": "failed",
+                "text": "delta echo foxtrot",
+                "start": 1.2,
+                "end": 2.2,
+                "words": [
+                    {"word": "delta", "start": 1.2, "end": 1.35, "timingSource": "provider_word", "nativeStart": 1.2, "nativeEnd": 1.35},
+                    {"word": "echo", "start": 1.4, "end": 1.55, "timingSource": "provider_word", "nativeStart": 1.4, "nativeEnd": 1.55},
+                    {"word": "foxtrot", "start": 1.6, "end": 1.75, "timingSource": "provider_word", "nativeStart": 1.6, "nativeEnd": 1.75},
+                ],
+            },
+        ],
+        "audio.wav",
+        "english",
+        config={"enabled": True, "minMatchCoverage": 0.5, "minWordRatio": 0.45, "maxWordRatio": 2.25},
+    )
+
+    assert result.report["applied"] is True
+    assert result.report["failedGroupIds"]
+    assert {word["timingSource"] for word in result.segments[0]["words"]} == {"stable_ts_forced_align"}
+    assert all(word["timingQualityMode"] == "word_timed_verified" for word in result.segments[1]["words"])
+
+
+def test_stable_ts_phrase_fallback_disables_active_word_highlighting(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: False)
+
+    result = stable_refine.apply_stable_refinement(
+        [{"id": "phrase", "text": "provider phrase only", "start": 0.4, "end": 1.8, "words": []}],
+        "audio.wav",
+        "english",
+        config={"enabled": True},
+    )
+
+    assert result.report["finalTimingQualityMode"] == "phrase_timed_fallback"
+    assert result.report["phraseFallbackCueCount"] == 1
+    assert result.segments[0]["disableActiveWordHighlighting"] is True
+    assert result.segments[0]["timingQualityMode"] == "phrase_timed_fallback"
+
+
+def test_stable_ts_recovery_uses_vad_speech_range_when_segment_anchor_is_missing(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: False)
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "id": "vad-only",
+                "text": "hello world",
+                "words": [
+                    {"word": "hello", "start": None, "end": None},
+                    {"word": "world", "start": None, "end": None},
+                ],
+            }
+        ],
+        "audio.wav",
+        "english",
+        config={
+            "enabled": True,
+            "speechRanges": [{"start": 3.0, "end": 4.0}],
+        },
+    )
+
+    words = result.segments[0]["words"]
+    assert set(result.report["recoveryByGroup"].values()) == {"vad_speech_interpolation"}
+    assert result.report["finalTimingQualityMode"] == "word_timed_estimated"
+    assert words[0]["start"] == 3.0
+    assert words[-1]["end"] == 4.0
+    assert all(word["timingSource"] == "vad_speech_interpolation" for word in words)
+
+
+def test_low_coverage_recovery_exports_valid_srt_and_vtt(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+    monkeypatch.setattr(
+        stable_refine,
+        "force_align_provider_words",
+        lambda *_args, **_kwargs: [
+            {"word": f"w{index}", "start": index * 0.1, "end": index * 0.1 + 0.05}
+            for index in range(37)
+        ],
+    )
+    provider_words = [
+        {
+            "word": f"w{index}",
+            "displayedWord": f"w{index}",
+            "start": index * 0.1,
+            "end": index * 0.1 + 0.05,
+            "nativeStart": index * 0.1,
+            "nativeEnd": index * 0.1 + 0.05,
+            "timingSource": "provider_native_word",
+        }
+        for index in range(100)
+    ]
+
+    result = stable_refine.apply_stable_refinement(
+        [{"text": " ".join(word["word"] for word in provider_words), "start": 0.0, "end": 10.0, "words": provider_words}],
+        "audio.wav",
+        "english",
+        config={"enabled": True, "minMatchCoverage": 0.5, "minWordRatio": 0.45, "maxWordRatio": 2.25},
+    )
+
+    srt = generate_srt(result.segments)
+    vtt = generate_vtt(result.segments)
+    assert "WEBVTT" in vtt
+    assert "00:00:00,000 -->" in srt
+    assert "--> 00:00:10,000" in srt
+    assert "00:00:00.000 -->" in vtt
+    assert "--> 00:00:10.000" in vtt
 
 
 def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):

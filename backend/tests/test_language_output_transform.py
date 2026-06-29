@@ -4,6 +4,8 @@ import ai_pipeline.output_transform as output_transform
 from ai_pipeline.language_modes import (
     normalize_audio_language,
     normalize_caption_output,
+    normalize_word_token_with_metadata,
+    romanizeTeluguText,
     transcription_language_mode,
 )
 from ai_pipeline.output_transform import transform_segments_for_output
@@ -66,6 +68,59 @@ def test_telugu_to_telgish_preserves_one_to_one_timestamps():
     assert len(transformed[0]["words"]) == 2
     assert transformed[0]["words"][0]["start"] == 1.0
     assert transformed[0]["words"][0]["originalWord"] == "అమ్మ"
+
+
+def test_telugu_contextual_anusvara_romanizes_to_readable_n_before_dental():
+    assert romanizeTeluguText("సందీప్") == "sandeep"
+    assert romanizeTeluguText("ఇదిగోండి") == "idigondi"
+
+
+def test_telugu_contextual_anusvara_keeps_m_before_labial():
+    assert romanizeTeluguText("అమ్మ") == "amma"
+
+
+def test_telgish_contextual_anusvara_adds_display_diagnostic_without_changing_source_word():
+    token = normalize_word_token_with_metadata("సందీప్", "telgish")
+
+    assert token["word"] == "sandeep"
+    assert token["originalWord"] == "సందీప్"
+    assert token["displayedWord"] == "sandeep"
+    assert token["normalizationRule"] == "telugu_contextual_anusvara_before_dental"
+    assert token["wordNormalization"] == {
+        "originalWord": "సందీప్",
+        "displayedWord": "sandeep",
+        "normalizationRule": "telugu_contextual_anusvara_before_dental",
+    }
+
+
+def test_telugu_to_telgish_contextual_anusvara_preserves_spoken_word_provenance():
+    transformed, _report = transform_segments_for_output(
+        [
+            {
+                "id": "seg-sandeep",
+                "start": 0.0,
+                "end": 1.0,
+                "text": "సందీప్",
+                "words": [
+                    {
+                        "word": "సందీప్",
+                        "spokenWord": "సందీప్",
+                        "start": 0.0,
+                        "end": 1.0,
+                        "timingSource": "provider_word",
+                    }
+                ],
+            }
+        ],
+        source_language="telugu",
+        output_language="telgish",
+    )
+
+    word = transformed[0]["words"][0]
+    assert word["displayedWord"] == "sandeep"
+    assert word["originalWord"] == "సందీప్"
+    assert word["spokenWord"] == "సందీప్"
+    assert word["normalizationRule"] == "telugu_contextual_anusvara_before_dental"
 
 
 def test_translation_preserves_segment_boundaries_and_derives_monotonic_words(monkeypatch):

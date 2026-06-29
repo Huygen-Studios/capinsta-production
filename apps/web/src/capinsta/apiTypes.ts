@@ -77,6 +77,7 @@ export interface CapinstaApiWord {
   timingReviewRequired?: boolean
   timing_repair?: string
   timingRepair?: string
+  disableActiveWordHighlighting?: boolean
 }
 
 export interface CapinstaApiSegment {
@@ -85,6 +86,9 @@ export interface CapinstaApiSegment {
   end: number
   text: string
   words?: CapinstaApiWord[]
+  disableActiveWordHighlighting?: boolean
+  timingNeedsReview?: boolean
+  timingReviewRequired?: boolean
 }
 
 export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {

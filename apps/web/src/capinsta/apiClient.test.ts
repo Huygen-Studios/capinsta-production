@@ -144,6 +144,51 @@ describe("Capinsta API client", () => {
 		expect(transcript.clips[0]?.timingNeedsReview).toBe(true);
 	});
 
+	test("normalizes phrase fallback jobs without timed words", () => {
+		const job: CapinstaJobDetailResponse = {
+			job_id: "job-phrase",
+			status: "completed",
+			progress: 100,
+			filename: "phrase.mp4",
+			languageMode: "english",
+			transcript: {
+				languageMode: "english",
+				provider: { name: "sarvam", model: "saaras:v3" },
+				segments: [
+					{
+						id: "phrase-1",
+						start: 0.4,
+						end: 1.8,
+						text: "provider phrase only",
+						words: [],
+						disableActiveWordHighlighting: true,
+						timingNeedsReview: true,
+					},
+				],
+				metadata: {
+					audio: { duration: 2 },
+					timing: { source: "test" },
+				},
+			},
+			completed_at: "2026-06-15T00:00:00.000Z",
+		};
+
+		const transcript = normalizeCapinstaJobToTranscript({
+			job,
+			sourceAsset: {
+				assetId: "asset-phrase",
+				assetName: "phrase.mp4",
+				mimeType: "video/mp4",
+			},
+		});
+		const document = capinstaTranscriptToCaptionDocument(transcript);
+
+		expect(transcript.timing.sourceOfTruth).toBe("clips");
+		expect(transcript.words).toHaveLength(0);
+		expect(transcript.clips[0]?.disableActiveWordHighlighting).toBe(true);
+		expect(document.clips[0]?.disableActiveWordHighlighting).toBe(true);
+	});
+
 	test("renews the backend project lease", async () => {
 		const lease = await sendCapinstaProjectHeartbeat({
 			baseUrl: "http://127.0.0.1:8000",

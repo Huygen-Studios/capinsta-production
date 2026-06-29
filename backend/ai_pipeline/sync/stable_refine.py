@@ -15,10 +15,15 @@ from typing import Any
 
 from .affine import validate_monotonic_word_timing
 from .report import SyncPassResult
-from ..language_modes import romanizeMixedIndianText
+from ..language_modes import normalize_caption_text, romanizeMixedIndianText
 
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_STABLE_TS_MIN_MATCH_COVERAGE = 0.50
+DEFAULT_STABLE_TS_MIN_WORD_RATIO = 0.45
+DEFAULT_STABLE_TS_MAX_WORD_RATIO = 2.25
+DEFAULT_ALLOW_STABLE_TS_ORDER_FALLBACK = False
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -33,6 +38,18 @@ def _float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)) or default)
     except (TypeError, ValueError):
         return default
+
+
+def resolved_stable_ts_config(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or {}
+    alignment_config = config.get("alignment") if isinstance(config.get("alignment"), dict) else {}
+    return {
+        "stableTsEnabled": bool(config.get("enabled")) if "enabled" in config else _bool_env("ENABLE_STABLE_TS", bool(alignment_config.get("stableTsEnabled", True))),
+        "stableTsMinMatchCoverage": float(config.get("minMatchCoverage") or alignment_config.get("stableTsMinMatchCoverage") or _float_env("STABLE_TS_MIN_MATCH_COVERAGE", DEFAULT_STABLE_TS_MIN_MATCH_COVERAGE)),
+        "stableTsMinWordRatio": float(config.get("minWordRatio") or alignment_config.get("stableTsMinWordRatio") or _float_env("STABLE_TS_MIN_WORD_RATIO", DEFAULT_STABLE_TS_MIN_WORD_RATIO)),
+        "stableTsMaxWordRatio": float(config.get("maxWordRatio") or alignment_config.get("stableTsMaxWordRatio") or _float_env("STABLE_TS_MAX_WORD_RATIO", DEFAULT_STABLE_TS_MAX_WORD_RATIO)),
+        "allowStableTsOrderFallback": DEFAULT_ALLOW_STABLE_TS_ORDER_FALLBACK,
+    }
 
 
 def _normalize_token(value: Any) -> str:
@@ -50,6 +67,7 @@ def _token_forms(value: Any) -> set[str]:
     forms = {_normalize_token(raw)}
     romanized = romanizeMixedIndianText(raw)
     forms.add(_normalize_token(romanized))
+    forms.add(_normalize_token(normalize_caption_text(raw, "auto_mixed_indian")))
     number = _number_token_form(raw)
     if number:
         forms.add(number)
@@ -929,12 +947,321 @@ def _apply_matched_timings(
         word["timingSource"] = source
         word["timing_source"] = source
         word["timingSourceDetail"] = source
+        word["timingQualityMode"] = "word_timed_verified"
+        word["alignmentRecoverySource"] = source
         applied += 1
     if rollback_and_validate:
         rolled_back = _rollback_invalid_stable_groups(rows, diagnostics)
         validate_monotonic_word_timing(segments)
         return max(0, applied - rolled_back)
     return applied
+
+
+def _segment_window(segment: dict[str, Any]) -> tuple[float, float] | None:
+    start = _optional_float(segment.get("sourceStart"))
+    end = _optional_float(segment.get("sourceEnd"))
+    if start is None:
+        start = _optional_float(segment.get("start"))
+    if end is None:
+        end = _optional_float(segment.get("end"))
+    if start is None or end is None or end <= start:
+        return None
+    return start, end
+
+
+def _valid_word_timing(word: dict[str, Any], window: tuple[float, float] | None = None) -> bool:
+    start = _optional_float(word.get("start"))
+    end = _optional_float(word.get("end"))
+    if start is None or end is None or end <= start:
+        return False
+    if window is None:
+        return True
+    return start >= window[0] - 0.001 and end <= window[1] + 0.001
+
+
+def _recovery_source_for_existing_words(words: list[dict[str, Any]], window: tuple[float, float] | None) -> str | None:
+    if not words or not all(_valid_word_timing(word, window) for word in words):
+        return None
+    source_blob = " ".join(
+        str(word.get("timingSourceDetail") or word.get("timingSource") or word.get("timing_source") or "")
+        for word in words
+    ).lower()
+    if any(marker in source_blob for marker in ("provider_native", "provider_word", "native_provider_word")) and not any(
+        marker in source_blob for marker in ("provider_phrase", "estimated", "interpolated", "fallback", "segment_derived")
+    ):
+        return "provider_native_word_timestamps"
+    return "provider_segment_interpolation"
+
+
+def _mark_recovered_words(
+    words: list[dict[str, Any]],
+    *,
+    quality_mode: str,
+    recovery_source: str,
+    review: bool,
+) -> None:
+    for word in words:
+        word["timingQualityMode"] = quality_mode
+        word["alignmentRecoverySource"] = recovery_source
+        if review:
+            word["timingNeedsReview"] = True
+            word["timingReviewRequired"] = True
+
+
+def _interpolate_words_in_window(words: list[dict[str, Any]], window: tuple[float, float], source: str) -> bool:
+    if not words:
+        return False
+    start, end = window
+    duration = max(0.001, end - start)
+    step = duration / len(words)
+    cursor = start
+    for index, word in enumerate(words):
+        word_start = round(cursor, 3)
+        word_end = round(end if index == len(words) - 1 else min(end, cursor + step), 3)
+        if word_end <= word_start:
+            word_end = round(min(end, word_start + 0.001), 3)
+        word["start"] = word_start
+        word["end"] = word_end
+        word["timingSource"] = source
+        word["timing_source"] = source
+        word["timingSourceDetail"] = source
+        word["timingQualityMode"] = "word_timed_estimated"
+        word["alignmentRecoverySource"] = source
+        word["timingNeedsReview"] = True
+        word["timingReviewRequired"] = True
+        cursor = word_end
+    return True
+
+
+def _mark_phrase_fallback(segment: dict[str, Any], reason: str) -> None:
+    window = _segment_window(segment)
+    if window:
+        segment["start"] = round(window[0], 3)
+        segment["end"] = round(window[1], 3)
+    segment["timingQualityMode"] = "phrase_timed_fallback"
+    segment["alignmentRecoverySource"] = "phrase_timed_fallback"
+    segment["timingSource"] = "phrase_timed_fallback"
+    segment["timing_source"] = "phrase_timed_fallback"
+    segment["timingSourceDetail"] = reason
+    segment["timingNeedsReview"] = True
+    segment["timingReviewRequired"] = True
+    segment["disableActiveWordHighlighting"] = True
+    for word in segment.get("words") or []:
+        word["timingQualityMode"] = "phrase_timed_fallback"
+        word["alignmentRecoverySource"] = "phrase_timed_fallback"
+        word["disableActiveWordHighlighting"] = True
+        word["timingNeedsReview"] = True
+        word["timingReviewRequired"] = True
+
+
+def _mark_unusable(segment: dict[str, Any], reason: str) -> None:
+    segment["timingQualityMode"] = "unusable"
+    segment["alignmentRecoverySource"] = "unusable"
+    segment["timingSourceDetail"] = reason
+    segment["timingNeedsReview"] = True
+    segment["timingReviewRequired"] = True
+    segment["disableActiveWordHighlighting"] = True
+    for word in segment.get("words") or []:
+        word["timingQualityMode"] = "unusable"
+        word["alignmentRecoverySource"] = "unusable"
+        word["disableActiveWordHighlighting"] = True
+
+
+def _speech_window_for_segment(
+    segment: dict[str, Any],
+    speech_ranges: list[dict[str, Any]] | None,
+) -> tuple[float, float] | None:
+    if not speech_ranges:
+        return None
+    segment_window = _segment_window(segment)
+    best_window: tuple[float, float] | None = None
+    best_overlap = 0.0
+    for speech_range in speech_ranges:
+        speech_start = _optional_float(speech_range.get("start"))
+        speech_end = _optional_float(speech_range.get("end"))
+        if speech_start is None or speech_end is None or speech_end <= speech_start:
+            continue
+        if segment_window is None:
+            overlap = speech_end - speech_start
+            candidate = (speech_start, speech_end)
+        else:
+            start = max(segment_window[0], speech_start)
+            end = min(segment_window[1], speech_end)
+            overlap = end - start
+            candidate = (start, end)
+        if overlap > best_overlap and candidate[1] > candidate[0]:
+            best_overlap = overlap
+            best_window = candidate
+    return best_window
+
+
+def _recover_segment(
+    segment: dict[str, Any],
+    reason: str,
+    *,
+    speech_ranges: list[dict[str, Any]] | None = None,
+) -> str:
+    words = [word for word in segment.get("words") or [] if isinstance(word, dict)]
+    window = _segment_window(segment)
+    source = _recovery_source_for_existing_words(words, window)
+    if source == "provider_native_word_timestamps":
+        _mark_recovered_words(words, quality_mode="word_timed_verified", recovery_source=source, review=False)
+        return source
+    if source:
+        _mark_recovered_words(words, quality_mode="word_timed_estimated", recovery_source=source, review=True)
+        return source
+    if words and window and _interpolate_words_in_window(words, window, "provider_segment_interpolation"):
+        return "provider_segment_interpolation"
+    speech_window = _speech_window_for_segment(segment, speech_ranges)
+    if words and speech_window and _interpolate_words_in_window(words, speech_window, "vad_speech_interpolation"):
+        return "vad_speech_interpolation"
+    if window:
+        _mark_phrase_fallback(segment, reason)
+        return "phrase_timed_fallback"
+    _mark_unusable(segment, reason)
+    return "unusable"
+
+
+def _quality_counts(segments: list[dict[str, Any]]) -> dict[str, int]:
+    verified = 0
+    estimated = 0
+    phrase = 0
+    for segment in segments:
+        if segment.get("timingQualityMode") == "phrase_timed_fallback":
+            phrase += 1
+        for word in segment.get("words") or []:
+            mode = word.get("timingQualityMode") or segment.get("timingQualityMode")
+            if mode == "word_timed_verified":
+                verified += 1
+            elif mode == "word_timed_estimated":
+                estimated += 1
+            elif mode == "phrase_timed_fallback":
+                phrase += 1
+    return {
+        "verifiedWordCount": verified,
+        "estimatedWordCount": estimated,
+        "phraseFallbackCueCount": phrase,
+    }
+
+
+def _final_timing_quality_mode(segments: list[dict[str, Any]]) -> str:
+    modes = [
+        str(word.get("timingQualityMode") or segment.get("timingQualityMode") or "")
+        for segment in segments
+        for word in (segment.get("words") or [{}])
+    ]
+    if not modes or all(mode == "unusable" for mode in modes):
+        return "unusable"
+    if any(mode == "phrase_timed_fallback" for mode in modes):
+        return "phrase_timed_fallback"
+    if any(mode == "word_timed_estimated" for mode in modes):
+        return "word_timed_estimated"
+    if any(mode == "word_timed_verified" for mode in modes):
+        return "word_timed_verified"
+    return "unusable"
+
+
+def _record_group_recovery(
+    report: dict[str, Any],
+    segment: dict[str, Any],
+    *,
+    reason: str,
+    recovery_source: str,
+    match: dict[str, Any] | None = None,
+    accepted: bool = False,
+) -> None:
+    group_id = str(segment.get("alignmentGroupId") or segment.get("id") or f"group_{len(report.get('perGroup', [])) + 1:04d}")
+    window = _segment_window(segment)
+    entry = {
+        "groupId": group_id,
+        "start": round(window[0], 3) if window else None,
+        "end": round(window[1], 3) if window else None,
+        "providerWordCount": int((match or {}).get("providerWordCount") or len(segment.get("words") or [])),
+        "stableWordCount": int((match or {}).get("stableWordCount") or 0),
+        "matchedWordCount": int((match or {}).get("matchedWordCount") or 0),
+        "matchCoverage": float((match or {}).get("matchCoverage") or 0.0),
+        "wordRatio": float((match or {}).get("wordRatio") or 0.0),
+        "accepted": accepted,
+        "reason": reason,
+        "recoverySource": recovery_source,
+    }
+    report.setdefault("perGroup", []).append(entry)
+    report.setdefault("recoveryByGroup", {})[group_id] = recovery_source
+    if not accepted:
+        report.setdefault("failedGroupIds", []).append(group_id)
+
+
+def _finalize_recovery_report(report: dict[str, Any], segments: list[dict[str, Any]]) -> None:
+    report.update(_quality_counts(segments))
+    report["finalTimingQualityMode"] = _final_timing_quality_mode(segments)
+
+
+def _stable_words_for_window(stable_words: list[dict[str, Any]], window: tuple[float, float] | None, tolerance: float) -> list[dict[str, Any]]:
+    if window is None:
+        return []
+    start, end = window
+    selected: list[dict[str, Any]] = []
+    for word in stable_words:
+        word_start = _optional_float(word.get("start"))
+        word_end = _optional_float(word.get("end"))
+        if word_start is None or word_end is None or word_end <= word_start:
+            continue
+        midpoint = (word_start + word_end) / 2
+        if start - tolerance <= midpoint <= end + tolerance:
+            selected.append(word)
+    return selected
+
+
+def _apply_group_stable_matches(
+    segment: dict[str, Any],
+    stable_words: list[dict[str, Any]],
+    matches: dict[int, int],
+    source: str,
+    *,
+    boundary_tolerance: float,
+) -> int:
+    words = [word for word in segment.get("words") or [] if isinstance(word, dict)]
+    applied = 0
+    for provider_index, stable_index in matches.items():
+        if provider_index >= len(words) or stable_index >= len(stable_words):
+            continue
+        provider_word = words[provider_index]
+        stable_word = stable_words[stable_index]
+        start = _optional_float(stable_word.get("start"))
+        end = _optional_float(stable_word.get("end"))
+        if start is None or end is None or end <= start:
+            _mark_stable_rejected(provider_word, "stable_ts_invalid_range_rejected")
+            continue
+        if not _stable_word_inside_provider_group(provider_word, stable_word, tolerance=boundary_tolerance):
+            _mark_stable_rejected(provider_word, "stable_ts_cross_boundary_rejected")
+            continue
+        provider_word["start"] = round(start, 3)
+        provider_word["end"] = round(end, 3)
+        provider_word["stableTsTokenIndex"] = stable_index
+        provider_word["stableTsCandidateStart"] = round(start, 3)
+        provider_word["stableTsCandidateEnd"] = round(end, 3)
+        provider_word["timingSource"] = source
+        provider_word["timing_source"] = source
+        provider_word["timingSourceDetail"] = source
+        provider_word["timingQualityMode"] = "word_timed_verified"
+        provider_word["alignmentRecoverySource"] = source
+        applied += 1
+    return applied
+
+
+def _recover_all_segments(
+    segments: list[dict[str, Any]],
+    report: dict[str, Any],
+    reason: str,
+    *,
+    speech_ranges: list[dict[str, Any]] | None = None,
+) -> SyncPassResult:
+    for segment in segments:
+        recovery_source = _recover_segment(segment, reason, speech_ranges=speech_ranges)
+        _record_group_recovery(report, segment, reason=reason, recovery_source=recovery_source, accepted=False)
+    validate_monotonic_word_timing(segments)
+    _finalize_recovery_report(report, segments)
+    return SyncPassResult(segments, report)
 
 
 def _bounded_unmatched_order_matches(
@@ -979,7 +1306,9 @@ def apply_stable_refinement(
     config: dict[str, Any] | None = None,
 ) -> SyncPassResult:
     config = config or {}
-    enabled = bool(config.get("enabled")) if "enabled" in config else _bool_env("ENABLE_STABLE_TS", False)
+    resolved_config = resolved_stable_ts_config(config)
+    enabled = bool(resolved_config["stableTsEnabled"])
+    speech_ranges = config.get("speechRanges") if isinstance(config.get("speechRanges"), list) else None
     base_report: dict[str, Any] = {
         "enabled": enabled,
         "available": stable_ts_available(),
@@ -996,26 +1325,34 @@ def apply_stable_refinement(
         "warnings": [],
         "boundaryRejectedWords": 0,
         "missingAlignmentGroupWords": 0,
+        "resolvedConfiguration": resolved_config,
+        "perGroup": [],
+        "failedGroupIds": [],
+        "recoveryByGroup": {},
+        "verifiedWordCount": 0,
+        "estimatedWordCount": 0,
+        "phraseFallbackCueCount": 0,
+        "finalTimingQualityMode": "unusable",
     }
+    next_segments = ensure_alignment_groups(copy.deepcopy(segments))
     if not enabled:
         base_report["reason"] = "ENABLE_STABLE_TS is false"
-        return SyncPassResult(copy.deepcopy(segments), base_report)
+        return _recover_all_segments(next_segments, base_report, "stable_ts_disabled", speech_ranges=speech_ranges)
     if not stable_ts_available():
         base_report["reason"] = "stable-ts is not installed"
         base_report["errorCategory"] = "stable_ts_not_installed"
-        return SyncPassResult(copy.deepcopy(segments), base_report)
+        return _recover_all_segments(next_segments, base_report, "stable_ts_not_installed", speech_ranges=speech_ranges)
     if not _cache_dir_writable(str(base_report["cacheDir"])):
         base_report["reason"] = "stable-ts model cache is not writable"
         base_report["errorCategory"] = "stable_ts_cache_not_writable"
-        return SyncPassResult(copy.deepcopy(segments), base_report)
+        return _recover_all_segments(next_segments, base_report, "stable_ts_cache_not_writable", speech_ranges=speech_ranges)
 
-    next_segments = ensure_alignment_groups(copy.deepcopy(segments))
     rows = _flatten_provider_words(next_segments)
     provider_words = [row[2] for row in rows]
     base_report["providerWordCount"] = len(provider_words)
     if not provider_words:
         base_report["reason"] = "no provider words"
-        return SyncPassResult(next_segments, base_report)
+        return _recover_all_segments(next_segments, base_report, "no_provider_words", speech_ranges=speech_ranges)
 
     model_name = str(config.get("model") or os.getenv("STABLE_TS_MODEL", "base") or "base")
     device = str(config.get("device") or os.getenv("STABLE_TS_DEVICE", "auto") or "auto")
@@ -1035,13 +1372,13 @@ def apply_stable_refinement(
             f"{max_audio_seconds:.1f}s configured limit"
         )
         base_report["errorCategory"] = "stable_ts_audio_too_long_for_cpu"
-        return SyncPassResult(next_segments, base_report)
+        return _recover_all_segments(next_segments, base_report, "stable_ts_audio_too_long_for_cpu", speech_ranges=speech_ranges)
 
     acquired = _ALIGNMENT_SEMAPHORE.acquire(timeout=float(os.getenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", "300") or 300))
     if not acquired:
         base_report["reason"] = "stable-ts alignment timed out waiting for concurrency slot"
         base_report["errorCategory"] = "stable_ts_timeout"
-        return SyncPassResult(next_segments, base_report)
+        return _recover_all_segments(next_segments, base_report, "stable_ts_timeout", speech_ranges=speech_ranges)
     try:
         warnings: list[str] = []
         stable_words: list[dict[str, Any]] = []
@@ -1071,7 +1408,7 @@ def apply_stable_refinement(
                 base_report["reason"] = "stable-ts failed"
                 base_report["errorCategory"] = _classify_stable_ts_exception(exc)
                 base_report["warnings"] = [*warnings, f"transcribe_failed:{type(exc).__name__}: {exc}"]
-                return SyncPassResult(next_segments, base_report)
+                return _recover_all_segments(next_segments, base_report, "stable_ts_failed", speech_ranges=speech_ranges)
 
         if warnings:
             base_report["warnings"] = warnings
@@ -1091,112 +1428,95 @@ def apply_stable_refinement(
             f"missing alignmentGroupId on {int(match.get('missingAlignmentGroupWords') or 0)} provider word(s)"
         )
     base_report["mode"] = stable_mode
-    min_coverage = float(config.get("minMatchCoverage") or _float_env("STABLE_TS_MIN_MATCH_COVERAGE", 0.50))
-    min_ratio = float(config.get("minWordRatio") or _float_env("STABLE_TS_MIN_WORD_RATIO", 0.45))
-    max_ratio = float(config.get("maxWordRatio") or _float_env("STABLE_TS_MAX_WORD_RATIO", 2.25))
-    ratio = float(match["wordRatio"])
-    if ratio < min_ratio or ratio > max_ratio:
-        base_report["reason"] = f"word ratio {ratio:.3f} outside allowed range"
-        base_report["errorCategory"] = "alignment_coverage_too_low"
-        for word in provider_words:
-            word["timingSourceDetail"] = "stable_ts_rejected"
-        return SyncPassResult(next_segments, base_report)
+    min_coverage = float(resolved_config["stableTsMinMatchCoverage"])
+    min_ratio = float(resolved_config["stableTsMinWordRatio"])
+    max_ratio = float(resolved_config["stableTsMaxWordRatio"])
+    source = "stable_ts_forced_align" if stable_mode == "forced_align" else "stable_ts_adjusted"
+    applied_words = 0
+    rejected_reasons: list[str] = []
 
-    coverage = float(match["matchCoverage"])
-    allow_order_fallback = bool(config.get("allowOrderFallback")) if "allowOrderFallback" in config else False
-    if coverage >= min_coverage:
-        stable_transfer_diagnostics: dict[str, Any] = {}
-        applied = _apply_matched_timings(
-            next_segments,
-            rows,
-            stable_words,
-            match["matches"],
-            "stable_ts_forced_align" if stable_mode == "forced_align" else "stable_ts_adjusted",
+    for segment in next_segments:
+        group_words = [word for word in segment.get("words") or [] if isinstance(word, dict)]
+        if not group_words:
+            recovery_source = _recover_segment(segment, "no_provider_words_in_group", speech_ranges=speech_ranges)
+            _record_group_recovery(base_report, segment, reason="no_provider_words_in_group", recovery_source=recovery_source, accepted=False)
+            continue
+        group_window = _segment_window(segment)
+        group_stable_words = _stable_words_for_window(stable_words, group_window, boundary_tolerance)
+        group_match = match_stable_words_to_provider_words(
+            group_words,
+            group_stable_words,
             boundary_tolerance=boundary_tolerance,
-            diagnostics=stable_transfer_diagnostics,
-            rollback_and_validate=False,
+            require_alignment_groups=False,
         )
-        order_applied = 0
-        if allow_order_fallback:
-            order_matches = _bounded_unmatched_order_matches(
-                provider_words,
-                stable_words,
-                match["matches"],
+        group_ratio = float(group_match.get("wordRatio") or 0.0)
+        group_coverage = float(group_match.get("matchCoverage") or 0.0)
+        group_accepted = (
+            group_ratio >= min_ratio
+            and group_ratio <= max_ratio
+            and group_coverage >= min_coverage
+            and bool(group_match.get("matches"))
+        )
+        if group_accepted:
+            applied = _apply_group_stable_matches(
+                segment,
+                group_stable_words,
+                group_match["matches"],
+                source,
                 boundary_tolerance=boundary_tolerance,
             )
-            if order_matches:
-                order_applied = _apply_matched_timings(
-                    next_segments,
-                    rows,
-                    stable_words,
-                    order_matches,
-                    "stable_ts_order_adjusted",
-                    boundary_tolerance=boundary_tolerance,
-                    diagnostics=stable_transfer_diagnostics,
-                    rollback_and_validate=False,
-                )
-        rolled_back = _rollback_invalid_stable_groups(rows, stable_transfer_diagnostics)
-        validate_monotonic_word_timing(next_segments)
-        total_applied = applied + order_applied
-        final_applied_count = max(0, total_applied - rolled_back)
-        base_report.update({
-            "applied": final_applied_count > 0,
-            "appliedWords": final_applied_count,
-            "boundaryRejectedWords": sum(1 for word in provider_words if word.get("timingRepairReason") == "stable_ts_cross_boundary_rejected"),
-            "orderFallbackUsed": order_applied > 0,
-            "orderFallbackAppliedWords": max(0, order_applied - rolled_back) if order_applied > 0 else 0,
-            "reason": "token match timing transfer" if not order_applied else "token match timing transfer with order fallback for unmatched words",
-            **stable_transfer_diagnostics,
-        })
-        return SyncPassResult(next_segments, base_report)
+            group_accepted = applied > 0
+            applied_words += applied
+        if group_accepted:
+            for word in group_words:
+                if word.get("timingQualityMode"):
+                    continue
+                word["timingQualityMode"] = "word_timed_estimated"
+                word["alignmentRecoverySource"] = "provider_segment_interpolation"
+                word["timingNeedsReview"] = True
+                word["timingReviewRequired"] = True
+            _record_group_recovery(
+                base_report,
+                segment,
+                reason="token match timing transfer",
+                recovery_source=source,
+                match=group_match,
+                accepted=True,
+            )
+            continue
 
-    if allow_order_fallback and min_ratio <= ratio <= max_ratio:
-        order_matches = _bounded_unmatched_order_matches(
-            provider_words,
-            stable_words,
-            {},
-            boundary_tolerance=boundary_tolerance,
+        reason = "word ratio %.3f outside allowed range" % group_ratio
+        if min_ratio <= group_ratio <= max_ratio:
+            reason = f"token coverage {group_coverage:.3f} below threshold"
+        rejected_reasons.append(reason)
+        for word in group_words:
+            word["stableTsRejectedReason"] = reason
+        recovery_source = _recover_segment(segment, reason, speech_ranges=speech_ranges)
+        _record_group_recovery(
+            base_report,
+            segment,
+            reason=reason,
+            recovery_source=recovery_source,
+            match=group_match,
+            accepted=False,
         )
-        stable_transfer_diagnostics: dict[str, Any] = {}
-        applied = _apply_matched_timings(
-            next_segments,
-            rows,
-            stable_words,
-            order_matches,
-            "stable_ts_order_adjusted",
-            boundary_tolerance=boundary_tolerance,
-            diagnostics=stable_transfer_diagnostics,
-            rollback_and_validate=False,
-        )
-        rolled_back = _rollback_invalid_stable_groups(rows, stable_transfer_diagnostics)
-        validate_monotonic_word_timing(next_segments)
-        final_applied_count = max(0, applied - rolled_back)
-        base_report.update({
-            "applied": final_applied_count > 0,
-            "appliedWords": final_applied_count,
-            "boundaryRejectedWords": sum(1 for word in provider_words if word.get("timingRepairReason") == "stable_ts_cross_boundary_rejected"),
-            "orderFallbackUsed": True,
-            "orderFallbackAppliedWords": final_applied_count,
-            "reason": "bounded same-group order fallback timing transfer",
-            "warnings": [f"token coverage {coverage:.3f} below threshold {min_coverage:.3f}"],
-            **stable_transfer_diagnostics,
-        })
-        return SyncPassResult(next_segments, base_report)
 
-    rejection_details = [
-        f"{key}={int(match.get(key) or 0)}"
-        for key in (
-            "missingAlignmentGroupWords",
-            "ambiguousRepeatedTokenRejectedWords",
-            "durationOutlierRejectedWords",
-        )
-        if int(match.get(key) or 0) > 0
-    ]
-    detail_suffix = f" ({', '.join(rejection_details)})" if rejection_details else ""
-    base_report["reason"] = (
-        f"token coverage {coverage:.3f} below threshold"
-        if allow_order_fallback
-        else f"token coverage {coverage:.3f} below threshold and order fallback is disabled"
-    ) + detail_suffix
-    base_report["errorCategory"] = "alignment_coverage_too_low"
+    stable_transfer_diagnostics: dict[str, Any] = {}
+    rolled_back = _rollback_invalid_stable_groups(rows, stable_transfer_diagnostics)
+    validate_monotonic_word_timing(next_segments)
+    final_applied_count = max(0, applied_words - rolled_back)
+    base_report.update({
+        "applied": final_applied_count > 0,
+        "appliedWords": final_applied_count,
+        "boundaryRejectedWords": sum(1 for word in provider_words if word.get("timingRepairReason") == "stable_ts_cross_boundary_rejected"),
+        "orderFallbackUsed": False,
+        "orderFallbackAppliedWords": 0,
+        "reason": "per-group stable-ts transfer with local recovery"
+        if final_applied_count
+        else (rejected_reasons[0] if rejected_reasons else "stable-ts produced no accepted local groups"),
+        **stable_transfer_diagnostics,
+    })
+    if rejected_reasons:
+        base_report.setdefault("warnings", []).extend(sorted(set(rejected_reasons))[:10])
+    _finalize_recovery_report(base_report, next_segments)
     return SyncPassResult(next_segments, base_report)

@@ -86,9 +86,12 @@ TOKEN_RE = re.compile(r"\s+|[^\s]+")
 class NormalizedWordToken(TypedDict, total=False):
     word: str
     originalWord: str
+    displayedWord: str
     languageHint: LanguageHint
     scriptHint: ScriptHint
     romanized: bool
+    normalizationRule: str
+    wordNormalization: dict[str, str]
     suspectedScriptMismatch: bool
     scriptMismatchReason: str
 
@@ -217,6 +220,7 @@ def _fallback_romanize(text: str) -> str:
 
 
 def _simplify_itrans(text: str) -> str:
+    text = re.sub(r"M(?=[dDtT])", "n", text)
     replacements = (
         ("RRi", "ri"),
         ("RRI", "ree"),
@@ -255,6 +259,16 @@ def romanizeTeluguText(text: str) -> str:
         return text
     source = sanscript.TELUGU if sanscript else ""
     return _romanize_with_indic(text, source)
+
+
+def _has_telugu_contextual_nasal_normalization(text: str) -> bool:
+    if not containsTeluguScript(text) or not _indic_transliterate or not sanscript:
+        return False
+    try:
+        itrans = _indic_transliterate(text, sanscript.TELUGU, sanscript.ITRANS)
+    except Exception:
+        return False
+    return bool(re.search(r"M(?=[dDtT])", itrans))
 
 
 def romanizeHindiText(text: str) -> str:
@@ -377,6 +391,14 @@ def normalize_word_token_with_metadata(word: str, language_mode: str) -> Normali
         result["scriptMismatchReason"] = mismatch_reason
     if result["romanized"]:
         result["originalWord"] = original
+    if _has_telugu_contextual_nasal_normalization(original):
+        result["displayedWord"] = normalized
+        result["normalizationRule"] = "telugu_contextual_anusvara_before_dental"
+        result["wordNormalization"] = {
+            "originalWord": original,
+            "displayedWord": normalized,
+            "normalizationRule": "telugu_contextual_anusvara_before_dental",
+        }
     return result
 
 

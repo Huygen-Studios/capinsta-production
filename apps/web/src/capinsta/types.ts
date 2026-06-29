@@ -51,6 +51,7 @@ export interface CapinstaTranscriptClipV1 {
   trackId?: string
   manuallyEdited?: boolean
   timingNeedsReview?: boolean
+  disableActiveWordHighlighting?: boolean
 }
 
 export interface CapinstaTranscriptWordV1 {
@@ -71,6 +72,7 @@ export interface CapinstaTranscriptWordV1 {
   timingNeedsReview?: boolean
   timingRepair?: string
   captionClipId?: string
+  disableActiveWordHighlighting?: boolean
 }
 
 export interface CapinstaStylePresetMetadataV1 {
@@ -133,6 +135,7 @@ export interface NeutralCaptionWord {
   timingWarning?: string
   timingNeedsReview?: boolean
   timingRepair?: string
+  disableActiveWordHighlighting?: boolean
   sourceWordId: string
   manualOriginalStart?: number
   manualOriginalEnd?: number
@@ -151,6 +154,7 @@ export interface NeutralCaptionClip {
   manuallyEdited: boolean
   timingNeedsReview: boolean
   timingSource: CapinstaTimingSource
+  disableActiveWordHighlighting?: boolean
   style?: CapinstaCaptionStyleV1
   styleOverrides?: import("./styles/styleTypes").CapinstaCaptionStylePatch
   manualEdit?: {

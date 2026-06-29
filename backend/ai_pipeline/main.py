@@ -31,7 +31,7 @@ from .sync.aligned_words import (
 from .sync.auto_sync import apply_auto_sync_if_confident
 from .sync.final_quality_gate import TimingQualityError, validate_final_timing_quality
 from .sync.report import SyncPassResult, build_sync_report
-from .sync.stable_refine import apply_stable_refinement
+from .sync.stable_refine import apply_stable_refinement, resolved_stable_ts_config
 from .sync.pause_preserver import preserve_detected_pauses
 from .pipeline_config import resolve_pipeline_config, resolve_pipeline_config_with_sources
 from .timing import (
@@ -121,6 +121,19 @@ def _shift_segment_tree(segment: dict[str, Any], offset: float) -> dict[str, Any
     return shifted
 
 
+def _shift_speech_ranges(ranges: Any, offset: float) -> list[dict[str, Any]]:
+    shifted_ranges: list[dict[str, Any]] = []
+    if not isinstance(ranges, list):
+        return shifted_ranges
+    for item in ranges:
+        if not isinstance(item, dict):
+            continue
+        shifted = dict(item)
+        _shift_timing_fields(shifted, offset)
+        shifted_ranges.append(shifted)
+    return shifted_ranges
+
+
 def _stable_refine_by_source_chunk(
     segments: list[dict[str, Any]],
     chunks: list[Any],
@@ -176,6 +189,8 @@ def _stable_refine_by_source_chunk(
     matched_words = 0
     errors: list[str] = []
     rejection_samples: list[dict[str, Any]] = []
+    failed_group_ids: list[str] = []
+    final_modes: list[str] = []
 
     for chunk_index in sorted(grouped):
         chunk = chunk_by_index[chunk_index]
@@ -187,6 +202,7 @@ def _stable_refine_by_source_chunk(
         ]
         local_config = dict(config)
         local_config["audioDurationSeconds"] = chunk_duration
+        local_config["speechRanges"] = _shift_speech_ranges(config.get("speechRanges"), -offset)
         result = apply_stable_refinement(
             local_segments,
             chunk.audio_path,
@@ -209,11 +225,16 @@ def _stable_refine_by_source_chunk(
                 rejection_samples.append(copied)
         if report.get("errorCategory"):
             errors.append(f"chunk {chunk_index}: {report.get('errorCategory')}: {report.get('reason')}")
+        for group_id in report.get("failedGroupIds") or []:
+            failed_group_ids.append(f"{chunk_index}:{group_id}")
+        if report.get("finalTimingQualityMode"):
+            final_modes.append(str(report.get("finalTimingQualityMode")))
         for (original_index, _segment), refined_segment in zip(grouped[chunk_index], result.segments):
             refined_by_index[original_index] = _shift_segment_tree(refined_segment, offset)
 
     combined_segments = [refined_by_index[index] for index in range(len(segments))]
-    applied = applied_words > 0 and not errors
+    unusable = bool(final_modes) and all(mode == "unusable" for mode in final_modes)
+    applied = applied_words > 0
     combined_report = {
         "enabled": True,
         "available": True,
@@ -224,11 +245,17 @@ def _stable_refine_by_source_chunk(
         "matchedWordCount": matched_words,
         "matchCoverage": round(matched_words / max(1, provider_words), 4),
         "orderFallbackUsed": any(bool(report.get("orderFallbackUsed")) for report in reports),
-        "reason": "stable-ts chunk refinement applied" if applied else "; ".join(errors) or "stable-ts chunk refinement did not apply",
-        "errorCategory": None if applied else "stable_ts_alignment_failed",
+        "reason": "stable-ts chunk refinement applied" if applied else "; ".join(errors) or "stable-ts chunk refinement recovered without stable matches",
+        "errorCategory": "caption_timing_unusable" if unusable else None,
         "chunked": True,
         "chunkReports": reports,
         "rejectionSamples": rejection_samples,
+        "failedGroupIds": failed_group_ids,
+        "finalTimingQualityMode": "unusable" if unusable else ("word_timed_verified" if applied else "word_timed_estimated"),
+        "verifiedWordCount": sum(int(report.get("verifiedWordCount") or 0) for report in reports),
+        "estimatedWordCount": sum(int(report.get("estimatedWordCount") or 0) for report in reports),
+        "phraseFallbackCueCount": sum(int(report.get("phraseFallbackCueCount") or 0) for report in reports),
+        "resolvedConfiguration": reports[0].get("resolvedConfiguration") if reports else None,
     }
     if rejection_samples and errors:
         sample_summary = "; ".join(
@@ -911,7 +938,15 @@ def run_pipeline(
                 "allowOrderFallback": pipeline_config.alignment.allowStableTsOrderFallback,
                 "maxAudioSeconds": pipeline_config.performance.stableTsMaxAudioSeconds,
                 "audioDurationSeconds": vad_report.get("audioDuration"),
+                "speechRanges": vad_report.get("speechRanges") or vad_report.get("paddedSpeechRanges") or hard_speech_gaps,
             }
+            resolved_stable_config = resolved_stable_ts_config(stable_config)
+            _stage_log(
+                "stable_ts_resolved_configuration",
+                **resolved_stable_config,
+                model=pipeline_config.alignment.stableTsModel,
+                device=pipeline_config.alignment.stableTsDevice,
+            )
             audio_duration = vad_report.get("audioDuration")
             use_chunked_stable_ts = (
                 pipeline_config.alignment.stableTsEnabled
@@ -950,8 +985,13 @@ def run_pipeline(
         except Exception as exc:
             logger.warning("stable-ts sync refinement failed safely: %s", exc)
             stable_result = SyncPassResult(clamped_segments, {"applied": False, "reason": str(exc), "warnings": [str(exc)]})
+        stable_result.report.setdefault("selectedProvider", active_snapshot.provider if active_snapshot else ",".join(sorted(transcription_providers)) or "unknown")
+        stable_result.report.setdefault("selectedModel", active_snapshot.model if active_snapshot else None)
+        stable_result.report.setdefault("timingPreset", active_snapshot.preset_id if active_snapshot else None)
+        stable_result.report.setdefault("configurationSnapshot", active_snapshot.to_dict() if active_snapshot else pipeline_config.to_dict())
         if alignment_was_forced:
-            if pipeline_config.alignment.stableTsEnabled and not stable_result.report.get("applied"):
+            final_timing_mode = str(stable_result.report.get("finalTimingQualityMode") or "")
+            if pipeline_config.alignment.stableTsEnabled and final_timing_mode == "unusable":
                 reason = str(stable_result.report.get("reason") or "stable-ts alignment failed")
                 category = str(stable_result.report.get("errorCategory") or "")
                 if not category:
@@ -960,7 +1000,7 @@ def run_pipeline(
                     elif reason == "stable-ts failed":
                         category = "stable_ts_alignment_failed"
                     else:
-                        category = "alignment_coverage_too_low"
+                        category = "caption_timing_unusable"
                 raise TranscriptValidationError(f"{category}: {reason}")
             clamped_segments = _mark_segments_realigned(
                 clamped_segments,
@@ -1103,6 +1143,7 @@ def run_pipeline(
         transcript["outputLanguage"] = transformation_report.get("outputLanguage") or output_language
         transcript["transformation"] = transformation_report.get("transformation") or "none"
         transcript["originalSegments"] = original_segments
+        transcript["alignmentRecoveryReport"] = stable_result.report
         if active_snapshot:
             pass
         elif provider_name == "gemini":
@@ -1147,6 +1188,7 @@ def run_pipeline(
                 "alignment": timing_provider_status,
                 "vad": vad_report,
                 "report": timing_report,
+                "alignmentRecoveryReport": stable_result.report,
                 "chunkAudit": chunk_audit[:80],
             },
             "sync": sync_report,

@@ -366,19 +366,26 @@ export function normalizeCapinstaJobToTranscript({
 	const sourceWords = usesCanonicalAlignedWords
 		? canonicalAlignedWords
 		: fallbackSegmentWords;
-	if (sourceWords.length === 0) {
+	const validPhraseSegments = segments.filter((segment) => {
+		const start = finiteNumber(segment.start);
+		const end = finiteNumber(segment.end);
+		return Boolean(segment.text?.trim()) && start !== undefined && end !== undefined && end > start;
+	});
+	if (sourceWords.length === 0 && validPhraseSegments.length === 0) {
 		throw new CapinstaApiError(
-			"Capinsta job completed without timed caption words",
+			"Capinsta job completed without timed caption words or phrase cues",
 		);
 	}
 
 	const clipShells =
-		segments.length > 0
-			? segments.map((segment, index) => ({
+		validPhraseSegments.length > 0
+			? validPhraseSegments.map((segment, index) => ({
 					id: segment.id || `capinsta-source-clip-${index + 1}`,
 					start: segment.start,
 					end: segment.end,
 					text: segment.text,
+					disableActiveWordHighlighting: Boolean(segment.disableActiveWordHighlighting),
+					timingNeedsReview: Boolean(segment.timingNeedsReview || segment.timingReviewRequired),
 				}))
 			: [
 					{
@@ -386,6 +393,8 @@ export function normalizeCapinstaJobToTranscript({
 						start: finiteNumber(sourceWords[0]?.start) ?? 0,
 						end: finiteNumber(sourceWords[sourceWords.length - 1]?.end) ?? 0.01,
 						text: sourceWords.map(wordText).join(" "),
+						disableActiveWordHighlighting: false,
+						timingNeedsReview: false,
 					},
 				];
 	const clipWordIds = clipShells.map(() => [] as string[]);
@@ -396,7 +405,7 @@ export function normalizeCapinstaJobToTranscript({
 			const end = finiteNumber(word.end);
 			if (!text || start === undefined || end === undefined || end <= start)
 				return null;
-			const clipIndex = segmentIndexForWord({ segments, start, end });
+			const clipIndex = segmentIndexForWord({ segments: validPhraseSegments, start, end });
 			const clipId = clipShells[clipIndex]?.id ?? clipShells[0]!.id;
 			const wordId = `capinsta-aligned-word-${wordIndex + 1}`;
 			clipWordIds[clipIndex]?.push(wordId);
@@ -426,6 +435,7 @@ export function normalizeCapinstaJobToTranscript({
 				),
 				timingRepair: word.timingRepair || word.timing_repair,
 				captionClipId: clipId,
+				disableActiveWordHighlighting: Boolean(word.disableActiveWordHighlighting),
 			};
 		})
 		.filter((word): word is NonNullable<typeof word> => word !== null);
@@ -438,7 +448,11 @@ export function normalizeCapinstaJobToTranscript({
 				wordIds,
 				timingNeedsReview: wordIds.some(
 					(wordId) => wordById.get(wordId)?.timingNeedsReview,
-				),
+				) || Boolean(clip.timingNeedsReview),
+				disableActiveWordHighlighting:
+					Boolean(clip.disableActiveWordHighlighting) ||
+					wordIds.length === 0 ||
+					wordIds.some((wordId) => Boolean(wordById.get(wordId)?.disableActiveWordHighlighting)),
 			};
 		},
 	);
@@ -450,6 +464,7 @@ export function normalizeCapinstaJobToTranscript({
 				: "segments",
 			alignedWordsCount: canonicalAlignedWords.length,
 			segmentWordCount: fallbackSegmentWords.length,
+			phraseCueCount: validPhraseSegments.length,
 			first30AlignedWords: sourceWords.slice(0, 30).map((word) => ({
 				word: wordText(word),
 				start: word.start,

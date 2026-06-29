@@ -9,6 +9,7 @@ from .language_modes import (
     containsTeluguScript,
     normalize_audio_language,
     normalize_caption_output,
+    normalize_word_token_with_metadata,
     romanizeHindiText,
     romanizeTeluguText,
 )
@@ -119,6 +120,14 @@ def _transform_words_one_to_one(
         transformed["outputLanguage"] = output_language
         transformed["sourceLanguage"] = source_language
         transformed["transformation"] = kind
+        word_meta = normalize_word_token_with_metadata(_word_text(source_word), output_language)
+        if word_meta.get("normalizationRule") and word_meta.get("word") == token:
+            transformed["normalizationRule"] = word_meta["normalizationRule"]
+            transformed["wordNormalization"] = dict(word_meta.get("wordNormalization") or {
+                "originalWord": transformed["originalWord"],
+                "displayedWord": token,
+                "normalizationRule": word_meta["normalizationRule"],
+            })
         transformed_words.append(transformed)
     return transformed_words
 

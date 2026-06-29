@@ -968,10 +968,10 @@ class TranscriptAligner:
         required_coverage = 0.5 if len(provider_indices) >= 4 else 0.67
         if coverage < required_coverage:
             logger.warning(
-                "stable-ts text match coverage too low (%.2f). Trying spoken-order timing transfer.",
+                "stable-ts text match coverage too low (%.2f). Keeping provider timings.",
                 coverage,
             )
-            return self._apply_stable_ts_by_order(adjusted_words, stable_words)
+            return adjusted_words
 
         for provider_index, stable_index in matches.items():
             stable_word = stable_words[stable_index]
@@ -984,57 +984,6 @@ class TranscriptAligner:
             if stable_word.get("score") is not None:
                 adjusted_words[provider_index]["score"] = stable_word["score"]
             _set_timing_source(adjusted_words[provider_index], "stable_ts_adjusted")
-
-        return adjusted_words
-
-    def _apply_stable_ts_by_order(
-        self,
-        provider_words: list[dict[str, Any]],
-        stable_words: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        adjusted_words = _copy_words(provider_words)
-        stable_valid = [
-            word
-            for word in stable_words
-            if _safe_float(word.get("start")) is not None
-            and _safe_float(word.get("end")) is not None
-            and (_safe_float(word.get("end")) or 0.0) > (_safe_float(word.get("start")) or 0.0)
-        ]
-        if not adjusted_words or not stable_valid:
-            raise RuntimeError("stable-ts order transfer failed because word lists were empty.")
-
-        count_ratio = len(stable_valid) / max(1, len(adjusted_words))
-        if count_ratio < 0.45 or count_ratio > 2.25:
-            raise RuntimeError(
-                f"stable-ts order transfer rejected due to word count mismatch provider={len(adjusted_words)} stable={len(stable_valid)}."
-            )
-
-        stable_valid.sort(key=lambda word: float(word["start"]))
-        boundaries: list[float] = [float(stable_valid[0]["start"])]
-        for index in range(1, len(stable_valid)):
-            previous_end = float(stable_valid[index - 1]["end"])
-            current_start = float(stable_valid[index]["start"])
-            boundaries.append((previous_end + current_start) / 2)
-        boundaries.append(float(stable_valid[-1]["end"]))
-
-        def boundary_at(position: float) -> float:
-            max_index = len(boundaries) - 1
-            scaled = position * max_index / max(1, len(adjusted_words))
-            lower = max(0, min(max_index, int(math.floor(scaled))))
-            upper = max(0, min(max_index, int(math.ceil(scaled))))
-            if lower == upper:
-                return boundaries[lower]
-            weight = scaled - lower
-            return boundaries[lower] + (boundaries[upper] - boundaries[lower]) * weight
-
-        for index, word in enumerate(adjusted_words):
-            start = boundary_at(index)
-            end = boundary_at(index + 1)
-            if end <= start:
-                end = start + MIN_WORD_DURATION_SECONDS
-            word["start"] = _round_time(start)
-            word["end"] = _round_time(end)
-            _set_timing_source(word, "stable_ts_order_adjusted")
 
         return adjusted_words
 

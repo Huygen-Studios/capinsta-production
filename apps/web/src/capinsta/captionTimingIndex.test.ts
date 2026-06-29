@@ -55,6 +55,39 @@ describe("Capinsta caption timing index", () => {
 		).not.toContain(firstWord.id);
 	});
 
+	test("active word lookup stays empty when clip or word highlighting is disabled", () => {
+		const record = buildRecord();
+		const firstClip = record.document.clips[0]!;
+		const firstWord = record.document.words[0]!;
+		const index = createCapinstaCaptionTimingIndex({
+			records: [
+				{
+					...record,
+					document: {
+						...record.document,
+						clips: record.document.clips.map((clip) =>
+							clip.id === firstClip.id
+								? { ...clip, disableActiveWordHighlighting: true }
+								: clip,
+						),
+						words: record.document.words.map((word) =>
+							word.id === firstWord.id
+								? { ...word, disableActiveWordHighlighting: true }
+								: word,
+						),
+					},
+				},
+			],
+		});
+
+		expect(
+			getActiveCapinstaCaptionStateFromIndex({
+				index,
+				timeSeconds: firstWord.start,
+			})?.activeWordIds,
+		).toEqual([]);
+	});
+
 	test("index updates when clip timings change", () => {
 		const record = buildRecord();
 		const shiftedRecord: CapinstaCaptionDocumentRecord = {

@@ -81,9 +81,15 @@ function getActiveWordIdsForClip({
 	wordsById: Map<string, NeutralCaptionWord>;
 	timeSeconds: number;
 }): string[] {
+	if (clip.disableActiveWordHighlighting) return [];
 	return clip.wordIds.filter((wordId) => {
 		const word = wordsById.get(wordId);
-		return Boolean(word && word.start <= timeSeconds && timeSeconds < word.end);
+		return Boolean(
+			word &&
+				!word.disableActiveWordHighlighting &&
+				word.start <= timeSeconds &&
+				timeSeconds < word.end,
+		);
 	});
 }
 
