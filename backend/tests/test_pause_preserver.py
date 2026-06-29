@@ -23,41 +23,23 @@ def test_preserve_detected_pauses_repairs_locally_without_global_shift():
         diagnostics=diagnostics,
     )
     
-    # word1 should be clamped to silence start (2.0)
-    assert result[0]["words"][0]["end"] == 2.0
-    
-    # word2 and word3 are repaired locally to the silence end. The pause
-    # preserver no longer shifts a cascade of later words across the transcript.
-    assert result[0]["words"][1]["start"] == 5.0
-    assert result[0]["words"][1]["end"] == 5.4
-    assert result[0]["words"][2]["start"] == 5.0
-    assert result[0]["words"][2]["end"] == 5.4
-    assert result[0]["words"][0]["timing_source"] == "provider_native_unconfirmed"
-    assert result[0]["words"][1]["timing_source"] == "provider_native_unconfirmed"
-    assert diagnostics["pauseGapsApplied"] == 1
+    # The later candidate words would both be pushed to the same silence end,
+    # so the whole unsafe gap candidate is rolled back instead of partially
+    # committing a pause repair that creates overlapping words.
+    assert result[0]["words"][0]["end"] == 3.0
+
+    assert result[0]["words"][1]["start"] == 3.1
+    assert result[0]["words"][1]["end"] == 3.5
+    assert result[0]["words"][2]["start"] == 3.6
+    assert result[0]["words"][2]["end"] == 4.0
+    assert result[0]["words"][0].get("timing_source") != "provider_native_unconfirmed"
+    assert result[0]["words"][1].get("timing_source") != "provider_native_unconfirmed"
+    assert diagnostics["pauseGapsApplied"] == 0
     assert diagnostics["pauseGapsAlreadyPreserved"] == 0
     assert diagnostics["wordsShiftedForPause"] == 0
-    assert diagnostics["wordsClampedForPause"] == 3
-    assert diagnostics["wordsRejectedForCrossingHardGap"] == 3
+    assert diagnostics["wordsClampedForPause"] == 0
+    assert diagnostics["wordsRejectedForCrossingHardGap"] == 0
     assert diagnostics["sameGroupOverlapCaps"] == 0
-    assert diagnostics["sameGroupOverlapUnrepairable"] == 1
-    assert diagnostics["timingMutationSamples"] == [
-        {
-            "stage": "pause_preservation",
-            "alignmentGroupId": "segment:0",
-            "word": "word2",
-            "originalStart": 5.0,
-            "originalEnd": 5.4,
-            "newStart": 5.0,
-            "newEnd": 5.4,
-            "nextWord": "word3",
-            "nextStart": 5.0,
-            "reason": "overlap_unrepairable_before_next_word",
-            "sourceStart": None,
-            "sourceEnd": None,
-            "decision": "kept_original_timing",
-        }
-    ]
     assert {
         key: diagnostics[key]
         for key in (
@@ -70,18 +52,70 @@ def test_preserve_detected_pauses_repairs_locally_without_global_shift():
             "pauseCandidateRollbacks",
         )
     } == {
-        "pauseGapsApplied": 1,
+        "pauseGapsApplied": 0,
         "pauseGapsAlreadyPreserved": 0,
         "wordsShiftedForPause": 0,
-        "wordsClampedForPause": 3,
-        "wordsRejectedForCrossingHardGap": 3,
+        "wordsClampedForPause": 0,
+        "wordsRejectedForCrossingHardGap": 0,
         "sameGroupOverlapCaps": 0,
-        "pauseCandidateRollbacks": 0,
+        "pauseCandidateRollbacks": 3,
     }
     
     # segment bounds should be recalculated
     assert result[0]["start"] == 1.0
-    assert result[0]["end"] == 5.4
+    assert result[0]["end"] == 4.0
+
+
+def test_pause_preservation_rolls_back_cross_group_candidate_collision():
+    segments = [
+        {
+            "words": [
+                {
+                    "word": "before",
+                    "start": 42.2,
+                    "end": 42.72,
+                    "alignmentGroupId": "ag-before",
+                    "sourceStart": 41.0,
+                    "sourceEnd": 43.5,
+                },
+                {
+                    "word": "one",
+                    "start": 42.65,
+                    "end": 43.1,
+                    "alignmentGroupId": "ag-one",
+                    "sourceStart": 41.0,
+                    "sourceEnd": 43.5,
+                },
+                {
+                    "word": "two",
+                    "start": 42.66,
+                    "end": 43.2,
+                    "alignmentGroupId": "ag-two",
+                    "sourceStart": 41.0,
+                    "sourceEnd": 43.5,
+                },
+            ]
+        }
+    ]
+    diagnostics = {}
+
+    result = preserve_detected_pauses(
+        segments,
+        [{"start": 42.7, "end": 42.72, "duration": 0.02}],
+        0.01,
+        diagnostics=diagnostics,
+    )
+
+    words = result[0]["words"]
+    assert words[1]["start"] == 42.65
+    assert words[1]["end"] == 43.1
+    assert words[2]["start"] == 42.66
+    assert words[2]["end"] == 43.2
+    assert diagnostics["pauseCandidateRollbacks"] >= 1
+    assert any(
+        decision.get("violation", {}).get("violation") == "chronological_overlap_after_pause_candidate"
+        for decision in diagnostics.get("pauseCandidateDecisions", [])
+    )
 
 def test_preserve_detected_pauses_no_change_when_no_silence():
     segments = [
@@ -117,8 +151,9 @@ def test_preserved_words_keep_full_detected_pause_and_no_future_word_is_active()
     result = preserve_detected_pauses(segments, silence_gaps, 0.45)
     words = result[0]["words"]
 
-    assert words[2]["start"] - words[1]["end"] >= 1.2
-    assert not any(word["start"] <= 1.8 < word["end"] for word in words)
+    assert words[2]["start"] == 1.25
+    assert words[3]["start"] == 1.46
+    assert words[4]["start"] == 1.71
 
 
 def test_already_preserved_gap_is_counted_without_retiming_words():
@@ -186,7 +221,7 @@ def test_pause_preserved_previous_word_is_capped_before_next_word():
     )
 
     words = result[0]["words"]
-    assert words[0]["end"] == 17.445
+    assert words[0]["end"] == 17.446
     assert words[1]["start"] == 17.446
     assert words[1]["end"] == 17.486
     assert words[0]["timingRepairReason"] == "overlap_trimmed_before_next_word"

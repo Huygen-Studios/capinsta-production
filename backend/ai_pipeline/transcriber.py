@@ -1249,11 +1249,10 @@ def _parse_sarvam_timestamp_arrays(
     if not isinstance(words, list) or not isinstance(starts, list) or not isinstance(ends, list):
         return SarvamTimestampResult(granularity="missing", source_path=source_path, warnings=["timestamp arrays missing"])
     if len(words) == 0 and len(starts) == 0 and len(ends) == 0:
-        raise TranscriptionProviderError(
-            "sarvam",
-            "sarvam_timestamps_empty",
-            "Sarvam returned empty timestamp arrays.",
-            retryable=False,
+        return SarvamTimestampResult(
+            granularity="missing",
+            source_path=source_path,
+            warnings=["timestamp arrays empty"],
         )
     if len(words) != len(starts) or len(words) != len(ends):
         raise TranscriptionProviderError(
@@ -1807,11 +1806,15 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
     category = (
         "sarvam_phrase_timestamps"
         if any(candidate.granularity == "phrase" for candidate in (first_result, verbatim_result, small_retry_failed_result) if candidate is not None)
+        else "sarvam_timestamps_empty"
+        if any("timestamp arrays empty" in candidate.warnings for candidate in (first_result, verbatim_result, small_retry_failed_result) if candidate is not None)
         else "sarvam_native_timestamps_unavailable_after_retry"
     )
     message = (
         "Sarvam returned phrase-level timestamps instead of native word timestamps."
         if category == "sarvam_phrase_timestamps"
+        else "Sarvam returned transcript text but empty timestamp arrays."
+        if category == "sarvam_timestamps_empty"
         else "Sarvam did not return native word timestamps after retrying with verbatim mode and smaller audio chunks."
     )
     logger.info(
@@ -2051,16 +2054,22 @@ async def transcribe_sarvam_chunks_bounded(
 
     async def transcribe_one(index: int, audio_path: str) -> tuple[int, dict]:
         nonlocal completed
-        async with semaphore:
-            if snapshot:
-                result = await asyncio.to_thread(
-                    transcribe_audio,
-                    audio_path,
-                    normalized_mode,
-                    transcription_config_snapshot=transcription_config_snapshot,
-                )
-            else:
-                result = await asyncio.to_thread(transcribe_audio, audio_path, normalized_mode)
+        try:
+            async with semaphore:
+                if snapshot:
+                    result = await asyncio.to_thread(
+                        transcribe_audio,
+                        audio_path,
+                        normalized_mode,
+                        transcription_config_snapshot=transcription_config_snapshot,
+                    )
+                else:
+                    result = await asyncio.to_thread(transcribe_audio, audio_path, normalized_mode)
+        except Exception as exc:
+            result = {
+                "__transcription_error__": str(exc),
+                "__transcription_error_type__": type(exc).__name__,
+            }
         async with completed_lock:
             completed += 1
             if progress_callback:

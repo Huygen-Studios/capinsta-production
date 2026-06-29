@@ -1104,14 +1104,26 @@ def _fallback_align_segments(tokens: list[Any]) -> list[dict[str, Any]]:
         return []
 
     if isinstance(tokens[0], dict):
-        prompt_segments = [
-            {
+        prompt_segments = []
+        for token in tokens:
+            segment_start = float(token.get("start", 0.0) or 0.0)
+            segment_end = float(token.get("end", token.get("start", 0.0)) or 0.0)
+            prompt_segment = {
                 "text": str(token.get("text", "")).strip(),
-                "start": float(token.get("start", 0.0) or 0.0),
-                "end": float(token.get("end", token.get("start", 0.0)) or 0.0),
+                "start": segment_start,
+                "end": segment_end,
             }
-            for token in tokens
-        ]
+            for metadata_key in (
+                "sourceSegmentIndex",
+                "sourceChunkIndex",
+                "sourceStart",
+                "sourceEnd",
+                "speakerId",
+                "turnId",
+            ):
+                if token.get(metadata_key) is not None:
+                    prompt_segment[metadata_key] = token.get(metadata_key)
+            prompt_segments.append(prompt_segment)
     else:
         prompt_segments = []
         cursor = 0.0
@@ -1129,11 +1141,32 @@ def _fallback_align_segments(tokens: list[Any]) -> list[dict[str, Any]]:
         end = max(start + 0.08, float(segment["end"]))
         duration = max(0.08, end - start)
         word_duration = duration / max(1, len(words))
+        source_start = _safe_float(segment.get("sourceStart"))
+        source_end = _safe_float(segment.get("sourceEnd"))
+        if source_start is None:
+            source_start = start
+        if source_end is None:
+            source_end = end
+        if source_end < source_start:
+            source_end = source_start
+        segment_metadata = {
+            key: segment.get(key)
+            for key in (
+                "sourceSegmentIndex",
+                "sourceChunkIndex",
+                "speakerId",
+                "turnId",
+            )
+            if segment.get(key) is not None
+        }
         segments.append(
             {
                 "text": text,
                 "start": _round_time(start),
                 "end": _round_time(end),
+                "sourceStart": _round_time(source_start),
+                "sourceEnd": _round_time(source_end),
+                **segment_metadata,
                 "words": [
                     {
                         "word": word,
@@ -1142,6 +1175,9 @@ def _fallback_align_segments(tokens: list[Any]) -> list[dict[str, Any]]:
                         "score": 0.45,
                         "timing_source": "deterministic_fallback",
                         "timingSource": "deterministic_fallback",
+                        "sourceStart": _round_time(source_start),
+                        "sourceEnd": _round_time(source_end),
+                        **segment_metadata,
                     }
                     for index, word in enumerate(words)
                 ],

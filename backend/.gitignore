@@ -55,6 +55,7 @@ logs/
 # Test/build output
 coverage/
 benchmark-results/
+.artifacts/
 
 # IDE / OS
 .vscode/

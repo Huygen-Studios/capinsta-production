@@ -24,6 +24,37 @@ CHUNK_ABSOLUTE_TIME_TOLERANCE = 0.75
 CHUNK_END_TOLERANCE = 0.75
 BAD_CHUNK_OVERLAP_TOLERANCE = 0.5
 CHUNK_AUDIT_SAMPLE_SIZE = 5
+WORD_PROVENANCE_KEYS = (
+    "providerTokenId",
+    "sourceSegmentIndex",
+    "sourceChunkIndex",
+    "sourceWordIndex",
+    "originalTokenIndex",
+    "localGroupTokenIndex",
+    "alignmentGroupId",
+    "sourceStart",
+    "sourceEnd",
+    "nativeStart",
+    "nativeEnd",
+    "speakerId",
+    "turnId",
+    "hardBoundaryBefore",
+    "hardBoundaryAfter",
+    "hardBoundaryReason",
+    "hardBoundaryGapStart",
+    "hardBoundaryGapEnd",
+)
+SEGMENT_PROVENANCE_KEYS = (
+    "sourceSegmentIndex",
+    "sourceChunkIndex",
+    "alignmentGroupId",
+    "sourceStart",
+    "sourceEnd",
+    "nativeStart",
+    "nativeEnd",
+    "speakerId",
+    "turnId",
+)
 
 
 class TranscriptValidationError(ValueError):
@@ -167,8 +198,13 @@ def _normalize_word(raw_word: dict[str, Any], language_mode: str) -> dict[str, A
         "end": round(end, 3),
         "score": _as_float(raw_word.get("score")) if raw_word.get("score") is not None else 0.0,
     }
+    for key in WORD_PROVENANCE_KEYS:
+        if raw_word.get(key) is not None:
+            normalized[key] = raw_word.get(key)
     if word_meta.get("originalWord"):
         normalized["originalWord"] = word_meta["originalWord"]
+    elif raw_word.get("originalWord"):
+        normalized["originalWord"] = raw_word.get("originalWord")
     if word_meta.get("languageHint"):
         normalized["languageHint"] = word_meta["languageHint"]
     if word_meta.get("scriptHint"):
@@ -584,6 +620,11 @@ def normalize_aligned_segments(segments: list[dict[str, Any]], language_mode: st
                 "end": round(end, 3),
                 "text": text,
                 "words": words,
+                **{
+                    key: seg.get(key)
+                    for key in SEGMENT_PROVENANCE_KEYS
+                    if seg.get(key) is not None
+                },
             }
         )
 

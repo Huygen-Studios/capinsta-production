@@ -333,18 +333,18 @@ def test_sarvam_parser_classifies_null_empty_and_mismatched_timestamp_arrays():
         transcriber._normalize_sarvam_words({"transcript": "hello", "timestamps": None})
     assert exc.value.category == "sarvam_timestamps_null"
 
-    with pytest.raises(transcriber.TranscriptionProviderError) as exc:
-        transcriber._normalize_sarvam_words(
-            {
-                "transcript": "hello",
-                "timestamps": {
-                    "words": [],
-                    "start_time_seconds": [],
-                    "end_time_seconds": [],
-                },
-            }
-        )
-    assert exc.value.category == "sarvam_timestamps_empty"
+    empty = transcriber._normalize_sarvam_words(
+        {
+            "transcript": "hello",
+            "timestamps": {
+                "words": [],
+                "start_time_seconds": [],
+                "end_time_seconds": [],
+            },
+        }
+    )
+    assert empty.granularity == "missing"
+    assert "timestamp arrays empty" in empty.warnings
 
     with pytest.raises(transcriber.TranscriptionProviderError) as exc:
         transcriber._normalize_sarvam_words(
@@ -609,6 +609,38 @@ def test_sarvam_phrase_timing_returns_transcript_for_forced_alignment(monkeypatc
     assert result["timestamp_capability"] == "provider_phrase"
     assert result["words"][0]["preservePhraseTiming"] is True
     assert [call["with_timestamps"] for call in calls] == ["true", "true", "true"]
+
+
+def test_sarvam_empty_timestamp_arrays_return_transcript_for_forced_alignment(monkeypatch, tmp_path):
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
+    source = _write_wav_seconds(tmp_path / "source.wav", 8.0)
+    small = _write_wav_seconds(tmp_path / "small.wav", 4.0)
+
+    def fake_post(url, headers=None, data=None, files=None, timeout=None):
+        return FakeResponse(
+            payload={
+                "transcript": "hello world",
+                "request_id": "empty-arrays",
+                "timestamps": {
+                    "words": [],
+                    "start_time_seconds": [],
+                    "end_time_seconds": [],
+                },
+            }
+        )
+
+    monkeypatch.setattr(transcriber.requests, "post", fake_post)
+    monkeypatch.setattr(transcriber, "_small_sarvam_audio_chunks", lambda _path: [(small, 0.0, 4.0)])
+
+    result = transcriber._call_sarvam(source, "english")
+
+    assert result["text"] == "hello world"
+    assert result["words"] == []
+    assert result["nativeWordsAvailable"] is False
+    assert result["nativeTimingFailureCategory"] == "sarvam_timestamps_empty"
+    assert result["timing_granularity"] == "missing"
+    assert result["timestamp_capability"] == "provider_phrase"
 
 
 def test_sarvam_phrase_timing_with_native_then_forced_does_not_throw_in_transcribe_audio(monkeypatch, tmp_path):

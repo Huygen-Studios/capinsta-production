@@ -74,7 +74,10 @@ def merge_chunks(processed_chunks: List[Chunk]) -> Tuple[str, list]:
             merged_segments.append({
                 "text": text.strip(),
                 "start": chunk.start_time,
-                "end": chunk.end_time
+                "end": chunk.end_time,
+                "sourceChunkIndex": chunk.index,
+                "sourceStart": chunk.start_time,
+                "sourceEnd": chunk.end_time,
             })
             full_text += (" " if full_text else "") + text.strip()
             

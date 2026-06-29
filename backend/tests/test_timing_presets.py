@@ -74,6 +74,7 @@ def test_public_preset_registry_exposes_backend_ranges_and_compatibility():
 
     assert len(registry["presets"]) == 10
     assert registry["fieldRanges"]["quality.maximumEstimatedWordRatio"] == CONFIG_FIELD_RANGES["quality.maximumEstimatedWordRatio"]
+    assert registry["fieldRanges"]["performance.stableTsMaxAudioSeconds"] == CONFIG_FIELD_RANGES["performance.stableTsMaxAudioSeconds"]
     balanced = next(item for item in registry["presets"] if item["id"] == "sarvam_telgish_balanced")
     assert balanced["expectedTimingSourcePolicy"] == "native_then_forced"
     assert any(item["provider"] == "sarvam" and item["model"] == "saaras:v3" for item in balanced["compatibilities"])

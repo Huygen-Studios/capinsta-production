@@ -20,7 +20,7 @@ from .llm_judge import refine_transcript
 from .lm_check import lightweight_lm_check
 from .logger import PipelineLogger
 from .quality_estimator import adaptive_thresholds, measure_audio_quality
-from .renderer import generate_srt, generate_vtt
+from .renderer import CaptionCueValidationError, generate_srt, generate_vtt
 from .sentence_splitter import split_sentences_v2
 from .sync.aligned_words import (
     assign_alignment_groups_from_speech_gaps,
@@ -29,7 +29,7 @@ from .sync.aligned_words import (
     sanitize_aligned_word_ranges,
 )
 from .sync.auto_sync import apply_auto_sync_if_confident
-from .sync.final_quality_gate import validate_final_timing_quality
+from .sync.final_quality_gate import TimingQualityError, validate_final_timing_quality
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement
 from .sync.pause_preserver import preserve_detected_pauses
@@ -78,6 +78,165 @@ def _has_enough_words(source_text: str, candidate_text: str) -> bool:
 def _stage_log(stage: str, **fields: Any) -> None:
     details = " ".join(f"{key}={value!r}" for key, value in fields.items())
     logger.info("pipeline_stage stage=%s %s", stage, details)
+
+
+def _is_skippable_empty_micro_chunk_error(
+    exc: Exception,
+    *,
+    chunk_duration: float,
+    pause_threshold: float,
+) -> bool:
+    message = str(exc).lower()
+    if "empty_transcript" not in message and "empty transcript" not in message:
+        return False
+    # A real short reply is kept whenever any provider returns text. This path
+    # only handles VAD micro-ranges that every attempted provider considers
+    # empty, avoiding a whole-job failure for a sub-pause noise/silence island.
+    max_micro_chunk_seconds = max(0.35, min(1.0, float(pause_threshold) + 0.12))
+    return 0 <= float(chunk_duration) <= max_micro_chunk_seconds
+
+
+def _shift_timing_fields(value: dict[str, Any], offset: float) -> None:
+    for key in ("start", "end", "sourceStart", "sourceEnd", "nativeStart", "nativeEnd"):
+        if key not in value or value.get(key) is None:
+            continue
+        try:
+            value[key] = round(max(0.0, float(value[key]) + offset), 3)
+        except (TypeError, ValueError):
+            continue
+
+
+def _shift_segment_tree(segment: dict[str, Any], offset: float) -> dict[str, Any]:
+    shifted = dict(segment)
+    _shift_timing_fields(shifted, offset)
+    shifted_words = []
+    for word in shifted.get("words") or []:
+        if not isinstance(word, dict):
+            continue
+        copied = dict(word)
+        _shift_timing_fields(copied, offset)
+        shifted_words.append(copied)
+    if shifted_words:
+        shifted["words"] = shifted_words
+    return shifted
+
+
+def _stable_refine_by_source_chunk(
+    segments: list[dict[str, Any]],
+    chunks: list[Any],
+    audio_path: str,
+    language_mode: str,
+    config: dict[str, Any],
+) -> SyncPassResult:
+    chunk_by_index = {int(chunk.index): chunk for chunk in chunks}
+
+    def resolve_chunk_index(segment: dict[str, Any]) -> int | None:
+        try:
+            chunk_index = int(segment.get("sourceChunkIndex"))
+            if chunk_index in chunk_by_index:
+                return chunk_index
+        except (TypeError, ValueError):
+            pass
+        try:
+            start = float(segment.get("start") or 0.0)
+            end = float(segment.get("end") or start)
+        except (TypeError, ValueError):
+            return None
+        midpoint = (start + end) / 2
+        for candidate in chunks:
+            candidate_start = float(candidate.start_time or 0.0)
+            candidate_end = float(candidate.end_time or candidate_start)
+            if candidate_start - 0.001 <= midpoint <= candidate_end + 0.001:
+                return int(candidate.index)
+        return None
+
+    grouped: dict[int, list[tuple[int, dict[str, Any]]]] = {}
+    ungrouped: list[tuple[int, dict[str, Any]]] = []
+    for index, segment in enumerate(segments):
+        chunk_index = resolve_chunk_index(segment)
+        if chunk_index is None:
+            ungrouped.append((index, segment))
+            continue
+        segment.setdefault("sourceChunkIndex", chunk_index)
+        grouped.setdefault(chunk_index, []).append((index, segment))
+
+    if not grouped or ungrouped:
+        _stage_log(
+            "stable_ts_chunk_alignment_fallback_full_audio",
+            groupedSegmentCount=sum(len(items) for items in grouped.values()),
+            ungroupedSegmentCount=len(ungrouped),
+        )
+        return apply_stable_refinement(segments, audio_path, language_mode, config=config)
+
+    refined_by_index: dict[int, dict[str, Any]] = {}
+    reports: list[dict[str, Any]] = []
+    applied_words = 0
+    provider_words = 0
+    stable_words = 0
+    matched_words = 0
+    errors: list[str] = []
+    rejection_samples: list[dict[str, Any]] = []
+
+    for chunk_index in sorted(grouped):
+        chunk = chunk_by_index[chunk_index]
+        offset = float(chunk.start_time or 0.0)
+        chunk_duration = max(0.0, float(chunk.end_time or 0.0) - offset)
+        local_segments = [
+            _shift_segment_tree(segment, -offset)
+            for _original_index, segment in grouped[chunk_index]
+        ]
+        local_config = dict(config)
+        local_config["audioDurationSeconds"] = chunk_duration
+        result = apply_stable_refinement(
+            local_segments,
+            chunk.audio_path,
+            language_mode,
+            config=local_config,
+        )
+        report = dict(result.report)
+        report["sourceChunkIndex"] = chunk_index
+        report["chunkStart"] = round(offset, 3)
+        report["chunkEnd"] = round(float(chunk.end_time or offset), 3)
+        reports.append(report)
+        applied_words += int(report.get("appliedWords") or 0)
+        provider_words += int(report.get("providerWordCount") or 0)
+        stable_words += int(report.get("stableWordCount") or 0)
+        matched_words += int(report.get("matchedWordCount") or 0)
+        for sample in report.get("rejectionSamples") or []:
+            if isinstance(sample, dict) and len(rejection_samples) < 20:
+                copied = dict(sample)
+                copied["sourceChunkIndex"] = chunk_index
+                rejection_samples.append(copied)
+        if report.get("errorCategory"):
+            errors.append(f"chunk {chunk_index}: {report.get('errorCategory')}: {report.get('reason')}")
+        for (original_index, _segment), refined_segment in zip(grouped[chunk_index], result.segments):
+            refined_by_index[original_index] = _shift_segment_tree(refined_segment, offset)
+
+    combined_segments = [refined_by_index[index] for index in range(len(segments))]
+    applied = applied_words > 0 and not errors
+    combined_report = {
+        "enabled": True,
+        "available": True,
+        "applied": applied,
+        "appliedWords": applied_words,
+        "providerWordCount": provider_words,
+        "stableWordCount": stable_words,
+        "matchedWordCount": matched_words,
+        "matchCoverage": round(matched_words / max(1, provider_words), 4),
+        "orderFallbackUsed": any(bool(report.get("orderFallbackUsed")) for report in reports),
+        "reason": "stable-ts chunk refinement applied" if applied else "; ".join(errors) or "stable-ts chunk refinement did not apply",
+        "errorCategory": None if applied else "stable_ts_alignment_failed",
+        "chunked": True,
+        "chunkReports": reports,
+        "rejectionSamples": rejection_samples,
+    }
+    if rejection_samples and errors:
+        sample_summary = "; ".join(
+            f"chunk {sample.get('sourceChunkIndex')} token={sample.get('providerTokenId')} reason={sample.get('reason')}"
+            for sample in rejection_samples[:5]
+        )
+        combined_report["reason"] = f"{combined_report['reason']} samples=[{sample_summary}]"
+    return SyncPassResult(combined_segments, combined_report)
 
 
 def _log_caption_timing_debug(
@@ -265,6 +424,11 @@ def run_pipeline(
         if active_snapshot and isinstance(active_snapshot.pipeline_option_sources, dict) and active_snapshot.pipeline_option_sources
         else pipeline_config_with_sources.get("sources")
     )
+    debug_segments: list[dict[str, Any]] = []
+    debug_aligned_words: list[dict[str, Any]] = []
+    debug_sync_report: dict[str, Any] = {}
+    debug_timing_report: dict[str, Any] = {}
+    debug_vad_report: dict[str, Any] = {}
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -400,18 +564,51 @@ def run_pipeline(
                             f"{provider_label} {reason}; trying {next_label} for chunk {i + 1} of {len(chunks)}.",
                         )
 
-            transcription_result = (
-                parallel_results[i]
-                if parallel_results is not None
-                else transcribe_audio(
-                    chunk.audio_path,
-                    language_mode=language_mode,
-                    progress_callback=on_provider_progress,
-                    chunk_index=i + 1,
-                    total_chunks=len(chunks),
-                    transcription_config_snapshot=transcription_config_snapshot,
+            try:
+                transcription_result = (
+                    parallel_results[i]
+                    if parallel_results is not None
+                    else transcribe_audio(
+                        chunk.audio_path,
+                        language_mode=language_mode,
+                        progress_callback=on_provider_progress,
+                        chunk_index=i + 1,
+                        total_chunks=len(chunks),
+                        transcription_config_snapshot=transcription_config_snapshot,
+                    )
                 )
-            )
+                if isinstance(transcription_result, dict) and transcription_result.get("__transcription_error__"):
+                    raise RuntimeError(str(transcription_result.get("__transcription_error__")))
+            except RuntimeError as exc:
+                chunk_duration = max(0.0, float(chunk.end_time or 0.0) - float(chunk.start_time or 0.0))
+                if _is_skippable_empty_micro_chunk_error(
+                    exc,
+                    chunk_duration=chunk_duration,
+                    pause_threshold=transcript_aligner.pause_threshold,
+                ):
+                    chunk.raw_text = ""
+                    chunk.final_text = ""
+                    chunk.score = 0.0
+                    chunk.asr_metadata = {
+                        "provider": "none",
+                        "text": "",
+                        "providerRawText": "",
+                        "nativeWordsAvailable": False,
+                        "timing_granularity": "missing",
+                        "skipped": True,
+                        "skipReason": "empty_transcript_micro_chunk",
+                        "chunkDurationSeconds": round(chunk_duration, 3),
+                    }
+                    processed_chunks.append(chunk)
+                    _stage_log(
+                        "empty_micro_chunk_skipped",
+                        chunk_index=i,
+                        duration=round(chunk_duration, 3),
+                        pause_threshold=transcript_aligner.pause_threshold,
+                        reason=str(exc)[:240],
+                    )
+                    continue
+                raise
             transcription_providers.add(str(transcription_result.get("provider") or "unknown"))
             if transcription_result.get("fallback") and transcription_result.get("fallback_from"):
                 fallback_from = transcription_result.get("fallback_from")
@@ -600,7 +797,7 @@ def run_pipeline(
             emit_progress("chunking", 80, "Splitting caption sentences.")
             prompt_segments_with_time = []
 
-            for seg in merged_segments:
+            for merged_segment_index, seg in enumerate(merged_segments):
                 seg_sents = split_sentences_v2(seg["text"], strict=is_strict)
                 if not seg_sents:
                     continue
@@ -609,6 +806,9 @@ def run_pipeline(
                 total_words = sum(word_counts)
                 seg_total_dur = seg["end"] - seg["start"]
                 cursor = seg["start"]
+                source_segment_index = seg.get("sourceSegmentIndex", merged_segment_index)
+                source_start = seg.get("sourceStart", seg["start"])
+                source_end = seg.get("sourceEnd", seg["end"])
 
                 for sent_index, sent in enumerate(seg_sents):
                     frac = word_counts[sent_index] / total_words
@@ -616,7 +816,15 @@ def run_pipeline(
                     sent_start = round(cursor, 3)
                     sent_end = round(cursor + sent_dur, 3)
                     prompt_segments_with_time.append(
-                        {"text": sent, "start": sent_start, "end": sent_end}
+                        {
+                            "text": sent,
+                            "start": sent_start,
+                            "end": sent_end,
+                            "sourceSegmentIndex": source_segment_index,
+                            "sourceChunkIndex": seg.get("sourceChunkIndex"),
+                            "sourceStart": source_start,
+                            "sourceEnd": source_end,
+                        }
                     )
                     cursor += sent_dur
 
@@ -636,6 +844,11 @@ def run_pipeline(
             except Exception as e:
                 logger.error(f"Alignment fully failed: {e}. Cannot generate timestamps.")
                 raise
+
+            for aligned_segment, prompt_segment in zip(aligned_segments, prompt_segments_with_time):
+                for metadata_key in ("sourceSegmentIndex", "sourceChunkIndex", "sourceStart", "sourceEnd"):
+                    if prompt_segment.get(metadata_key) is not None and aligned_segment.get(metadata_key) is None:
+                        aligned_segment[metadata_key] = prompt_segment.get(metadata_key)
 
             clamped_segments = []
             for seg in aligned_segments:
@@ -688,20 +901,45 @@ def run_pipeline(
         try:
             if pipeline_config.alignment.stableTsEnabled:
                 _stage_log("stable_ts_model_loading", model=pipeline_config.alignment.stableTsModel)
-            stable_result = apply_stable_refinement(
-                clamped_segments,
-                audio_path,
-                language_mode,
-                config={
-                    "enabled": pipeline_config.alignment.stableTsEnabled,
-                    "model": pipeline_config.alignment.stableTsModel,
-                    "device": pipeline_config.alignment.stableTsDevice,
-                    "minMatchCoverage": pipeline_config.alignment.stableTsMinMatchCoverage,
-                    "minWordRatio": pipeline_config.alignment.stableTsMinWordRatio,
-                    "maxWordRatio": pipeline_config.alignment.stableTsMaxWordRatio,
-                    "allowOrderFallback": pipeline_config.alignment.allowStableTsOrderFallback,
-                },
+            stable_config = {
+                "enabled": pipeline_config.alignment.stableTsEnabled,
+                "model": pipeline_config.alignment.stableTsModel,
+                "device": pipeline_config.alignment.stableTsDevice,
+                "minMatchCoverage": pipeline_config.alignment.stableTsMinMatchCoverage,
+                "minWordRatio": pipeline_config.alignment.stableTsMinWordRatio,
+                "maxWordRatio": pipeline_config.alignment.stableTsMaxWordRatio,
+                "allowOrderFallback": pipeline_config.alignment.allowStableTsOrderFallback,
+                "maxAudioSeconds": pipeline_config.performance.stableTsMaxAudioSeconds,
+                "audioDurationSeconds": vad_report.get("audioDuration"),
+            }
+            audio_duration = vad_report.get("audioDuration")
+            use_chunked_stable_ts = (
+                pipeline_config.alignment.stableTsEnabled
+                and audio_duration is not None
+                and float(audio_duration) > float(pipeline_config.performance.stableTsMaxAudioSeconds)
+                and len(chunks) > 1
             )
+            if use_chunked_stable_ts:
+                _stage_log(
+                    "stable_ts_chunk_alignment_started",
+                    chunk_count=len(chunks),
+                    audioDurationSeconds=round(float(audio_duration), 3),
+                    maxAudioSeconds=pipeline_config.performance.stableTsMaxAudioSeconds,
+                )
+                stable_result = _stable_refine_by_source_chunk(
+                    clamped_segments,
+                    chunks,
+                    audio_path,
+                    language_mode,
+                    stable_config,
+                )
+            else:
+                stable_result = apply_stable_refinement(
+                    clamped_segments,
+                    audio_path,
+                    language_mode,
+                    config=stable_config,
+                )
             clamped_segments = stable_result.segments
             if pipeline_config.alignment.stableTsEnabled:
                 _stage_log(
@@ -798,6 +1036,11 @@ def run_pipeline(
             transcript_aligner.pause_threshold,
         )
         timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
+        debug_segments = [dict(segment, words=[dict(word) for word in segment.get("words") or []]) for segment in clamped_segments]
+        debug_aligned_words = [dict(word) for word in aligned_words]
+        debug_sync_report = dict(sync_report)
+        debug_timing_report = dict(timing_report)
+        debug_vad_report = dict(vad_report)
 
         original_segments = [dict(segment, words=[dict(word) for word in segment.get("words") or []]) for segment in clamped_segments]
         emit_progress("normalizing", 91, "Applying caption output settings.")
@@ -813,6 +1056,11 @@ def run_pipeline(
         if transformation_report.get("transformation") != "none":
             aligned_words = canonical_aligned_words_from_segments(clamped_segments)
             timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
+        debug_segments = [dict(segment, words=[dict(word) for word in segment.get("words") or []]) for segment in clamped_segments]
+        debug_aligned_words = [dict(word) for word in aligned_words]
+        debug_sync_report = dict(sync_report)
+        debug_timing_report = dict(timing_report)
+        debug_vad_report = dict(vad_report)
         final_quality_report = validate_final_timing_quality(
             clamped_segments,
             pipeline_config=pipeline_config,
@@ -921,11 +1169,101 @@ def run_pipeline(
             "metrics": transcript["metadata"],
         }
 
+    except TimingQualityError as e:
+        logger.exception("Pipeline final timing quality gate failed.")
+        emit_progress("failed", -1, str(e))
+        pipeline_logger.end_run(error=str(e))
+        quality_report = dict(e.report)
+        debug_sync_report = dict(debug_sync_report or {})
+        debug_sync_report["finalTimingQuality"] = quality_report
+        debug_timing_report = dict(debug_timing_report or {})
+        debug_timing_report["qualityFailure"] = quality_report
+        debug_transcript = {
+            "segments": debug_segments,
+            "alignedWords": debug_aligned_words,
+            "sourceLanguage": language_mode,
+            "detectedLanguage": language_mode,
+            "outputLanguage": output_language,
+            "transformation": "unknown_after_quality_failure",
+            "metadata": {
+                "timing": {
+                    "configurationAppliedExactly": bool(active_snapshot),
+                    "resolvedPreset": {
+                        "id": active_snapshot.preset_id if active_snapshot else None,
+                        "version": active_snapshot.preset_version if active_snapshot else None,
+                    },
+                    "resolvedPipelineOptions": pipeline_config.to_dict(),
+                    "resolvedPipelineOptionSources": pipeline_option_sources,
+                    "vad": debug_vad_report,
+                    "report": debug_timing_report,
+                },
+                "sync": debug_sync_report,
+            },
+        }
+        return {
+            "status": "error",
+            "code": e.category,
+            "message": str(e),
+            "languageMode": language_mode,
+            "segments": debug_segments,
+            "transcript": debug_transcript,
+            "metrics": debug_transcript["metadata"],
+            "finalTimingQuality": quality_report,
+        }
     except TranscriptValidationError as e:
         logger.exception("Pipeline transcript validation failed.")
         emit_progress("failed", -1, str(e))
         pipeline_logger.end_run(error=str(e))
         return {"status": "error", "message": str(e), "languageMode": language_mode}
+    except CaptionCueValidationError as e:
+        logger.exception("Pipeline caption cue validation failed.")
+        emit_progress("failed", -1, str(e))
+        pipeline_logger.end_run(error=str(e))
+        failure_segments = debug_segments
+        failure_aligned_words = debug_aligned_words
+        if not failure_segments and isinstance(locals().get("clamped_segments"), list):
+            failure_segments = [
+                dict(segment, words=[dict(word) for word in segment.get("words") or []])
+                for segment in locals()["clamped_segments"]
+            ]
+        if not failure_aligned_words and isinstance(locals().get("aligned_words"), list):
+            failure_aligned_words = [dict(word) for word in locals()["aligned_words"]]
+        debug_sync_report = dict(debug_sync_report or {})
+        debug_sync_report["captionCueValidation"] = e.report
+        debug_timing_report = dict(debug_timing_report or {})
+        debug_timing_report["captionCueValidation"] = e.report
+        debug_transcript = {
+            "segments": failure_segments,
+            "alignedWords": failure_aligned_words,
+            "sourceLanguage": language_mode,
+            "detectedLanguage": language_mode,
+            "outputLanguage": output_language,
+            "transformation": "unknown_after_caption_cue_failure",
+            "metadata": {
+                "timing": {
+                    "configurationAppliedExactly": bool(active_snapshot),
+                    "resolvedPreset": {
+                        "id": active_snapshot.preset_id if active_snapshot else None,
+                        "version": active_snapshot.preset_version if active_snapshot else None,
+                    },
+                    "resolvedPipelineOptions": pipeline_config.to_dict(),
+                    "resolvedPipelineOptionSources": pipeline_option_sources,
+                    "vad": debug_vad_report,
+                    "report": debug_timing_report,
+                },
+                "sync": debug_sync_report,
+            },
+        }
+        return {
+            "status": "error",
+            "code": e.code,
+            "message": str(e),
+            "languageMode": language_mode,
+            "segments": failure_segments,
+            "transcript": debug_transcript,
+            "metrics": debug_transcript["metadata"],
+            "captionCueValidation": e.report,
+        }
     except Exception as e:
         logger.exception("Pipeline failed critically.")
         emit_progress("failed", -1, str(e))

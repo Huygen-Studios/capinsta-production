@@ -20,6 +20,7 @@ class PerformanceConfig:
     providerTimeoutSeconds: int = 90
     sarvamMaxConcurrency: int = 1
     alignmentRetries: int = 3
+    stableTsMaxAudioSeconds: float = 45.0
 
 
 @dataclass(frozen=True)
@@ -232,6 +233,7 @@ def environment_pipeline_options() -> dict[str, Any]:
     set_path("captionChunking", "phraseHoldSeconds", _env_num("PHRASE_HOLD_SECONDS"))
     set_path("performance", "providerTimeoutSeconds", _env_num("PROVIDER_TIMEOUT_SECONDS"))
     set_path("performance", "sarvamMaxConcurrency", _env_num("SARVAM_CONCURRENCY"))
+    set_path("performance", "stableTsMaxAudioSeconds", _env_num("STABLE_TS_MAX_AUDIO_SECONDS"))
     set_path("quality", "allowEstimatedWords", _env_bool("ALLOW_ESTIMATED_WORDS", True))
     set_path("quality", "maximumEstimatedWordRatio", _env_num("MAXIMUM_ESTIMATED_WORD_RATIO"))
     return options
@@ -335,6 +337,7 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
             providerTimeoutSeconds=_int(performance.get("providerTimeoutSeconds"), PerformanceConfig.providerTimeoutSeconds, 5, 600),
             sarvamMaxConcurrency=_int(performance.get("sarvamMaxConcurrency"), PerformanceConfig.sarvamMaxConcurrency, 1, 8),
             alignmentRetries=_int(performance.get("alignmentRetries"), 3, 0, 10),
+            stableTsMaxAudioSeconds=_num(performance.get("stableTsMaxAudioSeconds"), PerformanceConfig.stableTsMaxAudioSeconds, 1.0, 3600.0),
         ),
     )
 

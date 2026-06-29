@@ -207,17 +207,16 @@ def _snap_to_first_speech(
 def _clean_words(
     words: list[dict[str, Any]], audio_path: str | None = None
 ) -> list[dict[str, Any]]:
-    """Apply the standard pre-render cleaning: drop pre-speech
-    hallucinations and snap the first word to the detected speech
-    onset when ``audio_path`` is available.
+    """Return renderer words without changing validated timing.
+
+    Historical renderer code attempted to repair provider timing by dropping
+    leading words and globally snapping every caption to an FFmpeg-derived
+    speech onset. That is unsafe after the production timing pipeline has
+    already validated Silero/VAD groups, stable-ts transfer, cue boundaries,
+    and final quality gates. Export must consume the validated word timeline
+    as-is; timing repair belongs upstream where provenance and group windows
+    are available.
     """
-    if not words or audio_path is None:
-        return words
-    onset = _first_speech_onset(audio_path)
-    if onset is None:
-        return words
-    words = _drop_pre_speech_hallucinations(words, onset)
-    words = _snap_to_first_speech(words, onset)
     return words
 
 
@@ -334,11 +333,15 @@ def chunk_words_into_captions(
     # A minimum word count is a soft layout preference only. One-word captions
     # are valid, so never borrow from a following cue merely to satisfy min_words.
 
-    # Clamp ends so each caption finishes no later than the next one starts.
+    # Clamp phrase-hold so each caption finishes no later than the next one
+    # starts. Do not manufacture a zero-duration cue when the underlying word
+    # timing already conflicts with the next cue; leave that as an overlap for
+    # validation to report with the real cause.
     for i in range(len(captions) - 1):
         max_end = captions[i + 1]["start"]
         if captions[i]["end"] > max_end:
-            captions[i]["end"] = _round_time(max_end)
+            if max_end > captions[i]["start"]:
+                captions[i]["end"] = _round_time(max_end)
 
     return captions
 
@@ -588,7 +591,20 @@ def generate_srt(
 
     words = _flatten_words(segments)
     if not words:
-        return _render_segment_level(segments, use_comma=True)
+        raise CaptionCueValidationError(
+            "caption_word_timing_missing",
+            "Word-level caption timing is required for export.",
+            {
+                "stage": "srt_generation",
+                "cueCount": 0,
+                "invalidRangeCount": 0,
+                "overlapCount": 0,
+                "boundaryCrossingCount": 0,
+                "duplicateTokenCount": 0,
+                "nonContiguousTokenCount": 0,
+                "samples": [{"reason": "word_level_timing_missing"}],
+            },
+        )
 
     words = _clean_words(words, audio_path)
     captions = chunk_words_into_captions(words, chunking_rules)
@@ -611,7 +627,20 @@ def generate_vtt(
 
     words = _flatten_words(segments)
     if not words:
-        return _render_segment_level(segments, use_comma=False)
+        raise CaptionCueValidationError(
+            "caption_word_timing_missing",
+            "Word-level caption timing is required for export.",
+            {
+                "stage": "vtt_generation",
+                "cueCount": 0,
+                "invalidRangeCount": 0,
+                "overlapCount": 0,
+                "boundaryCrossingCount": 0,
+                "duplicateTokenCount": 0,
+                "nonContiguousTokenCount": 0,
+                "samples": [{"reason": "word_level_timing_missing"}],
+            },
+        )
 
     words = _clean_words(words, audio_path)
     captions = chunk_words_into_captions(words, chunking_rules)

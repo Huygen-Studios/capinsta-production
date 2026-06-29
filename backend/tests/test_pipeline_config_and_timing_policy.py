@@ -47,6 +47,7 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
         "SILERO_SPEECH_PAD_MS",
         "PROVIDER_TIMEOUT_SECONDS",
         "SARVAM_CONCURRENCY",
+        "STABLE_TS_MAX_AUDIO_SECONDS",
         "ALLOW_ESTIMATED_WORDS",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -57,6 +58,7 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
     assert config.quality.maximumEstimatedWordRatio == 0.15
     assert config.quality.minimumProviderTimestampCoverage == 0.90
     assert config.performance.providerTimeoutSeconds == 90
+    assert config.performance.stableTsMaxAudioSeconds == 45.0
     assert config.captionChunking.maxWords == 3
     assert config.captionChunking.maxCharacters == 28
     assert config.audioChunking.targetSeconds == 8
@@ -96,6 +98,14 @@ def test_snapshot_serializes_resolved_pipeline_options_without_loss():
     assert parsed is not None
     assert parsed.resolved_pipeline_options["timingSourcePolicy"] == "native_required"
     assert parsed.resolved_pipeline_options["performance"]["providerTimeoutSeconds"] == 45
+
+
+def test_stable_ts_max_audio_seconds_env_override(monkeypatch):
+    monkeypatch.setenv("STABLE_TS_MAX_AUDIO_SECONDS", "30")
+
+    config = resolve_pipeline_config()
+
+    assert config.performance.stableTsMaxAudioSeconds == 30.0
 
 
 def test_declared_chunk_local_native_words_are_preserved_for_english():
@@ -498,7 +508,7 @@ def test_stable_ts_order_fallback_fills_unmatched_words_after_good_token_match(m
         lambda *_args, **_kwargs: [
             {"word": "one", "start": 0.1, "end": 0.2},
             {"word": "two", "start": 0.25, "end": 0.35},
-            {"word": "teen", "start": 0.4, "end": 0.5},
+            {"word": "banana", "start": 0.4, "end": 0.5},
             {"word": "four", "start": 0.55, "end": 0.7},
         ],
     )
@@ -559,3 +569,42 @@ def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):
 
     assert result.report["applied"] is False
     assert result.report["errorCategory"] == "stable_ts_cache_not_writable"
+
+
+def test_stable_ts_cpu_long_audio_guard_skips_before_model_call(monkeypatch):
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+    monkeypatch.setattr(stable_refine, "_resolve_device", lambda _device: "cpu")
+
+    def should_not_run(*_args, **_kwargs):
+        raise AssertionError("stable-ts model call should not run for over-limit CPU audio")
+
+    monkeypatch.setattr(stable_refine, "force_align_provider_words", should_not_run)
+    monkeypatch.setattr(stable_refine, "transcribe_stable_words", should_not_run)
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "text": "hello world",
+                "start": 0.0,
+                "end": 62.0,
+                "words": [
+                    {"word": "hello", "start": 0.0, "end": 0.4},
+                    {"word": "world", "start": 0.5, "end": 1.0},
+                ],
+            }
+        ],
+        "audio.wav",
+        "english",
+        config={
+            "enabled": True,
+            "audioDurationSeconds": 62.0,
+            "maxAudioSeconds": 45.0,
+        },
+    )
+
+    assert result.report["applied"] is False
+    assert result.report["errorCategory"] == "stable_ts_audio_too_long_for_cpu"
+    assert result.report["audioDurationSeconds"] == 62.0
+    assert result.report["maxAudioSeconds"] == 45.0
+    assert "above 45.0s configured limit" in result.report["reason"]

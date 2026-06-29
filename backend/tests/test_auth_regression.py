@@ -44,6 +44,7 @@ def reset(monkeypatch):
     auth._supabase_config.cache_clear()
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-with-sufficient-entropy")
+    monkeypatch.delenv("CAPINSTA_CONTROL_PLANE_REST_FALLBACK", raising=False)
     yield
     auth._supabase_config.cache_clear()
 

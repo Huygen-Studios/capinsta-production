@@ -39,6 +39,21 @@ def _is_order_adjusted(word: dict[str, Any]) -> bool:
     return "stable_ts_order_adjusted" in blob
 
 
+def _token_identity(word: dict[str, Any]) -> str | None:
+    if word.get("providerTokenId") is not None:
+        return str(word.get("providerTokenId"))
+    token_index = word.get("sourceWordIndex", word.get("originalTokenIndex"))
+    if token_index is None:
+        return None
+    group_id = word.get("alignmentGroupId", "ungrouped")
+    segment_index = word.get("sourceSegmentIndex", "segment")
+    return (
+        f"{group_id}:"
+        f"{segment_index}:"
+        f"{token_index}"
+    )
+
+
 def validate_final_timing_quality(
     segments: list[dict[str, Any]],
     *,
@@ -60,9 +75,12 @@ def validate_final_timing_quality(
     outside_group_count = 0
     caption_cross_boundary_count = 0
     suspected_script_mismatch_count = 0
+    duplicate_token_count = 0
+    seen_token_identities: set[str] = set()
     prev_end: float | None = None
     prev_word: dict[str, Any] | None = None
     overlap_samples: list[dict[str, Any]] = []
+    duplicate_token_samples: list[dict[str, Any]] = []
 
     for word in words:
         source = _word_source(word)
@@ -73,6 +91,21 @@ def validate_final_timing_quality(
             stable_order_count += 1
         if word.get("suspectedScriptMismatch"):
             suspected_script_mismatch_count += 1
+        token_identity = _token_identity(word)
+        if token_identity is not None:
+            if token_identity in seen_token_identities:
+                duplicate_token_count += 1
+                if len(duplicate_token_samples) < 10:
+                    duplicate_token_samples.append(
+                        {
+                            "token": token_identity,
+                            "word": str(word.get("displayedWord") or word.get("word") or word.get("spokenWord") or ""),
+                            "start": _finite(word.get("start")),
+                            "end": _finite(word.get("end")),
+                            "alignmentGroupId": word.get("alignmentGroupId"),
+                        }
+                    )
+            seen_token_identities.add(token_identity)
         start = _finite(word.get("start"))
         end = _finite(word.get("end"))
         if start is None or end is None or end <= start:
@@ -131,6 +164,8 @@ def validate_final_timing_quality(
         "overlapSamples": overlap_samples,
         "outsideAlignmentGroupWindowCount": outside_group_count,
         "captionCrossBoundaryCount": caption_cross_boundary_count,
+        "duplicateTokenCount": duplicate_token_count,
+        "duplicateTokenSamples": duplicate_token_samples,
         "suspectedScriptMismatchCount": suspected_script_mismatch_count,
         "alignmentGroupCount": (sync_report.get("alignmentGroups") or {}).get("alignmentGroupCount") if isinstance(sync_report, dict) else None,
         "alignmentBoundariesFromRawSpeechGaps": (sync_report.get("alignmentGroups") or {}).get("boundariesFromRawSpeechGaps") if isinstance(sync_report, dict) else None,
@@ -165,6 +200,8 @@ def validate_final_timing_quality(
         failures.append(("word_outside_alignment_group", f"{outside_group_count} word timing boundary violation(s) remain."))
     if caption_cross_boundary_count:
         failures.append(("caption_crosses_hard_boundary", f"{caption_cross_boundary_count} caption group(s) cross a hard boundary."))
+    if duplicate_token_count:
+        failures.append(("duplicate_token_occurrence", f"{duplicate_token_count} duplicated token occurrence(s) remain in final words."))
     if suspected_script_mismatch_count:
         failures.append(("suspected_script_mismatch", f"{suspected_script_mismatch_count} unsupported script token(s) remain in final captions."))
 

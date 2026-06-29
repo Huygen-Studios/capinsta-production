@@ -156,7 +156,7 @@ def cap_same_group_word_overlaps(
             safe_end = min(
                 current_end,
                 group_end if group_end is not None else current_end,
-                next_start - WORD_BOUNDARY_EPSILON_SECONDS,
+                next_start,
             )
             repair_reason = "overlap_trimmed_before_next_word"
             if safe_end <= current_start:
@@ -249,6 +249,114 @@ def cap_same_group_word_overlaps(
     return mutation_count
 
 
+def cap_chronological_word_overlaps(
+    segments: list[dict[str, Any]],
+    *,
+    diagnostics: dict[str, Any] | None = None,
+    stage: str,
+) -> int:
+    """Trim adjacent final words that still overlap chronologically.
+
+    Unlike earlier global-repair code, this never shifts a following word and
+    never moves a word across an alignment boundary. It only shortens the
+    earlier word to the next word's start when that preserves positive
+    duration. Exact adjacency is valid and no artificial gap is created.
+    """
+    words: list[dict[str, Any]] = []
+    for segment in segments:
+        words.extend([word for word in segment.get("words") or [] if isinstance(word, dict)])
+    words.sort(key=lambda item: (_finite_time(item.get("start")) or 0.0, _finite_time(item.get("end")) or 0.0))
+
+    mutation_count = 0
+    mutation_samples: list[dict[str, Any]] = []
+    for current, next_word in zip(words, words[1:]):
+        current_start = _finite_time(current.get("start"))
+        current_end = _finite_time(current.get("end"))
+        next_start = _finite_time(next_word.get("start"))
+        if current_start is None or current_end is None or next_start is None:
+            continue
+        if current_end <= next_start:
+            continue
+        safe_end = min(
+            current_end,
+            _finite_time(current.get("sourceEnd")) or current_end,
+            next_start,
+        )
+        if safe_end <= current_start:
+            if diagnostics is not None:
+                diagnostics["chronologicalOverlapUnrepairable"] = int(diagnostics.get("chronologicalOverlapUnrepairable") or 0) + 1
+                diagnostics.setdefault("timingMutationSamples", []).append(
+                    {
+                        "stage": stage,
+                        "alignmentGroupId": current.get("alignmentGroupId"),
+                        "word": _word_text(current),
+                        "originalStart": round(current_start, 3),
+                        "originalEnd": round(current_end, 3),
+                        "newStart": current_start,
+                        "newEnd": current_end,
+                        "nextWord": _word_text(next_word),
+                        "nextStart": round(next_start, 3),
+                        "nextAlignmentGroupId": next_word.get("alignmentGroupId"),
+                        "reason": "chronological_overlap_unrepairable_before_next_word",
+                        "decision": "kept_original_timing",
+                    }
+                )
+            logger.warning(
+                "timing_chronological_overlap_unrepairable stage=%s alignmentGroupId=%s word=%r start=%.3f end=%.3f nextWord=%r nextStart=%.3f nextAlignmentGroupId=%s",
+                stage,
+                current.get("alignmentGroupId"),
+                _word_text(current),
+                current_start,
+                current_end,
+                _word_text(next_word),
+                next_start,
+                next_word.get("alignmentGroupId"),
+            )
+            continue
+
+        new_end = round(safe_end, 3)
+        if new_end == round(current_end, 3):
+            continue
+        current["end"] = new_end
+        _mark_word_repaired(
+            current,
+            reason="chronological_overlap_trimmed_before_next_word",
+            original_start=current_start,
+            original_end=current_end,
+            warning="Word timing overlapped the next final word and was repaired locally.",
+        )
+        mutation_count += 1
+        if len(mutation_samples) < 20:
+            mutation_samples.append(
+                {
+                    "stage": stage,
+                    "alignmentGroupId": current.get("alignmentGroupId"),
+                    "word": _word_text(current),
+                    "originalStart": round(current_start, 3),
+                    "originalEnd": round(current_end, 3),
+                    "newStart": round(current_start, 3),
+                    "newEnd": new_end,
+                    "nextWord": _word_text(next_word),
+                    "nextStart": round(next_start, 3),
+                    "nextAlignmentGroupId": next_word.get("alignmentGroupId"),
+                    "reason": "chronological_overlap_trimmed_before_next_word",
+                }
+            )
+
+    if diagnostics is not None:
+        diagnostics["chronologicalOverlapCaps"] = int(diagnostics.get("chronologicalOverlapCaps") or 0) + mutation_count
+        if mutation_samples:
+            diagnostics.setdefault("timingMutationSamples", []).extend(mutation_samples)
+    if mutation_count:
+        logger.warning(
+            "timing_chronological_overlap_capped stage=%s mutationCount=%d samples=%s",
+            stage,
+            mutation_count,
+            mutation_samples,
+        )
+    return mutation_count
+
+
 def assign_alignment_groups_from_speech_gaps(
     segments: list[dict[str, Any]],
     hard_gaps: list[dict[str, Any]],
@@ -274,11 +382,11 @@ def assign_alignment_groups_from_speech_gaps(
             valid_gaps.append((start, end))
     valid_gaps.sort()
 
-    words: list[tuple[int, int, dict[str, Any]]] = []
+    words: list[tuple[int, int, dict[str, Any], dict[str, Any]]] = []
     for segment_index, segment in enumerate(segments):
         for word_index, word in enumerate(segment.get("words") or []):
             if isinstance(word, dict):
-                words.append((segment_index, word_index, word))
+                words.append((segment_index, word_index, word, segment))
     words.sort(key=lambda item: (_finite_time(item[2].get("start")) or 0.0, _finite_time(item[2].get("end")) or 0.0, item[0], item[1]))
 
     group_index = -1
@@ -288,11 +396,11 @@ def assign_alignment_groups_from_speech_gaps(
     previous_word: dict[str, Any] | None = None
     boundaries_from_gaps = 0
 
-    def word_key(segment_index: int, word: dict[str, Any]) -> tuple[Any, Any, Any]:
+    def word_key(segment_index: int, word: dict[str, Any], segment: dict[str, Any]) -> tuple[Any, Any, Any]:
         return (
             word.get("speakerId") or word.get("speaker_id"),
             word.get("turnId") or word.get("turn_id") or word.get("speakerTurnId"),
-            word.get("sourceSegmentIndex", segment_index),
+            word.get("sourceSegmentIndex", segment.get("sourceSegmentIndex", segment_index)),
         )
 
     def has_gap_between(left_end: float | None, right_start: float | None) -> tuple[bool, tuple[float, float] | None]:
@@ -311,10 +419,10 @@ def assign_alignment_groups_from_speech_gaps(
                 return True, (gap_start, gap_end)
         return False, None
 
-    for segment_index, _word_index, word in words:
+    for segment_index, _word_index, word, segment in words:
         start = _finite_time(word.get("start"))
         end = _finite_time(word.get("end"))
-        key = word_key(segment_index, word)
+        key = word_key(segment_index, word, segment)
         boundary_reason: str | None = None
         boundary_gap: tuple[float, float] | None = None
         if current_key is None or key != current_key:
@@ -345,15 +453,48 @@ def assign_alignment_groups_from_speech_gaps(
             current_key = key
 
         word["alignmentGroupId"] = current_group_id
-        word["sourceSegmentIndex"] = word.get("sourceSegmentIndex", segment_index)
+        word["sourceSegmentIndex"] = word.get("sourceSegmentIndex", segment.get("sourceSegmentIndex", segment_index))
+        if word.get("sourceChunkIndex") is None and segment.get("sourceChunkIndex") is not None:
+            word["sourceChunkIndex"] = segment.get("sourceChunkIndex")
+        if word.get("sourceStart") is None and segment.get("sourceStart") is not None:
+            word["sourceStart"] = segment.get("sourceStart")
+        if word.get("sourceEnd") is None and segment.get("sourceEnd") is not None:
+            word["sourceEnd"] = segment.get("sourceEnd")
         groups.setdefault(current_group_id, []).append(word)
         previous_word = word
 
     for group_id, group_words in groups.items():
         starts = [_finite_time(word.get("start")) for word in group_words]
         ends = [_finite_time(word.get("end")) for word in group_words]
-        group_start = min(value for value in starts if value is not None)
-        group_end = max(value for value in ends if value is not None)
+        source_starts: list[float | None] = []
+        source_ends: list[float | None] = []
+        local_source_starts: list[float | None] = []
+        local_source_ends: list[float | None] = []
+        for word in group_words:
+            word_source_start = _finite_time(word.get("sourceStart"))
+            word_source_end = _finite_time(word.get("sourceEnd"))
+            source_starts.append(word_source_start if word_source_start is not None else _finite_time(word.get("start")))
+            source_ends.append(word_source_end if word_source_end is not None else _finite_time(word.get("end")))
+            word_source_start = _finite_time(
+                word.get("nativeStart")
+                if word.get("nativeStart") is not None
+                else word.get("providerStart")
+                if word.get("providerStart") is not None
+                else word.get("start")
+            )
+            word_source_end = _finite_time(
+                word.get("nativeEnd")
+                if word.get("nativeEnd") is not None
+                else word.get("providerEnd")
+                if word.get("providerEnd") is not None
+                else word.get("end")
+            )
+            local_source_starts.append(word_source_start)
+            local_source_ends.append(word_source_end)
+        group_start = min(value for value in source_starts if value is not None)
+        group_end = max(value for value in source_ends if value is not None)
+        local_group_start = min(value for value in local_source_starts if value is not None)
+        local_group_end = max(value for value in local_source_ends if value is not None)
         for gap_start, gap_end in valid_gaps:
             if gap_end <= group_start + tolerance_seconds:
                 group_start = max(group_start, gap_end)
@@ -365,6 +506,8 @@ def assign_alignment_groups_from_speech_gaps(
         for word in group_words:
             word["sourceStart"] = round(group_start, 3)
             word["sourceEnd"] = round(group_end, 3)
+            word["localSourceStart"] = round(local_group_start, 3)
+            word["localSourceEnd"] = round(local_group_end, 3)
             word["alignmentGroupSource"] = word.get("alignmentGroupSource") or "raw_speech_vad"
 
     for segment_index, segment in enumerate(segments):
@@ -469,6 +612,12 @@ def sanitize_aligned_word_ranges(
         stage="aligned_word_sanitizer",
     )
     repaired_words += overlap_caps
+    chronological_caps = cap_chronological_word_overlaps(
+        segments,
+        diagnostics=overlap_caps_report,
+        stage="aligned_word_sanitizer",
+    )
+    repaired_words += chronological_caps
 
     for segment in segments:
         repaired_segment_words = [word for word in segment.get("words") or [] if isinstance(word, dict)]
@@ -482,6 +631,8 @@ def sanitize_aligned_word_ranges(
         "repairedWords": repaired_words,
         "droppedWords": dropped_words,
         "sameGroupOverlapCaps": overlap_caps,
+        "chronologicalOverlapCaps": chronological_caps,
+        "chronologicalOverlapUnrepairable": overlap_caps_report.get("chronologicalOverlapUnrepairable") or 0,
         "sameGroupOverlapUnrepairable": overlap_caps_report.get("sameGroupOverlapUnrepairable") or 0,
         "timingMutationSamples": overlap_caps_report.get("timingMutationSamples") or [],
     }

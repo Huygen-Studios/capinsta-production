@@ -18,11 +18,11 @@ from ai_pipeline.tools.timing_reference_evaluator import (
 )
 
 PROVIDER_SECRET_ENV = {
-    "sarvam": "SARVAM_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "openai_whisper": "OPENAI_API_KEY",
-    "groq_whisper": "GROQ_API_KEY",
+    "sarvam": ("SARVAM_API_KEY",),
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "openai": ("OPENAI_API_KEY",),
+    "openai_whisper": ("OPENAI_API_KEY",),
+    "groq_whisper": ("GROQ_API_KEY",),
 }
 
 
@@ -31,15 +31,23 @@ def _write_json(path: Path, value: Any) -> None:
 
 
 def _configured_provider_secrets_available() -> tuple[bool, list[str]]:
-    configured = os.getenv("STT_PROVIDER_ORDER") or os.getenv("STT_PROVIDER") or "gemini,sarvam,openai_whisper"
-    providers = [part.strip().lower() for part in configured.split(",") if part.strip()]
+    try:
+        from ai_pipeline.transcriber import _provider_order, get_stt_provider, is_real_secret
+
+        provider = get_stt_provider()
+        providers = _provider_order() if provider == "auto" else [provider]
+    except Exception:
+        configured = os.getenv("STT_PROVIDER_ORDER") or os.getenv("STT_PROVIDER") or "gemini,sarvam,openai_whisper"
+        providers = [part.strip().lower() for part in configured.split(",") if part.strip() and part.strip().lower() != "auto"]
+        if not providers:
+            providers = ["gemini", "sarvam", "openai_whisper"]
+        is_real_secret = lambda value: bool((value or "").strip())
     missing: list[str] = []
     for provider in providers:
-        secret_name = PROVIDER_SECRET_ENV.get(provider)
-        if secret_name and os.getenv(secret_name):
+        secret_names = PROVIDER_SECRET_ENV.get(provider, ())
+        if secret_names and any(is_real_secret(os.getenv(secret_name)) for secret_name in secret_names):
             return True, missing
-        if secret_name:
-            missing.append(secret_name)
+        missing.extend(secret_names)
     return False, sorted(set(missing))
 
 
@@ -56,13 +64,27 @@ def _word_payload(word: dict[str, Any]) -> dict[str, Any]:
         "timingNeedsReview",
         "timingReviewRequired",
         "timingRepairReason",
+        "providerTokenId",
+        "providerSegmentId",
+        "providerTokenIndex",
+        "sourceWordIndex",
+        "originalTokenIndex",
+        "localGroupTokenIndex",
         "alignmentGroupId",
         "sourceSegmentIndex",
         "sourceChunkIndex",
         "sourceStart",
         "sourceEnd",
+        "localSourceStart",
+        "localSourceEnd",
         "nativeStart",
         "nativeEnd",
+        "stableTsTokenIndex",
+        "stableTsCandidateStart",
+        "stableTsCandidateEnd",
+        "stableTsRejectedStart",
+        "stableTsRejectedEnd",
+        "stableTsRejectedReason",
         "speakerId",
         "turnId",
         "captionBlockId",
@@ -117,7 +139,25 @@ def main(argv: list[str] | None = None) -> int:
         caption_output=args.caption_output,
     )
     if result.get("status") != "success":
-        failure = {"passed": False, "failureCount": 1, "failures": [{"type": "pipeline_failed", "message": result.get("message")}]}
+        segments = result.get("segments") or []
+        transcript = result.get("transcript") or {"segments": segments}
+        pipeline_words = [_word_payload(word) for word in flatten_pipeline_words(transcript)]
+        renderer_manifest = renderer_manifest_from_segments(segments)
+        failure = {
+            "passed": False,
+            "failureCount": 1,
+            "failures": [
+                {
+                    "type": "pipeline_failed",
+                    "code": result.get("code"),
+                    "message": result.get("message"),
+                }
+            ],
+            "finalTimingQuality": result.get("finalTimingQuality"),
+            "artifactNote": "Pipeline failed, but final diagnostic words/manifests were preserved when available.",
+        }
+        _write_json(output_dir / "pipeline_words.json", pipeline_words)
+        _write_json(output_dir / "renderer_timing_manifest.json", renderer_manifest)
         _write_json(output_dir / "reference_comparison.json", failure)
         write_markdown_report(output_dir / "reference_comparison.md", failure, resolved)
         return 2

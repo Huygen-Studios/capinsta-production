@@ -101,6 +101,27 @@ def test_sarvam_requests_are_bounded_and_results_remain_ordered(monkeypatch):
     assert progress[-1] == (4, 4)
 
 
+def test_sarvam_parallel_returns_per_chunk_errors_without_cancelling_batch(monkeypatch):
+    monkeypatch.setenv("SARVAM_MAX_CONCURRENCY", "2")
+    monkeypatch.setattr(transcriber, "_resolve_provider", lambda mode: "sarvam")
+
+    def fake_transcribe(path, language_mode):
+        if path == "chunk-1":
+            raise RuntimeError("All configured transcription providers failed: sarvam(empty_transcript).")
+        return {"text": path, "provider": "sarvam", "words": []}
+
+    monkeypatch.setattr(transcriber, "transcribe_audio", fake_transcribe)
+
+    results = asyncio.run(
+        transcribe_sarvam_chunks_bounded(["chunk-0", "chunk-1", "chunk-2"], "telgish")
+    )
+
+    assert results[0]["text"] == "chunk-0"
+    assert results[1]["__transcription_error_type__"] == "RuntimeError"
+    assert "empty_transcript" in results[1]["__transcription_error__"]
+    assert results[2]["text"] == "chunk-2"
+
+
 def test_pipeline_does_not_pass_worker_progress_into_sarvam_event_loop(
     monkeypatch,
 ):

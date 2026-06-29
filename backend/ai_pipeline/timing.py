@@ -53,6 +53,19 @@ def _module_import_status(name: str) -> dict[str, Any]:
         }
 
 
+def _stable_ts_import_error(
+    stable_whisper_status: dict[str, Any],
+    stable_ts_legacy_status: dict[str, Any],
+) -> str | None:
+    if stable_whisper_status["importable"] or stable_ts_legacy_status["importable"]:
+        return None
+    if stable_whisper_status["available"] and stable_whisper_status["error"]:
+        return str(stable_whisper_status["error"])
+    if stable_ts_legacy_status["available"] and stable_ts_legacy_status["error"]:
+        return str(stable_ts_legacy_status["error"])
+    return stable_whisper_status["error"] or stable_ts_legacy_status["error"]
+
+
 def _dir_writable(path: str) -> tuple[bool, str | None]:
     try:
         os.makedirs(path, exist_ok=True)
@@ -176,7 +189,7 @@ def alignment_provider_status() -> dict[str, Any]:
         "stableTsAvailable": stable_ts_available,
         "stableTsImportAvailable": bool(stable_whisper_status["available"] or stable_ts_legacy_status["available"]),
         "stableTsImportable": stable_ts_available,
-        "stableTsImportError": stable_whisper_status["error"] if stable_whisper_status["available"] and not stable_whisper_status["importable"] else stable_ts_legacy_status["error"],
+        "stableTsImportError": _stable_ts_import_error(stable_whisper_status, stable_ts_legacy_status),
         "stableTsVersion": stable_whisper_status["version"] or stable_ts_legacy_status["version"],
         "sileroVadAvailable": silero_available,
         "sileroVadImportAvailable": bool(silero_status["available"]),

@@ -118,6 +118,46 @@ def test_final_gate_blocks_caption_crossing_hard_boundary():
     assert exc.value.category == "caption_crosses_hard_boundary"
 
 
+def test_final_gate_blocks_duplicate_token_occurrence():
+    segments = [
+        {
+            "words": [
+                {
+                    "word": "first",
+                    "start": 0.0,
+                    "end": 0.2,
+                    "alignmentGroupId": "g1",
+                    "sourceStart": 0.0,
+                    "sourceEnd": 0.5,
+                    "providerTokenId": "g1:0:0",
+                    "timingSource": "provider_native",
+                },
+                {
+                    "word": "first-again",
+                    "start": 0.3,
+                    "end": 0.5,
+                    "alignmentGroupId": "g1",
+                    "sourceStart": 0.0,
+                    "sourceEnd": 0.5,
+                    "providerTokenId": "g1:0:0",
+                    "timingSource": "provider_native",
+                },
+            ]
+        }
+    ]
+
+    with pytest.raises(TimingQualityError) as exc:
+        validate_final_timing_quality(
+            segments,
+            pipeline_config=_base_config(),
+            vad_report=_vad(),
+            sync_report={},
+        )
+
+    assert exc.value.category == "duplicate_token_occurrence"
+    assert exc.value.report["duplicateTokenCount"] == 1
+
+
 def test_final_gate_pass_report_contains_sources_and_counts():
     config_sources = resolve_pipeline_config_with_sources({"vad": {"sileroEnabled": True}})["sources"]
     report = validate_final_timing_quality(

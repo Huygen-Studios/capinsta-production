@@ -609,6 +609,8 @@ async def transcription_test_config(body: TranscriptionTestRequest, request: Req
                         "minWordRatio": resolved_pipeline.alignment.stableTsMinWordRatio,
                         "maxWordRatio": resolved_pipeline.alignment.stableTsMaxWordRatio,
                         "allowOrderFallback": resolved_pipeline.alignment.allowStableTsOrderFallback,
+                        "maxAudioSeconds": resolved_pipeline.performance.stableTsMaxAudioSeconds,
+                        "audioDurationSeconds": duration,
                     },
                 )
                 forced_word_count = int(stable_result.report.get("appliedWords") or 0)

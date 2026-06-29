@@ -1,5 +1,5 @@
 import pytest
-from ai_pipeline.renderer import CaptionCueValidationError, chunk_words_into_captions, validate_caption_cues
+from ai_pipeline.renderer import CaptionCueValidationError, chunk_words_into_captions, generate_srt, generate_vtt, validate_caption_cues
 
 def test_chunking_punctuation_split():
     # Under tight word limits, punctuation splits are preserved where merging is blocked by limits
@@ -210,3 +210,94 @@ def test_caption_validation_reports_non_contiguous_tokens_without_blocking_expor
     assert report["nonContiguousTokenCount"] == 1
     assert report["overlapCount"] == 0
     assert report["duplicateTokenCount"] == 0
+
+
+def test_word_level_srt_rejects_segment_only_phrase_timing():
+    segments = [
+        {
+            "text": "this entire paragraph must not become one timed caption",
+            "start": 0.0,
+            "end": 0.5,
+            "words": [],
+        }
+    ]
+
+    with pytest.raises(CaptionCueValidationError) as exc:
+        generate_srt(segments)
+
+    assert exc.value.code == "caption_word_timing_missing"
+
+
+def test_word_level_vtt_rejects_segment_only_phrase_timing():
+    segments = [
+        {
+            "text": "this entire paragraph must not become one timed caption",
+            "start": 0.0,
+            "end": 0.5,
+            "words": [],
+        }
+    ]
+
+    with pytest.raises(CaptionCueValidationError) as exc:
+        generate_vtt(segments)
+
+    assert exc.value.code == "caption_word_timing_missing"
+
+
+def test_explicit_legacy_segment_level_render_still_requires_opt_in():
+    segments = [{"text": "legacy segment", "start": 1.0, "end": 2.0}]
+
+    srt = generate_srt(segments, word_level=False)
+
+    assert "legacy segment" in srt
+    assert "00:00:01,000 --> 00:00:02,000" in srt
+
+
+def test_phrase_hold_clamp_preserves_exact_adjacency():
+    words = [
+        {"word": "one", "start": 1.0, "end": 1.2, "providerTokenId": "a:0", "finalTokenSequenceIndex": 0},
+        {"word": "two", "start": 1.2, "end": 1.5, "providerTokenId": "a:1", "finalTokenSequenceIndex": 1},
+    ]
+
+    captions = chunk_words_into_captions(
+        words,
+        {
+            "max_words": 1,
+            "max_chars": 50,
+            "max_duration": 5.0,
+            "pause_split_threshold": 10.0,
+            "merge_gap": 10.0,
+            "phrase_hold": 0.05,
+        },
+    )
+
+    assert captions[0]["start"] == 1.0
+    assert captions[0]["end"] == 1.2
+    assert validate_caption_cues(captions, stage="test")["invalidRangeCount"] == 0
+
+
+def test_phrase_hold_clamp_does_not_convert_true_overlap_to_invalid_range():
+    words = [
+        {"word": "ippudu", "start": 39.586, "end": 39.626, "providerTokenId": "ag-0028:0", "finalTokenSequenceIndex": 0},
+        {"word": "final-gaa", "start": 39.586, "end": 39.92, "providerTokenId": "ag-0029:0", "finalTokenSequenceIndex": 1},
+    ]
+
+    captions = chunk_words_into_captions(
+        words,
+        {
+            "max_words": 1,
+            "max_chars": 50,
+            "max_duration": 5.0,
+            "pause_split_threshold": 10.0,
+            "merge_gap": 10.0,
+            "phrase_hold": 0.05,
+        },
+    )
+
+    assert captions[0]["end"] > captions[0]["start"]
+    with pytest.raises(CaptionCueValidationError) as exc:
+        validate_caption_cues(captions, stage="test")
+
+    assert exc.value.code == "caption_cue_overlap"
+    assert exc.value.report["invalidRangeCount"] == 0
+    assert exc.value.report["overlapCount"] == 1

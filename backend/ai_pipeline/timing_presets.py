@@ -44,6 +44,7 @@ CONFIG_FIELD_RANGES: dict[str, dict[str, Any]] = {
     "captionChunking.phraseHoldSeconds": {"type": "number", "min": 0.0, "max": 3.0, "step": 0.01},
     "performance.providerTimeoutSeconds": {"type": "integer", "min": 5, "max": 600, "step": 1},
     "performance.sarvamMaxConcurrency": {"type": "integer", "min": 1, "max": 8, "step": 1},
+    "performance.stableTsMaxAudioSeconds": {"type": "number", "min": 1.0, "max": 3600.0, "step": 1.0},
     "quality.allowEstimatedWords": {"type": "boolean"},
     "quality.maximumEstimatedWordRatio": {"type": "number", "min": 0.0, "max": 1.0, "step": 0.01},
 }
@@ -76,6 +77,7 @@ ENV_KEY_TO_PATH: dict[str, tuple[str, ...]] = {
     "PHRASE_HOLD_SECONDS": ("captionChunking", "phraseHoldSeconds"),
     "PROVIDER_TIMEOUT_SECONDS": ("performance", "providerTimeoutSeconds"),
     "SARVAM_CONCURRENCY": ("performance", "sarvamMaxConcurrency"),
+    "STABLE_TS_MAX_AUDIO_SECONDS": ("performance", "stableTsMaxAudioSeconds"),
     "ALLOW_ESTIMATED_WORDS": ("quality", "allowEstimatedWords"),
     "MAXIMUM_ESTIMATED_WORD_RATIO": ("quality", "maximumEstimatedWordRatio"),
 }

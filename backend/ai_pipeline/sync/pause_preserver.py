@@ -38,7 +38,7 @@ def _word_text(word: dict[str, Any]) -> str:
 
 
 def _group_id(word: dict[str, Any], fallback: str) -> str:
-    return str(word.get("alignmentGroupId") or fallback)
+    return str(word.get("alignmentGroupId") or word.get("_pausePreserverGroupId") or fallback)
 
 
 def _group_bounds(words: list[dict[str, Any]]) -> tuple[float | None, float | None]:
@@ -91,6 +91,50 @@ def _first_group_timing_violation(words: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _first_changed_chronological_violation(
+    words: list[dict[str, Any]],
+    changed_groups: set[str],
+) -> dict[str, Any] | None:
+    if not changed_groups:
+        return None
+    ordered = sorted(
+        words,
+        key=lambda word: (
+            _finite_time(word.get("start")) or 0.0,
+            _finite_time(word.get("end")) or 0.0,
+        ),
+    )
+    previous: dict[str, Any] | None = None
+    for word in ordered:
+        start = _finite_time(word.get("start"))
+        end = _finite_time(word.get("end"))
+        if start is None or end is None or end <= start:
+            return {
+                "violation": "invalid_word_range",
+                "word": _word_text(word),
+                "alignmentGroupId": word.get("alignmentGroupId"),
+                "start": start,
+                "end": end,
+            }
+        if previous is not None:
+            previous_end = _finite_time(previous.get("end"))
+            if previous_end is not None and start < previous_end - 1e-6:
+                previous_group = _group_id(previous, "previous")
+                current_group = _group_id(word, "current")
+                if previous_group in changed_groups or current_group in changed_groups:
+                    return {
+                        "violation": "chronological_overlap_after_pause_candidate",
+                        "previousWord": _word_text(previous),
+                        "previousAlignmentGroupId": previous_group,
+                        "previousEnd": round(previous_end, 3),
+                        "word": _word_text(word),
+                        "alignmentGroupId": current_group,
+                        "start": round(start, 3),
+                    }
+        previous = word
+    return None
+
+
 def preserve_detected_pauses(
     segments: list[dict[str, Any]],
     silence_gaps: list[dict[str, Any]],
@@ -139,7 +183,9 @@ def preserve_detected_pauses(
     words = [word for _, word in indexed_words]
     group_words: dict[str, list[dict[str, Any]]] = {}
     for index, word in enumerate(words):
-        group_words.setdefault(_group_id(word, f"sequence:{index}"), []).append(word)
+        group_id = _group_id(word, f"sequence:{index}")
+        word["_pausePreserverGroupId"] = group_id
+        group_words.setdefault(group_id, []).append(word)
     valid_gaps: list[tuple[float, float]] = []
     for gap in silence_gaps:
         start = _finite_time(gap.get("start")) if isinstance(gap, dict) else None
@@ -268,6 +314,31 @@ def preserve_detected_pauses(
             if diagnostics is not None:
                 diagnostics.setdefault("pauseCandidateDecisions", []).append(rollback_sample)
             logger.warning("pause_preservation_skipped_invalid_candidate %s", rollback_sample)
+
+        chronological_violation = _first_changed_chronological_violation(words, changed_groups - invalid_pause_groups)
+        if chronological_violation is not None:
+            rollback_groups = sorted(changed_groups - invalid_pause_groups)
+            reverted_count = sum(changed_word_count_by_group.get(group_id, 0) for group_id in rollback_groups)
+            for group_id in rollback_groups:
+                group = group_words.get(group_id) or []
+                if group_id in group_snapshots:
+                    _restore_group_snapshot(group, group_snapshots[group_id])
+                    invalid_pause_groups.add(group_id)
+            stats["pauseCandidateRollbacks"] += len(rollback_groups)
+            stats["wordsClampedForPause"] = max(0, stats["wordsClampedForPause"] - reverted_count)
+            stats["wordsRejectedForCrossingHardGap"] = max(0, stats["wordsRejectedForCrossingHardGap"] - reverted_count)
+            gap_changed = False
+            rollback_sample = {
+                "stage": "pause_preservation",
+                "gapStart": round(gap_start, 3),
+                "gapEnd": round(gap_end, 3),
+                "decision": "rollback",
+                "violation": chronological_violation,
+                "rolledBackAlignmentGroups": rollback_groups,
+            }
+            if diagnostics is not None:
+                diagnostics.setdefault("pauseCandidateDecisions", []).append(rollback_sample)
+            logger.warning("pause_preservation_skipped_invalid_cross_group_candidate %s", rollback_sample)
 
         gap_is_clear = not any(
             float(word["start"]) < gap_end - 1e-6
