@@ -19,23 +19,87 @@ def _vad(provider="silero", degraded=False):
     return {"pauseDetectionProvider": provider, "pauseDetectionDegraded": degraded}
 
 
-def test_final_gate_blocks_estimated_ratio_after_sanitization():
+def test_final_gate_reports_estimated_ratio_without_blocking():
     words = []
-    for index in range(135):
-        source = "deterministic_fallback" if index < 32 else "stable_ts_forced_align"
-        words.append({"word": f"w{index}", "start": index * 0.1, "end": index * 0.1 + 0.05, "timingSource": source})
+    for index in range(5):
+        words.append({"word": f"w{index}", "start": index * 0.1, "end": index * 0.1 + 0.05, "timingSource": "deterministic_fallback"})
     segments = [{"words": words}]
 
-    with pytest.raises(TimingQualityError) as exc:
-        validate_final_timing_quality(
-            segments,
-            pipeline_config=_base_config(),
-            vad_report=_vad(),
-            sync_report={},
-        )
+    report = validate_final_timing_quality(
+        segments,
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
 
-    assert exc.value.category == "estimated_word_ratio_exceeded"
-    assert exc.value.report["estimatedWordRatio"] == 0.237
+    assert report["passed"] is True
+    assert report["estimatedWordCount"] == 5
+    assert report["totalWords"] == 5
+    assert report["estimatedWordRatio"] == 1.0
+    assert not any(failure["category"] == "estimated_word_ratio_exceeded" for failure in report["failures"])
+
+
+def test_final_gate_reports_partial_and_zero_estimated_ratios():
+    partial_report = validate_final_timing_quality(
+        [
+            {
+                "words": [
+                    {"word": f"w{index}", "start": index * 0.1, "end": index * 0.1 + 0.05, "timingSource": "deterministic_fallback" if index < 2 else "stable_ts_forced_align"}
+                    for index in range(5)
+                ]
+            }
+        ],
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
+    zero_estimated_report = validate_final_timing_quality(
+        [{"words": [{"word": "ok", "start": 0.0, "end": 0.1, "timingSource": "provider_native"}]}],
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
+    zero_word_report = validate_final_timing_quality(
+        [{"words": []}],
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
+
+    assert partial_report["passed"] is True
+    assert partial_report["estimatedWordCount"] == 2
+    assert partial_report["totalWords"] == 5
+    assert partial_report["estimatedWordRatio"] == 0.4
+    assert zero_estimated_report["estimatedWordRatio"] == 0
+    assert zero_word_report["totalWords"] == 0
+    assert zero_word_report["estimatedWordRatio"] == 0
+
+
+def test_final_gate_ignores_legacy_maximum_estimated_ratio_snapshot():
+    config = _base_config(quality={"allowEstimatedWords": True, "maximumEstimatedWordRatio": 0.0})
+    report = validate_final_timing_quality(
+        [{"words": [{"word": "estimated", "start": 0.0, "end": 0.2, "timingSource": "deterministic_fallback"}]}],
+        pipeline_config=config,
+        vad_report=_vad(),
+        sync_report={},
+    )
+
+    assert report["passed"] is True
+    assert report["estimatedWordRatio"] == 1.0
+
+
+def test_final_gate_ignores_legacy_allow_estimated_words_snapshot():
+    config = _base_config(quality={"allowEstimatedWords": False, "maximumEstimatedWordRatio": 0.0})
+    report = validate_final_timing_quality(
+        [{"words": [{"word": "estimated", "start": 0.0, "end": 0.2, "timingSource": "deterministic_fallback"}]}],
+        pipeline_config=config,
+        vad_report=_vad(),
+        sync_report={},
+    )
+
+    assert report["passed"] is True
+    assert report["estimatedWordRatio"] == 1.0
+    assert not any(failure["category"] == "estimated_words_disabled" for failure in report["failures"])
 
 
 def test_final_gate_blocks_order_adjusted_when_fallback_disabled():

@@ -136,6 +136,36 @@ describe("Capinsta export render helpers", () => {
 		).toEqual(["word-005"]);
 	});
 
+	test("exports captions when every word timing is estimated", () => {
+		const baseDocument = capinstaTranscriptToCaptionDocument(sampleCapinstaTranscriptV1);
+		const document = {
+			...baseDocument,
+			words: baseDocument.words.map((word) => ({
+				...word,
+				timingSource: "estimated" as const,
+				timingNeedsReview: true,
+			})),
+			clips: baseDocument.clips.map((clip) => ({
+				...clip,
+				timingNeedsReview: true,
+			})),
+		};
+		const record = recordForDocument(document);
+		const renderData = getCapinstaTextRenderDataForElement({
+			records: [record],
+			element: elementForClip({ document }),
+		});
+
+		expect(renderData?.timingNeedsReview).toBe(true);
+		expect(renderData?.words.length).toBe(document.clips[0]?.wordIds.length);
+		expect(
+			getActiveCapinstaExportWordIdsAtTime({
+				renderData,
+				timeSeconds: document.words[0]!.start,
+			}),
+		).toEqual([document.words[0]!.id]);
+	});
+
 	test("returns no render data when metadata is missing", () => {
 		expect(
 			getCapinstaTextRenderDataForElement({

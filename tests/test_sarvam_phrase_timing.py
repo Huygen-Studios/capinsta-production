@@ -5,7 +5,7 @@ import pytest
 
 from ai_pipeline.renderer import chunk_words_into_captions
 from ai_pipeline.transcriber import _normalize_sarvam_words
-from ai_pipeline.transcript_normalizer import TranscriptValidationError, build_word_timed_transcript_from_chunks
+from ai_pipeline.transcript_normalizer import build_word_timed_transcript_from_chunks
 
 
 @dataclass
@@ -38,25 +38,29 @@ def test_sarvam_chunks_are_preserved_as_phrase_timing_units():
     assert words[1]["start"] - words[0]["end"] == 1.4
 
 
-def test_phrase_units_are_not_evenly_interpolated_into_fake_words():
+def test_phrase_units_generate_review_marked_estimated_words():
     words = _normalize_sarvam_words(_sarvam_payload())
-    with pytest.raises(TranscriptValidationError):
-        build_word_timed_transcript_from_chunks(
-            [
-                FakeChunk(
-                    index=0,
-                    start_time=0.0,
-                    end_time=3.3,
-                    final_text="hello there after a pause",
-                    asr_metadata={
-                        "provider": "sarvam",
-                        "timing_granularity": "phrase",
-                        "words": words,
-                    },
-                )
-            ],
-            "english",
-        )
+    segments = build_word_timed_transcript_from_chunks(
+        [
+            FakeChunk(
+                index=0,
+                start_time=0.0,
+                end_time=3.3,
+                final_text="hello there after a pause",
+                asr_metadata={
+                    "provider": "sarvam",
+                    "timing_granularity": "phrase",
+                    "words": words,
+                },
+            )
+        ],
+        "english",
+    )
+    generated_words = [word for segment in segments for word in segment["words"]]
+
+    assert [word["word"] for word in generated_words] == ["hello there", "after a pause"]
+    assert all(word["timingNeedsReview"] for word in generated_words)
+    assert all(word["end"] > word["start"] for word in generated_words)
 
 
 def test_caption_chunking_keeps_provider_phrases_and_their_pause_atomic():
@@ -68,7 +72,7 @@ def test_caption_chunking_keeps_provider_phrases_and_their_pause_atomic():
     assert captions[1]["start"] == 2.4
 
 
-def test_phrase_tokens_are_rejected_instead_of_distributed_across_speech_islands():
+def test_phrase_tokens_generate_valid_estimated_words_across_speech_islands():
     payload = {
         "transcript": "one two three four five six",
         "timestamps": {
@@ -78,27 +82,31 @@ def test_phrase_tokens_are_rejected_instead_of_distributed_across_speech_islands
         },
     }
     words = _normalize_sarvam_words(payload)
-    with pytest.raises(TranscriptValidationError):
-        build_word_timed_transcript_from_chunks(
-            [
-                FakeChunk(
-                    index=0,
-                    start_time=0.0,
-                    end_time=5.0,
-                    final_text=payload["transcript"],
-                    asr_metadata={
-                        "provider": "sarvam",
-                        "timing_granularity": "phrase",
-                        "words": words,
-                    },
-                )
-            ],
-            "english",
-            speech_segments=[
-                {"start": 0.0, "end": 1.8},
-                {"start": 3.0, "end": 5.0},
-            ],
-        )
+    segments = build_word_timed_transcript_from_chunks(
+        [
+            FakeChunk(
+                index=0,
+                start_time=0.0,
+                end_time=5.0,
+                final_text=payload["transcript"],
+                asr_metadata={
+                    "provider": "sarvam",
+                    "timing_granularity": "phrase",
+                    "words": words,
+                },
+            )
+        ],
+        "english",
+        speech_segments=[
+            {"start": 0.0, "end": 1.8},
+            {"start": 3.0, "end": 5.0},
+        ],
+    )
+    generated_words = [word for segment in segments for word in segment["words"]]
+
+    assert [word["word"] for word in generated_words] == ["one two three four five six"]
+    assert all(word["timingNeedsReview"] for word in generated_words)
+    assert all(word["end"] > word["start"] for word in generated_words)
 
 
 def test_native_sarvam_chunk_local_words_receive_global_offset_once():

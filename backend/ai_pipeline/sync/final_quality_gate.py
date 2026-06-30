@@ -182,16 +182,6 @@ def validate_final_timing_quality(
             failures.append(("pause_detection_degraded", "Silero VAD is enabled, but pause detection degraded to a fallback."))
     if not getattr(pipeline_config.alignment, "allowStableTsOrderFallback", False) and stable_order_count:
         failures.append(("stable_ts_order_fallback_disabled", "Stable-ts order fallback is disabled, but order-adjusted words were produced."))
-    if not getattr(pipeline_config.quality, "allowEstimatedWords", False) and estimated_count:
-        failures.append(("estimated_words_disabled", "Estimated timing words were produced while estimated words are disabled."))
-    maximum_estimated_ratio = float(getattr(pipeline_config.quality, "maximumEstimatedWordRatio", 0.0))
-    if estimated_ratio > maximum_estimated_ratio + 1e-9:
-        failures.append(
-            (
-                "estimated_word_ratio_exceeded",
-                f"Estimated word timing ratio {estimated_ratio:.1%} exceeds configured maximum {maximum_estimated_ratio:.0%}.",
-            )
-        )
     if invalid_ranges:
         failures.append(("invalid_word_ranges", f"{invalid_ranges} word(s) have invalid timestamp ranges."))
     if overlap_count:

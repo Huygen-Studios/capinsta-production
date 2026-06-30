@@ -189,6 +189,62 @@ describe("Capinsta API client", () => {
 		expect(document.clips[0]?.disableActiveWordHighlighting).toBe(true);
 	});
 
+	test("normalizes one hundred percent estimated timing responses into timeline captions", () => {
+		const job: CapinstaJobDetailResponse = {
+			job_id: "job-estimated",
+			status: "completed",
+			progress: 100,
+			filename: "estimated.mp4",
+			languageMode: "english",
+			transcript: {
+				languageMode: "english",
+				provider: { name: "openai_whisper", model: "whisper-1" },
+				segments: [
+					{
+						id: "estimated-1",
+						start: 0,
+						end: 1.2,
+						text: "All estimated",
+						words: [
+							{ word: "All", displayedWord: "All", start: 0, end: 0.5, timingSource: "estimated", timingNeedsReview: true },
+							{ word: "estimated", displayedWord: "estimated", start: 0.5, end: 1.2, timingSource: "estimated", timingNeedsReview: true },
+						],
+					},
+				],
+				metadata: {
+					audio: { duration: 1.2 },
+					timing: {
+						report: {
+							finalTimingQuality: {
+								passed: true,
+								totalWords: 2,
+								estimatedWordCount: 2,
+								estimatedWordRatio: 1,
+								failures: [],
+							},
+						},
+					},
+				},
+			},
+			completed_at: "2026-06-15T00:00:00.000Z",
+		};
+
+		const transcript = normalizeCapinstaJobToTranscript({
+			job,
+			sourceAsset: {
+				assetId: "asset-estimated",
+				assetName: "estimated.mp4",
+				mimeType: "video/mp4",
+			},
+		});
+		const document = capinstaTranscriptToCaptionDocument(transcript);
+
+		expect(transcript.words).toHaveLength(2);
+		expect(document.clips.length).toBeGreaterThan(0);
+		expect(document.clips.map((clip) => clip.text).join(" ")).toContain("All estimated");
+		expect(document.words.every((word) => word.timingNeedsReview)).toBe(true);
+	});
+
 	test("renews the backend project lease", async () => {
 		const lease = await sendCapinstaProjectHeartbeat({
 			baseUrl: "http://127.0.0.1:8000",

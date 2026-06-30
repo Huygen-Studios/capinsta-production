@@ -321,6 +321,7 @@ export interface AlignedWord {
   timing_warning?: string;
   timingNeedsReview?: boolean;
   timingReviewRequired?: boolean;
+  disableActiveWordHighlighting?: boolean;
 }
 
 export interface CaptionChunkingConfig {

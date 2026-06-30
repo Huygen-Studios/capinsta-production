@@ -33,7 +33,7 @@ def test_all_required_timing_presets_are_declared_and_resolve():
     for preset in TIMING_PRESETS:
         resolved = resolve_pipeline_config(preset.pipeline_options)
         assert resolved.alignment.allowStableTsOrderFallback is False
-        assert resolved.quality.maximumEstimatedWordRatio <= 0.15
+        assert resolved.quality.maximumEstimatedWordRatio is None
         assert resolved.captionChunking.maxWords <= 4
 
 
@@ -73,7 +73,8 @@ def test_public_preset_registry_exposes_backend_ranges_and_compatibility():
     registry = public_preset_registry(public_catalog())
 
     assert len(registry["presets"]) == 10
-    assert registry["fieldRanges"]["quality.maximumEstimatedWordRatio"] == CONFIG_FIELD_RANGES["quality.maximumEstimatedWordRatio"]
+    assert "quality.maximumEstimatedWordRatio" not in registry["fieldRanges"]
+    assert "quality.maximumEstimatedWordRatio" not in CONFIG_FIELD_RANGES
     assert registry["fieldRanges"]["performance.stableTsMaxAudioSeconds"] == CONFIG_FIELD_RANGES["performance.stableTsMaxAudioSeconds"]
     balanced = next(item for item in registry["presets"] if item["id"] == "sarvam_telgish_balanced")
     assert balanced["expectedTimingSourcePolicy"] == "native_then_forced"

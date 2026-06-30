@@ -281,7 +281,6 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 		minimumProviderTimestampCoverage: 0.9,
 		allowSegmentDerivedWords: false,
 		allowEstimatedWords: true,
-		maximumEstimatedWordRatio: 0.15,
 	},
 	performance: { providerTimeoutSeconds: 90, sarvamMaxConcurrency: 1, alignmentRetries: 3 },
 } as const;

@@ -13,7 +13,6 @@ from ai_pipeline.audio import build_vad_chunk_ranges
 from ai_pipeline.pipeline_config import DEFAULT_PIPELINE_OPTIONS, resolve_pipeline_config
 from ai_pipeline.renderer import generate_srt, generate_vtt
 from ai_pipeline.transcript_normalizer import (
-    TranscriptValidationError,
     build_word_timed_transcript_from_chunks,
 )
 from server.transcription_control import TranscriptionConfigSnapshot, coerce_snapshot
@@ -54,13 +53,14 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
         "SARVAM_CONCURRENCY",
         "STABLE_TS_MAX_AUDIO_SECONDS",
         "ALLOW_ESTIMATED_WORDS",
+        "MAXIMUM_ESTIMATED_WORD_RATIO",
     ):
         monkeypatch.delenv(name, raising=False)
     config = resolve_pipeline_config()
     assert config.timingSourcePolicy == "native_then_forced"
     assert config.quality.allowEstimatedWords is True
     assert config.quality.allowSegmentDerivedWords is False
-    assert config.quality.maximumEstimatedWordRatio == 0.15
+    assert config.quality.maximumEstimatedWordRatio is None
     assert config.quality.minimumProviderTimestampCoverage == 0.90
     assert config.performance.providerTimeoutSeconds == 90
     assert config.performance.stableTsMaxAudioSeconds == 45.0
@@ -93,6 +93,14 @@ def test_pipeline_config_rejects_invalid_policy_and_ranges():
         resolve_pipeline_config({"timingSourcePolicy": "interpolate_everything"})
     with pytest.raises(ValueError):
         resolve_pipeline_config({"quality": {"maximumEstimatedWordRatio": 4}})
+
+
+def test_pipeline_config_parses_legacy_maximum_estimated_ratio_without_defaulting(monkeypatch):
+    monkeypatch.setenv("MAXIMUM_ESTIMATED_WORD_RATIO", "0.5")
+
+    config = resolve_pipeline_config()
+
+    assert config.quality.maximumEstimatedWordRatio == 0.5
 
 
 def test_snapshot_serializes_resolved_pipeline_options_without_loss():
@@ -156,15 +164,17 @@ def test_declared_absolute_native_words_are_not_offset_again():
     assert words[0]["timestampBasis"] == "absolute"
 
 
-def test_estimated_segment_derived_words_are_not_counted_as_native():
+def test_estimated_segment_derived_words_are_not_counted_as_native_but_can_generate():
     chunk = _chunk(
         [
             {"word": "hello world", "start": 0.0, "end": 2.0, "timing_source": "provider_segment_derived"},
         ]
     )
     assert _chunks_have_provider_words([chunk]) is False
-    with pytest.raises(TranscriptValidationError):
-        build_word_timed_transcript_from_chunks([chunk], "english")
+    segments = build_word_timed_transcript_from_chunks([chunk], "english")
+    words = [word for segment in segments for word in segment["words"]]
+    assert [word["word"] for word in words] == ["hello", "world"]
+    assert all(word["timingNeedsReview"] for word in words)
 
 
 def test_preserved_phrase_timing_words_are_not_counted_as_native():
@@ -278,12 +288,12 @@ def _ten_word_chunk_with_one_estimated():
     return _chunk(words)
 
 
-def test_maximum_estimated_word_ratio_allows_ten_percent_when_configured():
+def test_legacy_maximum_estimated_word_ratio_is_telemetry_only():
     config = resolve_pipeline_config(
         {
             "quality": {
                 "allowEstimatedWords": True,
-                "maximumEstimatedWordRatio": 0.15,
+                "maximumEstimatedWordRatio": 0.0,
             }
         }
     )
@@ -299,24 +309,53 @@ def test_maximum_estimated_word_ratio_allows_ten_percent_when_configured():
     assert sum(1 for word in words if word.get("timingNeedsReview")) == 1
 
 
-def test_maximum_estimated_word_ratio_rejects_ten_percent_when_configured_too_low():
+def test_legacy_allow_estimated_words_false_is_telemetry_only():
     config = resolve_pipeline_config(
         {
             "quality": {
-                "allowEstimatedWords": True,
-                "maximumEstimatedWordRatio": 0.05,
+                "allowEstimatedWords": False,
+                "maximumEstimatedWordRatio": 0.0,
             }
         }
     )
 
-    with pytest.raises(TranscriptValidationError) as exc:
-        build_word_timed_transcript_from_chunks(
-            [_ten_word_chunk_with_one_estimated()],
-            "english",
-            pipeline_config=config,
-        )
+    segments = build_word_timed_transcript_from_chunks(
+        [_ten_word_chunk_with_one_estimated()],
+        "english",
+        pipeline_config=config,
+    )
+    words = [word for segment in segments for word in segment["words"]]
 
-    assert "Estimated word timing ratio 10.0% exceeds configured maximum 5%" in str(exc.value)
+    assert len(words) == 10
+    assert sum(1 for word in words if word.get("timingNeedsReview")) == 1
+
+
+def test_hundred_percent_estimated_word_timing_generates_valid_english_captions():
+    chunk = _chunk(
+        [
+            {
+                "word": "all estimated words still render",
+                "start": 0.0,
+                "end": 2.0,
+                "timing_source": "provider_segment_derived",
+            }
+        ]
+    )
+    config = resolve_pipeline_config(
+        {
+            "quality": {
+                "allowEstimatedWords": True,
+                "maximumEstimatedWordRatio": 0.0,
+            }
+        }
+    )
+
+    segments = build_word_timed_transcript_from_chunks([chunk], "english", pipeline_config=config)
+    words = [word for segment in segments for word in segment["words"]]
+
+    assert [word["word"] for word in words] == ["all", "estimated", "words", "still", "render"]
+    assert all(word["timingNeedsReview"] for word in words)
+    assert all(word["end"] > word["start"] for word in words)
 
 
 def test_caption_chunking_rules_change_visible_output():

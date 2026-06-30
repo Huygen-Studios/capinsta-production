@@ -231,7 +231,7 @@ def _normalize_word(raw_word: dict[str, Any], language_mode: str) -> dict[str, A
     if raw_word.get("timing_source"):
         normalized["timing_source"] = raw_word["timing_source"]
         source = str(raw_word["timing_source"]).lower()
-        if any(marker in source for marker in ("interpolated", "estimated", "synthetic", "fallback", "structured", "segment_derived", "low_confidence")):
+        if any(marker in source for marker in ("interpolated", "estimated", "synthetic", "fallback", "structured", "segment_derived", "provider_phrase", "low_confidence")):
             normalized["timingNeedsReview"] = True
             normalized["timingReviewRequired"] = True
             normalized["timingWarning"] = "Word timing is estimated; sync cannot be guaranteed. Use High Quality Alignment."
@@ -811,26 +811,6 @@ def build_word_timed_transcript_from_chunks(
                     chunk_audit.append(audit_entry)
                 raise TranscriptValidationError(
                     "Native-required timing policy received estimated or phrase-derived word timing."
-                )
-            if resolved_config.timingSourcePolicy != "estimated_debug_only" and not resolved_config.quality.allowEstimatedWords:
-                audit_entry["warnings"].append(f"estimated timing rejected by policy ({estimated_count} word(s))")
-                if chunk_audit is not None:
-                    chunk_audit.append(audit_entry)
-                raise TranscriptValidationError(
-                    "Provider returned estimated word timing; configured timing policy requires native or real forced alignment."
-                )
-            if (
-                resolved_config.timingSourcePolicy != "estimated_debug_only"
-                and estimated_ratio > resolved_config.quality.maximumEstimatedWordRatio
-            ):
-                configured_ratio = resolved_config.quality.maximumEstimatedWordRatio
-                audit_entry["warnings"].append(
-                    f"estimated timing ratio {estimated_ratio:.3f} exceeds configured maximum {configured_ratio:.3f}"
-                )
-                if chunk_audit is not None:
-                    chunk_audit.append(audit_entry)
-                raise TranscriptValidationError(
-                    f"Estimated word timing ratio {estimated_ratio:.1%} exceeds configured maximum {configured_ratio:.0%}."
                 )
         if not normalized_words:
             audit_entry["warnings"].append("no usable word timestamps after normalization")

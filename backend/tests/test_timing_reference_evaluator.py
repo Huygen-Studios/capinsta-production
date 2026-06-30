@@ -253,8 +253,8 @@ def test_evaluator_preserves_pipeline_artifacts_on_quality_failure(tmp_path, mon
         ]
         return {
             "status": "error",
-            "code": "estimated_word_ratio_exceeded",
-            "message": "estimated_word_ratio_exceeded: failed",
+            "code": "invalid_word_ranges",
+            "message": "invalid_word_ranges: failed",
             "segments": segments,
             "transcript": {"segments": segments, "alignedWords": segments[0]["words"]},
             "finalTimingQuality": {"passed": False, "estimatedWordRatio": 1.0},

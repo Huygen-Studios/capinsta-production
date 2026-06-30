@@ -73,7 +73,7 @@ describe("admin transcription configuration db compatibility", () => {
 			isRecord(config.pipelineOptions.quality)
 				? config.pipelineOptions.quality.maximumEstimatedWordRatio
 				: undefined,
-		).toBe(0.15);
+		).toBeUndefined();
 	});
 
 	test("loads malformed legacy pipeline options without crashing", async () => {
@@ -121,19 +121,21 @@ describe("admin transcription configuration db compatibility", () => {
 		expect(Object.prototype).not.toHaveProperty("polluted");
 	});
 
-	test("frontend default maximum estimated ratio matches backend schema", () => {
+	test("frontend defaults do not define a maximum estimated ratio", () => {
 		const quality = DEFAULT_PIPELINE_OPTIONS.quality;
 
-		expect(quality.maximumEstimatedWordRatio).toBe(0.15);
+		expect("maximumEstimatedWordRatio" in quality).toBe(false);
 	});
 
-	test("admin UI exposes disabled maximum estimated ratio control with helper text", () => {
+	test("admin UI does not expose maximum estimated ratio as an active control", () => {
 		const source = readAdminControlsSource();
 
-		expect(source).toContain("Maximum estimated word ratio");
-		expect(source).toContain("quality\", \"maximumEstimatedWordRatio\"");
-		expect(source).toContain("disabled={!allowEstimatedWords}");
-		expect(source).toContain("Maximum fraction of caption words allowed to use estimated timing after alignment. 0.15 means 15%.");
+		expect(source).not.toContain("Maximum estimated word ratio");
+		expect(source).not.toContain("quality\", \"maximumEstimatedWordRatio\"");
+		expect(source).not.toContain("MAXIMUM_ESTIMATED_WORD_RATIO");
+		expect(source).not.toContain("ALLOW_ESTIMATED_WORDS");
+		expect(source).not.toContain("Allow estimated words");
+		expect(source).toContain("Estimated timing telemetry only");
 	});
 
 	test("admin UI exposes pasteable timing parameters with the short-form preset", () => {
@@ -143,7 +145,8 @@ describe("admin transcription configuration db compatibility", () => {
 		expect(source).toContain("TIMING_FIX_PRESET");
 		expect(source).toContain("VAD_TARGET_SECONDS=8");
 		expect(source).toContain("STABLE_TS_MODEL=small");
-		expect(source).toContain("MAXIMUM_ESTIMATED_WORD_RATIO=0.15");
+		expect(source).not.toContain("MAXIMUM_ESTIMATED_WORD_RATIO=0.15");
+		expect(source).not.toContain("ALLOW_ESTIMATED_WORDS=true");
 		expect(source).toContain("Apply pasted values");
 	});
 

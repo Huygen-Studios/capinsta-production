@@ -203,9 +203,7 @@ CAPTION_MAX_CHARS=28
 MAX_DURATION_SECONDS=2
 PHRASE_HOLD_SECONDS=0.05
 PROVIDER_TIMEOUT_SECONDS=90
-SARVAM_CONCURRENCY=1
-ALLOW_ESTIMATED_WORDS=true
-MAXIMUM_ESTIMATED_WORD_RATIO=0.15`;
+SARVAM_CONCURRENCY=1`;
 
 const BULK_FIELDS: readonly BulkField[] = [
 	{ key: "TIMING_SOURCE_POLICY", path: ["timingSourcePolicy"], type: "string" },
@@ -242,8 +240,6 @@ const BULK_FIELDS: readonly BulkField[] = [
 	{ key: "PHRASE_HOLD_SECONDS", path: ["captionChunking", "phraseHoldSeconds"], type: "number", min: 0, max: 3 },
 	{ key: "PROVIDER_TIMEOUT_SECONDS", path: ["performance", "providerTimeoutSeconds"], type: "number", min: 5, max: 600 },
 	{ key: "SARVAM_CONCURRENCY", path: ["performance", "sarvamMaxConcurrency"], type: "number", min: 1, max: 8 },
-	{ key: "ALLOW_ESTIMATED_WORDS", path: ["quality", "allowEstimatedWords"], type: "boolean" },
-	{ key: "MAXIMUM_ESTIMATED_WORD_RATIO", path: ["quality", "maximumEstimatedWordRatio"], type: "number", min: 0, max: 1 },
 ] as const;
 
 const BULK_FIELD_BY_KEY = new Map<string, BulkField>(
@@ -461,9 +457,6 @@ export function AdminTranscriptionControls({
 	const autoSync = section(pipelineOptions, "autoSync");
 	const captionChunking = section(pipelineOptions, "captionChunking");
 	const performance = section(pipelineOptions, "performance");
-	const quality = section(pipelineOptions, "quality");
-	const nativeRequired = stringValue(pipelineOptions.timingSourcePolicy, "native_then_forced") === "native_required";
-	const allowEstimatedWords = !nativeRequired && booleanValue(quality.allowEstimatedWords, false);
 
 	const setPipelineValue = (key: string, field: string, value: unknown) => {
 		setPipelineOptions((current) => updateNested(current, key, field, value));
@@ -609,7 +602,6 @@ export function AdminTranscriptionControls({
 										const presetAlignment = section(options, "alignment");
 										const presetVad = section(options, "vad");
 										const presetCaption = section(options, "captionChunking");
-										const presetQuality = section(options, "quality");
 										return (
 											<button
 												key={preset.id}
@@ -632,7 +624,7 @@ export function AdminTranscriptionControls({
 													<span>stable-ts {String(presetAlignment.stableTsEnabled ? presetAlignment.stableTsModel : "off")}</span>
 													<span>Fallback {String(presetAlignment.allowStableTsOrderFallback ? "on" : "off")}</span>
 													<span>Words {String(presetCaption.maxWords)}</span>
-													<span>Estimated max {Math.round(numberValue(presetQuality.maximumEstimatedWordRatio, 0) * 100)}%</span>
+													<span>Estimated timing telemetry only</span>
 												</div>
 											</button>
 										);
@@ -962,30 +954,6 @@ export function AdminTranscriptionControls({
 										value={numericInputValue(performance.sarvamMaxConcurrency, 2)}
 										onChange={(event) => setPipelineValue("performance", "sarvamMaxConcurrency", Number(event.currentTarget.value))}
 									/>
-								</div>
-								<label className="flex items-center gap-2 text-sm font-medium">
-									<input
-										type="checkbox"
-										disabled={nativeRequired}
-										checked={allowEstimatedWords}
-										onChange={(event) => setPipelineValue("quality", "allowEstimatedWords", event.currentTarget.checked)}
-									/>
-									{nativeRequired ? "Estimated words disabled for native required" : "Allow estimated words"}
-								</label>
-								<div className="grid gap-2">
-									<Label>Maximum estimated word ratio</Label>
-									<Input
-										type="number"
-										step="0.01"
-										min="0"
-										max="1"
-										disabled={!allowEstimatedWords}
-										value={numericInputValue(quality.maximumEstimatedWordRatio, 0.15)}
-										onChange={(event) => setPipelineValue("quality", "maximumEstimatedWordRatio", Number(event.currentTarget.value))}
-									/>
-									<p className="text-xs text-muted-foreground">
-										Maximum fraction of caption words allowed to use estimated timing after alignment. 0.15 means 15%.
-									</p>
 								</div>
 							</div>
 							</div>

@@ -5,6 +5,7 @@ import { withBotId } from "botid/next/config";
 import { withContentCollections } from "@content-collections/next";
 
 const appDir = dirname(fileURLToPath(import.meta.url));
+const workspaceRoot = dirname(dirname(appDir));
 
 const nextConfig: NextConfig = {
 	compiler: {
@@ -25,7 +26,7 @@ const nextConfig: NextConfig = {
 	},
 	// Prevent Turbopack from scanning Windows reserved device names
 	turbopack: {
-		root: appDir,
+		root: workspaceRoot,
 		resolveAlias: {},
 	},
 	webpack: (config) => {
