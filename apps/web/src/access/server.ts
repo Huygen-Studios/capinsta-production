@@ -6,6 +6,11 @@ import { unstable_cache as nextCache, revalidateTag } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 import { getCurrentAdminContext } from "@/admin/auth";
+import {
+	directProductGrantsForUser,
+	directProductRevocationsForUser,
+	permissionsForProducts,
+} from "@/admin/product-access";
 import { isUiTestAuthBypassEnabled, signInPathFor } from "@/auth/routes";
 import { db } from "@/db";
 import {
@@ -157,6 +162,16 @@ export const resolveEffectiveAppPermissions = cache(async (userId: string) => {
 		if (!isAppPermission(override.key)) continue;
 		if (override.effect === "deny") permissions.delete(override.key);
 		if (override.effect === "allow") permissions.add(override.key);
+	}
+	for (const permission of permissionsForProducts(
+		await directProductGrantsForUser(userId),
+	)) {
+		permissions.add(permission);
+	}
+	for (const permission of permissionsForProducts(
+		[...(await directProductRevocationsForUser(userId))],
+	)) {
+		permissions.delete(permission);
 	}
 	return { permissions, roleKeys };
 });

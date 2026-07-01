@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { AdminUsersProductAccessTable } from "./admin-users-product-access-table";
 
 export async function AdminModulePage({
   module,
@@ -63,6 +64,14 @@ export async function AdminModulePage({
         <CardContent className="p-0">
           {data.rows.length ? (
             <div className="overflow-x-auto">
+              {module === "users" ? (
+                <AdminUsersProductAccessTable
+                  rows={data.rows}
+                  columns={columns}
+                  query={params.q}
+                  selectableUserIds={data.selectableUserIds ?? []}
+                />
+              ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -117,6 +126,7 @@ export async function AdminModulePage({
                   })}
                 </TableBody>
               </Table>
+              )}
             </div>
           ) : (
             <div className="grid min-h-64 place-items-center p-8 text-center">

@@ -56,7 +56,8 @@ RUN apt-get update \
     ffmpeg \
     libgomp1 \
     libsndfile1 \
-  && rm -rf /var/lib/apt/lists/*
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
 COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
 RUN python -m pip install --upgrade pip \
@@ -64,8 +65,10 @@ RUN python -m pip install --upgrade pip \
   && python -m pip install -r requirements.txt \
   && python -m pip install -r requirements-stable-ts.txt \
   && python -m playwright install-deps chromium \
-  && rm -rf /var/lib/apt/lists/* \
-  && python -m playwright install --only-shell chromium
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+  && python -m playwright install --only-shell chromium \
+  && rm -rf /root/.cache /tmp/*
 
 RUN mkdir -p \
     "$CAPINSTA_MODEL_CACHE_DIR" \
@@ -79,6 +82,8 @@ RUN mkdir -p \
 COPY backend/ .
 
 RUN ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke
+
+RUN du -sh /app /usr/local /ms-playwright 2>/dev/null || true
 
 EXPOSE 10000
 

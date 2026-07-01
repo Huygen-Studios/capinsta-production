@@ -117,11 +117,11 @@ ENV MARBLE_WORKSPACE_KEY="build-placeholder"
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-# Standalone output: server.js + minimal node_modules under .next/standalone.
-# Keep the server and its static assets under /app/apps/web because Coolify may
-# preserve an explicit start command that executes this path.
+# Next monorepo standalone output already contains apps/web/server.js relative
+# to the standalone root. Copy it to /app so the server lands at
+# /app/apps/web/server.js instead of /app/apps/web/apps/web/server.js.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./apps/web
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 

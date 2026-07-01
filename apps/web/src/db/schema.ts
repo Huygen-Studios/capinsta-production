@@ -188,6 +188,67 @@ export const appUserPermissionOverrides = pgTable(
 	],
 );
 
+export const appProductEntitlements = pgTable(
+	"app_product_entitlements",
+	{
+		userId: uuid("user_id").notNull(),
+		productId: text("product_id").notNull(),
+		status: text("status").default("granted").notNull(),
+		grantedBy: uuid("granted_by"),
+		grantedAt: timestamp("granted_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		revokedBy: uuid("revoked_by"),
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+		expiresAt: timestamp("expires_at", { withTimezone: true }),
+		reason: text("reason").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.userId, table.productId] }),
+		index("app_product_entitlements_user_status_idx").on(
+			table.userId,
+			table.status,
+		),
+		index("app_product_entitlements_product_status_idx").on(
+			table.productId,
+			table.status,
+		),
+		index("app_product_entitlements_expires_idx").on(table.expiresAt),
+	],
+);
+
+export const appProductAccessBulkOperations = pgTable(
+	"app_product_access_bulk_operations",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		idempotencyKey: text("idempotency_key").notNull().unique(),
+		actorUserId: uuid("actor_user_id").notNull(),
+		action: text("action").notNull(),
+		productIds: jsonb("product_ids").$type<string[]>().notNull(),
+		requestedUserIds: jsonb("requested_user_ids").$type<string[]>().notNull(),
+		status: text("status").default("completed").notNull(),
+		reason: text("reason").notNull(),
+		outcome: jsonb("outcome").$type<Record<string, unknown>>().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("app_product_access_bulk_actor_created_idx").on(
+			table.actorUserId,
+			table.createdAt,
+		),
+		index("app_product_access_bulk_status_created_idx").on(
+			table.status,
+			table.createdAt,
+		),
+	],
+);
+
 export const adminRoles = pgTable("admin_roles", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	key: text("key").notNull().unique(),

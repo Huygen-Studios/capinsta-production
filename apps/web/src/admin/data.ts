@@ -228,7 +228,7 @@ export async function getAdminModuleRows({
   module: string;
   page: number;
   query?: string;
-}): Promise<{ rows: AdminTableRow[]; total: number }> {
+}): Promise<{ rows: AdminTableRow[]; total: number; selectableUserIds?: string[] }> {
   const offset = Math.max(0, page - 1) * PAGE_SIZE;
   const search = query?.trim();
   switch (module) {
@@ -239,7 +239,7 @@ export async function getAdminModuleRows({
             sql`${profiles.userId}::text ilike ${`%${search}%`}`,
           )
         : undefined;
-      const [rows, [{ total }]] = await Promise.all([
+      const [rows, [{ total }], selectable] = await Promise.all([
         db
           .select({
             id: profiles.userId,
@@ -273,8 +273,22 @@ export async function getAdminModuleRows({
           .limit(PAGE_SIZE)
           .offset(offset),
         db.select({ total: count() }).from(profiles).where(where),
+        db
+          .select({ id: profiles.userId })
+          .from(profiles)
+          .where(
+            where
+              ? sql`(${where}) and ${profiles.accountStatus} = 'active'`
+              : eq(profiles.accountStatus, "active"),
+          )
+          .orderBy(desc(profiles.createdAt))
+          .limit(250),
       ]);
-      return { rows: rows.map(serializeRow), total };
+      return {
+        rows: rows.map(serializeRow),
+        total,
+        selectableUserIds: selectable.map((row) => row.id),
+      };
     }
     case "caption-jobs":
       return pagedRows(

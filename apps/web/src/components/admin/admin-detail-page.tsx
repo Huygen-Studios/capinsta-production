@@ -10,6 +10,8 @@ import { AdminOperationPanel } from "./admin-operation-panel";
 import { AdminUserControls } from "./admin-user-controls";
 import { AdminSupportControls } from "./admin-support-controls";
 import { AdminProjectControls } from "./admin-project-controls";
+import { AdminProductAccessPanel } from "./admin-product-access-panel";
+import { getUserProductAccess } from "@/admin/product-access";
 
 export async function AdminDetailPage({
   module,
@@ -25,6 +27,12 @@ export async function AdminDetailPage({
   const context = await requireAdminPermission(permission);
   const record = await getAdminDetail({ module, id });
   if (!record) notFound();
+  const productAccess =
+    module === "users" &&
+    (context.permissions.has("access.read") ||
+      context.permissions.has("access.manage_users"))
+      ? await getUserProductAccess(id).catch(() => null)
+      : null;
   return (
     <>
       <AdminPageHeader
@@ -71,6 +79,14 @@ export async function AdminDetailPage({
           canResetMfa={context.permissions.has("security.reset_admin_mfa")}
           deletionScheduled={Boolean(record.scheduledDeletionAt)}
         />
+      ) : null}
+      {module === "users" && productAccess ? (
+        productAccess ? (
+          <AdminProductAccessPanel
+            initialAccess={productAccess}
+            canManage={context.permissions.has("access.manage_users")}
+          />
+        ) : null
       ) : null}
       {module === "users" && context.permissions.has("access.manage_users") ? (
         <div className="mt-6 grid gap-4 lg:grid-cols-3">

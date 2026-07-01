@@ -5,6 +5,7 @@ import { z } from "zod";
 import { invalidateSiteAccessPolicy } from "@/access/server";
 import { recordAdminAuditEvent } from "@/admin/audit";
 import { adminBackendFetch } from "@/admin/backend";
+import { applyProductAccessForUser, PRODUCT_IDS } from "@/admin/product-access";
 import { requireCsrfProtection } from "@/auth/csrf";
 import {
 	getAdminTranscriptionConfiguration,
@@ -1360,6 +1361,18 @@ export async function POST(request: Request) {
 			value.action === "access.user.revoke"
 		) {
 			await revokeSupabaseSessions(value.targetId);
+		}
+		if (
+			value.action === "access.user.approve" ||
+			value.action === "access.user.revoke"
+		) {
+			await applyProductAccessForUser({
+				userId: value.targetId,
+				productIds: PRODUCT_IDS,
+				action: value.action === "access.user.approve" ? "grant" : "revoke",
+				reason: value.reason,
+				context: context!,
+			});
 		}
 		const correlationId = await recordAdminAuditEvent({
 			context,
