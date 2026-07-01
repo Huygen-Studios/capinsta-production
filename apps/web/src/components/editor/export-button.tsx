@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/utils/ui";
+import { sanitizeClipboardText } from "@/security/clipboard";
 import {
 	downloadBuffer,
 	getExportFileExtension,
@@ -525,7 +526,7 @@ function ExportError({
 	const [copied, setCopied] = useState(false);
 
 	const handleCopy = async () => {
-		await navigator.clipboard.writeText(error);
+		await navigator.clipboard.writeText(sanitizeClipboardText(error));
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1000);
 	};

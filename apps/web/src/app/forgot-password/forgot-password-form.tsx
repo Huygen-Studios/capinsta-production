@@ -33,7 +33,7 @@ export function ForgotPasswordForm() {
 
 	if (sent) {
 		return (
-			<AuthShell title="Check your email" description="If an account exists for this address, we sent a password reset link.">
+			<AuthShell title="Check your email" description="If an eligible account exists, instructions have been sent.">
 				<Link href="/sign-in" className={primaryAuthButtonClass}>Back to sign in</Link>
 			</AuthShell>
 		);

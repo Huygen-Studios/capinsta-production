@@ -28,7 +28,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 import shutil
 import uuid
@@ -61,8 +63,62 @@ from .runtime_policy import (
     require_active_account,
     require_backend_capability,
 )
+from .rate_limit import enforce_api_rate_limit
+from .api_versioning import canonical_api_path
+from .request_limits import evaluate_request_body_limit
 
 logger = logging.getLogger(__name__)
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
+
+def _public_error_message(status_code: int, detail) -> tuple[str, str]:
+    if isinstance(detail, dict):
+        code = str(detail.get("code") or "request_failed")
+        message = str(detail.get("message") or detail.get("detail") or "Request failed.")
+        return code, message
+    if status_code == 400:
+        return "bad_request", "The request could not be processed."
+    if status_code == 401:
+        return "unauthenticated", "Authentication is required."
+    if status_code == 403:
+        return "forbidden", "You do not have permission to perform this action."
+    if status_code == 404:
+        return "not_found", "The requested resource was not found."
+    if status_code == 409:
+        return "conflict", "The request conflicts with the current resource state."
+    if status_code == 413:
+        return "payload_too_large", "The request is too large."
+    if status_code == 415:
+        return "unsupported_media_type", "This file type is not supported."
+    if status_code == 422:
+        return "validation_failed", "The request failed validation."
+    if status_code == 429:
+        return "rate_limited", "Too many requests. Please try again later."
+    if status_code == 503:
+        return "temporarily_unavailable", "This service is temporarily unavailable."
+    return "request_failed", "Request failed."
+
+
+def _request_id(request: Request) -> str:
+    return request.headers.get("x-request-id") or request.headers.get("x-correlation-id") or str(uuid.uuid4())
+
+
+def _error_response(request: Request, status_code: int, detail, headers: dict[str, str] | None = None) -> JSONResponse:
+    code, message = _public_error_message(status_code, detail)
+    request_id = _request_id(request)
+    response = JSONResponse(
+        {"error": {"code": code, "message": message, "requestId": request_id}},
+        status_code=status_code,
+        headers={**(headers or {}), "X-Request-ID": request_id},
+    )
+    return response
 
 
 def _log_startup_operational_summary() -> None:
@@ -207,12 +263,80 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return _error_response(request, exc.status_code, exc.detail, dict(exc.headers or {}))
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning(
+        "request_validation_failed path=%s method=%s request_id=%s errors=%s",
+        request.url.path,
+        request.method,
+        _request_id(request),
+        len(exc.errors()),
+    )
+    return _error_response(request, 422, {"code": "validation_failed", "message": "The request failed validation."})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    request_id = _request_id(request)
+    logger.exception(
+        "unhandled_request_error path=%s method=%s request_id=%s category=%s",
+        request.url.path,
+        request.method,
+        request_id,
+        type(exc).__name__,
+    )
+    return _error_response(request, 500, {"code": "internal_error", "message": "Internal server error."})
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    request_id = _request_id(request)
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    response.headers.setdefault("X-Request-ID", request_id)
+    if os.getenv("NODE_ENV") == "production":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+    return response
+
+
+@app.middleware("http")
+async def enforce_request_body_limits(request: Request, call_next):
+    decision = evaluate_request_body_limit(request)
+    if not decision.allowed:
+        logger.warning(
+            "request_body_rejected path=%s method=%s received=%s limit=%s reason=%s request_id=%s",
+            request.url.path,
+            request.method,
+            decision.received,
+            decision.limit,
+            decision.reason,
+            _request_id(request),
+        )
+        return _error_response(
+            request,
+            413,
+            {"code": "payload_too_large", "message": "The request is too large."},
+        )
+    return await call_next(request)
+
 PROTECTED_API_PREFIXES = (
     "/api/jobs",
+    "/api/v1/jobs",
     "/api/export/jobs",
+    "/api/v1/export/jobs",
     "/api/captions/jobs",
+    "/api/v1/captions/jobs",
     "/api/media/assets",
+    "/api/v1/media/assets",
     "/api/projects",
+    "/api/v1/projects",
 )
 
 
@@ -226,7 +350,8 @@ async def require_supabase_auth(request: Request, call_next):
     try:
         user = authenticate_request(request)
         await require_active_account(user)
-        await require_backend_capability(user, request.url.path)
+        await require_backend_capability(user, canonical_api_path(request.url.path))
+        await enforce_api_rate_limit(request, user)
     except AuthBoundaryError as exc:
         algorithm, key_id = request_token_metadata(request)
         log_auth_reject(
@@ -290,6 +415,14 @@ async def require_supabase_auth(request: Request, call_next):
             status_code=exc.status_code,
             headers={"X-Correlation-ID": correlation_id},
         )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {"detail": str(exc.detail)}
+        headers = {"X-Correlation-ID": correlation_id, **dict(exc.headers or {})}
+        return JSONResponse(
+            detail,
+            status_code=exc.status_code,
+            headers=headers,
+        )
     except Exception:
         logger.exception(
             "auth_reject reason=unexpected method=%s path=%s correlation_id=%s",
@@ -311,7 +444,7 @@ async def require_supabase_auth(request: Request, call_next):
         reset_current_user(context_token)
 
 # CORS configuration for Frontend interaction
-default_origins = [
+default_origins = [] if os.getenv("NODE_ENV") == "production" else [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
@@ -323,7 +456,10 @@ default_origins = [
 ]
 configured_origins = env_list("FRONTEND_URL", []) + env_list("CORS_ORIGINS", [])
 allow_origins = list(dict.fromkeys(default_origins + configured_origins))
-allow_all_origins = "*" in allow_origins
+allow_all_origins = "*" in allow_origins and os.getenv("NODE_ENV") != "production"
+if "*" in allow_origins and os.getenv("NODE_ENV") == "production":
+    logger.warning("cors_wildcard_ignored_in_production")
+    allow_origins = [origin for origin in allow_origins if origin != "*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -342,6 +478,12 @@ app.include_router(media_assets.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(admin.internal_router, prefix="/api")
+app.include_router(health.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(export_jobs.router, prefix="/api/v1")
+app.include_router(captions.router, prefix="/api/v1")
+app.include_router(media_assets.router, prefix="/api/v1")
+app.include_router(projects.router, prefix="/api/v1")
 
 
 @app.get("/health", response_model=health.HealthResponse)

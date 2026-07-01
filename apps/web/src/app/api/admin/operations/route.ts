@@ -10,7 +10,7 @@ import {
 } from "@/admin/auth";
 import { adminBackendFetch } from "@/admin/backend";
 import type { AdminPermission } from "@/admin/permissions";
-import { webEnv } from "@/env/web";
+import { requireCsrfProtection } from "@/auth/csrf";
 
 const schema = z.discriminatedUnion("action", [
   z.object({
@@ -74,13 +74,9 @@ const operationMap: Record<
 };
 
 export async function POST(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== webEnv.NEXT_PUBLIC_SITE_URL) {
-    return NextResponse.json(
-      { error: "Invalid request origin." },
-      { status: 403 },
-    );
-  }
+  const csrf = requireCsrfProtection(request);
+  if (csrf) return csrf;
+
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success)
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });

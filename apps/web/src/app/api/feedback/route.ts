@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { requireCsrfProtection } from "@/auth/csrf";
 import { checkRateLimit } from "@/auth/rate-limit";
 import { submitFeedback, MAX_MESSAGE_LENGTH } from "@/feedback";
 import { createClient } from "@/lib/supabase/server";
@@ -12,6 +13,9 @@ const submitSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+	const csrf = requireCsrfProtection(request);
+	if (csrf) return csrf;
+
 	const { limited } = await checkRateLimit({ request });
 	if (limited) {
 		return NextResponse.json({ error: "Too many requests" }, { status: 429 });

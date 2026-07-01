@@ -52,6 +52,15 @@ export const softwareSchema = {
 	},
 };
 
+export function serializeJsonForHtml(value: unknown): string {
+	return JSON.stringify(value)
+		.replace(/</g, "\\u003c")
+		.replace(/>/g, "\\u003e")
+		.replace(/&/g, "\\u0026")
+		.replace(/\u2028/g, "\\u2028")
+		.replace(/\u2029/g, "\\u2029");
+}
+
 function assertProductionUrl(url: string) {
 	const parsed = new URL(url);
 	if (parsed.origin !== SITE_URL) {
@@ -96,7 +105,7 @@ export function JsonLd({ data }: { data: Record<string, unknown> }) {
 	return (
 		<script
 			type="application/ld+json"
-			dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+			dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(data) }}
 		/>
 	);
 }
@@ -107,15 +116,15 @@ export function StructuredData() {
 		<>
 			<script
 				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(organizationSchema) }}
 			/>
 			<script
 				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(websiteSchema) }}
 			/>
 			<script
 				type="application/ld+json"
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareSchema) }}
+				dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(softwareSchema) }}
 			/>
 		</>
 	);
@@ -148,7 +157,7 @@ export function FaqStructuredData({
 	return (
 		<script
 			type="application/ld+json"
-			dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+			dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(schema) }}
 		/>
 	);
 }
@@ -172,7 +181,7 @@ export function BreadcrumbStructuredData({
 	return (
 		<script
 			type="application/ld+json"
-			dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+			dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(schema) }}
 		/>
 	);
 }

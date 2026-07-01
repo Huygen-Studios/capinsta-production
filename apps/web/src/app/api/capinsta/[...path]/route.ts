@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { appPermissionForPath, requireApiPermission } from "@/access/server";
+import { requireCsrfProtection } from "@/auth/csrf";
 import { capinstaBackendUrl } from "@/capinsta/proxy-url";
 import {
 	buildProxyRequestHeaders,
@@ -18,6 +19,9 @@ async function proxy(
 	request: Request,
 	{ params }: { params: Promise<{ path: string[] }> },
 ) {
+	const csrf = requireCsrfProtection(request);
+	if (csrf) return csrf;
+
 	const { path } = await params;
 	const requestPath = `/${path.join("/")}`;
 	const denial = await requireApiPermission(

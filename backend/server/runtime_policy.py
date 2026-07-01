@@ -10,6 +10,7 @@ import requests
 from fastapi import HTTPException
 
 from .auth import AuthenticatedUser
+from .api_versioning import canonical_api_path
 from .settings import DB_PATH
 
 logger = logging.getLogger(__name__)
@@ -271,6 +272,7 @@ async def require_active_account(user: AuthenticatedUser) -> None:
 
 
 def _permission_for_path(path: str) -> str:
+    path = canonical_api_path(path)
     if path.startswith("/api/projects"):
         return "projects.access"
     if path.startswith("/api/export/jobs"):

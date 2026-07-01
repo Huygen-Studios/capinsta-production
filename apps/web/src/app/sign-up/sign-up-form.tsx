@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { readableAuthError } from "@/auth/messages";
+import { validatePasswordLength } from "@/auth/password-policy";
 import { createClient } from "@/lib/supabase/client";
 import {
   AuthError,
@@ -38,8 +39,8 @@ export function SignUpForm({
     setError(null);
     if (!fullName.trim()) return setError("Enter your full name.");
     if (!email.includes("@")) return setError("Enter a valid email address.");
-    if (password.length < 8)
-      return setError("Use at least 8 characters for your password.");
+    const passwordError = validatePasswordLength(password);
+    if (passwordError) return setError(passwordError);
     if (password !== confirmPassword)
       return setError("Passwords do not match.");
 

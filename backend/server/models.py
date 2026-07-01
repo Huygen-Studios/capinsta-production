@@ -28,6 +28,8 @@ class JobResponse(BaseModel):
     target_lang: str
     languageMode: str
     video_url: Optional[str] = None
+    idempotentReplay: bool = False
+    correlationId: Optional[str] = None
 
 class JobDetailResponse(BaseModel):
     job_id: str

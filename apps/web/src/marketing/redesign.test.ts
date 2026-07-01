@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { getScrubModifier } from "@/components/ui/number-field";
 import { getPublicPresetOrder } from "@/components/landing/preset-showcase";
 import { CAPINSTA_CAPTION_PRESETS } from "@/capinsta/styles/presetRegistry";
-import { buildArticleSchema } from "@/components/structured-data";
+import { buildArticleSchema, serializeJsonForHtml } from "@/components/structured-data";
 import { SITE_URL } from "@/site/brand";
 
 describe("ScrubbableNumberField modifiers", () => {
@@ -44,6 +44,19 @@ describe("production metadata assets", () => {
 		});
 		expect(schema.url).toStartWith(SITE_URL);
 		expect(JSON.stringify(schema)).not.toContain("localhost");
+	});
+
+	test("escapes JSON-LD so user text cannot break out of script tags", () => {
+		const html = serializeJsonForHtml({
+			headline: '</script><script>alert("xss")</script>',
+			description: "line\u2028separator & more",
+		});
+
+		expect(html).not.toContain("</script>");
+		expect(html).not.toContain("<script>");
+		expect(html).not.toContain("&");
+		expect(html).toContain("\\u003c/script\\u003e");
+		expect(html).toContain("\\u2028");
 	});
 
 	test("manifest references only existing favicon files", () => {

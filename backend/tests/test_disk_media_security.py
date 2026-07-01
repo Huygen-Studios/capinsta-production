@@ -24,6 +24,12 @@ from server.storage_paths import (
 JOBS_API_SOURCE = (Path(__file__).resolve().parents[1] / "server" / "api" / "jobs.py").read_text("utf-8")
 
 
+class UploadStub:
+    def __init__(self, filename: str, content_type: str | None = None):
+        self.filename = filename
+        self.content_type = content_type
+
+
 def test_export_media_resolution_query_projects_canonical_media_fields():
     assert "SELECT\n                id,\n                user_id,\n                project_id,\n                storage_path\n            FROM media_assets" in JOBS_API_SOURCE
     assert "SELECT storage_path FROM media_assets" not in JOBS_API_SOURCE
@@ -319,6 +325,65 @@ def test_invalid_upload_magic_bytes_are_rejected(tmp_path: Path):
                 require_video=True,
             )
         )
+
+    assert error.value.status_code == 415
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("shell.php.jpg", "image/jpeg"),
+        ("video.mp4.php", "video/mp4"),
+        ("invoice.pdf.exe", "application/octet-stream"),
+        ("movie.mov.sh", "video/quicktime"),
+        ("archive.zip", "application/zip"),
+        ("vector.svg", "image/svg+xml"),
+        ("page.html", "text/html"),
+    ],
+)
+def test_upload_metadata_rejects_bypass_and_unsupported_filenames(filename: str, content_type: str):
+    with pytest.raises(HTTPException) as error:
+        media_assets._validate_media_upload(UploadStub(filename, content_type))
+
+    assert error.value.status_code == 415
+
+
+def test_upload_metadata_rejects_mime_spoofing():
+    with pytest.raises(HTTPException) as error:
+        media_assets._validate_media_upload(UploadStub("image.png", "text/html"))
+
+    assert error.value.status_code == 415
+    assert error.value.detail["code"] == "UPLOAD_MIME_MISMATCH"
+
+
+def test_safe_image_upload_metadata_and_magic_are_allowed(tmp_path: Path):
+    assert media_assets._validate_media_upload(UploadStub("safe-image.png", "image/png")) == "safe-image.png"
+    image = tmp_path / "safe-image.png"
+    image.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\r"
+        b"IHDR"
+        b"\x00\x00\x00\x20"
+        b"\x00\x00\x00\x20"
+    )
+
+    asyncio.run(media_assets.validate_media_file_contents(image, original_name="safe-image.png"))
+
+
+def test_upload_magic_mismatch_is_rejected(tmp_path: Path):
+    spoofed = tmp_path / "spoofed.png"
+    spoofed.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x21fake mp3 data")
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(media_assets.validate_media_file_contents(spoofed, original_name="spoofed.png"))
+
+    assert error.value.status_code == 415
+    assert error.value.detail["code"] == "upload_magic_mismatch"
+
+
+def test_caption_job_upload_metadata_requires_video():
+    with pytest.raises(HTTPException) as error:
+        jobs_api._validate_upload_metadata(UploadStub("voice.mp3", "audio/mpeg"))
 
     assert error.value.status_code == 415
 

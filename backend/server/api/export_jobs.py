@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from ..database import get_db, runtime_db
@@ -34,6 +34,7 @@ from ..settings import (
 from .jobs import _public_export_stage, _resolve_export_dimensions, resolve_job_video_path
 from ..auth import current_user, get_owned_job
 from ..operational_mirror import mirror_export_job
+from ..pagination import pagination_payload, parse_cursor_page, should_return_paginated_response
 from ..runtime_policy import enforce_export_quota, require_feature
 from ..storage_paths import path_inside, public_download_name, resolve_existing_file_inside, safe_identifier
 from ..storage_pressure import require_disk_capacity
@@ -241,6 +242,51 @@ def _job_from_row(row: aiosqlite.Row) -> ExportJobStatus:
     )
 
 
+def _normalized_export_idempotency_input(
+    *,
+    source_job_id: str,
+    captions_json: str | None,
+    theme: str,
+    style_config_json: str | None,
+    resolution: str,
+    export_width: int | None,
+    export_height: int | None,
+    export_fps: int,
+    include_audio: bool,
+    quality: str,
+    bitrate: str,
+    custom_bitrate_mbps: float | None,
+    export_mode: str,
+    background_color: str,
+    duration_override: float | None,
+    duration_source: str | None,
+    hardware_acceleration: bool,
+    render_mode: str,
+    composition_json: str | None,
+) -> dict[str, object]:
+    return {
+        "source_job_id": source_job_id,
+        "theme": theme,
+        "style_config_json": style_config_json,
+        "resolution": resolution,
+        "export_width": export_width,
+        "export_height": export_height,
+        "export_fps": export_fps,
+        "include_audio": include_audio,
+        "quality": quality,
+        "bitrate": bitrate,
+        "custom_bitrate_mbps": custom_bitrate_mbps,
+        "export_mode": export_mode,
+        "background_color": background_color,
+        "duration_override": duration_override,
+        "duration_source": duration_source,
+        "hardware_acceleration": hardware_acceleration,
+        "render_mode": render_mode,
+        "composition_json": composition_json,
+        "captions_json": captions_json,
+    }
+
+
 async def _persist_job(job: ExportJobStatus) -> None:
     placeholders = ", ".join("?" for _ in _EXPORT_JOB_COLUMNS)
     update_columns = [column for column in _EXPORT_JOB_COLUMNS if column != "id"]
@@ -287,7 +333,7 @@ async def _load_recent_jobs_from_db(user_id: str, limit: int = 50) -> list[Expor
     async with aiosqlite.connect(str(DB_PATH)) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
-            "SELECT * FROM export_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            "SELECT * FROM export_jobs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
             (user_id, limit),
         )
         rows = await cursor.fetchall()
@@ -745,6 +791,33 @@ async def start_export_job(
     composition_json: str | None = Form(None),
 ):
     await _prune_jobs()
+    if duration_override is None and custom_duration is not None:
+        duration_override = custom_duration
+    if duration_source is None and duration_mode is not None:
+        duration_source = duration_mode
+    export_fps = max(1, min(120, int(export_fps or 30)))
+    export_mode = "captions_only" if captions_only else export_mode
+    requested_idempotency_input = _normalized_export_idempotency_input(
+        source_job_id=source_job_id,
+        captions_json=captions_json,
+        theme=theme,
+        style_config_json=style_config_json,
+        resolution=resolution,
+        export_width=export_width,
+        export_height=export_height,
+        export_fps=export_fps,
+        include_audio=include_audio,
+        quality=quality,
+        bitrate=bitrate,
+        custom_bitrate_mbps=custom_bitrate_mbps,
+        export_mode=export_mode,
+        background_color=background_color,
+        duration_override=duration_override,
+        duration_source=duration_source,
+        hardware_acceleration=hardware_acceleration,
+        render_mode=render_mode,
+        composition_json=composition_json,
+    )
     idempotency_key = request_context.headers.get("x-idempotency-key", "").strip()
     if idempotency_key:
         if len(idempotency_key) > 128 or not re.fullmatch(
@@ -762,6 +835,8 @@ async def start_export_job(
         existing = await cursor.fetchone()
         if existing:
             existing_job = _job_from_row(existing)
+            if (existing_job.immutable_input or {}) != requested_idempotency_input:
+                raise HTTPException(status_code=409, detail="Idempotency key conflict")
             return {
                 "success": True,
                 "jobId": existing_job.id,
@@ -772,15 +847,9 @@ async def start_export_job(
             }
     await require_feature("export_enabled", "Exports are temporarily unavailable.")
     require_disk_capacity(operation="export")
-    if duration_override is None and custom_duration is not None:
-        duration_override = custom_duration
-    if duration_source is None and duration_mode is not None:
-        duration_source = duration_mode
     _validate_duration(duration_override)
     await enforce_export_quota(current_user().id, float(duration_override or 0))
 
-    export_fps = max(1, min(120, int(export_fps or 30)))
-    export_mode = "captions_only" if captions_only else export_mode
     if export_mode not in {
         "full_video",
         "captions_only",
@@ -885,27 +954,7 @@ async def start_export_job(
             project_id=row["project_id"] if "project_id" in row.keys() else source_job_id,
             mode=export_mode,
             correlation_id=request_context.headers.get("x-correlation-id") or str(uuid.uuid4()),
-            immutable_input={
-                "source_job_id": source_job_id,
-                "theme": theme,
-                "style_config_json": style_config_json,
-                "resolution": resolution,
-                "export_width": export_width,
-                "export_height": export_height,
-                "export_fps": export_fps,
-                "include_audio": include_audio,
-                "quality": quality,
-                "bitrate": bitrate,
-                "custom_bitrate_mbps": custom_bitrate_mbps,
-                "export_mode": export_mode,
-                "background_color": background_color,
-                "duration_override": duration_override,
-                "duration_source": duration_source,
-                "hardware_acceleration": hardware_acceleration,
-                "render_mode": render_mode,
-                "composition_json": composition_json,
-                "captions_json": captions_json,
-            },
+            immutable_input=requested_idempotency_input,
             idempotency_key=idempotency_key or None,
         )
         _jobs[export_job_id] = queued_job
@@ -963,9 +1012,36 @@ async def cancel_project_exports(project_id: str) -> list[str]:
 
 @router.get("")
 @router.get("/")
-async def list_export_jobs():
-    jobs = await _load_recent_jobs_from_db(current_user().id, 50)
-    return [job.to_public_dict() for job in jobs]
+async def list_export_jobs(
+    request: Request,
+    limit: int | None = Query(None, ge=1, le=100),
+    cursor: str | None = Query(None),
+):
+    if not should_return_paginated_response(request):
+        jobs = await _load_recent_jobs_from_db(current_user().id, 50)
+        return [job.to_public_dict() for job in jobs]
+
+    page = parse_cursor_page(limit=limit, cursor=cursor)
+    params: list[object] = [current_user().id]
+    where = "WHERE user_id = ?"
+    if page.cursor_created_at and page.cursor_id:
+        where += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        params.extend([page.cursor_created_at, page.cursor_created_at, page.cursor_id])
+    params.append(page.limit + 1)
+    async with aiosqlite.connect(str(DB_PATH)) as db:
+        db.row_factory = aiosqlite.Row
+        page_cursor = await db.execute(
+            f"""
+            SELECT * FROM export_jobs
+            {where}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        )
+        rows = await page_cursor.fetchall()
+    items = [_job_from_row(row).to_public_dict() for row in rows]
+    return pagination_payload(items=items, rows=rows, limit=page.limit)
 
 
 @router.get("/download/{filename}")

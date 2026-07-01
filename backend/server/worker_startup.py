@@ -43,6 +43,11 @@ def check_pipeline_worker_import() -> dict[str, Any]:
         }
 
 
+def active_pipeline_worker_count() -> int:
+    with _workers_lock:
+        return sum(1 for thread, _ in _workers.values() if thread.is_alive())
+
+
 async def mark_job_failed_from_worker_startup(
     *,
     job_id: str,

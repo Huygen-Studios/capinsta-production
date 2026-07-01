@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { readableAuthError } from "@/auth/messages";
+import { validatePasswordLength } from "@/auth/password-policy";
 import { createClient } from "@/lib/supabase/client";
 import { AuthError, AuthShell, primaryAuthButtonClass } from "@/components/auth/auth-shell";
 import { PasswordField } from "@/components/auth/password-field";
@@ -35,7 +36,8 @@ export function ResetPasswordForm() {
 	const submit = async (event: React.FormEvent) => {
 		event.preventDefault();
 		if (loading) return;
-		if (password.length < 8) return setError("Use at least 8 characters for your password.");
+		const passwordError = validatePasswordLength(password);
+		if (passwordError) return setError(passwordError);
 		if (password !== confirmPassword) return setError("Passwords do not match.");
 		setLoading(true);
 		setError(null);

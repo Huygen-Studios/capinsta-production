@@ -4,6 +4,7 @@ import uuid
 import logging
 import re
 import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Any, List
 from pathlib import Path
@@ -22,15 +23,17 @@ from ..settings import EXPORT_DIR, MAX_UPLOAD_SIZE_MB, MEDIA_DIR, UPLOAD_DIR, en
 from ..storage_paths import path_inside, public_download_name, resolve_existing_file_inside
 from ..project_cleanup import ensure_project_available, heartbeat_project, iso_utc, project_expiry
 from ..storage_pressure import require_disk_capacity
+from ..upload_security import validate_upload_metadata
 from .media_assets import (
     _asset_path,
     get_owned_media_asset,
     resolve_owned_media_asset_file,
     validate_media_file_contents,
 )
-from ..worker_startup import start_pipeline_worker
+from ..caption_queue import CaptionQueueError, enqueue_caption_job
 from ..auth import current_user, get_owned_job, verify_access_token
 from ..operational_mirror import mirror_caption_job
+from ..pagination import pagination_payload, parse_cursor_page, should_return_paginated_response
 from ..runtime_policy import enforce_caption_quota, require_feature
 from ..transcription_control import assert_transcription_available
 from ai_pipeline.renderer import generate_srt, generate_vtt
@@ -73,6 +76,8 @@ RUNNING_JOB_STATUSES = {
     "saving",
     "generating_captions",
 }
+
+IDEMPOTENCY_KEY_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -175,8 +180,6 @@ async def _mark_stale_if_needed(row, db: aiosqlite.Connection):
 
 ensure_runtime_dirs()
 
-ALLOWED_EXTENSIONS = {".mp4", ".mov", ".m4v"}
-ALLOWED_CONTENT_TYPES = {"video/mp4", "video/quicktime", "application/octet-stream"}
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_RESERVED_FILENAMES = {
     "CON", "PRN", "AUX", "NUL",
@@ -200,6 +203,34 @@ def _log_stage(job_id: str | None, stage: str, **fields):
     logger.info("job_stage job_id=%s stage=%s %s", job_id or "-", stage, details)
 
 
+class _JobCreationTiming:
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+        self.started = time.perf_counter()
+        self.previous = self.started
+        self.stages: list[dict[str, Any]] = []
+
+    def mark(self, stage: str, **fields) -> None:
+        now = time.perf_counter()
+        record = {
+            "stage": stage,
+            "elapsedMs": round((now - self.previous) * 1000, 2),
+            "totalMs": round((now - self.started) * 1000, 2),
+        }
+        record.update({key: value for key, value in fields.items() if value is not None})
+        self.stages.append(record)
+        self.previous = now
+        _log_stage(self.job_id, stage, elapsed_ms=record["elapsedMs"], total_ms=record["totalMs"], **fields)
+
+    def log_summary(self) -> None:
+        logger.info(
+            "caption_job_creation_timing job_id=%s total_ms=%s stages=%s",
+            self.job_id,
+            self.stages[-1]["totalMs"] if self.stages else 0,
+            json.dumps(self.stages, ensure_ascii=False),
+        )
+
+
 def _sanitize_upload_filename(filename: str, ext: str) -> str:
     stem = Path(filename).stem
     stem = INVALID_FILENAME_CHARS.sub("_", stem)
@@ -217,19 +248,8 @@ def _sanitize_upload_filename(filename: str, ext: str) -> str:
 
 
 def _validate_upload_metadata(file: UploadFile) -> str:
-    filename = os.path.basename(file.filename or "")
-    ext = Path(filename).suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
-        raise HTTPException(status_code=400, detail=f"Unsupported file type. Upload MP4 or MOV ({allowed}).")
-
-    if file.content_type and file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported media type '{file.content_type}'. Upload an MP4 or MOV video.",
-        )
-
-    return _sanitize_upload_filename(filename, ext)
+    match = validate_upload_metadata(file, require_kind="video")
+    return _sanitize_upload_filename(match.original_name, match.suffix)
 
 
 async def _media_duration_seconds(file_path: str) -> float:
@@ -254,6 +274,79 @@ async def _media_duration_seconds(file_path: str) -> float:
     return 0.0
 
 
+def _row_value(row: Any, key: str, default: Any = None) -> Any:
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        if key in row.keys():
+            return row[key]
+    except AttributeError:
+        pass
+    except KeyError:
+        return default
+    return default
+
+
+def _media_validation_metadata_from_row(row: Any) -> dict[str, Any] | None:
+    if _row_value(row, "validation_status") != "validated":
+        return None
+    metadata = _load_json(_row_value(row, "validation_metadata_json"), {})
+    return metadata if isinstance(metadata, dict) else None
+
+
+def _duration_from_media_metadata(row: Any) -> float | None:
+    duration = _row_value(row, "media_duration_seconds")
+    if duration is None:
+        metadata = _media_validation_metadata_from_row(row)
+        duration = metadata.get("durationSeconds") if metadata else None
+    try:
+        parsed = float(duration)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+async def _validated_media_metadata_for_job(
+    *,
+    db: aiosqlite.Connection,
+    media_row: Any,
+    file_path: str,
+    filename: str,
+    mime_type: str | None,
+) -> dict[str, Any]:
+    stored_metadata = _media_validation_metadata_from_row(media_row)
+    if stored_metadata and _duration_from_media_metadata(media_row):
+        return stored_metadata
+
+    validation_metadata = await validate_media_file_contents(
+        Path(file_path),
+        original_name=filename,
+        require_video=True,
+        mime_type=mime_type,
+    )
+    if _row_value(media_row, "id"):
+        await db.execute(
+            """
+            UPDATE media_assets
+            SET validation_status = ?,
+                validation_metadata_json = ?,
+                validation_checked_at = ?,
+                media_duration_seconds = ?
+            WHERE id = ?
+            """,
+            (
+                "validated",
+                json.dumps(validation_metadata, ensure_ascii=False),
+                validation_metadata.get("validatedAt") or iso_utc(datetime.now(timezone.utc)),
+                validation_metadata.get("durationSeconds"),
+                _row_value(media_row, "id"),
+            ),
+        )
+    return validation_metadata
+
+
 def _stored_language_mode(value: str | None) -> str:
     try:
         return normalize_language_mode(value)
@@ -264,6 +357,82 @@ def _stored_language_mode(value: str | None) -> str:
 def _load_json(value: str | None, fallback: Any) -> Any:
     if not value:
         return fallback
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return fallback
+
+
+def _idempotency_key_from_request(request: Request) -> str | None:
+    value = (request.headers.get("x-idempotency-key") or request.headers.get("idempotency-key") or "").strip()
+    if not value:
+        return None
+    if not IDEMPOTENCY_KEY_RE.fullmatch(value):
+        raise HTTPException(status_code=400, detail={"code": "invalid_idempotency_key", "message": "Invalid idempotency key."})
+    return value
+
+
+def _job_creation_idempotency_input(
+    *,
+    project_id: str,
+    media_asset_id: str | None,
+    filename: str,
+    content_type: str | None,
+    size_bytes: int | None,
+    audio_language: str,
+    caption_output: str,
+    transcription_snapshot_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "project_id": project_id,
+        "media_asset_id": media_asset_id,
+        "filename": filename,
+        "content_type": content_type,
+        "size_bytes": size_bytes,
+        "audio_language": audio_language,
+        "caption_output": caption_output,
+        "provider": transcription_snapshot_payload.get("provider"),
+        "model": transcription_snapshot_payload.get("model"),
+        "config_version": transcription_snapshot_payload.get("version"),
+        "timestamp_strategy": transcription_snapshot_payload.get("timestamp_strategy"),
+        "provider_mode": transcription_snapshot_payload.get("provider_mode"),
+    }
+
+
+async def _existing_idempotent_job(
+    db: aiosqlite.Connection,
+    *,
+    key: str,
+    immutable_request: dict[str, Any],
+) -> aiosqlite.Row | None:
+    cursor = await db.execute(
+        """
+        SELECT * FROM jobs
+        WHERE user_id = ? AND idempotency_key = ?
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (current_user().id, key),
+    )
+    existing = await cursor.fetchone()
+    if existing is None:
+        return None
+    existing_request = _load_json(existing["immutable_request_json"] if "immutable_request_json" in existing.keys() else None, {})
+    if existing_request != immutable_request:
+        raise HTTPException(status_code=409, detail={"code": "idempotency_conflict", "message": "Idempotency key was already used with a different request."})
+    return existing
+
+
+def _job_response_from_row(row: aiosqlite.Row, *, idempotent_replay: bool = False) -> JobResponse:
+    return JobResponse(
+        job_id=row["id"],
+        status=row["status"],
+        progress=int(row["progress"] or 0),
+        filename=row["filename"],
+        target_lang=row["target_lang"],
+        languageMode=_stored_language_mode(row["target_lang"]),
+        video_url=f"/api/jobs/{row['id']}/video",
+        idempotentReplay=idempotent_replay,
+    )
     try:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
@@ -490,25 +659,26 @@ async def create_job(
     file: UploadFile | None = File(None),
 ):
     """Uploads a video and starts a background captioning job."""
-    await require_feature("caption_generation_enabled", "Caption generation is temporarily unavailable.")
-    transcription_snapshot = assert_transcription_available()
-    await enforce_caption_quota(current_user().id)
     job_id = str(uuid.uuid4())
     requested_audio_language = audioLanguage or sourceLanguage or languageMode or target_lang or "auto"
     requested_output_language = captionOutput or outputLanguage or "original"
-    if file is None and not media_asset_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Provide either a media asset id or an upload file.",
-        )
-    _log_stage(
-        job_id,
+    timing = _JobCreationTiming(job_id)
+    timing.mark(
         "request received",
         language_mode=requested_audio_language,
         caption_output=requested_output_language,
         upload_filename=file.filename if file else None,
         media_asset_id=media_asset_id,
     )
+    await require_feature("caption_generation_enabled", "Caption generation is temporarily unavailable.")
+    transcription_snapshot = assert_transcription_available()
+    await enforce_caption_quota(current_user().id)
+    timing.mark("quota checks", scope="preflight")
+    if file is None and not media_asset_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either a media asset id or an upload file.",
+        )
 
     try:
         normalized_audio_language = normalize_audio_language(requested_audio_language)
@@ -536,8 +706,7 @@ async def create_job(
     else:
         assert file is not None
         filename = _validate_upload_metadata(file)
-    _log_stage(
-        job_id,
+    timing.mark(
         "selected media found",
         filename=filename,
         content_type=file.content_type if file else media_row["mime_type"],
@@ -568,22 +737,65 @@ async def create_job(
         transcription_snapshot_payload["resolved_provider_language_code"] = sarvam_options["language_code"]
     
     project_id = project_id or job_id
+    declared_size = int(file.size or 0) if file else int(media_row["size_bytes"] or 0)
+    idempotency_key = _idempotency_key_from_request(request)
+    immutable_request = _job_creation_idempotency_input(
+        project_id=project_id,
+        media_asset_id=media_asset_id,
+        filename=filename,
+        content_type=file.content_type if file else media_row["mime_type"],
+        size_bytes=declared_size,
+        audio_language=normalized_mode,
+        caption_output=normalized_output_language,
+        transcription_snapshot_payload=transcription_snapshot_payload,
+    )
+    if idempotency_key:
+        async with aiosqlite.connect(str(DB_PATH)) as replay_db:
+            replay_db.row_factory = aiosqlite.Row
+            existing = await _existing_idempotent_job(
+                replay_db,
+                key=idempotency_key,
+                immutable_request=immutable_request,
+            )
+            if existing is not None:
+                timing.mark("response returned", status="idempotent_replay", idempotency_key=idempotency_key)
+                timing.log_summary()
+                return _job_response_from_row(existing, idempotent_replay=True)
+    timing.mark("metadata validation", idempotency_key=bool(idempotency_key))
+
     file_path = ""
     media_access_mode = "direct_media_path"
     max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
     bytes_written = 0
+    validation_metadata: dict[str, Any] | None = None
     if media_row is not None:
         source_path = resolve_owned_media_asset_file(media_row)
         file_path = str(source_path)
         bytes_written = int(media_row["size_bytes"])
+        timing.mark("file write", mode="reused_media_asset", bytes=bytes_written)
+        async with aiosqlite.connect(str(DB_PATH)) as validation_db:
+            validation_db.row_factory = aiosqlite.Row
+            validation_metadata = await _validated_media_metadata_for_job(
+                db=validation_db,
+                media_row=media_row,
+                file_path=file_path,
+                filename=filename,
+                mime_type=media_row["mime_type"],
+            )
+            await validation_db.commit()
+        timing.mark(
+            "media validation",
+            mode="reused_metadata" if _media_validation_metadata_from_row(media_row) else "refreshed_metadata",
+        )
     else:
         assert file is not None
         media_asset_id = str(uuid.uuid4())
+        media_access_mode = "managed_upload"
         destination = _asset_path(current_user().id, project_id, media_asset_id)
         destination.parent.mkdir(parents=True, exist_ok=True)
         require_disk_capacity(
             operation="upload",
-            required_bytes=int(file.size or 0),
+            required_bytes=declared_size,
         )
         temp_file_path = str(destination.with_name(f".{media_asset_id}.uploading"))
         try:
@@ -599,11 +811,14 @@ async def create_job(
                             detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_SIZE_MB} MB.",
                         )
                     await out_file.write(chunk)
-            await validate_media_file_contents(
+            timing.mark("file write", mode="direct_upload", bytes=bytes_written)
+            validation_metadata = await validate_media_file_contents(
                 Path(temp_file_path),
                 original_name=filename,
                 require_video=True,
+                mime_type=file.content_type,
             )
+            timing.mark("media validation", mode="direct_upload")
             os.replace(temp_file_path, destination)
             file_path = str(destination)
         except Exception as e:
@@ -620,13 +835,20 @@ async def create_job(
         finally:
             await file.close()
 
-    _log_stage(
-        job_id,
-        "file saved",
-        bytes=bytes_written,
-        media_access_mode=media_access_mode,
-    )
-    media_duration = await _media_duration_seconds(file_path)
+    media_duration = 0.0
+    if validation_metadata and validation_metadata.get("durationSeconds") is not None:
+        try:
+            media_duration = max(0.0, float(validation_metadata.get("durationSeconds") or 0))
+        except (TypeError, ValueError):
+            media_duration = 0.0
+        timing.mark(
+            "FFprobe/duration",
+            mode="validation_metadata",
+            duration_seconds=media_duration,
+        )
+    else:
+        media_duration = await _media_duration_seconds(file_path)
+        timing.mark("FFprobe/duration", mode="fallback_ffprobe", duration_seconds=media_duration)
     try:
         await enforce_caption_quota(
             current_user().id,
@@ -636,6 +858,7 @@ async def create_job(
         if media_access_mode != "direct_media_path" and os.path.exists(file_path):
             os.remove(file_path)
         raise
+    timing.mark("quota checks", scope="duration", duration_seconds=media_duration)
 
     # Insert initial job state
     async with aiosqlite.connect(str(DB_PATH)) as db:
@@ -648,8 +871,10 @@ async def create_job(
                 """
                 INSERT INTO media_assets (
                     id, project_id, user_id, original_name, mime_type, size_bytes,
-                    storage_path, status, created_at, last_accessed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)
+                    storage_path, status, created_at, last_accessed_at,
+                    validation_status, validation_metadata_json, validation_checked_at,
+                    media_duration_seconds
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     media_asset_id,
@@ -661,6 +886,10 @@ async def create_job(
                     file_path,
                     now_text,
                     now_text,
+                    "validated" if validation_metadata else None,
+                    json.dumps(validation_metadata, ensure_ascii=False) if validation_metadata else None,
+                    validation_metadata.get("validatedAt") if validation_metadata else None,
+                    validation_metadata.get("durationSeconds") if validation_metadata else None,
                 ),
             )
         await db.execute(
@@ -670,8 +899,9 @@ async def create_job(
                  user_id, project_id, correlation_id, media_duration_seconds,
                  media_asset_id, message, heartbeat_at, updated_at,
                  transcription_provider, transcription_model, transcription_config_version,
-                 timestamp_strategy, provider_mode, transcription_config_snapshot_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 timestamp_strategy, provider_mode, transcription_config_snapshot_json,
+                 idempotency_key, immutable_request_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, "queued", filename, normalized_mode, now_text, now_text,
@@ -683,22 +913,58 @@ async def create_job(
                 transcription_snapshot.timestamp_strategy,
                 transcription_snapshot_payload.get("provider_mode") or transcription_snapshot.provider_mode,
                 json.dumps(transcription_snapshot_payload, ensure_ascii=False),
+                idempotency_key,
+                json.dumps(immutable_request, ensure_ascii=False, sort_keys=True),
             ),
         )
         await db.commit()
+    timing.mark("DB insert", media_asset_id=media_asset_id)
     await mirror_caption_job(job_id)
+    timing.mark("operational mirror")
 
-    # Start background thread for heavy processing. The startup wrapper records
-    # import/dependency failures as failed jobs instead of leaving them queued.
-    start_pipeline_worker(
-        job_id=job_id,
-        file_path=file_path,
-        language_mode=normalized_mode,
-        caption_output=normalized_output_language,
-        transcription_config_snapshot=transcription_snapshot_payload,
+    try:
+        queue_result = await enqueue_caption_job(
+            job_id=job_id,
+            user_id=current_user().id,
+            file_path=file_path,
+            language_mode=normalized_mode,
+            caption_output=normalized_output_language,
+            transcription_config_snapshot=transcription_snapshot_payload,
+        )
+    except CaptionQueueError as exc:
+        async with aiosqlite.connect(str(DB_PATH)) as db:
+            message = str(exc) or "Caption queue is unavailable."
+            now_text = iso_utc(datetime.now(timezone.utc))
+            await db.execute(
+                """
+                UPDATE jobs
+                SET status = 'failed',
+                    progress = -1,
+                    error = ?,
+                    message = ?,
+                    completed_at = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (message, message, now_text, now_text, job_id),
+            )
+            await db.commit()
+        await mirror_caption_job(job_id)
+        timing.mark("queue/worker enqueue", status="failed", code=exc.code)
+        timing.log_summary()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    timing.mark(
+        "queue/worker enqueue",
+        adapter=queue_result.adapter,
+        active_workers=queue_result.active_workers,
+        queued_jobs=queue_result.queued_jobs,
     )
 
-    _log_stage(job_id, "response returned", status="queued", bytes=bytes_written)
+    timing.mark("response returned", status="queued", bytes=bytes_written)
+    timing.log_summary()
 
     return JobResponse(
         job_id=job_id,
@@ -708,32 +974,59 @@ async def create_job(
         target_lang=normalized_mode,
         languageMode=normalized_mode,
         video_url=f"/api/jobs/{job_id}/video",
+        correlationId=request.headers.get("x-correlation-id"),
     )
 
-@router.get("", response_model=List[JobDetailResponse])
-@router.get("/", response_model=List[JobDetailResponse])
-async def list_jobs(db: aiosqlite.Connection = Depends(get_db)):
-    """List all recent jobs."""
-    cursor = await db.execute(
-        "SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
-        (current_user().id,),
+def _job_detail_from_row(r: aiosqlite.Row) -> JobDetailResponse:
+    return JobDetailResponse(
+        job_id=r['id'],
+        status=r['status'],
+        progress=r['progress'],
+        filename=r['filename'],
+        target_lang=r['target_lang'],
+        languageMode=_stored_language_mode(r['target_lang']),
+        error=r['error'],
+        created_at=r['created_at'],
+        completed_at=r['completed_at']
     )
-    rows = await cursor.fetchall()
-    
-    jobs = []
-    for r in rows:
-        jobs.append(JobDetailResponse(
-            job_id=r['id'],
-            status=r['status'],
-            progress=r['progress'],
-            filename=r['filename'],
-            target_lang=r['target_lang'],
-            languageMode=_stored_language_mode(r['target_lang']),
-            error=r['error'],
-            created_at=r['created_at'],
-            completed_at=r['completed_at']
-        ))
-    return jobs
+
+
+@router.get("")
+@router.get("/")
+async def list_jobs(
+    request: Request,
+    db: aiosqlite.Connection = Depends(get_db),
+    limit: int | None = Query(None, ge=1, le=100),
+    cursor: str | None = Query(None),
+):
+    """List all recent jobs."""
+    if not should_return_paginated_response(request):
+        legacy_cursor = await db.execute(
+            "SELECT * FROM jobs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 50",
+            (current_user().id,),
+        )
+        legacy_rows = await legacy_cursor.fetchall()
+        return [_job_detail_from_row(row) for row in legacy_rows]
+
+    page = parse_cursor_page(limit=limit, cursor=cursor)
+    params: list[Any] = [current_user().id]
+    where = "WHERE user_id = ?"
+    if page.cursor_created_at and page.cursor_id:
+        where += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+        params.extend([page.cursor_created_at, page.cursor_created_at, page.cursor_id])
+    params.append(page.limit + 1)
+    page_cursor = await db.execute(
+        f"""
+        SELECT * FROM jobs
+        {where}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        tuple(params),
+    )
+    rows = await page_cursor.fetchall()
+    items = [_job_detail_from_row(row).model_dump() for row in rows]
+    return pagination_payload(items=items, rows=rows, limit=page.limit)
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
 async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):

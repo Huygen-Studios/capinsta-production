@@ -105,10 +105,25 @@ async def init_db():
                 status TEXT NOT NULL DEFAULT 'ready',
                 created_at TEXT NOT NULL,
                 last_accessed_at TEXT NOT NULL,
-                deleted_at TEXT
+                deleted_at TEXT,
+                validation_status TEXT,
+                validation_metadata_json TEXT,
+                validation_checked_at TEXT,
+                media_duration_seconds REAL
             )
             """
         )
+        for column in (
+            "validation_status TEXT",
+            "validation_metadata_json TEXT",
+            "validation_checked_at TEXT",
+            "media_duration_seconds REAL",
+        ):
+            try:
+                await db.execute(f"ALTER TABLE media_assets ADD COLUMN {column}")
+                await db.commit()
+            except Exception:
+                pass
         await db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_media_assets_project_owner
@@ -167,7 +182,13 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_jobs_user_id_created_at ON jobs (user_id, created_at)"
         )
         await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_user_created_id ON jobs (user_id, created_at DESC, id DESC)"
+        )
+        await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_export_jobs_user_id_created_at ON export_jobs (user_id, created_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_export_jobs_user_created_id ON export_jobs (user_id, created_at DESC, id DESC)"
         )
         await db.execute('''
             CREATE TABLE IF NOT EXISTS operational_outbox (
@@ -205,6 +226,8 @@ async def init_db():
             "timing_source_summary_json TEXT",
             "pipeline_options_json TEXT",
             "transcription_config_snapshot_json TEXT",
+            "idempotency_key TEXT",
+            "immutable_request_json TEXT",
         ):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
@@ -224,6 +247,13 @@ async def init_db():
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_export_jobs_user_idempotency
             ON export_jobs (user_id, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            """
+        )
+        await db.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_user_idempotency
+            ON jobs (user_id, idempotency_key)
             WHERE idempotency_key IS NOT NULL
             """
         )

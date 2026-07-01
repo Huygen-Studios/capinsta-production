@@ -6,8 +6,13 @@ import {
 	signInPathFor,
 	isUiTestAuthBypassEnabled,
 } from "./routes";
-import { GET } from "../app/auth/callback/route";
 import { getTrustedPublicOrigin } from "./trusted-origin";
+
+mock.module("@/access/server", () => {
+	return {
+		resolvePostAuthDestination: async (_userId: string, next: string) => next,
+	};
+});
 
 mock.module("@/lib/supabase/server", () => {
 	return {
@@ -20,11 +25,17 @@ mock.module("@/lib/supabase/server", () => {
 						}
 						return { data: null, error: new Error("invalid code") };
 					},
+					getUser: async () => ({ data: { user: null }, error: null }),
 				},
 			};
 		},
 	};
 });
+
+async function callbackGET(request: Request) {
+	const route = await import("../app/auth/callback/route");
+	return route.GET(request);
+}
 
 describe("authentication route policy", () => {
 	test("protects projects and all editor routes", () => {
@@ -32,7 +43,7 @@ describe("authentication route policy", () => {
 		expect(isProtectedPath("/projects/abc")).toBe(true);
 		expect(isProtectedPath("/editor/project-1")).toBe(true);
 		expect(isProtectedPath("/")).toBe(false);
-		expect(isProtectedPath("/render")).toBe(false);
+		expect(isProtectedPath("/render")).toBe(true);
 	});
 
 	test("preserves safe internal redirects", () => {
@@ -81,7 +92,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 			const origin = getTrustedPublicOrigin(request);
 			expect(origin).toBe("https://capinsta.huygenstudios.com");
 
-			const response = await GET(request);
+			const response = await callbackGET(request);
 			expect(response.status).toBe(307);
 			expect(response.headers.get("Location")).toBe("https://capinsta.huygenstudios.com/projects");
 		} finally {
@@ -102,7 +113,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 			const origin = getTrustedPublicOrigin(request);
 			expect(origin).toBe("https://capinsta.huygenstudios.com");
 
-			const response = await GET(request);
+			const response = await callbackGET(request);
 			expect(response.status).toBe(307);
 			expect(response.headers.get("Location")).toBe("https://capinsta.huygenstudios.com/projects");
 		} finally {
@@ -116,7 +127,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 		try {
 			// No code param -> failure
 			const request = new Request("https://0.0.0.0:3000/auth/callback?next=%2Fprojects");
-			const response = await GET(request);
+			const response = await callbackGET(request);
 			expect(response.status).toBe(307);
 			expect(response.headers.get("Location")).toBe(
 				"https://capinsta.huygenstudios.com/sign-in?error=callback&redirect=%2Fprojects"
@@ -132,7 +143,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 		try {
 			// Unsafe next redirect (external)
 			const request = new Request("https://0.0.0.0:3000/auth/callback?code=valid-code&next=https://evil.example");
-			const response = await GET(request);
+			const response = await callbackGET(request);
 			// Should fallback to default authenticated path (/projects)
 			expect(response.headers.get("Location")).toBe("https://capinsta.huygenstudios.com/projects");
 		} finally {
@@ -148,7 +159,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 			const origin = getTrustedPublicOrigin(request);
 			expect(origin).toBe("http://localhost:3000");
 
-			const response = await GET(request);
+			const response = await callbackGET(request);
 			expect(response.headers.get("Location")).toBe("http://localhost:3000/projects");
 		} finally {
 			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;

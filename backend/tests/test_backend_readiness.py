@@ -17,6 +17,9 @@ def test_readiness_routes_are_mounted_without_auth():
 
     assert "get" in paths["/health/ready"]
     assert "get" in paths["/api/health/ready"]
+    assert "get" in paths["/api/v1/health/ready"]
+    assert "post" in paths["/api/v1/jobs"]
+    assert "get" in paths["/api/v1/export/jobs/{export_job_id}"]
 
 
 def test_startup_diagnostics_reports_catalog_counts():

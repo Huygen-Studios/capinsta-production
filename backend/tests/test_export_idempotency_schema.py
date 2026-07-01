@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 
 import server.database as database
+from server.api.export_jobs import _normalized_export_idempotency_input
 
 
 def test_export_idempotency_index_prevents_duplicate_user_request(
@@ -45,3 +46,33 @@ def test_export_idempotency_index_prevents_duplicate_user_request(
             pass
         else:
             raise AssertionError("duplicate idempotency key was accepted")
+
+
+def test_export_idempotency_input_changes_when_material_payload_changes():
+    base = _normalized_export_idempotency_input(
+        source_job_id="job-1",
+        captions_json="[]",
+        theme="word_highlight_box",
+        style_config_json=None,
+        resolution="1080p",
+        export_width=None,
+        export_height=None,
+        export_fps=30,
+        include_audio=True,
+        quality="standard",
+        bitrate="auto",
+        custom_bitrate_mbps=None,
+        export_mode="full_video",
+        background_color="#101010",
+        duration_override=10.0,
+        duration_source="frontend",
+        hardware_acceleration=False,
+        render_mode="headless",
+        composition_json=None,
+    )
+    changed = _normalized_export_idempotency_input(
+        **{**base, "resolution": "720p"},
+    )
+
+    assert base == dict(base)
+    assert changed != base

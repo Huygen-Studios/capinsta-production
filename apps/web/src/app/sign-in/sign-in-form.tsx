@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { readableAuthError } from "@/auth/messages";
+import { PASSWORD_POLICY } from "@/auth/password-policy";
 import { createClient } from "@/lib/supabase/client";
 import {
 	AuthError,
@@ -35,6 +36,10 @@ export function SignInForm({
 		setError(null);
 		if (!email.includes("@")) {
 			setError("Enter a valid email address.");
+			return;
+		}
+		if (password.length > PASSWORD_POLICY.maxLength) {
+			setError(PASSWORD_POLICY.tooLongMessage);
 			return;
 		}
 		setLoading(true);

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { invalidateSiteAccessPolicy } from "@/access/server";
 import { recordAdminAuditEvent } from "@/admin/audit";
 import { adminBackendFetch } from "@/admin/backend";
+import { requireCsrfProtection } from "@/auth/csrf";
 import {
 	getAdminTranscriptionConfiguration,
 	transcriptionPresetColumnsExist,
@@ -42,7 +43,6 @@ import {
 	transcriptionConfigurations,
 	userQuotas,
 } from "@/db/schema";
-import { webEnv } from "@/env/web";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
 	DEFAULT_PIPELINE_OPTIONS,
@@ -477,13 +477,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
-	const origin = request.headers.get("origin");
-	if (origin && origin !== webEnv.NEXT_PUBLIC_SITE_URL) {
-		return NextResponse.json(
-			{ error: "Invalid request origin." },
-			{ status: 403 },
-		);
-	}
+	const csrf = requireCsrfProtection(request);
+	if (csrf) return csrf;
+
 	const parsed = schema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success)
 		return NextResponse.json({ error: "Invalid request." }, { status: 400 });

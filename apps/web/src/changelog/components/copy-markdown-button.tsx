@@ -10,6 +10,7 @@ import {
 import type { Change } from "../utils";
 import { cn } from "@/utils/ui";
 import { Button } from "@/components/ui/button";
+import { sanitizeClipboardText } from "@/security/clipboard";
 
 function buildMarkdown({
 	description,
@@ -71,7 +72,7 @@ export function CopyMarkdownButton({
 
 	const handleCopy = async () => {
 		const markdown = buildMarkdown({ description, changes });
-		await navigator.clipboard.writeText(markdown);
+		await navigator.clipboard.writeText(sanitizeClipboardText(markdown));
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
 	};

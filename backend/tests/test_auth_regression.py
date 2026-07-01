@@ -250,6 +250,74 @@ def test_middleware_preserves_auth_status_categories(monkeypatch):
     )
 
 
+def test_production_protected_mutation_requires_distributed_rate_limiter(monkeypatch):
+    authenticated = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    monkeypatch.setenv("NODE_ENV", "production")
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+    monkeypatch.setattr(main, "authenticate_request", lambda unused: authenticated)
+
+    async def ok_account(unused):
+        return None
+
+    async def ok_capability(unused_user, unused_path):
+        return None
+
+    async def call_next(unused):
+        return JSONResponse({"ok": True})
+
+    monkeypatch.setattr(main, "require_active_account", ok_account)
+    monkeypatch.setattr(main, "require_backend_capability", ok_capability)
+
+    response = asyncio.run(main.require_supabase_auth(request("Bearer safe-test-token"), call_next))
+
+    assert response.status_code == 503
+    assert response.headers["X-Correlation-ID"]
+    assert response.body
+
+
+def test_development_protected_mutation_allows_missing_rate_limiter(monkeypatch):
+    authenticated = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    monkeypatch.setenv("NODE_ENV", "development")
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+    monkeypatch.setattr(main, "authenticate_request", lambda unused: authenticated)
+
+    async def ok_account(unused):
+        return None
+
+    async def ok_capability(unused_user, unused_path):
+        return None
+
+    async def call_next(unused):
+        return JSONResponse({"ok": True})
+
+    monkeypatch.setattr(main, "require_active_account", ok_account)
+    monkeypatch.setattr(main, "require_backend_capability", ok_capability)
+
+    response = asyncio.run(main.require_supabase_auth(request("Bearer safe-test-token"), call_next))
+
+    assert response.status_code == 200
+
+
+def test_v1_protected_routes_use_same_auth_boundary(monkeypatch):
+    protected = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/jobs",
+            "headers": [],
+        }
+    )
+
+    async def call_next(unused):
+        raise AssertionError("protected v1 route bypassed auth")
+
+    response = asyncio.run(main.require_supabase_auth(protected, call_next))
+
+    assert response.status_code == 401
+
+
 def test_database_password_failure_has_safe_reason():
     class PasswordFailure(Exception):
         sqlstate = "28P01"

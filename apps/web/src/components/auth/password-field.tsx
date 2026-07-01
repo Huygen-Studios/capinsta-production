@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
+import { PASSWORD_POLICY } from "@/auth/password-policy";
 import { authInputClass } from "./auth-shell";
 
 export function PasswordField({
@@ -10,7 +11,8 @@ export function PasswordField({
 	value,
 	onChange,
 	autoComplete,
-	minLength = 8,
+	minLength = PASSWORD_POLICY.minLength,
+	maxLength = PASSWORD_POLICY.maxLength,
 }: {
 	id: string;
 	label: string;
@@ -18,6 +20,7 @@ export function PasswordField({
 	onChange: (value: string) => void;
 	autoComplete: string;
 	minLength?: number;
+	maxLength?: number;
 }) {
 	const [visible, setVisible] = useState(false);
 	return (
@@ -32,6 +35,7 @@ export function PasswordField({
 					onChange={(event) => onChange(event.target.value)}
 					autoComplete={autoComplete}
 					minLength={minLength}
+					maxLength={maxLength}
 					required
 					className={`${authInputClass} pr-11`}
 				/>

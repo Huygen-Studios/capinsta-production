@@ -17,28 +17,19 @@ from ..database import get_db
 from ..settings import MAX_UPLOAD_SIZE_MB, MEDIA_DIR
 from ..storage_paths import path_inside, public_download_name, resolve_existing_file_inside, safe_identifier
 from ..storage_pressure import require_disk_capacity
+from ..upload_security import (
+    AUDIO_EXTENSIONS,
+    SAFE_IMAGE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    sniff_magic_kind,
+    validate_upload_metadata,
+)
 
 router = APIRouter(prefix="/media/assets", tags=["media-assets"])
 logger = logging.getLogger(__name__)
 
-_ALLOWED_MEDIA_EXTENSIONS = {
-    ".mp4",
-    ".mov",
-    ".m4v",
-    ".webm",
-    ".mp3",
-    ".wav",
-    ".m4a",
-    ".aac",
-    ".ogg",
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".webp",
-    ".gif",
-}
-_ALLOWED_MEDIA_MIME_PREFIXES = ("video/", "audio/", "image/")
-_VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
+_ALLOWED_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | SAFE_IMAGE_EXTENSIONS
+_VIDEO_EXTENSIONS = VIDEO_EXTENSIONS
 _MAX_MEDIA_DURATION_SECONDS = int(os.getenv("MAX_MEDIA_DURATION_SECONDS", "600"))
 _MAX_MEDIA_LONG_EDGE = int(os.getenv("MAX_MEDIA_LONG_EDGE", "4096"))
 
@@ -96,22 +87,7 @@ def expected_media_asset_path(row: aiosqlite.Row) -> Path:
 
 
 def _sniff_media_kind(path: Path) -> str | None:
-    header = path.read_bytes()[:64]
-    if header.startswith(b"\x89PNG\r\n\x1a\n") or header.startswith(b"\xff\xd8\xff"):
-        return "image"
-    if header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
-        return "image"
-    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
-        return "image"
-    if header.startswith(b"RIFF") and header[8:12] == b"WAVE":
-        return "audio"
-    if header.startswith(b"ID3") or header[:2] in {b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"}:
-        return "audio"
-    if header.startswith(b"OggS"):
-        return "audio"
-    if b"ftyp" in header[:16]:
-        return "video"
-    return None
+    return sniff_magic_kind(path.read_bytes()[:64])
 
 
 def _image_dimensions(path: Path) -> tuple[int, int] | None:
@@ -143,14 +119,70 @@ def _image_dimensions(path: Path) -> tuple[int, int] | None:
     return None
 
 
+def _stream_metadata(stream: dict) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "codecType": stream.get("codec_type"),
+        "codecName": stream.get("codec_name"),
+    }
+    for key in ("width", "height"):
+        value = stream.get(key)
+        if value is not None:
+            try:
+                metadata[key] = int(value)
+            except (TypeError, ValueError):
+                pass
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _safe_probe_metadata(
+    *,
+    kind: str,
+    suffix: str,
+    mime_type: str | None = None,
+    duration: float | None = None,
+    dimensions: tuple[int, int] | None = None,
+    ffprobe_payload: dict | None = None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "status": "validated",
+        "kind": kind,
+        "suffix": suffix,
+        "mimeType": mime_type,
+        "validatedAt": _now(),
+    }
+    if duration is not None:
+        metadata["durationSeconds"] = duration
+    if dimensions is not None:
+        metadata["dimensions"] = {"width": dimensions[0], "height": dimensions[1]}
+    if ffprobe_payload:
+        format_payload = ffprobe_payload.get("format") or {}
+        format_name = format_payload.get("format_name")
+        if format_name:
+            metadata["container"] = format_name
+        streams = [
+            _stream_metadata(stream)
+            for stream in ffprobe_payload.get("streams", [])
+            if isinstance(stream, dict)
+        ]
+        metadata["streams"] = streams[:8]
+        video_streams = [stream for stream in streams if stream.get("codecType") == "video"]
+        audio_streams = [stream for stream in streams if stream.get("codecType") == "audio"]
+        if video_streams:
+            metadata["video"] = video_streams[0]
+        if audio_streams:
+            metadata["audio"] = audio_streams[0]
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
 async def validate_media_file_contents(
     path: Path,
     *,
     original_name: str,
     require_video: bool = False,
-) -> None:
-    kind = _sniff_media_kind(path)
+    mime_type: str | None = None,
+) -> dict[str, object]:
     suffix = Path(original_name).suffix.lower()
+    kind = _sniff_media_kind(path)
     if kind is None or (require_video and kind != "video"):
         raise HTTPException(
             status_code=415,
@@ -171,6 +203,29 @@ async def validate_media_file_contents(
                     "message": f"Media dimensions must be at most {_MAX_MEDIA_LONG_EDGE}px on the longest edge.",
                 },
             )
+        image_metadata = _safe_probe_metadata(
+            kind=kind,
+            suffix=suffix,
+            mime_type=mime_type,
+            dimensions=dimensions,
+        )
+    expected_suffix_kind = (
+        "video"
+        if suffix in VIDEO_EXTENSIONS
+        else "audio"
+        if suffix in AUDIO_EXTENSIONS
+        else "image"
+        if suffix in SAFE_IMAGE_EXTENSIONS
+        else None
+    )
+    if expected_suffix_kind != kind:
+        raise HTTPException(
+            status_code=415,
+            detail={
+                "code": "upload_magic_mismatch",
+                "message": "The uploaded file content does not match its filename.",
+            },
+        )
     if suffix in _VIDEO_EXTENSIONS or kind in {"video", "audio"}:
         if not shutil.which("ffprobe"):
             raise HTTPException(status_code=503, detail="Media validation is temporarily unavailable.")
@@ -179,7 +234,7 @@ async def validate_media_file_contents(
             "-v",
             "error",
             "-show_entries",
-            "format=duration:stream=codec_type,width,height",
+            "format=duration,format_name:stream=codec_type,codec_name,width,height",
             "-of",
             "json",
             str(path),
@@ -214,6 +269,18 @@ async def validate_media_file_contents(
             stream for stream in payload.get("streams", [])
             if isinstance(stream, dict) and stream.get("codec_type") == "video"
         ]
+        audio_streams = [
+            stream for stream in payload.get("streams", [])
+            if isinstance(stream, dict) and stream.get("codec_type") == "audio"
+        ]
+        if len(video_streams) + len(audio_streams) > 8:
+            raise HTTPException(
+                status_code=415,
+                detail={
+                    "code": "media_stream_limit",
+                    "message": "Media file contains too many streams.",
+                },
+            )
         if require_video and not video_streams:
             raise HTTPException(status_code=415, detail="Upload a supported video file.")
         for stream in video_streams:
@@ -227,22 +294,18 @@ async def validate_media_file_contents(
                         "message": f"Media dimensions must be at most {_MAX_MEDIA_LONG_EDGE}px on the longest edge.",
                     },
                 )
+        return _safe_probe_metadata(
+            kind=kind,
+            suffix=suffix,
+            mime_type=mime_type,
+            duration=duration,
+            ffprobe_payload=payload,
+        )
+    return image_metadata
 
 
 def _validate_media_upload(file: UploadFile) -> str:
-    original_name = Path(file.filename or "media").name
-    suffix = Path(original_name).suffix.lower()
-    content_type = (file.content_type or "").lower()
-    allowed_type = content_type.startswith(_ALLOWED_MEDIA_MIME_PREFIXES)
-    if suffix not in _ALLOWED_MEDIA_EXTENSIONS or not allowed_type:
-        raise HTTPException(
-            status_code=415,
-            detail={
-                "code": "unsupported_media_type",
-                "message": "Upload a supported video, audio, or image file.",
-            },
-        )
-    return original_name
+    return validate_upload_metadata(file).original_name
 
 
 async def get_owned_media_asset(
@@ -319,10 +382,11 @@ async def upload_media_asset(
                     required_bytes=max(0, declared_size - written),
                 )
                 await output.write(chunk)
-        await validate_media_file_contents(
+        validation_metadata = await validate_media_file_contents(
             temporary,
             original_name=original_name,
             require_video=False,
+            mime_type=file.content_type,
         )
         os.replace(temporary, destination)
     except HTTPException:
@@ -352,8 +416,10 @@ async def upload_media_asset(
             """
             INSERT INTO media_assets (
                 id, project_id, user_id, original_name, mime_type, size_bytes,
-                storage_path, status, created_at, last_accessed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)
+                storage_path, status, created_at, last_accessed_at,
+                validation_status, validation_metadata_json, validation_checked_at,
+                media_duration_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?)
             """,
             (
                 asset_id,
@@ -365,6 +431,10 @@ async def upload_media_asset(
                 str(destination),
                 now,
                 now,
+                "validated",
+                json.dumps(validation_metadata, ensure_ascii=False),
+                validation_metadata.get("validatedAt") or now,
+                validation_metadata.get("durationSeconds"),
             ),
         )
         await db.commit()

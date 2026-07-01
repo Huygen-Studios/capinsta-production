@@ -10,7 +10,7 @@ from pathlib import Path
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..admin_auth import require_backend_admin_permission
 from ..database import get_db
@@ -27,6 +27,7 @@ from ..worker_startup import start_pipeline_worker
 from ..project_cleanup import ACTIVE_JOB_STATUSES
 from ..project_deletion import delete_project_resources
 from ..runtime_policy import project_retention_state
+from ..request_validation import validate_client_json_object
 from ..transcription_catalog import model_runtime_availability, public_catalog, validate_catalog_selection
 from ..transcription_control import (
     TranscriptionConfigSnapshot,
@@ -94,6 +95,11 @@ class TranscriptionTestRequest(BaseModel):
     presetId: str | None = Field(default=None, max_length=120)
     presetVersion: int | None = Field(default=None, ge=1)
     reason: str = Field(min_length=8, max_length=1000)
+
+    @field_validator("providerOptions", "pipelineOptions")
+    @classmethod
+    def reject_client_operators(cls, value: dict):
+        return validate_client_json_object(value, label="transcription options")
 
 
 def _idempotency_key(request: Request) -> str:

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { requireCsrfProtection } from "@/auth/csrf";
 import { getCurrentAdminContext } from "@/admin/auth";
 import {
   clearAdminLoginPair,
@@ -46,6 +47,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const csrf = requireCsrfProtection(request);
+  if (csrf) return csrf;
+
   const context = await getCurrentAdminContext();
   if (!context)
     return NextResponse.json({ error: "Not found." }, { status: 404 });
