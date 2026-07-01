@@ -42,6 +42,16 @@ export type ProductEffectiveState =
 export const PRODUCT_IDS = PRODUCT_CATALOG.map((product) => product.id);
 type DbExecutor = Pick<typeof db, "select" | "insert" | "update" | "execute">;
 
+export function isMissingProductEntitlementsTableError(error: unknown) {
+	if (!error || typeof error !== "object") return false;
+	const record = error as { code?: unknown; message?: unknown };
+	return (
+		record.code === "42P01" &&
+		typeof record.message === "string" &&
+		record.message.includes("app_product_entitlements")
+	);
+}
+
 export function isProductId(value: string): value is ProductId {
 	return (PRODUCT_IDS as readonly string[]).includes(value);
 }
@@ -106,18 +116,28 @@ function validateUserIds(userIds: readonly string[]) {
 }
 
 export async function directProductRevocationsForUser(userId: string) {
-	const rows = await db
-		.select({
-			productId: appProductEntitlements.productId,
-			expiresAt: appProductEntitlements.expiresAt,
-		})
-		.from(appProductEntitlements)
-		.where(
-			and(
-				eq(appProductEntitlements.userId, userId),
-				eq(appProductEntitlements.status, "revoked"),
-			),
-		);
+	let rows: Array<{ productId: string; expiresAt: Date | null }> = [];
+	try {
+		rows = await db
+			.select({
+				productId: appProductEntitlements.productId,
+				expiresAt: appProductEntitlements.expiresAt,
+			})
+			.from(appProductEntitlements)
+			.where(
+				and(
+					eq(appProductEntitlements.userId, userId),
+					eq(appProductEntitlements.status, "revoked"),
+				),
+			);
+	} catch (error) {
+		if (!isMissingProductEntitlementsTableError(error)) throw error;
+		console.error(JSON.stringify({
+			event: "product_access_entitlements_missing",
+			code: "app_product_entitlements_missing",
+			operation: "direct_revocations_for_user",
+		}));
+	}
 	const now = new Date();
 	return new Set(
 		rows
@@ -127,18 +147,28 @@ export async function directProductRevocationsForUser(userId: string) {
 }
 
 export async function directProductGrantsForUser(userId: string) {
-	const rows = await db
-		.select({
-			productId: appProductEntitlements.productId,
-			expiresAt: appProductEntitlements.expiresAt,
-		})
-		.from(appProductEntitlements)
-		.where(
-			and(
-				eq(appProductEntitlements.userId, userId),
-				eq(appProductEntitlements.status, "granted"),
-			),
-		);
+	let rows: Array<{ productId: string; expiresAt: Date | null }> = [];
+	try {
+		rows = await db
+			.select({
+				productId: appProductEntitlements.productId,
+				expiresAt: appProductEntitlements.expiresAt,
+			})
+			.from(appProductEntitlements)
+			.where(
+				and(
+					eq(appProductEntitlements.userId, userId),
+					eq(appProductEntitlements.status, "granted"),
+				),
+			);
+	} catch (error) {
+		if (!isMissingProductEntitlementsTableError(error)) throw error;
+		console.error(JSON.stringify({
+			event: "product_access_entitlements_missing",
+			code: "app_product_entitlements_missing",
+			operation: "direct_grants_for_user",
+		}));
+	}
 	const now = new Date();
 	return rows
 		.filter((row) => !row.expiresAt || row.expiresAt > now)

@@ -6,6 +6,10 @@ const migration = readFileSync(
 	join(import.meta.dir, "../../migrations/0006_product_access_entitlements.sql"),
 	"utf8",
 );
+const productAccessSource = readFileSync(
+	join(import.meta.dir, "product-access.ts"),
+	"utf8",
+);
 
 describe("product access entitlement schema", () => {
 	test("prevents duplicate per-user product entitlements", () => {
@@ -29,6 +33,16 @@ describe("product access entitlement schema", () => {
 		);
 		expect(migration).toContain(
 			'ALTER TABLE "app_product_access_bulk_operations" ENABLE ROW LEVEL SECURITY',
+		);
+	});
+
+	test("login read path tolerates missing entitlement table during deployment rollout", () => {
+		expect(productAccessSource).toContain(
+			"isMissingProductEntitlementsTableError",
+		);
+		expect(productAccessSource).toContain('record.code === "42P01"');
+		expect(productAccessSource).toContain(
+			'code: "app_product_entitlements_missing"',
 		);
 	});
 });
