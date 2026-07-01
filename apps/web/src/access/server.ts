@@ -306,7 +306,15 @@ export async function resolvePostAuthDestination(
 		return isPendingPrivateBetaUser(context)
 			? "/early-access"
 			: requestedPath || "/projects";
-	return requestedPath || "/projects";
+	const destination = requestedPath || "/projects";
+	const denial = accessDenial(context, appPermissionForPath(destination));
+	if (!denial) return destination;
+	if (denial.code === "product_access_pending") return "/early-access";
+	if (denial.code === "product_access_expired") return "/early-access";
+	if (denial.code === "product_access_revoked") return "/access-revoked";
+	if (denial.code === "maintenance_mode") return "/maintenance";
+	if (denial.code === "account_inactive") return "/account-unavailable";
+	return "/early-access";
 }
 
 export async function requireApiPermission(

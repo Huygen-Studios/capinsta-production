@@ -8,9 +8,29 @@ import {
 } from "./routes";
 import { getTrustedPublicOrigin } from "./trusted-origin";
 
+let mockUser: { id: string; email?: string } | null = {
+	id: "11111111-1111-4111-8111-111111111111",
+	email: "user@example.com",
+};
+let mockExchangeError: Error | null = null;
+let mockGetUserError: Error | null = null;
+let mockProvisionError: Error | null = null;
+let mockDestinationError: Error | null = null;
+
 mock.module("@/access/server", () => {
 	return {
-		resolvePostAuthDestination: async (_userId: string, next: string) => next,
+		resolvePostAuthDestination: async (_userId: string, next: string) => {
+			if (mockDestinationError) throw mockDestinationError;
+			return next;
+		},
+	};
+});
+
+mock.module("@/auth/provisioning", () => {
+	return {
+		provisionAuthenticatedUser: async () => {
+			if (mockProvisionError) throw mockProvisionError;
+		},
 	};
 });
 
@@ -20,12 +40,15 @@ mock.module("@/lib/supabase/server", () => {
 			return {
 				auth: {
 					exchangeCodeForSession: async (code: string) => {
-						if (code === "valid-code") {
+						if (code === "valid-code" && !mockExchangeError) {
 							return { data: {}, error: null };
 						}
-						return { data: null, error: new Error("invalid code") };
+						return { data: null, error: mockExchangeError ?? new Error("invalid code") };
 					},
-					getUser: async () => ({ data: { user: null }, error: null }),
+					getUser: async () => ({
+						data: { user: mockUser },
+						error: mockGetUserError,
+					}),
 				},
 			};
 		},
@@ -84,6 +107,30 @@ describe("authentication route policy", () => {
 });
 
 describe("auth callback GET handler and public origin resolution", () => {
+	test("existing Google user can complete callback and redirect", async () => {
+		mockUser = {
+			id: "11111111-1111-4111-8111-111111111111",
+			email: "existing@example.com",
+		};
+		mockExchangeError = null;
+		mockGetUserError = null;
+		mockProvisionError = null;
+		mockDestinationError = null;
+		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
+		try {
+			const response = await callbackGET(
+				new Request("https://capinsta.huygenstudios.com/auth/callback?code=valid-code&next=%2Fprojects"),
+			);
+			expect(response.status).toBe(307);
+			expect(response.headers.get("Location")).toBe(
+				"https://capinsta.huygenstudios.com/projects",
+			);
+		} finally {
+			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+		}
+	});
+
 	test("uses NEXT_PUBLIC_SITE_URL if configured and not internal", async () => {
 		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
 		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
@@ -129,10 +176,94 @@ describe("auth callback GET handler and public origin resolution", () => {
 			const request = new Request("https://0.0.0.0:3000/auth/callback?next=%2Fprojects");
 			const response = await callbackGET(request);
 			expect(response.status).toBe(307);
+			const location = response.headers.get("Location");
+			expect(location?.startsWith(
+				"https://capinsta.huygenstudios.com/sign-in?error=callback&redirect=%2Fprojects&requestId=",
+			)).toBe(true);
+		} finally {
+			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+		}
+	});
+
+	test("OAuth exchange failure is controlled and includes request id", async () => {
+		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
+		mockExchangeError = new Error("exchange failed");
+		try {
+			const response = await callbackGET(
+				new Request("https://capinsta.huygenstudios.com/auth/callback?code=valid-code&next=%2Fprojects", {
+					headers: { "x-request-id": "req-oauth-fail" },
+				}),
+			);
+			expect(response.status).toBe(307);
 			expect(response.headers.get("Location")).toBe(
-				"https://capinsta.huygenstudios.com/sign-in?error=callback&redirect=%2Fprojects"
+				"https://capinsta.huygenstudios.com/sign-in?error=callback&redirect=%2Fprojects&requestId=req-oauth-fail",
 			);
 		} finally {
+			mockExchangeError = null;
+			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+		}
+	});
+
+	test("missing Google user after exchange is controlled", async () => {
+		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
+		mockUser = null;
+		try {
+			const response = await callbackGET(
+				new Request("https://capinsta.huygenstudios.com/auth/callback?code=valid-code&next=%2Fprojects", {
+					headers: { "x-request-id": "req-user-missing" },
+				}),
+			);
+			expect(response.status).toBe(307);
+			expect(response.headers.get("Location")).toBe(
+				"https://capinsta.huygenstudios.com/sign-in?error=callback&redirect=%2Fprojects&requestId=req-user-missing",
+			);
+		} finally {
+			mockUser = {
+				id: "11111111-1111-4111-8111-111111111111",
+				email: "user@example.com",
+			};
+			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+		}
+	});
+
+	test("provisioning failure returns controlled access-pending response", async () => {
+		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
+		mockProvisionError = new Error("profile insert failed");
+		try {
+			const response = await callbackGET(
+				new Request("https://capinsta.huygenstudios.com/auth/callback?code=valid-code&next=%2Fprojects", {
+					headers: { "x-request-id": "req-provisioning-fail" },
+				}),
+			);
+			expect(response.status).toBe(307);
+			expect(response.headers.get("Location")).toBe(
+				"https://capinsta.huygenstudios.com/sign-in?error=access_pending&redirect=%2Fprojects&requestId=req-provisioning-fail",
+			);
+		} finally {
+			mockProvisionError = null;
+			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+		}
+	});
+
+	test("post-login access lookup failure redirects to controlled early access", async () => {
+		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
+		mockDestinationError = new Error("entitlement lookup failed");
+		try {
+			const response = await callbackGET(
+				new Request("https://capinsta.huygenstudios.com/auth/callback?code=valid-code&next=%2Fprojects", {
+					headers: { "x-request-id": "req-access-fail" },
+				}),
+			);
+			expect(response.status).toBe(307);
+			expect(response.headers.get("Location")).toBe(
+				"https://capinsta.huygenstudios.com/early-access",
+			);
+		} finally {
+			mockDestinationError = null;
 			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
 		}
 	});
