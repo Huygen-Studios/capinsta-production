@@ -18,9 +18,11 @@ import { PasswordField } from "@/components/auth/password-field";
 export function SignInForm({
 	redirectPath,
 	initialError,
+	registrationEnabled,
 }: {
 	redirectPath: string;
 	initialError: string | null;
+	registrationEnabled: boolean;
 }) {
 	const router = useRouter();
 	const [email, setEmail] = useState("");
@@ -98,15 +100,21 @@ export function SignInForm({
 						{loading ? "Signing in..." : "Sign in"}
 					</button>
 				</form>
-				<p className="text-center text-sm text-muted-foreground">
-					New to Capinsta?{" "}
-					<Link
-						href={`/sign-up?redirect=${encodeURIComponent(redirectPath)}`}
-						className="font-semibold text-primary hover:underline"
-					>
-						Create an account
-					</Link>
-				</p>
+				{registrationEnabled ? (
+					<p className="text-center text-sm text-muted-foreground">
+						New to Capinsta?{" "}
+						<Link
+							href={`/sign-up?redirect=${encodeURIComponent(redirectPath)}`}
+							className="font-semibold text-primary hover:underline"
+						>
+							Create an account
+						</Link>
+					</p>
+				) : (
+					<p className="text-center text-sm text-muted-foreground">
+						New account creation is temporarily paused.
+					</p>
+				)}
 			</div>
 		</AuthShell>
 	);

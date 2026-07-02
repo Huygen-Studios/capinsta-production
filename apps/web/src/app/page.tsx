@@ -1,6 +1,6 @@
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
-import { ComingSoonPage, MaintenancePage } from "@/components/access/access-pages";
+import { MaintenancePage } from "@/components/access/access-pages";
 import { Hero } from "@/components/landing/hero";
 import {
 	FeaturesSection,
@@ -17,7 +17,6 @@ import { BRAND, FULL_DESCRIPTION, SITE_URL } from "@/site/brand";
 import { PresetShowcase } from "@/components/landing/preset-showcase";
 import { StructuredData } from "@/components/structured-data";
 import { getSiteAccessPolicy } from "@/access/server";
-import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
 	title: {
@@ -34,19 +33,6 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
 	const policy = await getSiteAccessPolicy();
-	if (policy.mode === "coming_soon") {
-		const supabase = await createClient();
-		const {
-			data: { user },
-		} = await supabase.auth.getUser();
-		return (
-			<ComingSoonPage
-				policy={policy}
-				isSignedIn={Boolean(user)}
-				signedInEmail={user?.email ?? null}
-			/>
-		);
-	}
 	if (policy.mode === "maintenance") return <MaintenancePage policy={policy} />;
 	return (
 		<div className="marketing-theme">

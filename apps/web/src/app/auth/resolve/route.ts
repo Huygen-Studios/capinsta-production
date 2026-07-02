@@ -29,7 +29,7 @@ export async function GET(request: Request) {
 				userId: user.id,
 				error,
 			});
-			return NextResponse.redirect(new URL("/early-access", url.origin));
+			return NextResponse.redirect(new URL("/access-pending", url.origin));
 		}
 	} catch (error) {
 		logAuthFailure({

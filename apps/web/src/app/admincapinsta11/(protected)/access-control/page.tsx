@@ -1,7 +1,10 @@
 import { count, eq, sql } from "drizzle-orm";
 import { requireAdminPermission } from "@/admin/auth";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
-import { AdminSiteModeForm } from "@/components/admin/admin-access-controls";
+import {
+	AdminSignupPolicyForm,
+	AdminSiteModeForm,
+} from "@/components/admin/admin-access-controls";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/db";
@@ -49,13 +52,26 @@ export default async function Page() {
 						<Field label="Last updated" value={policy?.updatedAt?.toISOString() ?? "Not recorded"} />
 					</CardContent>
 				</Card>
+				<Card className="border-2 xl:col-span-3">
+					<CardHeader>
+						<CardTitle className="flex items-center justify-between">
+							Global signup policy
+							<Badge variant={policy?.allowSignups ? "outline" : "destructive"}>
+								{policy?.allowSignups ? "Enabled" : "Paused"}
+							</Badge>
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<AdminSignupPolicyForm allowSignups={policy?.allowSignups ?? true} />
+					</CardContent>
+				</Card>
 				{[
 					{
 						mode: "coming_soon" as const,
 						title: "Coming Soon",
-						text: "Approved users and explicit app access can enter. Pending users see early access.",
+						text: "The public landing page stays visible. New account creation is controlled separately by the signup policy.",
 						confirmation:
-							"Changing to Coming Soon will hide the marketing page and hold pending users outside product pages.",
+							"Changing to Coming Soon keeps product routes protected and leaves the public landing page available.",
 					},
 					{
 						mode: "maintenance" as const,
@@ -67,9 +83,9 @@ export default async function Page() {
 					{
 						mode: "public" as const,
 						title: "Public",
-						text: "Every active authenticated user can access normal product pages unless revoked.",
+						text: "The public landing page is available. Product routes still require granted editor/product access.",
 						confirmation:
-							"Changing to Public will allow every active authenticated user to access normal product pages.",
+							"Changing to Public will not grant editor access by itself.",
 					},
 				].map((card) => (
 					<Card key={card.mode} className="border-2">

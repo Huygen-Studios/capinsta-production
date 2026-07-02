@@ -4,6 +4,7 @@ import {
 	DEFAULT_AUTHENTICATED_PATH,
 	isProtectedPath,
 	isSafeInternalPath,
+	isWaitlistPath,
 	signInPathFor,
 	isUiTestAuthBypassEnabled,
 } from "./routes";
@@ -66,8 +67,17 @@ describe("authentication route policy", () => {
 		expect(isProtectedPath("/projects")).toBe(true);
 		expect(isProtectedPath("/projects/abc")).toBe(true);
 		expect(isProtectedPath("/editor/project-1")).toBe(true);
+		expect(isProtectedPath("/export")).toBe(true);
+		expect(isProtectedPath("/account")).toBe(false);
 		expect(isProtectedPath("/")).toBe(false);
 		expect(isProtectedPath("/render")).toBe(true);
+	});
+
+	test("separates waitlist routes from protected product routes", () => {
+		expect(isWaitlistPath("/waitlist")).toBe(true);
+		expect(isWaitlistPath("/waitlist/invite")).toBe(true);
+		expect(isWaitlistPath("/early-access")).toBe(true);
+		expect(isWaitlistPath("/projects")).toBe(false);
 	});
 
 	test("preserves safe internal redirects", () => {
@@ -83,6 +93,7 @@ describe("authentication route policy", () => {
 		expect(isSafeInternalPath("https://evil.example")).toBe(
 			DEFAULT_AUTHENTICATED_PATH,
 		);
+		expect(DEFAULT_AUTHENTICATED_PATH).toBe("/");
 		expect(isSafeInternalPath("//evil.example/path")).toBe(
 			DEFAULT_AUTHENTICATED_PATH,
 		);
@@ -249,7 +260,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 		}
 	});
 
-	test("post-login access lookup failure redirects to controlled early access", async () => {
+	test("post-login access lookup failure redirects to controlled access pending", async () => {
 		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
 		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
 		mockDestinationError = new Error("entitlement lookup failed");
@@ -261,7 +272,7 @@ describe("auth callback GET handler and public origin resolution", () => {
 			);
 			expect(response.status).toBe(307);
 			expect(response.headers.get("Location")).toBe(
-				"https://capinsta.huygenstudios.com/early-access",
+				"https://capinsta.huygenstudios.com/access-pending",
 			);
 		} finally {
 			mockDestinationError = null;
@@ -276,8 +287,8 @@ describe("auth callback GET handler and public origin resolution", () => {
 			// Unsafe next redirect (external)
 			const request = new Request("https://0.0.0.0:3000/auth/callback?code=valid-code&next=https://evil.example");
 			const response = await callbackGET(request);
-			// Should fallback to default authenticated path (/projects)
-			expect(response.headers.get("Location")).toBe("https://capinsta.huygenstudios.com/projects");
+			// Should fallback to default authenticated path (/)
+			expect(response.headers.get("Location")).toBe("https://capinsta.huygenstudios.com/");
 		} finally {
 			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
 		}

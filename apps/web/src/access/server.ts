@@ -281,11 +281,12 @@ export async function requireAppPermission(
 	const context = await requireAuthenticatedUser(pathname);
 	const denial = accessDenial(context, permission);
 	if (!denial) return context;
-	if (denial.code === "product_access_pending") redirect("/early-access");
+	if (denial.code === "product_access_pending") redirect("/access-pending");
 	if (denial.code === "maintenance_mode") redirect("/maintenance");
 	if (denial.code === "product_access_revoked") redirect("/access-revoked");
 	if (denial.code === "account_inactive") redirect("/account-unavailable");
-	if (denial.code === "product_access_expired") redirect("/early-access");
+	if (denial.code === "product_access_expired") redirect("/access-pending");
+	if (denial.code === "insufficient_product_permission") redirect("/access-pending");
 	notFound();
 }
 
@@ -302,20 +303,17 @@ export async function resolvePostAuthDestination(
 	if (context.accountStatus !== "active") return "/account-unavailable";
 	if (context.productAccessStatus === "revoked") return "/access-revoked";
 	if (context.sitePolicy.mode === "maintenance")
-		return canBypassMaintenance(context) ? requestedPath || "/projects" : "/maintenance";
-	if (context.sitePolicy.mode === "coming_soon")
-		return isPendingPrivateBetaUser(context)
-			? "/early-access"
-			: requestedPath || "/projects";
-	const destination = requestedPath || "/projects";
+		return canBypassMaintenance(context) ? requestedPath || "/" : "/maintenance";
+	const destination = requestedPath || "/";
 	const denial = accessDenial(context, appPermissionForPath(destination));
 	if (!denial) return destination;
-	if (denial.code === "product_access_pending") return "/early-access";
-	if (denial.code === "product_access_expired") return "/early-access";
+	if (denial.code === "product_access_pending") return "/access-pending";
+	if (denial.code === "product_access_expired") return "/access-pending";
 	if (denial.code === "product_access_revoked") return "/access-revoked";
 	if (denial.code === "maintenance_mode") return "/maintenance";
 	if (denial.code === "account_inactive") return "/account-unavailable";
-	return "/early-access";
+	if (denial.code === "insufficient_product_permission") return "/access-pending";
+	return "/";
 }
 
 export async function requireApiPermission(

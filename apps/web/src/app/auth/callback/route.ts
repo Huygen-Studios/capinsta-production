@@ -80,7 +80,7 @@ export async function GET(request: Request) {
 					requestId,
 				});
 			}
-			let destination = "/early-access";
+			let destination = "/";
 			try {
 				destination = await resolvePostAuthDestination(user.id, next);
 			} catch (error) {
@@ -93,6 +93,7 @@ export async function GET(request: Request) {
 					userId: user.id,
 					error,
 				});
+				destination = "/access-pending";
 			}
 			return NextResponse.redirect(new URL(destination, publicOrigin));
 		} catch (error) {

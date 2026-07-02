@@ -1,5 +1,5 @@
 /* eslint-disable opencut/prefer-object-params -- Route helpers are intentionally small value utilities. */
-export const DEFAULT_AUTHENTICATED_PATH = "/projects";
+export const DEFAULT_AUTHENTICATED_PATH = "/";
 
 export function isUiTestAuthBypassEnabled(
 	env: Record<string, string | undefined> = process.env,
@@ -13,13 +13,21 @@ const PROTECTED_PREFIXES = [
 	"/projects",
 	"/editor",
 	"/dashboard",
-	"/account",
 	"/settings",
 	"/render",
+	"/export",
 ] as const;
+
+const WAITLIST_PREFIXES = ["/waitlist", "/early-access"] as const;
 
 export function isProtectedPath(pathname: string): boolean {
 	return PROTECTED_PREFIXES.some(
+		(prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+	);
+}
+
+export function isWaitlistPath(pathname: string): boolean {
+	return WAITLIST_PREFIXES.some(
 		(prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
 	);
 }
