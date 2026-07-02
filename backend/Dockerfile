@@ -9,6 +9,7 @@ FROM python:3.11-slim AS app
 
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
+ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV TEMP_DIR=/tmp/huygen-caps
@@ -49,15 +50,16 @@ ENV STABLE_TS_MAX_CONCURRENCY=1
 
 WORKDIR /app
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+RUN apt-get update -qq \
+  && apt-get install -y -qq --no-install-recommends -o=Dpkg::Use-Pty=0 \
     curl \
     ca-certificates \
     ffmpeg \
     libgomp1 \
     libsndfile1 \
   && apt-get clean \
-  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+  && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
+  && echo "backend_system_packages_installed"
 
 COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
 RUN python -m pip install --upgrade pip \
