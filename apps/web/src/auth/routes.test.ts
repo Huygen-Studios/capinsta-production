@@ -1,3 +1,4 @@
+/* eslint-disable opencut/prefer-object-params -- Test mocks mirror Supabase callback signatures. */
 import { describe, expect, test, mock } from "bun:test";
 import {
 	DEFAULT_AUTHENTICATED_PATH,

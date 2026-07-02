@@ -6,12 +6,17 @@ import { isSafeInternalPath } from "@/auth/routes";
 import { getTrustedPublicOrigin } from "@/auth/trusted-origin";
 import { createClient } from "@/lib/supabase/server";
 
-function signInErrorRedirect(
-	publicOrigin: string,
-	next: string,
-	error: string,
-	requestId?: string,
-) {
+function signInErrorRedirect({
+	publicOrigin,
+	next,
+	error,
+	requestId,
+}: {
+	publicOrigin: string;
+	next: string;
+	error: string;
+	requestId?: string;
+}) {
 	const errorUrl = new URL("/sign-in", publicOrigin);
 	errorUrl.searchParams.set("error", error);
 	errorUrl.searchParams.set("redirect", next);
@@ -39,7 +44,7 @@ export async function GET(request: Request) {
 					provider: "google",
 					error,
 				});
-				return signInErrorRedirect(publicOrigin, next, "callback", requestId);
+				return signInErrorRedirect({ publicOrigin, next, error: "callback", requestId });
 			}
 			const {
 				data: { user },
@@ -54,7 +59,7 @@ export async function GET(request: Request) {
 					provider: "google",
 					error: userError,
 				});
-				return signInErrorRedirect(publicOrigin, next, "callback", requestId);
+				return signInErrorRedirect({ publicOrigin, next, error: "callback", requestId });
 			}
 			try {
 				await provisionAuthenticatedUser(user);
@@ -68,7 +73,12 @@ export async function GET(request: Request) {
 					userId: user.id,
 					error,
 				});
-				return signInErrorRedirect(publicOrigin, next, "access_pending", requestId);
+				return signInErrorRedirect({
+					publicOrigin,
+					next,
+					error: "access_pending",
+					requestId,
+				});
 			}
 			let destination = "/early-access";
 			try {
@@ -94,8 +104,8 @@ export async function GET(request: Request) {
 				provider: "google",
 				error,
 			});
-			return signInErrorRedirect(publicOrigin, next, "callback", requestId);
+			return signInErrorRedirect({ publicOrigin, next, error: "callback", requestId });
 		}
 	}
-	return signInErrorRedirect(publicOrigin, next, "callback", requestId);
+	return signInErrorRedirect({ publicOrigin, next, error: "callback", requestId });
 }

@@ -15,10 +15,11 @@ import { AccountMenu } from "@/components/auth/account-menu";
 
 const NAV_LINKS = [
 	{ label: "Features", href: "/#features" },
+	{ label: "Pricing", href: "/pricing" },
 	{ label: "Caption styles", href: ROUTES.captionPresets },
+	{ label: "Donate", href: "/donate" },
 	{ label: "Compare", href: ROUTES.compare },
 	{ label: "Guides", href: ROUTES.guides },
-	{ label: "Brand", href: ROUTES.brand },
 ];
 
 export function Header() {

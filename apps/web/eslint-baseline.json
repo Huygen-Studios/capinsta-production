@@ -1,0 +1,1777 @@
+{
+	"version": 1,
+	"errors": 157,
+	"warnings": 20,
+	"files": 101,
+	"rows": [
+		{
+			"file": "src/access/decision.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 36,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/actions/registry.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 20,
+					"column": 23
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 36,
+					"column": 23
+				}
+			]
+		},
+		{
+			"file": "src/actions/use-action-handler.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 24,
+					"column": 24
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 27,
+					"column": 5
+				}
+			]
+		},
+		{
+			"file": "src/admin/product-access.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 103,
+					"column": 9
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 545,
+					"column": 11
+				}
+			]
+		},
+		{
+			"file": "src/app/api/admin/product-access/bulk/[operationId]/route.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 7,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/app/api/admin/users/[userId]/product-access/route.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 18,
+					"column": 8
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 31,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/app/blog/page.tsx",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 5,
+					"column": 17
+				}
+			]
+		},
+		{
+			"file": "src/app/guides/captions-for-short-form-video/page.tsx",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 34,
+					"column": 22
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 54,
+					"column": 45
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 61,
+					"column": 78
+				}
+			]
+		},
+		{
+			"file": "src/app/guides/hinglish-telgish-caption-workflows/page.tsx",
+			"errors": 4,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 24,
+					"column": 17
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 60,
+					"column": 44
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 62,
+					"column": 28
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 67,
+					"column": 50
+				}
+			]
+		},
+		{
+			"file": "src/app/guides/how-automatic-captions-work/page.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 16,
+					"column": 57
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 26,
+					"column": 59
+				}
+			]
+		},
+		{
+			"file": "src/app/guides/why-captions-improve-accessibility/page.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 34,
+					"column": 42
+				}
+			]
+		},
+		{
+			"file": "src/app/how-it-works/page.tsx",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 2,
+					"column": 17
+				}
+			]
+		},
+		{
+			"file": "src/app/privacy/page.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 113,
+					"column": 79
+				}
+			]
+		},
+		{
+			"file": "src/app/render/render-client.tsx",
+			"errors": 13,
+			"warnings": 3,
+			"messages": [
+				{
+					"ruleId": "react-hooks/immutability",
+					"severity": 2,
+					"line": 185,
+					"column": 4
+				},
+				{
+					"ruleId": "react-hooks/exhaustive-deps",
+					"severity": 1,
+					"line": 210,
+					"column": 3
+				},
+				{
+					"ruleId": "react-hooks/immutability",
+					"severity": 2,
+					"line": 215,
+					"column": 4
+				},
+				{
+					"ruleId": "react-hooks/exhaustive-deps",
+					"severity": 1,
+					"line": 224,
+					"column": 5
+				},
+				{
+					"ruleId": null,
+					"severity": 2,
+					"line": 439,
+					"column": 4
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 447,
+					"column": 27
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 469,
+					"column": 9
+				},
+				{
+					"ruleId": null,
+					"severity": 2,
+					"line": 484,
+					"column": 5
+				},
+				{
+					"ruleId": null,
+					"severity": 2,
+					"line": 486,
+					"column": 5
+				},
+				{
+					"ruleId": null,
+					"severity": 2,
+					"line": 490,
+					"column": 5
+				},
+				{
+					"ruleId": null,
+					"severity": 2,
+					"line": 494,
+					"column": 5
+				},
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 503,
+					"column": 39
+				},
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 510,
+					"column": 11
+				},
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 522,
+					"column": 43
+				},
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 523,
+					"column": 33
+				},
+				{
+					"ruleId": "react-hooks/exhaustive-deps",
+					"severity": 1,
+					"line": 735,
+					"column": 5
+				}
+			]
+		},
+		{
+			"file": "src/app/render/render-token.ts",
+			"errors": 4,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 27,
+					"column": 1
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 31,
+					"column": 1
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 89,
+					"column": 13
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 104,
+					"column": 30
+				}
+			]
+		},
+		{
+			"file": "src/app/render/renderColor.test.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": null,
+					"severity": 2,
+					"line": 1,
+					"column": 1
+				}
+			]
+		},
+		{
+			"file": "src/app/render/renderColor.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 68,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/blog/query.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 77,
+					"column": 10
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/captionVisibility.test.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 9,
+					"column": 16
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/export/capinsta-overlay-capture.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 37,
+					"column": 13
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/export/captionLayoutDiagnostics.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 18,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/export/exportStyleHash.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 8,
+					"column": 26
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 10,
+					"column": 61
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/fonts/captionFontRegistry.browser.test.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 118,
+					"column": 19
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/fonts/captionFontRegistry.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 21,
+					"column": 1
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/useProjectHeartbeat.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 36,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/clipboard/handlers/index.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 48,
+					"column": 32
+				}
+			]
+		},
+		{
+			"file": "src/commands/timeline/element/delete-elements.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 27,
+					"column": 2
+				}
+			]
+		},
+		{
+			"file": "src/commands/timeline/element/effects/add-effect.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 52,
+					"column": 14
+				}
+			]
+		},
+		{
+			"file": "src/commands/timeline/element/effects/remove-effect.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 50,
+					"column": 14
+				}
+			]
+		},
+		{
+			"file": "src/commands/timeline/element/effects/reorder-effect.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 57,
+					"column": 14
+				}
+			]
+		},
+		{
+			"file": "src/commands/timeline/element/effects/toggle-effect.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 52,
+					"column": 14
+				}
+			]
+		},
+		{
+			"file": "src/commands/timeline/element/effects/update-effect-params.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 70,
+					"column": 15
+				}
+			]
+		},
+		{
+			"file": "src/components/admin/admin-product-access-panel.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 82,
+					"column": 18
+				},
+				{
+					"ruleId": "jsx-a11y/label-has-associated-control",
+					"severity": 2,
+					"line": 119,
+					"column": 7
+				}
+			]
+		},
+		{
+			"file": "src/components/admin/admin-users-product-access-table.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 113,
+					"column": 18
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 147,
+					"column": 18
+				}
+			]
+		},
+		{
+			"file": "src/components/analytics/google-analytics-provider.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 10,
+					"column": 20
+				}
+			]
+		},
+		{
+			"file": "src/components/editor/mobile-gate.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 24,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/components/editor/panels/assets/assets-panel-store.tsx",
+			"errors": 1,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 12,
+					"column": 2
+				},
+				{
+					"ruleId": "react/display-name",
+					"severity": 2,
+					"line": 30,
+					"column": 2
+				}
+			]
+		},
+		{
+			"file": "src/components/editor/panels/assets/views/settings/background.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 215,
+					"column": 6
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 220,
+					"column": 6
+				}
+			]
+		},
+		{
+			"file": "src/components/editor/panels/properties/empty-view.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 13,
+					"column": 43
+				}
+			]
+		},
+		{
+			"file": "src/components/providers/editor-provider.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/immutability",
+					"severity": 2,
+					"line": 137,
+					"column": 3
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 144,
+					"column": 5
+				}
+			]
+		},
+		{
+			"file": "src/components/render-route-exclusions.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 35,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/components/storage-provider.tsx",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "react-hooks/exhaustive-deps",
+					"severity": 1,
+					"line": 76,
+					"column": 5
+				}
+			]
+		},
+		{
+			"file": "src/components/ui/alert.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "jsx-a11y/heading-has-content",
+					"severity": 2,
+					"line": 48,
+					"column": 2
+				}
+			]
+		},
+		{
+			"file": "src/components/ui/font-picker.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 80,
+					"column": 4
+				}
+			]
+		},
+		{
+			"file": "src/components/ui/form.tsx",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 59,
+					"column": 6
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 113,
+					"column": 2
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 157,
+					"column": 2
+				}
+			]
+		},
+		{
+			"file": "src/components/ui/prose.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 92,
+					"column": 19
+				}
+			]
+		},
+		{
+			"file": "src/components/ui/resizable.tsx",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 23,
+					"column": 2
+				}
+			]
+		},
+		{
+			"file": "src/core/managers/playback-manager.ts",
+			"errors": 0,
+			"warnings": 2,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 246,
+					"column": 28
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 252,
+					"column": 30
+				}
+			]
+		},
+		{
+			"file": "src/core/managers/project-manager.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 622,
+					"column": 24
+				}
+			]
+		},
+		{
+			"file": "src/core/managers/timeline-manager.ts",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 738,
+					"column": 24
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 744,
+					"column": 27
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 803,
+					"column": 9
+				}
+			]
+		},
+		{
+			"file": "src/editor/panel-store.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 46,
+					"column": 19
+				}
+			]
+		},
+		{
+			"file": "src/feedback/components/feedback-popover.tsx",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "react-hooks/incompatible-library",
+					"severity": 1,
+					"line": 206,
+					"column": 10
+				}
+			]
+		},
+		{
+			"file": "src/fonts/use-font-atlas.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 23,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/gradients/canvas.ts",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 463,
+					"column": 20
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 464,
+					"column": 20
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 631,
+					"column": 18
+				}
+			]
+		},
+		{
+			"file": "src/gradients/parser.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 331,
+					"column": 17
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 347,
+					"column": 18
+				}
+			]
+		},
+		{
+			"file": "src/graphics/definitions/ellipse.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 50,
+					"column": 23
+				}
+			]
+		},
+		{
+			"file": "src/graphics/definitions/polygon.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 176,
+					"column": 23
+				}
+			]
+		},
+		{
+			"file": "src/graphics/definitions/rectangle.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 61,
+					"column": 23
+				}
+			]
+		},
+		{
+			"file": "src/graphics/definitions/star.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 72,
+					"column": 23
+				}
+			]
+		},
+		{
+			"file": "src/graphics/stroke.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 75,
+					"column": 21
+				}
+			]
+		},
+		{
+			"file": "src/hooks/use-mobile.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 14,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/media/use-paste-media.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 43,
+					"column": 26
+				}
+			]
+		},
+		{
+			"file": "src/preview/components/capinsta-active-caption-overlay.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 293,
+					"column": 15
+				},
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 293,
+					"column": 25
+				}
+			]
+		},
+		{
+			"file": "src/preview/components/overlay-layer.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 157,
+					"column": 5
+				}
+			]
+		},
+		{
+			"file": "src/preview/components/preview-viewport.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 467,
+					"column": 3
+				},
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 477,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/preview/components/toolbar.tsx",
+			"errors": 4,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 139,
+					"column": 33
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 161,
+					"column": 11
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 167,
+					"column": 11
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 172,
+					"column": 33
+				}
+			]
+		},
+		{
+			"file": "src/preview/controllers/transform-handle-controller.ts",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 389,
+					"column": 13
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 424,
+					"column": 13
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 466,
+					"column": 13
+				}
+			]
+		},
+		{
+			"file": "src/preview/hooks/use-preview-interaction.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 42,
+					"column": 12
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 43,
+					"column": 16
+				}
+			]
+		},
+		{
+			"file": "src/project/components/delete-project-dialog.tsx",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 30,
+					"column": 16
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 71,
+					"column": 13
+				},
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 71,
+					"column": 20
+				}
+			]
+		},
+		{
+			"file": "src/ripple/diff.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 1,
+					"column": 45
+				}
+			]
+		},
+		{
+			"file": "src/security/clipboard.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "no-control-regex",
+					"severity": 2,
+					"line": 3,
+					"column": 31
+				}
+			]
+		},
+		{
+			"file": "src/selection/selectable-surface.tsx",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 212,
+					"column": 3
+				},
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 229,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/services/renderer/compositor/wasm-compositor.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 94,
+					"column": 5
+				}
+			]
+		},
+		{
+			"file": "src/services/renderer/nodes/base-node.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 12,
+					"column": 28
+				}
+			]
+		},
+		{
+			"file": "src/services/renderer/nodes/capinsta-caption-node.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 58,
+					"column": 2
+				}
+			]
+		},
+		{
+			"file": "src/services/renderer/scene-builder.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 154,
+					"column": 19
+				},
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 154,
+					"column": 36
+				}
+			]
+		},
+		{
+			"file": "src/services/storage/components/storage-persistence-dialog.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react/no-unescaped-entities",
+					"severity": 2,
+					"line": 21,
+					"column": 22
+				}
+			]
+		},
+		{
+			"file": "src/services/storage/indexeddb-adapter.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 30,
+					"column": 17
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 88,
+					"column": 38
+				}
+			]
+		},
+		{
+			"file": "src/services/storage/migrations/transformers/v21-to-v22.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 60,
+					"column": 11
+				}
+			]
+		},
+		{
+			"file": "src/services/storage/opfs-adapter.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 87,
+					"column": 12
+				}
+			]
+		},
+		{
+			"file": "src/services/storage/storage-lifecycle.test.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 13,
+					"column": 15
+				}
+			]
+		},
+		{
+			"file": "src/services/storage/use-local-storage.ts",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 23,
+					"column": 25
+				},
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 25,
+					"column": 5
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 48,
+					"column": 9
+				}
+			]
+		},
+		{
+			"file": "src/services/transcription/worker.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 60,
+					"column": 17
+				}
+			]
+		},
+		{
+			"file": "src/stickers/index.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 196,
+					"column": 20
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 264,
+					"column": 21
+				}
+			]
+		},
+		{
+			"file": "src/subtitles/ass.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 314,
+					"column": 9
+				}
+			]
+		},
+		{
+			"file": "src/subtitles/components/caption-editor-panel.tsx",
+			"errors": 6,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 99,
+					"column": 18
+				},
+				{
+					"ruleId": "jsx-a11y/no-autofocus",
+					"severity": 2,
+					"line": 129,
+					"column": 5
+				},
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 203,
+					"column": 18
+				},
+				{
+					"ruleId": "jsx-a11y/click-events-have-key-events",
+					"severity": 2,
+					"line": 222,
+					"column": 3
+				},
+				{
+					"ruleId": "jsx-a11y/no-noninteractive-element-interactions",
+					"severity": 2,
+					"line": 222,
+					"column": 3
+				},
+				{
+					"ruleId": "jsx-a11y/label-has-associated-control",
+					"severity": 2,
+					"line": 413,
+					"column": 9
+				}
+			]
+		},
+		{
+			"file": "src/text/layout.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 33,
+					"column": 4
+				}
+			]
+		},
+		{
+			"file": "src/timeline/__tests__/update-pipeline.test.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 7,
+					"column": 10
+				}
+			]
+		},
+		{
+			"file": "src/timeline/bookmarks/components/bookmarks.tsx",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 99,
+					"column": 40
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 103,
+					"column": 40
+				},
+				{
+					"ruleId": "react-hooks/set-state-in-effect",
+					"severity": 2,
+					"line": 308,
+					"column": 3
+				}
+			]
+		},
+		{
+			"file": "src/timeline/bookmarks/hooks/use-bookmark-drag.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "react-hooks/exhaustive-deps",
+					"severity": 1,
+					"line": 54,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/timeline/components/drop-target.ts",
+			"errors": 0,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 119,
+					"column": 8
+				}
+			]
+		},
+		{
+			"file": "src/timeline/components/selection-hit-testing.test.ts",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 44,
+					"column": 9
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 59,
+					"column": 27
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 98,
+					"column": 27
+				}
+			]
+		},
+		{
+			"file": "src/timeline/controllers/playhead-controller.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 145,
+					"column": 45
+				}
+			]
+		},
+		{
+			"file": "src/timeline/controllers/seek-controller.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 162,
+					"column": 18
+				}
+			]
+		},
+		{
+			"file": "src/timeline/controllers/zoom-controller.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 280,
+					"column": 46
+				}
+			]
+		},
+		{
+			"file": "src/timeline/hooks/element/use-element-interaction.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 53,
+					"column": 12
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 54,
+					"column": 16
+				}
+			]
+		},
+		{
+			"file": "src/timeline/hooks/use-element-preview.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 25,
+					"column": 4
+				}
+			]
+		},
+		{
+			"file": "src/timeline/linked-media.test.ts",
+			"errors": 3,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 29,
+					"column": 23
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 30,
+					"column": 25
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 90,
+					"column": 1
+				}
+			]
+		},
+		{
+			"file": "src/timeline/placement/apply.ts",
+			"errors": 5,
+			"warnings": 1,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unused-vars",
+					"severity": 1,
+					"line": 9,
+					"column": 2
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 123,
+					"column": 13
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 140,
+					"column": 15
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 145,
+					"column": 15
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 150,
+					"column": 15
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 155,
+					"column": 15
+				}
+			]
+		},
+		{
+			"file": "src/timeline/update-pipeline.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 144,
+					"column": 20
+				}
+			]
+		},
+		{
+			"file": "src/utils/browser.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 40,
+					"column": 12
+				},
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 44,
+					"column": 12
+				}
+			]
+		}
+	]
+}

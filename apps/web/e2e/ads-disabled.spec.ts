@@ -25,7 +25,13 @@ test("disabled ads reserve no editor space", async ({ page }) => {
 	});
 	await page.setViewportSize({ width: 1920, height: 1080 });
 	await page.goto(`${baseURL}/projects`, { waitUntil: "domcontentloaded" });
-	await page.getByRole("button", { name: "New project" }).click();
+	try {
+		await page
+			.getByRole("button", { name: "Create your first project" })
+			.click({ timeout: 10_000 });
+	} catch {
+		await page.getByRole("button", { name: "New project" }).click();
+	}
 	await page.waitForURL(/\/editor\/[^/]+$/, { timeout: 30_000 });
 	await expect(page.getByRole("button", { name: /Export/i })).toBeVisible();
 	await expect(page.getByText("Advertisement layout preview")).toHaveCount(0);

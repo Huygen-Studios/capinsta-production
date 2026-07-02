@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { LogOut, UserRound } from "lucide-react";
+import { CreditCard, LogOut, UserRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -91,6 +91,12 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 					<p className="truncate text-sm font-medium">{name}</p>
 					<p className="truncate text-xs text-muted-foreground">{user.email}</p>
 				</div>
+				<DropdownMenuItem asChild>
+					<Link href="/account">
+						<CreditCard className="size-4" />
+						Account & billing
+					</Link>
+				</DropdownMenuItem>
 				<DropdownMenuItem onClick={() => void signOut()}>
 					<LogOut className="size-4" />
 					Sign out

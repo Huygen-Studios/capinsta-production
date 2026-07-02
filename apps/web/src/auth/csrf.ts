@@ -1,3 +1,4 @@
+/* eslint-disable opencut/prefer-object-params -- CSRF helpers mirror small internal request utilities. */
 import { NextResponse } from "next/server";
 import { getTrustedPublicOrigin } from "./trusted-origin";
 

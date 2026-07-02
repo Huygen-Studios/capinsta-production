@@ -14,6 +14,9 @@ export function GoogleButton({
 	onError: (message: string) => void;
 }) {
 	const [loading, setLoading] = useState(false);
+	const googleEnabled = process.env.NEXT_PUBLIC_ENABLE_GOOGLE_OAUTH !== "false";
+
+	if (!googleEnabled) return null;
 
 	const signIn = async () => {
 		if (loading) return;

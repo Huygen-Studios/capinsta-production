@@ -249,6 +249,160 @@ export const appProductAccessBulkOperations = pgTable(
 	],
 );
 
+export const planEntitlements = pgTable(
+	"plan_entitlements",
+	{
+		userId: uuid("user_id").notNull(),
+		entitlementKey: text("entitlement_key").notNull(),
+		status: text("status").default("active").notNull(),
+		source: text("source").default("system").notNull(),
+		subscriptionId: uuid("subscription_id"),
+		startsAt: timestamp("starts_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.userId, table.entitlementKey] }),
+		index("plan_entitlements_user_status_idx").on(table.userId, table.status),
+		index("plan_entitlements_key_status_idx").on(
+			table.entitlementKey,
+			table.status,
+		),
+	],
+);
+
+export const subscriptions = pgTable(
+	"subscriptions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id").notNull(),
+		provider: text("provider").default("razorpay").notNull(),
+		providerSubscriptionId: text("provider_subscription_id").notNull().unique(),
+		providerPlanId: text("provider_plan_id"),
+		planKey: text("plan_key").notNull(),
+		status: text("status").notNull(),
+		amountInr: integer("amount_inr").notNull(),
+		currency: text("currency").default("INR").notNull(),
+		currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
+		currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+		cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("subscriptions_user_status_idx").on(
+			table.userId,
+			table.status,
+			table.updatedAt,
+		),
+	],
+);
+
+export const paymentEvents = pgTable(
+	"payment_events",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		provider: text("provider").default("razorpay").notNull(),
+		providerEventId: text("provider_event_id").notNull(),
+		eventType: text("event_type").notNull(),
+		signatureValid: boolean("signature_valid").default(false).notNull(),
+		processedAt: timestamp("processed_at", { withTimezone: true }),
+		processingStatus: text("processing_status").default("received").notNull(),
+		processingError: text("processing_error"),
+		payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("payment_events_provider_event_unique").on(
+			table.provider,
+			table.providerEventId,
+		),
+		index("payment_events_type_created_idx").on(
+			table.eventType,
+			table.createdAt,
+		),
+	],
+);
+
+export const donations = pgTable(
+	"donations",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id"),
+		provider: text("provider").default("razorpay").notNull(),
+		providerOrderId: text("provider_order_id").unique(),
+		providerPaymentId: text("provider_payment_id").unique(),
+		amountInr: integer("amount_inr").notNull(),
+		currency: text("currency").default("INR").notNull(),
+		status: text("status").default("created").notNull(),
+		donorName: text("donor_name"),
+		donorMessage: text("donor_message"),
+		anonymous: boolean("anonymous").default(false).notNull(),
+		receiptEmail: text("receipt_email"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		verifiedAt: timestamp("verified_at", { withTimezone: true }),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("donations_user_created_idx").on(table.userId, table.createdAt),
+		index("donations_status_created_idx").on(table.status, table.createdAt),
+	],
+);
+
+export const dedicatedWorkerProvisioningJobs = pgTable(
+	"dedicated_worker_provisioning_jobs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id").notNull(),
+		subscriptionId: uuid("subscription_id"),
+		state: text("state").default("pending").notNull(),
+		adapter: text("adapter").default("manual").notNull(),
+		workerAssignment: jsonb("worker_assignment")
+			.$type<Record<string, unknown>>()
+			.default({})
+			.notNull(),
+		attemptCount: integer("attempt_count").default(0).notNull(),
+		lastError: text("last_error"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		activatedAt: timestamp("activated_at", { withTimezone: true }),
+		cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("dedicated_worker_user_state_idx").on(
+			table.userId,
+			table.state,
+			table.updatedAt,
+		),
+		uniqueIndex("dedicated_worker_one_open_job_idx")
+			.on(table.userId)
+			.where(sql`${table.state} IN ('pending','provisioning','active')`),
+	],
+);
+
 export const adminRoles = pgTable("admin_roles", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	key: text("key").notNull().unique(),

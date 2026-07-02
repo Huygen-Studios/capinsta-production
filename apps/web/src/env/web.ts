@@ -12,6 +12,7 @@ const webEnvSchema = z.object({
 	NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
 	NEXT_PUBLIC_MARBLE_API_URL: z.url(),
 	NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string().optional(),
+	NEXT_PUBLIC_ENABLE_GOOGLE_OAUTH: z.enum(["true", "false"]).default("true"),
 
 	// Server
 	DATABASE_URL: z
@@ -32,6 +33,15 @@ const webEnvSchema = z.object({
 	INTERNAL_MAINTENANCE_SECRET: z.string().min(32),
 	TRUSTED_PROXY_MODE: z.enum(["none", "cloudflare", "coolify"]).default("none"),
 	CAPINSTA_ADMIN_BOOTSTRAP_USER_ID: z.uuid().optional(),
+	RAZORPAY_KEY_ID: z.string().min(1).optional(),
+	RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
+	RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+	RAZORPAY_PRIVATE_SERVER_PLAN_ID: z.string().min(1).optional(),
+	DEDICATED_WORKER_PROVISIONING_ADAPTER: z
+		.enum(["manual", "external"])
+		.default("manual"),
+	DEDICATED_WORKER_PROVISIONING_ENDPOINT: z.url().optional(),
+	DEDICATED_WORKER_PROVISIONING_TOKEN: z.string().min(1).optional(),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

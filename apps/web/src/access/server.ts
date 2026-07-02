@@ -95,6 +95,7 @@ const loadSiteAccessPolicy = nextCache(
 );
 
 export async function getSiteAccessPolicy() {
+	if (isUiTestAuthBypassEnabled()) return defaultPolicy;
 	return loadSiteAccessPolicy();
 }
 

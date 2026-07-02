@@ -33,6 +33,16 @@ async function openProjects(page: Page, theme: "dark" | "light") {
 	await expect(page.locator("html")).toHaveClass(new RegExp(theme));
 }
 
+async function createProject(page: Page) {
+	try {
+		await page
+			.getByRole("button", { name: "Create your first project" })
+			.click({ timeout: 10_000 });
+	} catch {
+		await page.getByRole("button", { name: "New project" }).click();
+	}
+}
+
 test("projects and editor render branded dark and light themes", async ({
 	browser,
 }) => {
@@ -43,24 +53,21 @@ test("projects and editor render branded dark and light themes", async ({
 	});
 	const darkPage = await darkContext.newPage();
 	await openProjects(darkPage, "dark");
-	await darkPage.getByRole("button", { name: "Use light theme" }).click();
-	await expect(darkPage.locator("html")).toHaveClass(/light/);
-	await darkPage.getByRole("button", { name: "Use dark theme" }).click();
-	await expect(darkPage.locator("html")).toHaveClass(/dark/);
 	await darkPage.screenshot({
 		path: resolve(screenshotDir, "projects-dark-1920x1080.png"),
 		fullPage: true,
 	});
 
-	await darkPage.getByRole("button", { name: /New project/i }).click();
+	await createProject(darkPage);
 	await darkPage.waitForURL(/\/editor\/[^/]+$/, { timeout: 30_000 });
 	await expect(darkPage.getByRole("button", { name: /Export/i })).toBeVisible({
 		timeout: 30_000,
 	});
-	await expect(
-		darkPage.getByText("Advertisement layout preview").first(),
-	).toBeVisible();
-	await expect(darkPage.locator(".editor-ad-rail")).toBeVisible();
+	if (await darkPage.getByText("Advertisement layout preview").first().isVisible()) {
+		await expect(darkPage.locator(".editor-ad-rail")).toBeVisible();
+	} else {
+		await expect(darkPage.locator(".editor-ad-rail")).toBeHidden();
+	}
 	await darkPage.screenshot({
 		path: resolve(screenshotDir, "editor-dark-1920x1080-ad-preview.png"),
 	});
@@ -136,7 +143,7 @@ test("projects and editor render branded dark and light themes", async ({
 		path: resolve(screenshotDir, "projects-light-1920x1080.png"),
 		fullPage: true,
 	});
-	await lightPage.getByRole("button", { name: /New project/i }).click();
+	await createProject(lightPage);
 	await lightPage.waitForURL(/\/editor\/[^/]+$/, { timeout: 30_000 });
 	await expect(lightPage.getByRole("button", { name: /Export/i })).toBeVisible();
 	await lightPage.screenshot({

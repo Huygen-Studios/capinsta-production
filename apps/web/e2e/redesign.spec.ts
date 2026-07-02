@@ -30,7 +30,7 @@ for (const viewport of viewports) {
 		await expect(
 			page.getByRole("heading", {
 				level: 1,
-				name: "Turn any video into animated captions.",
+				name: /Turn any video into animated captions/i,
 			}),
 		).toBeVisible();
 		await expect(
@@ -72,6 +72,8 @@ test("favicon package and public SEO routes resolve", async ({ request }) => {
 test("reduced motion retains poster content", async ({ page }) => {
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	await page.goto(baseURL, { waitUntil: "domcontentloaded" });
-	await expect(page.getByAltText("Creator recording a vertical video in a purple-lit studio").first()).toBeVisible();
+	await expect(
+		page.getByAltText("Creator recording a vertical video in a colorful studio").first(),
+	).toBeVisible();
 	await expect(page.locator("video")).toHaveCount(0);
 });

@@ -10,10 +10,12 @@ export function readableAuthError(
 ): string {
 	const message = error?.message.toLowerCase() ?? "";
 
+	if (message.includes("email not confirmed") || message.includes("email not verified")) {
+		return "Please verify your email before signing in.";
+	}
 	if (
 		message.includes("invalid login credentials") ||
 		message.includes("invalid email or password") ||
-		message.includes("email not confirmed") ||
 		message.includes("user already registered")
 	) {
 		return GENERIC_LOGIN_ERROR;

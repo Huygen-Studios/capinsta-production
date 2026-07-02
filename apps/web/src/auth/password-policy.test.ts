@@ -7,11 +7,16 @@ describe("auth hardening policy", () => {
 		for (const message of [
 			"Invalid login credentials",
 			"Invalid email or password",
-			"Email not confirmed",
 			"User already registered",
 		]) {
 			expect(readableAuthError(new Error(message))).toBe(GENERIC_LOGIN_ERROR);
 		}
+	});
+
+	test("shows a clear unverified-email message when Supabase exposes that state", () => {
+		expect(readableAuthError(new Error("Email not confirmed"))).toBe(
+			"Please verify your email before signing in.",
+		);
 	});
 
 	test("enforces new password minimum and hard maximum without truncation", () => {

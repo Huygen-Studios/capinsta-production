@@ -92,6 +92,10 @@ for (const route of [
 }
 
 test("authentication pages are ad-free", async ({ page }) => {
+	test.skip(
+		process.env.CAPINSTA_UI_TEST_AUTH === "true",
+		"Local editor E2E auth bypass redirects authenticated users away from auth pages.",
+	);
 	await page.goto(`${baseURL}/sign-in`, { waitUntil: "domcontentloaded" });
 	await expect(page.locator("script[src*='googlesyndication']")).toHaveCount(0);
 	await expect(page.locator(".adsbygoogle")).toHaveCount(0);
@@ -102,6 +106,10 @@ test("authentication pages are ad-free", async ({ page }) => {
 });
 
 test("protected routes redirect before editor content renders", async ({ page }) => {
+	test.skip(
+		process.env.CAPINSTA_UI_TEST_AUTH === "true",
+		"Local editor E2E auth bypass is enabled; run with a real staging app to verify redirects.",
+	);
 	for (const route of ["/projects", "/editor/private-project"]) {
 		await page.goto(`${baseURL}${route}`, { waitUntil: "domcontentloaded" });
 		await expect(page).toHaveURL(new RegExp(`/sign-in\\?redirect=`));
