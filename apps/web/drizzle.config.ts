@@ -15,6 +15,7 @@ if (!databaseUrl) {
 export default {
 	schema: "./src/db/schema.ts",
 	dialect: "postgresql",
+	schemaFilter: ["public"],
 	migrations: {
 		table: "drizzle_migrations",
 	},
