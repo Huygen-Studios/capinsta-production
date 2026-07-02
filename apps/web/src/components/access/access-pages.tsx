@@ -4,7 +4,15 @@ import { Button } from "@/components/ui/button";
 import type { AccessContext, SitePolicy } from "@/access/server";
 import { AccessSignOutButton } from "./access-sign-out-button";
 
-export function ComingSoonPage({ policy }: { policy: SitePolicy }) {
+export function ComingSoonPage({
+	policy,
+	isSignedIn = false,
+	signedInEmail,
+}: {
+	policy: SitePolicy;
+	isSignedIn?: boolean;
+	signedInEmail?: string | null;
+}) {
 	return (
 		<main className="min-h-svh bg-background text-foreground">
 			<div className="mx-auto grid min-h-svh max-w-6xl content-center gap-10 px-6 py-10 lg:grid-cols-[1fr_340px] lg:items-center">
@@ -17,7 +25,16 @@ export function ComingSoonPage({ policy }: { policy: SitePolicy }) {
 						{policy.comingSoonMessage}
 					</p>
 					<div className="mt-8 flex flex-wrap gap-3">
-						{policy.allowSignups ? (
+						{isSignedIn ? (
+							<>
+								<AccessSignOutButton />
+								{signedInEmail ? (
+									<p className="basis-full text-sm text-muted-foreground">
+										Signed in as <span className="font-mono">{signedInEmail}</span>
+									</p>
+								) : null}
+							</>
+						) : policy.allowSignups ? (
 							<>
 								<Button asChild size="lg" variant="lime">
 									<Link href="/sign-up">Create account</Link>
@@ -31,9 +48,11 @@ export function ComingSoonPage({ policy }: { policy: SitePolicy }) {
 								New registrations are temporarily paused.
 							</p>
 						)}
-						<Button asChild size="lg" variant="ghost">
-							<Link href="/sign-in">Sign in</Link>
-						</Button>
+						{isSignedIn ? null : (
+							<Button asChild size="lg" variant="ghost">
+								<Link href="/sign-in">Sign in</Link>
+							</Button>
+						)}
 					</div>
 					<div className="mt-8 flex gap-5 text-sm text-muted-foreground">
 						<Link href="/privacy" className="hover:text-foreground">
