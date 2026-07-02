@@ -1,31 +1,34 @@
 "use client";
 
 import { useState } from "react";
-import { DONATION_LEVELS } from "@/billing/plans";
+import { DONATION_TIERS } from "@/billing/plans";
 import { DonationCheckoutButton } from "@/components/billing/razorpay-checkout-button";
 import { authInputClass } from "@/components/auth/auth-shell";
 
 export function DonationForm() {
-	const [amount, setAmount] = useState(500);
+	const [tierId, setTierId] = useState("bug_buster");
 	const [donorName, setDonorName] = useState("");
 	const [donorMessage, setDonorMessage] = useState("");
 	const [receiptEmail, setReceiptEmail] = useState("");
 	const [anonymous, setAnonymous] = useState(false);
+	const selectedTier =
+		DONATION_TIERS.find((tier) => tier.id === tierId) ?? DONATION_TIERS[2];
 
 	return (
 		<div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
 			<section className="grid gap-4 sm:grid-cols-2">
-				{DONATION_LEVELS.map((level) => (
+				{DONATION_TIERS.map((tier) => (
 					<button
 						type="button"
-						key={level.amount}
-						onClick={() => setAmount(level.amount)}
+						key={tier.id}
+						onClick={() => setTierId(tier.id)}
+						aria-pressed={tierId === tier.id}
 						className={`cap-brutal-card bg-card p-5 text-left transition ${
-							amount === level.amount ? "border-primary" : ""
+							tierId === tier.id ? "border-primary" : ""
 						}`}
 					>
-						<p className="text-2xl font-black">₹{level.amount.toLocaleString("en-IN")}</p>
-						<p className="mt-2 text-sm font-semibold">{level.label}</p>
+						<p className="text-2xl font-black">{tier.label}</p>
+						<p className="mt-2 text-sm font-semibold">{tier.title}</p>
 					</button>
 				))}
 			</section>
@@ -68,7 +71,9 @@ export function DonationForm() {
 						Donate anonymously
 					</label>
 					<DonationCheckoutButton
-						amountInr={amount}
+						donationTierId={selectedTier.id}
+						amountInr={selectedTier.amountInr}
+						amountLabel={selectedTier.label}
 						donorName={donorName}
 						donorMessage={donorMessage}
 						anonymous={anonymous}

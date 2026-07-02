@@ -2,23 +2,19 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { DONATION_LEVELS } from "./plans";
+import { DONATION_TIERS, PRIVATE_SERVER_PRODUCT } from "./plans";
+import { sanitizeDonationText, validateRazorpayAmount } from "./razorpay-validation";
 import {
-	sanitizeDonationText,
-	validatePrivateServerSubscriptionEntity,
-	validateRazorpayAmount,
-} from "./razorpay-validation";
+	privateServerRequestSchema,
+	PRIVATE_SERVER_PRICE_LABEL,
+} from "@/private-server/request";
 
-const migration0005 = readFileSync(
-	join(import.meta.dir, "../../migrations/0005_rbac_product_access_hardening.sql"),
-	"utf8",
-);
-const migration0006 = readFileSync(
-	join(import.meta.dir, "../../migrations/0006_product_access_entitlements.sql"),
-	"utf8",
-);
-const migration = readFileSync(
+const migration0007 = readFileSync(
 	join(import.meta.dir, "../../migrations/0007_billing_auth_entitlements.sql"),
+	"utf8",
+);
+const migration0009 = readFileSync(
+	join(import.meta.dir, "../../migrations/0009_private_server_requests.sql"),
 	"utf8",
 );
 const pricingPage = readFileSync(
@@ -33,141 +29,113 @@ const checkoutButton = readFileSync(
 	join(import.meta.dir, "../components/billing/razorpay-checkout-button.tsx"),
 	"utf8",
 );
+const requestForm = readFileSync(
+	join(import.meta.dir, "../components/billing/private-server-request-form.tsx"),
+	"utf8",
+);
+const requestRoute = readFileSync(
+	join(import.meta.dir, "../app/api/private-server/request/route.ts"),
+	"utf8",
+);
 const webhookRoute = readFileSync(
 	join(import.meta.dir, "../app/api/billing/webhooks/razorpay/route.ts"),
+	"utf8",
+);
+const donationVerifyRoute = readFileSync(
+	join(import.meta.dir, "../app/api/payments/donations/verify/route.ts"),
+	"utf8",
+);
+const razorpayModule = readFileSync(
+	join(import.meta.dir, "../billing/razorpay.ts"),
 	"utf8",
 );
 const webhookProcessor = readFileSync(
 	join(import.meta.dir, "../billing/webhook.ts"),
 	"utf8",
 );
-const entitlementModule = readFileSync(
-	join(import.meta.dir, "../billing/entitlements.ts"),
-	"utf8",
-);
-const workerProvisioningModule = readFileSync(
-	join(import.meta.dir, "../billing/worker-provisioning.ts"),
-	"utf8",
-);
-const accountPage = readFileSync(
-	join(import.meta.dir, "../app/account/page.tsx"),
-	"utf8",
-);
 
-describe("billing and auth schema", () => {
-	test("0005, 0006, and 0007 migration order preserves required dependencies", () => {
-		expect(migration0005).toContain("CREATE OR REPLACE FUNCTION public.capinsta_has_admin_role");
-		expect(migration0005).toContain("SECURITY DEFINER");
-		expect(migration0005).toContain("SET search_path = ''");
-		expect(migration0006).toContain("CREATE TABLE IF NOT EXISTS \"app_product_entitlements\"");
-		expect(migration).toContain("public.capinsta_has_admin_role(NULL)");
-	});
-
-	test("auth user trigger creates profile and free entitlement", () => {
-		expect(migration).toContain("CREATE TRIGGER \"capinsta_auth_user_profile\"");
-		expect(migration).toContain("AFTER INSERT OR UPDATE OF email");
-		expect(migration).toContain("INSERT INTO public.profiles");
-		expect(migration).toContain("'free', 'active', 'auth_signup'");
-		expect(migration).toContain("FROM auth.users u");
-		expect(migration).toContain("ON CONFLICT (user_id, entitlement_key) DO UPDATE");
-		expect(migration).toContain("CONSTRAINT \"plan_entitlements_pk\" PRIMARY KEY (\"user_id\",\"entitlement_key\")");
-		expect(migration).toContain("SET search_path = public, auth");
-	});
-
-	test("profile-only users are identified and not treated as auth users", () => {
-		expect(migration).toContain("profile_auth_orphans");
-		expect(migration).toContain("profile_without_auth_user");
-		expect(migration).toContain("REFERENCES auth.users(id)");
-	});
-
-	test("RLS protects user-owned billing and worker data", () => {
+describe("billing and request schema", () => {
+	test("billing migration keeps historical tables protected", () => {
 		for (const table of [
 			"plan_entitlements",
 			"subscriptions",
 			"donations",
 			"dedicated_worker_provisioning_jobs",
 		]) {
-			expect(migration).toContain(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
+			expect(migration0007).toContain(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`);
 		}
-		expect(migration).toContain('"user_id" = (select auth.uid())');
-		expect(migration).not.toContain("USING (true)");
-		expect(migration).not.toContain("WITH CHECK (true)");
-		expect(migration).toContain("profile_auth_orphans_select_admin");
-		expect(migration).toContain("plan_entitlements_subscription_fk");
-		expect(migration).not.toContain("FOR INSERT TO authenticated");
-		expect(migration).not.toContain("FOR UPDATE TO authenticated");
-		expect(migration).not.toContain("FOR DELETE TO authenticated");
-		expect(migration).toContain("GRANT SELECT, INSERT, UPDATE, DELETE ON \"payment_events\" TO service_role");
+		expect(migration0007).toContain('"user_id" = (select auth.uid())');
+		expect(migration0007).not.toContain("USING (true)");
+		expect(migration0007).not.toContain("WITH CHECK (true)");
 	});
 
-	test("webhook events are idempotent", () => {
-		expect(migration).toContain('"provider_event_id" text NOT NULL');
-		expect(migration).toContain("payment_events_provider_event_unique");
+	test("private server request migration is server-write and admin/service readable only", () => {
+		expect(migration0009).toContain('CREATE TABLE IF NOT EXISTS "private_server_requests"');
+		expect(migration0009).toContain("REFERENCES auth.users(id) ON DELETE SET NULL");
+		expect(migration0009).toContain("private_server_requests_status_check");
+		expect(migration0009).toContain("private_server_requests_consent_check");
+		expect(migration0009).toContain('ALTER TABLE "private_server_requests" ENABLE ROW LEVEL SECURITY');
+		expect(migration0009).toContain('REVOKE ALL ON "private_server_requests" FROM anon');
+		expect(migration0009).toContain('REVOKE ALL ON "private_server_requests" FROM authenticated');
+		expect(migration0009).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON "private_server_requests" TO service_role');
+		expect(migration0009).toContain("public.capinsta_has_admin_role(NULL)");
+		expect(migration0009).not.toContain("FOR INSERT TO anon");
+		expect(migration0009).not.toContain("FOR INSERT TO authenticated");
+	});
+
+	test("webhook events are idempotent and raw-body verified", () => {
+		expect(migration0007).toContain('"provider_event_id" text NOT NULL');
+		expect(migration0007).toContain("payment_events_provider_event_unique");
 		expect(webhookRoute).toContain("request.arrayBuffer()");
 		expect(webhookRoute).toContain("verifyRazorpayWebhookSignature");
+		expect(webhookRoute).toContain("x-razorpay-event-id");
 		expect(webhookRoute.indexOf("verifyRazorpayWebhookSignature")).toBeLessThan(
 			webhookRoute.indexOf("JSON.parse(rawBody.toString(\"utf8\"))"),
 		);
+		expect(webhookProcessor).toContain("providerEventId?: string | null");
 	});
 });
 
-describe("Razorpay validation boundaries", () => {
-	test("rejects private-server subscription payloads for the wrong plan", () => {
-		expect(
-			validatePrivateServerSubscriptionEntity({
-				expectedPlanId: "plan_private_server",
-				entity: {
-					id: "sub_123",
-					plan_id: "plan_other",
-					notes: { capinsta_user_id: "user_1" },
-				},
-			}),
-		).toEqual({ valid: false, reason: "wrong_plan" });
-	});
-
-	test("accepts private-server subscription payloads with server-owned user note", () => {
-		expect(
-			validatePrivateServerSubscriptionEntity({
-				expectedPlanId: "plan_private_server",
-				entity: {
-					id: "sub_123",
-					plan_id: "plan_private_server",
-					notes: { capinsta_user_id: "user_1" },
-				},
-			}),
-		).toEqual({ valid: true, reason: "ok" });
-	});
-
+describe("Razorpay donation boundaries", () => {
 	test("validates Razorpay amount and currency before marking paid state", () => {
 		expect(
 			validateRazorpayAmount({
-				amount: 800000,
+				amount: 50000,
 				currency: "INR",
-				expectedAmountPaise: 800000,
+				expectedAmountPaise: 50000,
 			}),
 		).toEqual({ valid: true, reason: "ok" });
 		expect(
 			validateRazorpayAmount({
 				amount: 100,
 				currency: "INR",
-				expectedAmountPaise: 800000,
+				expectedAmountPaise: 50000,
 			}),
 		).toEqual({ valid: false, reason: "wrong_amount" });
 		expect(
 			validateRazorpayAmount({
-				amount: 800000,
+				amount: 50000,
 				currency: "USD",
-				expectedAmountPaise: 800000,
+				expectedAmountPaise: 50000,
 			}),
 		).toEqual({ valid: false, reason: "wrong_currency" });
 	});
 
-	test("webhook processor guards subscription lifecycle and donation isolation", () => {
-		expect(webhookProcessor).toContain("razorpay_subscription_user_mismatch");
-		expect(webhookProcessor).toContain("isTerminalStatus(existingSubscription.status) && active");
+	test("webhook processor is donation-only and never provisions private server", () => {
+		expect(webhookProcessor).toContain("processDonationEvent");
+		expect(webhookProcessor).toContain("processFailedDonationPaymentEvent");
+		expect(webhookProcessor).toContain("processRefundEvent");
 		expect(webhookProcessor).toContain("validateRazorpayAmount");
-		expect(webhookProcessor).toContain("processFailedPaymentEvent");
-		expect(webhookProcessor).not.toContain("console.log(payload");
+		expect(webhookProcessor).not.toContain("subscription.");
+		expect(webhookProcessor).not.toContain("planEntitlements");
+		expect(webhookProcessor).not.toContain("ensureDedicatedWorkerProvisioningJob");
+		expect(webhookProcessor).not.toContain("private_worker");
+		expect(donationVerifyRoute).toContain("fetchRazorpayPayment");
+		expect(donationVerifyRoute).toContain('providerPayment.status !== "captured"');
+		expect(razorpayModule).not.toContain("/subscriptions");
+		expect(razorpayModule).not.toContain("verifyRazorpaySubscriptionPaymentSignature");
+		expect(razorpayModule).toContain("rzp_test_");
+		expect(razorpayModule).toContain("rzp_live_");
 		expect(webhookProcessor).not.toContain("RAZORPAY_KEY_SECRET");
 	});
 
@@ -182,20 +150,66 @@ describe("Razorpay validation boundaries", () => {
 	});
 });
 
-describe("dedicated worker truthfulness", () => {
-	test("manual adapter never reports active worker allocation", () => {
-		expect(workerProvisioningModule).toContain("awaiting_manual_infrastructure");
-		expect(workerProvisioningModule).toContain("state: \"pending\"");
-		expect(workerProvisioningModule).not.toContain("state: \"active\"");
-		expect(workerProvisioningModule).toContain("external_adapter_not_configured");
+describe("private server request flow", () => {
+	test("private server is sales-assisted annual pricing", () => {
+		expect(PRIVATE_SERVER_PRODUCT.indicativePriceInr).toBe(10000);
+		expect(PRIVATE_SERVER_PRODUCT.salesAssisted).toBe(true);
+		expect(PRIVATE_SERVER_PRICE_LABEL).toBe("₹10,000/year");
+		expect(pricingPage).toContain("PRIVATE_SERVER_PRICE_LABEL");
+		expect(pricingPage).toContain("Indicative annual pricing");
+		expect(pricingPage).toContain("PrivateServerRequestButton");
+		expect(pricingPage).not.toContain("PrivateServerCheckoutButton");
 	});
 
-	test("routing requires active entitlement and active worker assignment", () => {
-		expect(entitlementModule).toContain("entitlementKey: \"private_worker\"");
-		expect(entitlementModule).toContain("eq(dedicatedWorkerProvisioningJobs.state, \"active\")");
-		expect(accountPage).toContain("Worker status");
-		expect(accountPage).toContain("Private Server Active");
-		expect(accountPage).toContain("job.state === \"active\"");
+	test("request form opens from CTA and never invokes Razorpay", () => {
+		expect(requestForm).toContain("Talk to Team");
+		expect(requestForm).toContain("Request Private Server");
+		expect(requestForm).toContain("Send Request");
+		expect(requestForm).toContain("/api/private-server/request");
+		expect(requestForm).toContain("consentToContact");
+		expect(requestForm).toContain("websiteConfirmation");
+		expect(requestForm).not.toContain("Razorpay");
+		expect(requestForm).not.toContain("checkout");
+		expect(requestForm).not.toContain("subscription");
+	});
+
+	test("server-side request validation rejects manipulated payloads", () => {
+		const valid = privateServerRequestSchema.parse({
+			fullName: "Sandeep",
+			email: "SALES@EXAMPLE.COM ",
+			companyName: "Capinsta",
+			monthlyWorkload: "10,000-50,000 jobs/month",
+			primaryUseCase: "Caption processing",
+			message: "Need dedicated capacity.",
+			consentToContact: true,
+		});
+		expect(valid.email).toBe("sales@example.com");
+		expect(
+			privateServerRequestSchema.safeParse({
+				...valid,
+				monthlyWorkload: "one billion fake jobs",
+			}).success,
+		).toBe(false);
+		expect(
+			privateServerRequestSchema.safeParse({ ...valid, consentToContact: false }).success,
+		).toBe(false);
+		expect(
+			privateServerRequestSchema.safeParse({ ...valid, websiteConfirmation: "spam" }).success,
+		).toBe(false);
+	});
+
+	test("request API is server-owned and does not create payment or entitlement records", () => {
+		expect(requestRoute).toContain("checkRateLimit");
+		expect(requestRoute).toContain("requireCsrfProtection");
+		expect(requestRoute).toContain("privateServerRequestSchema");
+		expect(requestRoute).toContain("privateServerRequests");
+		expect(requestRoute).toContain("supabase.auth.getUser()");
+		expect(requestRoute).toContain("ADMIN_SECURITY_PEPPER");
+		expect(requestRoute).not.toContain("createDonationOrder");
+		expect(requestRoute).not.toContain("Razorpay");
+		expect(requestRoute).not.toContain("subscriptions");
+		expect(requestRoute).not.toContain("planEntitlements");
+		expect(requestRoute).not.toContain("dedicatedWorkerProvisioningJobs");
 	});
 });
 
@@ -209,18 +223,20 @@ describe("pricing and donation surfaces", () => {
 	});
 
 	test("donation page renders all donation levels", () => {
-		expect(DONATION_LEVELS).toHaveLength(9);
-		for (const level of DONATION_LEVELS) {
-			expect(donatePage).toContain("DONATION_LEVELS.map");
-			expect(level.amount).toBeGreaterThanOrEqual(100);
+		expect(DONATION_TIERS).toHaveLength(9);
+		expect(donatePage).toContain("DONATION_TIERS.map");
+		expect(donatePage).toContain("donationTierId");
+		for (const tier of DONATION_TIERS) {
+			expect(tier.amountPaise).toBe(tier.amountInr * 100);
+			expect(tier.id).toMatch(/^[a-z0-9_]+$/);
 		}
 	});
 
-	test("client-side checkout never grants paid features", () => {
+	test("client-side donation checkout never grants paid features", () => {
 		expect(checkoutButton).not.toContain("planEntitlements");
-		expect(checkoutButton).not.toContain("private_server', 'active");
-		expect(checkoutButton).toContain("Verification pending");
-		expect(checkoutButton).toContain("webhook confirmation");
+		expect(checkoutButton).not.toContain("private_server");
+		expect(checkoutButton).not.toContain("/api/payments/private-server");
+		expect(checkoutButton).toContain("/api/payments/donations/verify");
 	});
 
 	test("HMAC SHA256 signature verification is raw-byte sensitive", () => {

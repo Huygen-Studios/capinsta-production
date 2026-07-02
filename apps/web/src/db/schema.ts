@@ -308,6 +308,9 @@ export const subscriptions = pgTable(
 			table.status,
 			table.updatedAt,
 		),
+		uniqueIndex("subscriptions_one_open_private_server_idx")
+			.on(table.userId, table.planKey)
+			.where(sql`${table.status} in ('authorization_pending','authenticated','active','pending','provisioning_pending','provisioning')`),
 	],
 );
 
@@ -365,6 +368,55 @@ export const donations = pgTable(
 	(table) => [
 		index("donations_user_created_idx").on(table.userId, table.createdAt),
 		index("donations_status_created_idx").on(table.status, table.createdAt),
+	],
+);
+
+export const privateServerRequests = pgTable(
+	"private_server_requests",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		status: text("status").default("new").notNull(),
+		fullName: text("full_name").notNull(),
+		email: text("email").notNull(),
+		companyName: text("company_name").notNull(),
+		phone: text("phone"),
+		website: text("website"),
+		teamSize: text("team_size"),
+		monthlyWorkload: text("monthly_workload").notNull(),
+		primaryUseCase: text("primary_use_case").notNull(),
+		currentPlanOrUsage: text("current_plan_or_usage"),
+		preferredContactMethod: text("preferred_contact_method"),
+		preferredContactTime: text("preferred_contact_time"),
+		technicalRequirements: text("technical_requirements"),
+		message: text("message").notNull(),
+		consentToContact: boolean("consent_to_contact").notNull(),
+		submittedFromUrl: text("submitted_from_url"),
+		userId: uuid("user_id"),
+		ipHash: text("ip_hash"),
+		userAgent: text("user_agent"),
+		internalNotes: text("internal_notes"),
+		contactedAt: timestamp("contacted_at", { withTimezone: true }),
+		closedAt: timestamp("closed_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("private_server_requests_status_created_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		index("private_server_requests_email_created_idx").on(
+			table.email,
+			table.createdAt,
+		),
+		index("private_server_requests_user_created_idx").on(
+			table.userId,
+			table.createdAt,
+		),
 	],
 );
 

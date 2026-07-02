@@ -7,6 +7,7 @@ import { processRazorpayWebhook } from "@/billing/webhook";
 export async function POST(request: NextRequest) {
 	const rawBody = Buffer.from(await request.arrayBuffer());
 	const signature = request.headers.get("x-razorpay-signature");
+	const providerEventId = request.headers.get("x-razorpay-event-id");
 	let valid = false;
 	try {
 		valid = verifyRazorpayWebhookSignature({ rawBody, signature });
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
 		return NextResponse.json({ error: "Malformed payload" }, { status: 400 });
 	}
 	try {
-		await processRazorpayWebhook(payload);
+		await processRazorpayWebhook({ rawPayload: payload, providerEventId });
 	} catch (error) {
 		console.error("razorpay_webhook_processing_failed", {
 			error: error instanceof Error ? error.message.slice(0, 200) : "unknown",

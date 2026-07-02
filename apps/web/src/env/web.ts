@@ -36,7 +36,12 @@ const webEnvSchema = z.object({
 	RAZORPAY_KEY_ID: z.string().min(1).optional(),
 	RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
 	RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
-	RAZORPAY_PRIVATE_SERVER_PLAN_ID: z.string().min(1).optional(),
+	RAZORPAY_WEBHOOK_PREVIOUS_SECRET: z.string().min(1).optional(),
+	PAYMENT_ENVIRONMENT: z.enum(["test", "live"]).default("test"),
+	PAYMENTS_ENABLED: z.enum(["true", "false"]).default("false"),
+	APP_URL: z.url().optional(),
+	PAYMENT_SUPPORT_EMAIL: z.email().optional(),
+	DONATION_RECEIPTS_ENABLED: z.enum(["true", "false"]).default("true"),
 	DEDICATED_WORKER_PROVISIONING_ADAPTER: z
 		.enum(["manual", "external"])
 		.default("manual"),

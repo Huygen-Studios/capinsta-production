@@ -52,21 +52,10 @@ export default async function AccountPage() {
 						</div>
 					</div>
 					<div className="mt-6 space-y-3">
-						{billing.subscriptions.length ? (
-							billing.subscriptions.map((subscription) => (
-								<div
-									key={subscription.id}
-									className="rounded-sm border-2 border-border bg-background p-4 text-sm"
-								>
-									<p className="font-bold">Razorpay subscription</p>
-									<p className="text-muted-foreground">
-										{subscription.providerSubscriptionId} - {statusLabel(subscription.status)}
-									</p>
-								</div>
-							))
-						) : (
-							<p className="text-sm text-muted-foreground">No paid subscription is active.</p>
-						)}
+						<p className="text-sm text-muted-foreground">
+							Private Server access is reviewed and enabled by the Capinsta team after a
+							request is approved. Online subscription checkout is not available.
+						</p>
 					</div>
 					<Link
 						href="/pricing"

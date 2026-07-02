@@ -66,19 +66,45 @@ export async function ensureDedicatedWorkerProvisioningJob({
 	subscriptionId: string;
 }) {
 	const adapter = getDedicatedWorkerProvisioningAdapter();
-	const provision = await adapter.requestProvisioning({ userId, subscriptionId });
-	await db
+	const [existingOpenJob] = await db
+		.select()
+		.from(dedicatedWorkerProvisioningJobs)
+		.where(
+			and(
+				eq(dedicatedWorkerProvisioningJobs.userId, userId),
+				inArray(dedicatedWorkerProvisioningJobs.state, [
+					"pending",
+					"provisioning",
+					"active",
+				]),
+			),
+		)
+		.limit(1);
+	if (existingOpenJob) return;
+	const [job] = await db
 		.insert(dedicatedWorkerProvisioningJobs)
 		.values({
 			userId,
 			subscriptionId,
+			state: "pending",
+			adapter: adapter.name,
+			workerAssignment: { status: "provisioning_requested" },
+			updatedAt: new Date(),
+		})
+		.onConflictDoNothing()
+		.returning();
+	if (!job) return;
+	const provision = await adapter.requestProvisioning({ userId, subscriptionId });
+	await db
+		.update(dedicatedWorkerProvisioningJobs)
+		.set({
 			state: provision.state,
 			adapter: adapter.name,
 			workerAssignment: provision.workerAssignment,
 			lastError: provision.lastError ?? null,
 			updatedAt: new Date(),
 		})
-		.onConflictDoNothing();
+		.where(eq(dedicatedWorkerProvisioningJobs.id, job.id));
 }
 
 export const ensureManualProvisioningJob = ensureDedicatedWorkerProvisioningJob;

@@ -4,14 +4,15 @@ import { eq } from "drizzle-orm";
 import { requireCsrfProtection } from "@/auth/csrf";
 import { checkRateLimit } from "@/auth/rate-limit";
 import { createDonationOrder, razorpayPublicConfig } from "@/billing/razorpay";
-import { DONATION_LEVELS, isDonationAmount } from "@/billing/plans";
+import { findDonationTier, findDonationTierByAmount } from "@/billing/plans";
 import { sanitizeDonationText } from "@/billing/razorpay-validation";
 import { db } from "@/db";
 import { donations } from "@/db/schema";
 import { createClient } from "@/lib/supabase/server";
 
 const donationSchema = z.object({
-	amountInr: z.number().int().refine(isDonationAmount, "Unsupported donation amount"),
+	donationTierId: z.string().trim().min(1).max(80).optional(),
+	amountInr: z.number().int().optional(),
 	donorName: z.string().trim().max(80).optional(),
 	donorMessage: z.string().trim().max(240).optional(),
 	anonymous: z.boolean().default(false),
@@ -28,7 +29,24 @@ export async function POST(request: NextRequest) {
 	const result = donationSchema.safeParse(body);
 	if (!result.success) {
 		return NextResponse.json(
-			{ error: "Invalid donation request", details: result.error.flatten().fieldErrors },
+			{ error: "Please select a valid donation amount.", details: result.error.flatten().fieldErrors },
+			{ status: 400 },
+		);
+	}
+	const tier = result.data.donationTierId
+		? findDonationTier(result.data.donationTierId)
+		: typeof result.data.amountInr === "number"
+			? findDonationTierByAmount(result.data.amountInr)
+			: null;
+	if (!tier) {
+		return NextResponse.json(
+			{ error: "Please select a valid donation amount." },
+			{ status: 400 },
+		);
+	}
+	if (!result.data.anonymous && !result.data.donorName?.trim()) {
+		return NextResponse.json(
+			{ error: "Enter a donor name or choose Donate anonymously." },
 			{ status: 400 },
 		);
 	}
@@ -50,7 +68,7 @@ export async function POST(request: NextRequest) {
 			.insert(donations)
 			.values({
 				userId: user?.id ?? null,
-				amountInr: result.data.amountInr,
+				amountInr: tier.amountInr,
 				donorName,
 				donorMessage,
 				anonymous: result.data.anonymous,
@@ -58,12 +76,13 @@ export async function POST(request: NextRequest) {
 			})
 			.returning();
 		const order = await createDonationOrder({
-			amountInr: result.data.amountInr,
+			amountPaise: tier.amountPaise,
 			receipt: donation.id,
 			notes: {
-				capinsta_donation_id: donation.id,
-				amount_label:
-					DONATION_LEVELS.find((level) => level.amount === result.data.amountInr)?.label ?? "Donation",
+				internal_donation_id: donation.id,
+				donation_tier_id: tier.id,
+				payment_type: "donation",
+				environment: process.env.PAYMENT_ENVIRONMENT ?? "test",
 			},
 		});
 		await db
@@ -78,13 +97,16 @@ export async function POST(request: NextRequest) {
 			amount: order.amount,
 			currency: order.currency,
 			donationId: donation.id,
+			tierLabel: tier.label,
+			checkoutName: "Capinsta",
+			checkoutDescription: `Donation: ${tier.label} ${tier.title}`,
 		});
 	} catch (error) {
 		console.error("donation_checkout_failed", {
 			error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
 		});
 		return NextResponse.json(
-			{ error: "Donation checkout is unavailable. Please try again later." },
+			{ error: "Payments are temporarily unavailable. Please try again later." },
 			{ status: 503 },
 		);
 	}

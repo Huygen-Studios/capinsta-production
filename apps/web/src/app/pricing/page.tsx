@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
-import { PrivateServerCheckoutButton } from "@/components/billing/razorpay-checkout-button";
+import { Header } from "@/components/header";
+import { PrivateServerRequestButton } from "@/components/billing/private-server-request-form";
+import { PRIVATE_SERVER_PRICE_LABEL } from "@/private-server/request";
 
 export const metadata: Metadata = {
 	title: "Pricing - Capinsta",
-	description: "Choose Free captions or upgrade to a dedicated Private Server for heavy caption and export work.",
+	description:
+		"Choose Free captions or request a dedicated Private Server for heavy caption and export work.",
 };
 
 const cardClass =
@@ -20,7 +22,7 @@ export default function PricingPage() {
 				<div className="max-w-3xl">
 					<h1 className="text-4xl font-black tracking-tight sm:text-5xl">Pricing</h1>
 					<p className="mt-4 text-base leading-7 text-muted-foreground">
-						Start free on shared servers. Upgrade only when your caption and export
+						Start free on shared servers. Talk to our team when your caption and export
 						workloads need dedicated capacity.
 					</p>
 				</div>
@@ -30,7 +32,9 @@ export default function PricingPage() {
 							<div className="flex items-start justify-between gap-4">
 								<div>
 									<h2 className="text-2xl font-black">Free</h2>
-									<p className="mt-2 text-sm text-muted-foreground">For everyday caption editing.</p>
+									<p className="mt-2 text-sm text-muted-foreground">
+										For everyday caption editing.
+									</p>
 								</div>
 								<p className="text-3xl font-black">₹0</p>
 							</div>
@@ -53,10 +57,16 @@ export default function PricingPage() {
 							<div className="flex items-start justify-between gap-4">
 								<div>
 									<h2 className="text-2xl font-black">Private Server</h2>
-									<p className="mt-2 text-sm text-muted-foreground">For serious production workloads.</p>
+									<p className="mt-2 text-sm text-muted-foreground">
+										For serious production workloads.
+									</p>
 								</div>
-								<p className="text-3xl font-black">₹8,000/month</p>
+								<p className="text-3xl font-black">{PRIVATE_SERVER_PRICE_LABEL}</p>
 							</div>
+							<p className="mt-4 text-sm leading-6 text-muted-foreground">
+								Indicative annual pricing. Talk to our team to confirm workload requirements,
+								availability, and onboarding.
+							</p>
 							<ul className="mt-6 space-y-3 text-sm leading-6">
 								<li>No ads</li>
 								<li>Dedicated processing server</li>
@@ -66,7 +76,7 @@ export default function PricingPage() {
 							</ul>
 						</div>
 						<div className="mt-8">
-							<PrivateServerCheckoutButton />
+							<PrivateServerRequestButton />
 						</div>
 					</article>
 				</section>
