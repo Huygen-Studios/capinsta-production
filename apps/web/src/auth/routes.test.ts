@@ -62,6 +62,11 @@ async function callbackGET(request: Request) {
 	return route.GET(request);
 }
 
+async function resolveGET(request: Request) {
+	const route = await import("../app/auth/resolve/route");
+	return route.GET(request);
+}
+
 describe("authentication route policy", () => {
 	test("protects projects and all editor routes", () => {
 		expect(isProtectedPath("/projects")).toBe(true);
@@ -304,6 +309,22 @@ describe("auth callback GET handler and public origin resolution", () => {
 
 			const response = await callbackGET(request);
 			expect(response.headers.get("Location")).toBe("http://localhost:3000/projects");
+		} finally {
+			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+		}
+	});
+
+	test("auth resolve uses NEXT_PUBLIC_SITE_URL instead of internal 0.0.0.0 origin", async () => {
+		const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+		process.env.NEXT_PUBLIC_SITE_URL = "https://capinsta.huygenstudios.com";
+		try {
+			const response = await resolveGET(
+				new Request("https://0.0.0.0:3000/auth/resolve?next=%2F"),
+			);
+			expect(response.status).toBe(307);
+			expect(response.headers.get("Location")).toBe(
+				"https://capinsta.huygenstudios.com/",
+			);
 		} finally {
 			process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
 		}

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { resolvePostAuthDestination } from "@/access/server";
 import { authRequestId, logAuthFailure } from "@/auth/diagnostics";
 import { isSafeInternalPath } from "@/auth/routes";
+import { getTrustedPublicOrigin } from "@/auth/trusted-origin";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
 	const url = new URL(request.url);
 	const next = isSafeInternalPath(url.searchParams.get("next"));
+	const publicOrigin = getTrustedPublicOrigin(request);
 	const requestId = authRequestId(request);
 	try {
 		const supabase = await createClient();
@@ -14,10 +16,10 @@ export async function GET(request: Request) {
 			data: { user },
 			error,
 		} = await supabase.auth.getUser();
-		if (error || !user) return NextResponse.redirect(new URL("/sign-in", url.origin));
+		if (error || !user) return NextResponse.redirect(new URL("/sign-in", publicOrigin));
 		try {
 			return NextResponse.redirect(
-				new URL(await resolvePostAuthDestination(user.id, next), url.origin),
+				new URL(await resolvePostAuthDestination(user.id, next), publicOrigin),
 			);
 		} catch (error) {
 			logAuthFailure({
@@ -29,7 +31,7 @@ export async function GET(request: Request) {
 				userId: user.id,
 				error,
 			});
-			return NextResponse.redirect(new URL("/access-pending", url.origin));
+			return NextResponse.redirect(new URL("/access-pending", publicOrigin));
 		}
 	} catch (error) {
 		logAuthFailure({
@@ -40,6 +42,6 @@ export async function GET(request: Request) {
 			provider: "supabase",
 			error,
 		});
-		return NextResponse.redirect(new URL("/sign-in?error=callback", url.origin));
+		return NextResponse.redirect(new URL("/sign-in?error=callback", publicOrigin));
 	}
 }
