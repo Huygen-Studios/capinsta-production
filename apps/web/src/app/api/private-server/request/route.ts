@@ -7,6 +7,7 @@ import { privateServerRequests } from "@/db/schema";
 import { webEnv } from "@/env/web";
 import { createClient } from "@/lib/supabase/server";
 import { privateServerRequestSchema } from "@/private-server/request";
+import { recordProductEvent } from "@/product-events/ledger";
 
 function firstForwardedIp({ request }: { request: NextRequest }) {
 	return (
@@ -77,6 +78,22 @@ export async function POST(request: NextRequest) {
 				userAgent: request.headers.get("user-agent")?.slice(0, 1000) ?? null,
 			})
 			.returning({ id: privateServerRequests.id });
+
+		void recordProductEvent({
+			eventName: "private_server_request_submitted",
+			eventKey: `private_server_request_submitted:${entry.id}`,
+			userId: user?.id ?? null,
+			metadata: {
+				requestId: entry.id,
+				hasAuthenticatedUser: Boolean(user?.id),
+				source: "private_server_requests",
+			},
+		}).catch((error) => {
+			console.error("product_event_record_failed", {
+				eventName: "private_server_request_submitted",
+				errorName: error instanceof Error ? error.name : "UnknownError",
+			});
+		});
 
 		return NextResponse.json(
 			{

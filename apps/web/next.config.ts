@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { withBotId } from "botid/next/config";
 import { withContentCollections } from "@content-collections/next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const appDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = dirname(dirname(appDir));
@@ -108,4 +109,19 @@ const nextConfig: NextConfig = {
 	},
 };
 
-export default withContentCollections(withBotId(nextConfig));
+const composedConfig = withContentCollections(withBotId(nextConfig));
+
+export default withSentryConfig(composedConfig, {
+	org: "huygen-studios",
+	project: "javascript-nextjs",
+	telemetry: false,
+	silent: true,
+	sourcemaps: {
+		disable: process.env.SENTRY_AUTH_TOKEN ? false : true,
+	},
+	webpack: {
+		treeshake: {
+			removeDebugLogging: true,
+		},
+	},
+});

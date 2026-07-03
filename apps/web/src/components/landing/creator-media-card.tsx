@@ -1,4 +1,8 @@
+"use client";
+
 import Image from "next/image";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Skeleton from "react-loading-skeleton";
 import { cn } from "@/utils/ui";
 
 export interface MarketingMediaDefinition {
@@ -17,6 +21,99 @@ const aspectClasses = {
 	"1/1": "aspect-square",
 };
 
+const SKELETON_BASE_COLOR = "#161616";
+const SKELETON_HIGHLIGHT_COLOR = "#242424";
+
+type MediaStatus = "loading" | "ready" | "error";
+
+function VideoPreview({
+	webm,
+	mp4,
+	alt,
+}: {
+	webm?: string;
+	mp4?: string;
+	alt: string;
+}) {
+	const videoRef = useRef<HTMLVideoElement | null>(null);
+	const [mediaStatus, setMediaStatus] = useState<MediaStatus>("loading");
+	const isVideoReady = mediaStatus === "ready";
+	const isVideoFailed = mediaStatus === "error";
+
+	const handleVideoRef = useCallback((node: HTMLVideoElement | null) => {
+		videoRef.current = node;
+		if (node && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+			setMediaStatus("ready");
+		}
+	}, []);
+
+	const handleLoadedData = () => {
+		setMediaStatus("ready");
+	};
+
+	const handleVideoError = () => {
+		setMediaStatus("error");
+	};
+
+	useEffect(() => {
+		if (mediaStatus !== "loading") return;
+		const fallbackErrorTimeout = window.setTimeout(() => {
+			setMediaStatus((currentStatus) =>
+				currentStatus === "loading" ? "error" : currentStatus,
+			);
+		}, 8000);
+
+		return () => {
+			window.clearTimeout(fallbackErrorTimeout);
+		};
+	}, [mediaStatus]);
+
+	return (
+		<>
+			<video
+				ref={handleVideoRef}
+				className={cn(
+					"h-full w-full object-cover transition-opacity duration-200 motion-reduce:transition-none",
+					isVideoReady ? "opacity-100" : "opacity-0",
+				)}
+				autoPlay
+				muted
+				playsInline
+				loop
+				preload="metadata"
+				aria-label={alt}
+				onLoadedData={handleLoadedData}
+				onError={handleVideoError}
+			>
+				{webm && <source src={webm} type="video/webm" onError={handleVideoError} />}
+				{mp4 && <source src={mp4} type="video/mp4" onError={handleVideoError} />}
+			</video>
+			{mediaStatus === "loading" ? (
+				<div
+					className="pointer-events-none absolute inset-0 overflow-hidden bg-[#161616]"
+					aria-hidden="true"
+				>
+					<Skeleton
+						width="100%"
+						height="100%"
+						baseColor={SKELETON_BASE_COLOR}
+						highlightColor={SKELETON_HIGHLIGHT_COLOR}
+						borderRadius={0}
+						containerClassName="block h-full w-full leading-none"
+						className="block h-full w-full"
+					/>
+				</div>
+			) : null}
+			{isVideoFailed ? (
+				<div
+					className="pointer-events-none absolute inset-0 bg-[#151515] [background-image:linear-gradient(135deg,rgba(255,255,255,0.04)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.04)_50%,rgba(255,255,255,0.04)_75%,transparent_75%,transparent)] [background-size:18px_18px]"
+					aria-hidden="true"
+				/>
+			) : null}
+		</>
+	);
+}
+
 export function CreatorMediaCard({
 	media,
 	className,
@@ -26,6 +123,9 @@ export function CreatorMediaCard({
 	className?: string;
 	priority?: boolean;
 }) {
+	const sourceKey = `${media.webm ?? ""}|${media.mp4 ?? ""}`;
+	const hasVideo = Boolean(media.webm || media.mp4);
+
 	return (
 		<figure
 			className={cn(
@@ -34,20 +134,13 @@ export function CreatorMediaCard({
 			)}
 		>
 			<div className={cn("relative overflow-hidden bg-background", aspectClasses[media.aspectRatio])}>
-				{media.webm || media.mp4 ? (
-					<video
-						className="h-full w-full object-cover"
-						poster={media.poster}
-						autoPlay
-						muted
-						playsInline
-						loop
-						preload="metadata"
-						aria-label={media.alt}
-					>
-						{media.webm && <source src={media.webm} type="video/webm" />}
-						{media.mp4 && <source src={media.mp4} type="video/mp4" />}
-					</video>
+				{hasVideo ? (
+					<VideoPreview
+						key={sourceKey}
+						webm={media.webm}
+						mp4={media.mp4}
+						alt={media.alt}
+					/>
 				) : (
 					<Image
 						src={media.poster}

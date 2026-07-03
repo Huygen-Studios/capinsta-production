@@ -1,6 +1,7 @@
 import { ThemeProvider } from "next-themes";
 import Script from "next/script";
 import type { Viewport } from "next";
+import "react-loading-skeleton/dist/skeleton.css";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
@@ -11,6 +12,7 @@ import { DevToolsLoader } from "./dev-tools-loader";
 import { RouteCookieConsent } from "@/components/route-cookie-consent";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
 import { GoogleAnalyticsProvider } from "@/components/analytics/google-analytics-provider";
+import { PostHogProvider } from "@/components/analytics/posthog-provider";
 
 const siteFont = Inter({
 	subsets: ["latin"],
@@ -32,6 +34,7 @@ export default function RootLayout({
 				className={`${siteFont.variable} font-sans antialiased`}
 			>
 				<GoogleAnalyticsProvider />
+				<PostHogProvider />
 				<ThemeProvider
 					attribute="class"
 					defaultTheme="system"

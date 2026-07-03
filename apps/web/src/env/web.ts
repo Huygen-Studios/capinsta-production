@@ -12,6 +12,10 @@ const webEnvSchema = z.object({
 	NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
 	NEXT_PUBLIC_MARBLE_API_URL: z.url(),
 	NEXT_PUBLIC_GA_MEASUREMENT_ID: z.string().optional(),
+	NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: z.string().optional(),
+	NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
+	NEXT_PUBLIC_POSTHOG_HOST: z.url().optional(),
+	NEXT_PUBLIC_SENTRY_DSN: z.url().optional(),
 	NEXT_PUBLIC_ENABLE_GOOGLE_OAUTH: z.enum(["true", "false"]).default("true"),
 
 	// Server
@@ -47,6 +51,7 @@ const webEnvSchema = z.object({
 		.default("manual"),
 	DEDICATED_WORKER_PROVISIONING_ENDPOINT: z.url().optional(),
 	DEDICATED_WORKER_PROVISIONING_TOKEN: z.string().min(1).optional(),
+	SENTRY_DSN: z.url().optional(),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

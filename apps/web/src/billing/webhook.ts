@@ -3,6 +3,7 @@ import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { donations, paymentEvents } from "@/db/schema";
+import { recordProductEvent } from "@/product-events/ledger";
 import { validateRazorpayAmount } from "./razorpay-validation";
 
 type RazorpayPayload = {
@@ -120,6 +121,7 @@ async function processDonationEvent({ payload }: { payload: RazorpayPayload }) {
 	const [donation] = await db
 		.select({
 			id: donations.id,
+			userId: donations.userId,
 			amountInr: donations.amountInr,
 			currency: donations.currency,
 			status: donations.status,
@@ -155,6 +157,16 @@ async function processDonationEvent({ payload }: { payload: RazorpayPayload }) {
 			updatedAt: new Date(),
 		})
 		.where(eq(donations.id, donation.id));
+	await recordDonationProductEvent({
+		eventName: "donation_completed",
+		donationId: donation.id,
+		userId: donation.userId,
+		metadata: {
+			amountInr: donation.amountInr,
+			currency: donation.currency,
+			source: "razorpay_webhook",
+		},
+	});
 }
 
 async function processFailedDonationPaymentEvent({
@@ -165,20 +177,75 @@ async function processFailedDonationPaymentEvent({
 	const payment = asRecord(payload.payload?.payment?.entity);
 	const providerOrderId = stringValue({ value: payment.order_id });
 	if (!providerOrderId) return;
+	const [donation] = await db
+		.select({ id: donations.id, userId: donations.userId })
+		.from(donations)
+		.where(eq(donations.providerOrderId, providerOrderId))
+		.limit(1);
 	await db
 		.update(donations)
 		.set({ status: "failed", updatedAt: new Date() })
 		.where(
 			sql`${donations.providerOrderId} = ${providerOrderId} and ${donations.status} not in ('paid','refunded')`,
 		);
+	if (donation) {
+		await recordDonationProductEvent({
+			eventName: "donation_failed",
+			donationId: donation.id,
+			userId: donation.userId,
+			metadata: { source: "razorpay_webhook" },
+		});
+	}
 }
 
 async function processRefundEvent({ payload }: { payload: RazorpayPayload }) {
 	const payment = asRecord(payload.payload?.payment?.entity);
 	const providerPaymentId = stringValue({ value: payment.id });
 	if (!providerPaymentId) return;
+	const [donation] = await db
+		.select({ id: donations.id, userId: donations.userId })
+		.from(donations)
+		.where(eq(donations.providerPaymentId, providerPaymentId))
+		.limit(1);
 	await db
 		.update(donations)
 		.set({ status: "refunded", updatedAt: new Date() })
 		.where(eq(donations.providerPaymentId, providerPaymentId));
+	if (donation) {
+		await recordDonationProductEvent({
+			eventName: "donation_refunded",
+			donationId: donation.id,
+			userId: donation.userId,
+			metadata: { source: "razorpay_webhook" },
+		});
+	}
+}
+
+async function recordDonationProductEvent({
+	eventName,
+	donationId,
+	userId,
+	metadata,
+}: {
+	eventName: "donation_completed" | "donation_failed" | "donation_refunded";
+	donationId: string;
+	userId: string | null;
+	metadata: Record<string, unknown>;
+}) {
+	try {
+		await recordProductEvent({
+			eventName,
+			eventKey: `${eventName}:${donationId}`,
+			userId,
+			metadata: {
+				...metadata,
+				donationId,
+			},
+		});
+	} catch (error) {
+		console.error("product_event_record_failed", {
+			eventName,
+			errorName: error instanceof Error ? error.name : "UnknownError",
+		});
+	}
 }

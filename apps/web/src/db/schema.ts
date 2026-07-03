@@ -455,6 +455,37 @@ export const dedicatedWorkerProvisioningJobs = pgTable(
 	],
 );
 
+export const productEvents = pgTable(
+	"product_events",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		eventName: text("event_name").notNull(),
+		occurredAt: timestamp("occurred_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		userId: uuid("user_id"),
+		projectId: text("project_id"),
+		mediaAssetId: text("media_asset_id"),
+		captionJobId: text("caption_job_id"),
+		exportJobId: text("export_job_id"),
+		environment: text("environment").default("production").notNull(),
+		eventKey: text("event_key").notNull().unique(),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("product_events_name_occurred_idx").on(
+			table.eventName,
+			table.occurredAt,
+		),
+		index("product_events_user_occurred_idx").on(table.userId, table.occurredAt),
+		index("product_events_caption_job_idx").on(table.captionJobId),
+		index("product_events_export_job_idx").on(table.exportJobId),
+	],
+);
+
 export const adminRoles = pgTable("admin_roles", {
 	id: uuid("id").defaultRandom().primaryKey(),
 	key: text("key").notNull().unique(),

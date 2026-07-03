@@ -12,6 +12,7 @@ import Link from "next/link";
 import { requireAdminSession } from "@/admin/auth";
 import { getOverviewData } from "@/admin/data";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { AdminMetricsPanel } from "@/components/admin/admin-metrics-panel";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -97,6 +98,7 @@ export default async function OverviewPage() {
         title="Operational overview"
         description="Real account, job, storage, support, provider, and security signals from the Capinsta control plane."
       />
+      <AdminMetricsPanel />
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           {
