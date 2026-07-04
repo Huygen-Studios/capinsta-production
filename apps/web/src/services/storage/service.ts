@@ -367,6 +367,8 @@ class StorageService {
 			ephemeral: mediaAsset.ephemeral,
 			serverAssetId: mediaAsset.serverAssetId,
 			serverDownloadUrl: mediaAsset.serverDownloadUrl,
+			syncStatus: mediaAsset.syncStatus,
+			syncError: mediaAsset.syncError,
 		};
 
 		try {
@@ -484,6 +486,9 @@ class StorageService {
 			ephemeral: metadata.ephemeral,
 			serverAssetId: metadata.serverAssetId,
 			serverDownloadUrl: metadata.serverDownloadUrl,
+			syncStatus:
+				metadata.syncStatus ?? (metadata.serverAssetId ? "synced" : "local"),
+			syncError: metadata.syncError,
 		};
 	}
 
@@ -583,7 +588,9 @@ class StorageService {
 							projectId,
 							assetId,
 							message:
-								error instanceof Error ? error.message : "Unable to read browser media store.",
+								error instanceof Error
+									? error.message
+									: "Unable to read browser media store.",
 						});
 					}
 				}
@@ -614,7 +621,9 @@ class StorageService {
 							projectId,
 							assetId,
 							message:
-								error instanceof Error ? error.message : "Unable to remove browser media duplicate.",
+								error instanceof Error
+									? error.message
+									: "Unable to remove browser media duplicate.",
 						});
 					}
 				}

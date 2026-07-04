@@ -8,7 +8,6 @@ import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
 import {
 	deleteProjectMediaAsset,
-	MediaUploadError,
 	uploadProjectMediaAsset,
 } from "@/capinsta/mediaAssetApi";
 
@@ -28,7 +27,9 @@ export class MediaManager {
 	}): Promise<MediaAsset | null> {
 		let uploadedAssetId: string | undefined;
 		let uploadedDownloadUrl: string | undefined;
-		let syncStatus: MediaAsset["syncStatus"] = asset.ephemeral ? "local" : "synced";
+		let syncStatus: MediaAsset["syncStatus"] = asset.ephemeral
+			? "local"
+			: "synced";
 		let syncError: string | undefined;
 		if (!asset.ephemeral) {
 			try {
@@ -39,22 +40,15 @@ export class MediaManager {
 				uploadedAssetId = uploaded.assetId;
 				uploadedDownloadUrl = uploaded.downloadUrl;
 			} catch (error) {
-				syncStatus = "failed";
+				syncStatus = "local";
 				syncError =
 					error instanceof Error
 						? error.message
 						: "The upload was interrupted. You can retry the import.";
-				toast.error("Could not upload media", {
-					description: syncError,
-					action:
-						error instanceof MediaUploadError && error.correlationId
-							? {
-									label: "Copy ID",
-									onClick: () => {
-										void navigator.clipboard.writeText(error.correlationId ?? "");
-									},
-								}
-							: undefined,
+				console.warn("Media imported locally without backend sync:", error);
+				toast.warning("Media imported locally", {
+					description:
+						"Upload sync is unavailable right now, but the file is ready to edit in this project.",
 				});
 			}
 		}
@@ -78,10 +72,7 @@ export class MediaManager {
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
-			if (
-				uploadedAssetId &&
-				storageService.isQuotaExceededError({ error })
-			) {
+			if (uploadedAssetId && storageService.isQuotaExceededError({ error })) {
 				toast.warning("Media uploaded; local autosave is unavailable", {
 					description:
 						"You can keep editing in this session. Free browser storage before reloading the project.",
@@ -103,7 +94,10 @@ export class MediaManager {
 				});
 			} else {
 				toast.error("Failed to save media", {
-					description: error instanceof Error ? error.message : "Browser storage unavailable",
+					description:
+						error instanceof Error
+							? error.message
+							: "Browser storage unavailable",
 				});
 			}
 
@@ -134,11 +128,12 @@ export class MediaManager {
 						assetId: uniqueIds[0],
 					})
 				: new BatchCommand(
-						uniqueIds.map((id) =>
-							new RemoveMediaAssetCommand({
-								projectId,
-								assetId: id,
-							}),
+						uniqueIds.map(
+							(id) =>
+								new RemoveMediaAssetCommand({
+									projectId,
+									assetId: id,
+								}),
 						),
 					);
 

@@ -48,13 +48,11 @@ export function EditorHelpButton({
 			<PopoverContent
 				align="end"
 				sideOffset={8}
-				className="z-[120] w-72 rounded-[var(--editor-radius)] border border-[var(--editor-border-strong)] bg-[var(--editor-popover)] text-[var(--editor-text)] opacity-100 shadow-[3px_3px_0_var(--editor-shadow)]"
+				className="z-[120] w-72 rounded-[var(--editor-radius)] border border-white/20 bg-black text-white opacity-100 shadow-[3px_3px_0_var(--editor-shadow)]"
 			>
 				<div className="space-y-2">
 					<h3 className="text-sm font-black">{title}</h3>
-					<p className="text-sm leading-5 text-[var(--editor-muted)]">
-						{description}
-					</p>
+					<p className="text-sm leading-5 text-white/75">{description}</p>
 				</div>
 			</PopoverContent>
 		</Popover>

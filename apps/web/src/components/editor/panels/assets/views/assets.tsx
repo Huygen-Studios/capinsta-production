@@ -110,12 +110,8 @@ export function MediaView() {
 					const syncedAssets = importedAssets.filter(
 						(asset) => asset.syncStatus === "synced",
 					);
-					const failedSyncCount = importedAssets.filter(
-						(asset) => asset.syncStatus === "failed",
-					).length;
 					return {
 						uploadedCount: syncedAssets.length,
-						failedSyncCount,
 						localImportCount: importedAssets.length,
 						assetNames: syncedAssets.map((asset) => asset.name),
 					};
@@ -124,7 +120,10 @@ export function MediaView() {
 		} catch (error) {
 			console.error("Error processing files:", error);
 			toast.error("Failed to import media", {
-				description: error instanceof Error ? error.message : "Media processing failed or codec unsupported",
+				description:
+					error instanceof Error
+						? error.message
+						: "Media processing failed or codec unsupported",
 			});
 		} finally {
 			setIsProcessing(false);
@@ -476,14 +475,7 @@ function MediaPreview({
 }) {
 	const shouldShowDurationBadge = variant === "grid";
 	const withSyncState = (content: ReactNode) => (
-		<div className="relative size-full">
-			{content}
-			{item.syncStatus === "failed" ? (
-				<span className="absolute left-1 top-1 max-w-[calc(100%-0.5rem)] rounded-[3px] border border-[var(--editor-danger)] bg-[var(--editor-popover)] px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-[var(--editor-danger)] shadow-[1px_1px_0_var(--editor-shadow)]">
-					Unsynced
-				</span>
-			) : null}
-		</div>
+		<div className="relative size-full">{content}</div>
 	);
 
 	if (item.type === "image") {
