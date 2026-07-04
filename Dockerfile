@@ -76,6 +76,22 @@ RUN --mount=type=cache,id=capinsta-next-cache,target=/app/apps/web/.next/cache \
     trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT; \
     node ./node_modules/next/dist/bin/next build
 
+# ---- Stage 2: Production dependencies ----
+# Keep build-only packages out of the runtime image. The builder needs
+# TypeScript, ESLint, Sentry build helpers, Playwright, and other heavy tooling;
+# `next start` does not.
+FROM oven/bun:alpine AS runtime-deps
+
+WORKDIR /app
+
+COPY package.json package.json
+COPY bun.lock bun.lock
+COPY turbo.json turbo.json
+COPY apps/web/package.json apps/web/package.json
+
+RUN --mount=type=cache,id=capinsta-bun-cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --production
+
 # ---- Stage 3: Runner (Node Next.js server) ----
 FROM node:22-alpine AS runner
 
@@ -104,8 +120,8 @@ ENV MARBLE_WORKSPACE_KEY="build-placeholder"
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=runtime-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=runtime-deps --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/package.json
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
@@ -125,8 +141,6 @@ RUN test -d /app/apps/web/.next \
 ENV WEB_JS_RUNTIME=node
 COPY --chown=nextjs:nodejs apps/web/docker/start-web.sh /app/start-web.sh
 RUN chmod +x /app/start-web.sh
-
-RUN chown -R nextjs:nodejs apps
 
 USER nextjs
 
