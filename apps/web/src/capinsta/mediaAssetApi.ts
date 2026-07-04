@@ -1,5 +1,4 @@
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
-import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { buildCapinstaApiUrl } from "./api-url";
 import { getCapinstaApiBaseUrl } from "./featureFlags";
 
