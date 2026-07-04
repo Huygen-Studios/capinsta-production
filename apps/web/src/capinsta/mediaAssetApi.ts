@@ -24,23 +24,27 @@ export class MediaUploadError extends Error {
 	public readonly status: number;
 	public readonly code?: string;
 	public readonly correlationId?: string | null;
+	public readonly responseBody?: unknown;
 
 	constructor({
 		message,
 		status,
 		code,
 		correlationId,
+		responseBody,
 	}: {
 		message: string;
 		status: number;
 		code?: string;
 		correlationId?: string | null;
+		responseBody?: unknown;
 	}) {
 		super(message);
 		this.name = "MediaUploadError";
 		this.status = status;
 		this.code = code;
 		this.correlationId = correlationId;
+		this.responseBody = responseBody;
 	}
 }
 
@@ -53,10 +57,13 @@ function messageForMediaFailure({
 	code?: string;
 	fallback: string;
 }) {
+	if (fallback && fallback !== "Media upload failed.") return fallback;
 	if (status === 400) return "The project or file upload request is invalid.";
 	if (status === 401) return "Your session expired. Please sign in again.";
 	if (status === 403) return "Your account does not currently have editor access.";
 	if (status === 413) return "This file exceeds the upload limit.";
+	if (status === 415) return "Upload a supported video file.";
+	if (status === 422) return "The media upload request is missing required fields.";
 	if (status === 429) return "Too many uploads. Please try again shortly.";
 	if (status === 503 || code === "backend_unreachable") {
 		return "The media service is temporarily unavailable.";
@@ -65,7 +72,20 @@ function messageForMediaFailure({
 	return fallback || "Media upload failed.";
 }
 
-async function readError(response: Response): Promise<MediaUploadError> {
+async function readError({
+	response,
+	context,
+}: {
+	response: Response;
+	context?: {
+		endpoint: string;
+		projectId?: string;
+		filename?: string;
+		mimeType?: string;
+		size?: number;
+		fileAttached: boolean;
+	};
+}): Promise<MediaUploadError> {
 	const body: unknown = await response.json().catch(() => null);
 	let code: string | undefined;
 	let correlationId: string | null | undefined;
@@ -102,11 +122,20 @@ async function readError(response: Response): Promise<MediaUploadError> {
 		code,
 		fallback,
 	});
+	console.warn("[Capinsta media] Upload request failed", {
+		...context,
+		status: response.status,
+		statusText: response.statusText,
+		code,
+		correlationId,
+		responseBody: body,
+	});
 	return new MediaUploadError({
 		message,
 		status: response.status,
 		code,
 		correlationId,
+		responseBody: body,
 	});
 }
 
@@ -126,12 +155,39 @@ export async function uploadProjectMediaAsset({
 	const formData = new FormData();
 	formData.append("project_id", projectId);
 	formData.append("file", file);
-	const response = await authenticatedFetch(endpoint("/media/assets"), {
-		method: "POST",
-		body: formData,
-		signal,
-	});
-	if (!response.ok) throw await readError(response);
+	const uploadEndpoint = endpoint("/media/assets");
+	let response: Response;
+	try {
+		response = await authenticatedFetch(uploadEndpoint, {
+			method: "POST",
+			body: formData,
+			signal,
+		});
+	} catch (error) {
+		console.warn("[Capinsta media] Upload request threw before response", {
+			endpoint: uploadEndpoint,
+			projectId,
+			fileAttached: true,
+			filename: file.name,
+			mimeType: file.type,
+			size: file.size,
+			error,
+		});
+		throw error;
+	}
+	if (!response.ok) {
+		throw await readError({
+			response,
+			context: {
+				endpoint: uploadEndpoint,
+				projectId,
+				fileAttached: true,
+				filename: file.name,
+				mimeType: file.type,
+				size: file.size,
+			},
+		});
+	}
 	const body: unknown = await response.json();
 	const assetId = readStringField({ value: body, field: "assetId" });
 	if (!assetId) {
@@ -162,7 +218,7 @@ export async function fetchProjectMediaAsset({
 	const response = await authenticatedFetch(
 		endpoint(`/media/assets/${encodeURIComponent(assetId)}/content`),
 	);
-	if (!response.ok) throw await readError(response);
+	if (!response.ok) throw await readError({ response });
 	return response.blob();
 }
 
@@ -191,6 +247,6 @@ export async function deleteProjectMediaAsset({
 		{ method: "DELETE" },
 	);
 	if (!response.ok && response.status !== 404) {
-		throw await readError(response);
+		throw await readError({ response });
 	}
 }

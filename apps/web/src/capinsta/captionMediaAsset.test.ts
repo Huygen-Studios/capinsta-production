@@ -21,22 +21,22 @@ function makeVideoAsset(overrides: Partial<MediaAsset> = {}): MediaAsset {
 }
 
 describe("ensureServerMediaAssetForCaptions", () => {
-	test("reuses an existing server media asset id", async () => {
+	test("uploads local media even when an old server media asset id exists", async () => {
 		const mediaAsset = makeVideoAsset({ serverAssetId: "server-asset-1" });
 
 		const result = await ensureServerMediaAssetForCaptions({
 			projectId: "project-1",
 			mediaAsset,
-			loadMediaAsset: async () => {
-				throw new Error("should not load local file");
-			},
-			uploadMediaAsset: async () => {
-				throw new Error("should not upload");
-			},
+			loadMediaAsset: async () => mediaAsset,
+			uploadMediaAsset: async ({ file }) => ({
+				assetId: "server-asset-2",
+				downloadUrl: "/api/media/assets/server-asset-2/content",
+				sizeBytes: file.size,
+			}),
 		});
 
-		expect(result.serverAssetId).toBe("server-asset-1");
-		expect(result.uploaded).toBe(false);
+		expect(result.serverAssetId).toBe("server-asset-2");
+		expect(result.uploaded).toBe(true);
 	});
 
 	test("uploads the locally persisted file and returns a valid server id", async () => {
@@ -60,7 +60,9 @@ describe("ensureServerMediaAssetForCaptions", () => {
 			},
 			uploadMediaAsset: async ({ projectId, file }) => {
 				expect(projectId).toBe("project-1");
-				expect(file).toBe(persistedFile);
+				expect(file.name).toBe(persistedFile.name);
+				expect(file.type).toBe(persistedFile.type);
+				expect(await file.text()).toBe("persisted");
 				return {
 					assetId: "server-asset-2",
 					downloadUrl: "/api/media/assets/server-asset-2/content",
@@ -71,7 +73,9 @@ describe("ensureServerMediaAssetForCaptions", () => {
 
 		expect(result.uploaded).toBe(true);
 		expect(result.serverAssetId).toBe("server-asset-2");
-		expect(result.mediaAsset.file).toBe(persistedFile);
+		expect(result.mediaAsset.file.name).toBe(persistedFile.name);
+		expect(result.mediaAsset.file.type).toBe(persistedFile.type);
+		expect(await result.mediaAsset.file.text()).toBe("persisted");
 		expect(result.mediaAsset.syncStatus).toBe("synced");
 	});
 
@@ -107,5 +111,35 @@ describe("ensureServerMediaAssetForCaptions", () => {
 				}),
 			}),
 		).rejects.toThrow("valid media asset ID");
+	});
+
+	test("reconstructs a named File from a persisted Blob before upload", async () => {
+		const blob = new Blob(["persisted"], { type: "" });
+		const mediaAsset = makeVideoAsset({
+			name: "",
+			mimeType: "",
+		});
+		Object.defineProperty(mediaAsset, "file", {
+			configurable: true,
+			value: blob,
+		});
+		const result = await ensureServerMediaAssetForCaptions({
+			projectId: "project-1",
+			mediaAsset,
+			loadMediaAsset: async () => mediaAsset,
+			uploadMediaAsset: async ({ file }) => {
+				expect(file).toBeInstanceOf(File);
+				expect(file.name).toBe("caption-video.mp4");
+				expect(file.type).toBe("video/mp4");
+				expect(file.size).toBe(blob.size);
+				return {
+					assetId: "server-asset-3",
+					downloadUrl: "/api/media/assets/server-asset-3/content",
+					sizeBytes: file.size,
+				};
+			},
+		});
+
+		expect(result.serverAssetId).toBe("server-asset-3");
 	});
 });

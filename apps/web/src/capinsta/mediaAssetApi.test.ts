@@ -79,7 +79,7 @@ describe("media asset API", () => {
 			}),
 		).rejects.toMatchObject({
 			name: "MediaUploadError",
-			message: "The media service is temporarily unavailable.",
+			message: "The Capinsta backend is temporarily unreachable.",
 			status: 503,
 			code: "backend_unreachable",
 			correlationId: "corr-1",

@@ -61,11 +61,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function shouldPersistMediaFileInBrowser({
-	serverAssetId,
+	serverAssetId: _serverAssetId,
 }: {
 	serverAssetId?: string;
 }): boolean {
-	return !serverAssetId;
+	return true;
 }
 
 class StorageService {
@@ -386,9 +386,6 @@ class StorageService {
 					key: mediaAsset.id,
 					value: mediaAsset.file,
 				});
-			} else {
-				// Remove legacy browser copies after a successful server upload.
-				await mediaAssetsAdapter.remove(mediaAsset.id);
 			}
 			await mediaMetadataAdapter.set({
 				key: mediaAsset.id,
@@ -434,15 +431,15 @@ class StorageService {
 			this.getProjectMediaAdapters({ projectId });
 
 		const metadata = await mediaMetadataAdapter.get(id);
-		const storedFile = metadata?.serverAssetId
-			? null
-			: await mediaAssetsAdapter.get(id);
+		const storedFile = await mediaAssetsAdapter.get(id);
 
 		if (!metadata) return null;
 		await browserCacheRegistry.touch(`media:${projectId}:${id}`);
-		const file = metadata.serverAssetId
-			? await fetchProjectMediaAsset({ assetId: metadata.serverAssetId })
-			: storedFile;
+		const file =
+			storedFile ??
+			(metadata.serverAssetId
+				? await fetchProjectMediaAsset({ assetId: metadata.serverAssetId })
+				: null);
 		if (!file) return null;
 
 		const restoredFile = new File([file], metadata.name, {
