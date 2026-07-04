@@ -3,6 +3,7 @@ import type { MediaAsset } from "@/media/types";
 import {
 	CaptionMediaError,
 	ensureServerMediaAssetForCaptions,
+	resolveCaptionUploadFile,
 } from "./captionMediaAsset";
 
 function makeVideoAsset(overrides: Partial<MediaAsset> = {}): MediaAsset {
@@ -21,6 +22,48 @@ function makeVideoAsset(overrides: Partial<MediaAsset> = {}): MediaAsset {
 }
 
 describe("ensureServerMediaAssetForCaptions", () => {
+	test("resolves the locally persisted file for direct caption job upload", async () => {
+		const memoryAsset = makeVideoAsset();
+		const persistedFile = new File(["persisted"], "persisted.mp4", {
+			type: "video/mp4",
+		});
+		const persistedAsset = makeVideoAsset({
+			file: persistedFile,
+			name: persistedFile.name,
+			mimeType: persistedFile.type,
+		});
+
+		const file = await resolveCaptionUploadFile({
+			projectId: "project-1",
+			mediaAsset: memoryAsset,
+			loadMediaAsset: async ({ projectId, id }) => {
+				expect(projectId).toBe("project-1");
+				expect(id).toBe("local-asset-1");
+				return persistedAsset;
+			},
+		});
+
+		expect(file.name).toBe("persisted.mp4");
+		expect(file.type).toBe("video/mp4");
+		expect(await file.text()).toBe("persisted");
+	});
+
+	test("fails before caption job creation when direct upload file is unavailable", async () => {
+		const mediaAsset = makeVideoAsset();
+		Object.defineProperty(mediaAsset, "file", {
+			configurable: true,
+			value: undefined,
+		});
+
+		await expect(
+			resolveCaptionUploadFile({
+				projectId: "project-1",
+				mediaAsset,
+				loadMediaAsset: async () => null,
+			}),
+		).rejects.toThrow(CaptionMediaError);
+	});
+
 	test("uploads local media even when an old server media asset id exists", async () => {
 		const mediaAsset = makeVideoAsset({ serverAssetId: "server-asset-1" });
 

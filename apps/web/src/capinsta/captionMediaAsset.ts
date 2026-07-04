@@ -16,12 +16,10 @@ export interface EnsureServerMediaAssetForCaptionsResult {
 	uploaded: boolean;
 }
 
-export async function ensureServerMediaAssetForCaptions({
+export async function resolveCaptionUploadFile({
 	projectId,
 	mediaAsset,
 	loadMediaAsset,
-	uploadMediaAsset = uploadProjectMediaAsset,
-	signal,
 }: {
 	projectId: string;
 	mediaAsset: MediaAsset;
@@ -29,9 +27,7 @@ export async function ensureServerMediaAssetForCaptions({
 		projectId: string;
 		id: string;
 	}) => Promise<MediaAsset | null>;
-	uploadMediaAsset?: UploadProjectMediaAsset;
-	signal?: AbortSignal;
-}): Promise<EnsureServerMediaAssetForCaptionsResult> {
+}): Promise<File> {
 	const persistedMediaAsset =
 		(await loadMediaAsset({ projectId, id: mediaAsset.id })) ?? mediaAsset;
 	const file = normalizeCaptionUploadFile({
@@ -53,6 +49,30 @@ export async function ensureServerMediaAssetForCaptions({
 			"The selected video file is empty in browser storage. Re-import the video and try again.",
 		);
 	}
+	return file;
+}
+
+export async function ensureServerMediaAssetForCaptions({
+	projectId,
+	mediaAsset,
+	loadMediaAsset,
+	uploadMediaAsset = uploadProjectMediaAsset,
+	signal,
+}: {
+	projectId: string;
+	mediaAsset: MediaAsset;
+	loadMediaAsset: (args: {
+		projectId: string;
+		id: string;
+	}) => Promise<MediaAsset | null>;
+	uploadMediaAsset?: UploadProjectMediaAsset;
+	signal?: AbortSignal;
+}): Promise<EnsureServerMediaAssetForCaptionsResult> {
+	const file = await resolveCaptionUploadFile({
+		projectId,
+		mediaAsset,
+		loadMediaAsset,
+	});
 
 	const uploaded = await uploadMediaAsset({
 		projectId,

@@ -46,15 +46,18 @@ async function proxy(
 			signal: request.signal,
 		};
 		if (METHODS_WITH_BODY.has(request.method) && request.body) {
-			const isExportCreation =
-				request.method === "POST" && path.join("/") === "api/export/jobs";
-			if (isExportCreation) {
-				// Export creation contains metadata only. Buffering this small body lets
-				// FastAPI return an early auth/validation response without Undici
-				// converting the upstream socket close into a generic fetch failure.
+			const upstreamPath = path.join("/");
+			const shouldBufferBody =
+				request.method === "POST" &&
+				(upstreamPath === "api/export/jobs" ||
+					upstreamPath === "api/jobs" ||
+					upstreamPath === "api/media/assets");
+			if (shouldBufferBody) {
+				// Buffer multipart requests before forwarding. In production, streamed
+				// proxy bodies can arrive at FastAPI as an empty form, which makes
+				// required fields like project_id/file look missing.
 				init.body = await request.arrayBuffer();
 			} else {
-				// Caption media uploads can be large and must stay streamed.
 				init.body = request.body;
 				init.duplex = "half";
 			}

@@ -37,7 +37,7 @@ import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
 import { parseSubtitleFile } from "@/subtitles/parse";
 import { sampleCapinstaTranscriptV1 } from "@/capinsta/sampleTranscript";
 import { ensureAudioForCaptions } from "@/capinsta/audioForCaptions";
-import { ensureServerMediaAssetForCaptions } from "@/capinsta/captionMediaAsset";
+import { resolveCaptionUploadFile } from "@/capinsta/captionMediaAsset";
 import {
 	captionJobButtonLabel,
 	captionJobReducer,
@@ -436,34 +436,14 @@ export function Captions() {
 			});
 			console.debug("[Capinsta captions] Starting transcription request");
 			const projectId = editor.project.getActive().metadata.id;
-			const serverMedia = await ensureServerMediaAssetForCaptions({
+			const captionUploadFile = await resolveCaptionUploadFile({
 				projectId,
 				mediaAsset: selectedMediaAsset,
 				loadMediaAsset: (args) => storageService.loadMediaAsset(args),
-				signal: abortController.signal,
 			});
-			if (serverMedia.uploaded) {
-				const updatedMediaAsset = serverMedia.mediaAsset;
-				editor.media.setAssets({
-					assets: editor.media.getAssets().map((asset) =>
-						asset.id === updatedMediaAsset.id ? updatedMediaAsset : asset,
-					),
-				});
-				await storageService
-					.saveMediaAsset({
-						projectId,
-						mediaAsset: updatedMediaAsset,
-					})
-					.catch((error) => {
-						console.warn(
-							"[Capinsta captions] Caption media upload succeeded, but local media metadata could not be updated.",
-							error,
-						);
-					});
-			}
 			const startedJob = await startCapinstaCaptionJob({
 				baseUrl: capinstaApiBaseUrl,
-				mediaAssetId: serverMedia.serverAssetId,
+				file: captionUploadFile,
 				projectId,
 				languageMode: selectedAudioLanguage,
 				captionOutput: selectedCaptionOutput,
