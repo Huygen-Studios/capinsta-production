@@ -18,7 +18,7 @@ class UploadPolicyMatch:
     safe_mime_type: str
 
 
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".ogg"}
 SAFE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SUPPORTED_ASSET_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | SAFE_IMAGE_EXTENSIONS
@@ -27,6 +27,7 @@ VIDEO_MIME_TYPES = {
     "video/mp4",
     "video/quicktime",
     "video/x-m4v",
+    "video/webm",
     "application/octet-stream",
 }
 AUDIO_MIME_TYPES = {
@@ -204,5 +205,7 @@ def sniff_magic_kind(header: bytes) -> UploadKind | None:
     if header.startswith(b"OggS"):
         return "audio"
     if b"ftyp" in header[:16]:
+        return "video"
+    if header.startswith(b"\x1a\x45\xdf\xa3"):
         return "video"
     return None

@@ -370,6 +370,12 @@ def test_safe_image_upload_metadata_and_magic_are_allowed(tmp_path: Path):
     asyncio.run(media_assets.validate_media_file_contents(image, original_name="safe-image.png"))
 
 
+def test_webm_video_upload_metadata_and_magic_are_allowed():
+    assert media_assets._validate_media_upload(UploadStub("clip.webm", "video/webm")) == "clip.webm"
+    assert jobs_api._validate_upload_metadata(UploadStub("clip.webm", "video/webm")) == "clip.webm"
+    assert media_assets.sniff_magic_kind(b"\x1a\x45\xdf\xa3webm data") == "video"
+
+
 def test_upload_magic_mismatch_is_rejected(tmp_path: Path):
     spoofed = tmp_path / "spoofed.png"
     spoofed.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x21fake mp3 data")

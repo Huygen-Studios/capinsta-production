@@ -27,10 +27,9 @@ export class MediaManager {
 	}): Promise<MediaAsset | null> {
 		let uploadedAssetId: string | undefined;
 		let uploadedDownloadUrl: string | undefined;
-		let syncStatus: MediaAsset["syncStatus"] = asset.ephemeral
+		const syncStatus: MediaAsset["syncStatus"] = asset.ephemeral
 			? "local"
 			: "synced";
-		let syncError: string | undefined;
 		if (!asset.ephemeral) {
 			try {
 				const uploaded = await uploadProjectMediaAsset({
@@ -40,16 +39,15 @@ export class MediaManager {
 				uploadedAssetId = uploaded.assetId;
 				uploadedDownloadUrl = uploaded.downloadUrl;
 			} catch (error) {
-				syncStatus = "local";
-				syncError =
-					error instanceof Error
-						? error.message
-						: "The upload was interrupted. You can retry the import.";
-				console.warn("Media imported locally without backend sync:", error);
-				toast.warning("Media imported locally", {
+				console.error("Failed to upload media asset:", error);
+				URL.revokeObjectURL(asset.url ?? "");
+				toast.error("Could not store media", {
 					description:
-						"Upload sync is unavailable right now, but the file is ready to edit in this project.",
+						error instanceof Error
+							? error.message
+							: "The upload was interrupted. Please retry the import.",
 				});
+				return null;
 			}
 		}
 		const newAsset: MediaAsset = {
@@ -58,7 +56,6 @@ export class MediaManager {
 			serverAssetId: uploadedAssetId,
 			serverDownloadUrl: uploadedDownloadUrl,
 			syncStatus,
-			syncError,
 		};
 
 		this.assets = [...this.assets, newAsset];

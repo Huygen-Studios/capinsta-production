@@ -254,11 +254,11 @@ export function Captions() {
 	const selectedMediaValue = selectedMediaAsset?.id ?? "";
 	const isSelectedMediaUploadable =
 		selectedMediaAsset?.type === "video" &&
-		/\.(mp4|mov|m4v)$/i.test(selectedMediaAsset.file.name);
+		/\.(mp4|mov|m4v|webm)$/i.test(selectedMediaAsset.file.name);
 	const aiCaptionDisabledReason = !selectedMediaAsset
 		? "Select an imported local video file to generate captions."
 		: !isSelectedMediaUploadable
-			? "Select an imported local MP4 or MOV video file to generate captions."
+			? "Select an imported local MP4, MOV, or WebM video file to generate captions."
 			: !capinstaApiBaseUrl
 				? "Set NEXT_PUBLIC_CAPINSTA_API_BASE_URL to generate captions."
 				: null;
