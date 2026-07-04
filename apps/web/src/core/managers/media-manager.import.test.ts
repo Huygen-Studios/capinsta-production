@@ -8,14 +8,6 @@ const getMediaStorageFailureMessageMock = mock(
 );
 const toastErrorMock = mock(() => undefined);
 const toastWarningMock = mock(() => undefined);
-const uploadProjectMediaAssetMock = mock(
-	async ({ file }: { projectId: string; file: File }) => ({
-		assetId: "server-asset-1",
-		downloadUrl: "/api/media/assets/server-asset-1/content",
-		sizeBytes: file.size,
-	}),
-);
-const deleteProjectMediaAssetMock = mock(async () => undefined);
 
 mock.module("@/services/storage/service", () => ({
 	storageService: {
@@ -30,11 +22,6 @@ mock.module("sonner", () => ({
 		error: toastErrorMock,
 		warning: toastWarningMock,
 	},
-}));
-
-mock.module("@/capinsta/mediaAssetApi", () => ({
-	uploadProjectMediaAsset: uploadProjectMediaAssetMock,
-	deleteProjectMediaAsset: deleteProjectMediaAssetMock,
 }));
 
 mock.module("@/commands", () => ({
@@ -96,18 +83,9 @@ describe("MediaManager local import", () => {
 		getMediaStorageFailureMessageMock.mockClear();
 		toastErrorMock.mockClear();
 		toastWarningMock.mockClear();
-		uploadProjectMediaAssetMock.mockClear();
-		deleteProjectMediaAssetMock.mockClear();
-		uploadProjectMediaAssetMock.mockImplementation(
-			async ({ file }: { projectId: string; file: File }) => ({
-				assetId: "server-asset-1",
-				downloadUrl: "/api/media/assets/server-asset-1/content",
-				sizeBytes: file.size,
-			}),
-		);
 	});
 
-	test("successful import uploads media and persists the server asset id", async () => {
+	test("successful local import saves media without backend upload", async () => {
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- MediaManager only uses the small editor surface provided by this test double.
 		const manager = new MediaManager(makeEditor() as never);
 
@@ -116,19 +94,10 @@ describe("MediaManager local import", () => {
 			asset: makeAsset(),
 		});
 
-		expect(uploadProjectMediaAssetMock).toHaveBeenCalledTimes(1);
-		expect(uploadProjectMediaAssetMock.mock.calls[0]?.[0]).toMatchObject({
-			projectId: "project-1",
-		});
 		expect(imported?.syncStatus).toBe("local");
-		expect(imported?.serverAssetId).toBe("server-asset-1");
-		expect(imported?.serverDownloadUrl).toBe(
-			"/api/media/assets/server-asset-1/content",
-		);
+		expect(imported?.serverAssetId).toBeUndefined();
 		expect(saveMediaAssetMock).toHaveBeenCalledTimes(1);
-		expect(saveMediaAssetMock.mock.calls[0]?.[0].mediaAsset.serverAssetId).toBe(
-			"server-asset-1",
-		);
+		expect(saveMediaAssetMock.mock.calls[0]?.[0].mediaAsset.serverAssetId).toBeUndefined();
 		expect(toastWarningMock).not.toHaveBeenCalled();
 		expect(toastErrorMock).not.toHaveBeenCalled();
 	});
@@ -154,8 +123,5 @@ describe("MediaManager local import", () => {
 				"Your browser blocked local storage for this site. Enable site storage and try again.",
 		});
 		expect(manager.getAssets()).toHaveLength(0);
-		expect(deleteProjectMediaAssetMock).toHaveBeenCalledWith({
-			assetId: "server-asset-1",
-		});
 	});
 });

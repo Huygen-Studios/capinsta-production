@@ -6,10 +6,6 @@ import { generateUUID } from "@/utils/id";
 import { videoCache } from "@/services/video-cache/service";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
-import {
-	deleteProjectMediaAsset,
-	uploadProjectMediaAsset,
-} from "@/capinsta/mediaAssetApi";
 
 function getImportFailureDescription({ error }: { error: unknown }): string {
 	if (storageService.isQuotaExceededError({ error })) {
@@ -37,32 +33,9 @@ export class MediaManager {
 		projectId: string;
 		asset: Omit<MediaAsset, "id">;
 	}): Promise<MediaAsset | null> {
-		let uploadedAssetId: string | undefined;
-		let uploadedDownloadUrl: string | undefined;
-		if (!asset.ephemeral) {
-			try {
-				const uploaded = await uploadProjectMediaAsset({
-					projectId,
-					file: asset.file,
-				});
-				uploadedAssetId = uploaded.assetId;
-				uploadedDownloadUrl = uploaded.downloadUrl;
-			} catch (error) {
-				URL.revokeObjectURL(asset.url ?? "");
-				toast.error("Could not upload media", {
-					description:
-						error instanceof Error
-							? error.message
-							: "The upload was interrupted. You can retry the import.",
-				});
-				return null;
-			}
-		}
 		const newAsset: MediaAsset = {
 			...asset,
 			id: generateUUID(),
-			serverAssetId: uploadedAssetId,
-			serverDownloadUrl: uploadedDownloadUrl,
 			syncStatus: "local",
 			syncError: undefined,
 		};
@@ -78,21 +51,9 @@ export class MediaManager {
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
-			if (uploadedAssetId && storageService.isQuotaExceededError({ error })) {
-				toast.warning("Media uploaded; local autosave is unavailable", {
-					description:
-						"You can keep editing in this session. Free browser storage before reloading the project.",
-				});
-				return newAsset;
-			}
 			this.assets = this.assets.filter((asset) => asset.id !== newAsset.id);
 			this.notify();
 			URL.revokeObjectURL(newAsset.url ?? "");
-			if (uploadedAssetId) {
-				await deleteProjectMediaAsset({ assetId: uploadedAssetId }).catch(
-					() => undefined,
-				);
-			}
 
 			if (storageService.isQuotaExceededError({ error })) {
 				toast.error("Not enough browser storage", {
