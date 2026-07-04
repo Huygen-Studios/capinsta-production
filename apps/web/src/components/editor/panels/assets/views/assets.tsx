@@ -107,13 +107,10 @@ export function MediaView() {
 						});
 						if (imported) importedAssets.push(imported);
 					}
-					const syncedAssets = importedAssets.filter(
-						(asset) => asset.syncStatus === "synced",
-					);
 					return {
-						uploadedCount: syncedAssets.length,
+						uploadedCount: importedAssets.length,
 						localImportCount: importedAssets.length,
-						assetNames: syncedAssets.map((asset) => asset.name),
+						assetNames: importedAssets.map((asset) => asset.name),
 					};
 				},
 			});

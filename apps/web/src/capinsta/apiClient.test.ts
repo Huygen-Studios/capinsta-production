@@ -35,6 +35,7 @@ describe("Capinsta API client", () => {
 		const job = await startCapinstaCaptionJob({
 			baseUrl: "http://127.0.0.1:8000",
 			file,
+			projectId: "project-1",
 			languageMode: "auto",
 			captionOutput: "original",
 			fetchImpl: async (url, init) => {
@@ -67,6 +68,7 @@ describe("Capinsta API client", () => {
 			startCapinstaCaptionJob({
 				baseUrl: "/api/capinsta",
 				file,
+				projectId: "project-1",
 				languageMode: "auto",
 				fetchImpl: async () =>
 					jsonResponse(
@@ -79,9 +81,52 @@ describe("Capinsta API client", () => {
 						{ status: 503 },
 					),
 			}),
-		).rejects.toThrow(
-			"The Capinsta backend is temporarily unreachable. (HTTP 503, stage=proxy_connection, code=backend_unreachable, correlation=corr-upload-1)",
-		);
+		).rejects.toMatchObject({
+			name: "CapinstaApiError",
+			message: "The Capinsta backend is temporarily unreachable.",
+			status: 503,
+			diagnostics: {
+				code: "backend_unreachable",
+				stage: "proxy_connection",
+				correlationId: "corr-upload-1",
+			},
+		});
+	});
+
+	test("creates caption jobs with a media asset id instead of a file", async () => {
+		const job = await startCapinstaCaptionJob({
+			baseUrl: "http://127.0.0.1:8000",
+			mediaAssetId: "server-asset-1",
+			projectId: "project-1",
+			languageMode: "auto",
+			captionOutput: "original",
+			fetchImpl: async (_url, init) => {
+				const body = init?.body;
+				expect(body).toBeInstanceOf(FormData);
+				expect((body as FormData).get("media_asset_id")).toBe("server-asset-1");
+				expect((body as FormData).has("file")).toBe(false);
+				return jsonResponse({
+					job_id: "job-001",
+					status: "queued",
+					progress: 0,
+				});
+			},
+		});
+
+		expect(job.job_id).toBe("job-001");
+	});
+
+	test("does not submit an empty caption job", async () => {
+		await expect(
+			startCapinstaCaptionJob({
+				baseUrl: "http://127.0.0.1:8000",
+				projectId: "project-1",
+				languageMode: "auto",
+				fetchImpl: async () => {
+					throw new Error("should not call fetch");
+				},
+			}),
+		).rejects.toThrow("Caption media is unavailable");
 	});
 
 	test("normalizes completed jobs into CapinstaTranscriptV1", () => {

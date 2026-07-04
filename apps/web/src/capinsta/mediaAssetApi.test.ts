@@ -85,4 +85,50 @@ describe("media asset API", () => {
 			correlationId: "corr-1",
 		});
 	});
+
+	test("parses structured FastAPI media upload errors", async () => {
+		authenticatedFetchMock.mockImplementationOnce(async () =>
+			Response.json(
+				{
+					detail: {
+						message: "Upload a supported video file.",
+						code: "UPLOAD_TYPE_NOT_ALLOWED",
+						diagnosticId: "corr-structured-1",
+					},
+				},
+				{ status: 415 },
+			),
+		);
+
+		await expect(
+			uploadProjectMediaAsset({
+				projectId: "project-1",
+				file: new File(["hello"], "sample.bin", {
+					type: "application/octet-stream",
+				}),
+			}),
+		).rejects.toMatchObject({
+			name: "MediaUploadError",
+			message: "Upload a supported video file.",
+			status: 415,
+			code: "UPLOAD_TYPE_NOT_ALLOWED",
+			correlationId: "corr-structured-1",
+		});
+	});
+
+	test("rejects successful uploads that do not return a media asset id", async () => {
+		authenticatedFetchMock.mockImplementationOnce(async () =>
+			Response.json({ downloadUrl: "/missing-id", sizeBytes: 12 }),
+		);
+
+		await expect(
+			uploadProjectMediaAsset({
+				projectId: "project-1",
+				file: new File(["hello"], "sample.webm", { type: "video/webm" }),
+			}),
+		).rejects.toMatchObject({
+			name: "MediaUploadError",
+			code: "media_asset_id_missing",
+		});
+	});
 });

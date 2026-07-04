@@ -37,6 +37,7 @@ import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
 import { parseSubtitleFile } from "@/subtitles/parse";
 import { sampleCapinstaTranscriptV1 } from "@/capinsta/sampleTranscript";
 import { ensureAudioForCaptions } from "@/capinsta/audioForCaptions";
+import { ensureServerMediaAssetForCaptions } from "@/capinsta/captionMediaAsset";
 import {
 	captionJobButtonLabel,
 	captionJobReducer,
@@ -87,6 +88,7 @@ import {
 	UpdateCapinstaCaptionDocumentCommand,
 } from "@/commands";
 import { formatSubtitleTime } from "@/capinsta/captionEditing";
+import { storageService } from "@/services/storage/service";
 
 const DIAGNOSTIC_BUTTON_VARIANT: Record<
 	DiagnosticSeverity,
@@ -433,13 +435,36 @@ export function Captions() {
 				message: "Transcribing speech...",
 			});
 			console.debug("[Capinsta captions] Starting transcription request");
+			const projectId = editor.project.getActive().metadata.id;
+			const serverMedia = await ensureServerMediaAssetForCaptions({
+				projectId,
+				mediaAsset: selectedMediaAsset,
+				loadMediaAsset: (args) => storageService.loadMediaAsset(args),
+				signal: abortController.signal,
+			});
+			if (serverMedia.uploaded) {
+				const updatedMediaAsset = serverMedia.mediaAsset;
+				editor.media.setAssets({
+					assets: editor.media.getAssets().map((asset) =>
+						asset.id === updatedMediaAsset.id ? updatedMediaAsset : asset,
+					),
+				});
+				await storageService
+					.saveMediaAsset({
+						projectId,
+						mediaAsset: updatedMediaAsset,
+					})
+					.catch((error) => {
+						console.warn(
+							"[Capinsta captions] Caption media upload succeeded, but local media metadata could not be updated.",
+							error,
+						);
+					});
+			}
 			const startedJob = await startCapinstaCaptionJob({
 				baseUrl: capinstaApiBaseUrl,
-				file: selectedMediaAsset.serverAssetId
-					? undefined
-					: audioForCaptions.file,
-				mediaAssetId: selectedMediaAsset.serverAssetId,
-				projectId: editor.project.getActive().metadata.id,
+				mediaAssetId: serverMedia.serverAssetId,
+				projectId,
 				languageMode: selectedAudioLanguage,
 				captionOutput: selectedCaptionOutput,
 				signal: abortController.signal,

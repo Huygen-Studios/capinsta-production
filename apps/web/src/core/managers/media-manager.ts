@@ -6,10 +6,6 @@ import { generateUUID } from "@/utils/id";
 import { videoCache } from "@/services/video-cache/service";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
-import {
-	deleteProjectMediaAsset,
-	uploadProjectMediaAsset,
-} from "@/capinsta/mediaAssetApi";
 
 function getImportFailureDescription({ error }: { error: unknown }): string {
 	if (storageService.isQuotaExceededError({ error })) {
@@ -37,39 +33,11 @@ export class MediaManager {
 		projectId: string;
 		asset: Omit<MediaAsset, "id">;
 	}): Promise<MediaAsset | null> {
-		let uploadedAssetId: string | undefined;
-		let uploadedDownloadUrl: string | undefined;
-		let syncStatus: MediaAsset["syncStatus"] = asset.ephemeral
-			? "local"
-			: "synced";
-		let syncError: string | undefined;
-		if (!asset.ephemeral) {
-			try {
-				const uploaded = await uploadProjectMediaAsset({
-					projectId,
-					file: asset.file,
-				});
-				uploadedAssetId = uploaded.assetId;
-				uploadedDownloadUrl = uploaded.downloadUrl;
-			} catch (error) {
-				syncStatus = "local";
-				syncError =
-					error instanceof Error
-						? error.message
-						: "The media service could not store this file.";
-				console.warn(
-					"Media upload failed; attempting local browser storage fallback:",
-					error,
-				);
-			}
-		}
 		const newAsset: MediaAsset = {
 			...asset,
 			id: generateUUID(),
-			serverAssetId: uploadedAssetId,
-			serverDownloadUrl: uploadedDownloadUrl,
-			syncStatus,
-			syncError,
+			syncStatus: "local",
+			syncError: undefined,
 		};
 
 		this.assets = [...this.assets, newAsset];
@@ -80,30 +48,12 @@ export class MediaManager {
 			this.editor.project.ratchetFpsForImportedMedia({
 				importedAssets: [newAsset],
 			});
-			if (syncStatus === "local" && syncError) {
-				toast.warning("Media imported locally", {
-					description:
-						"Cloud media storage is unavailable right now. The file is saved in this browser and can be edited in this project.",
-				});
-			}
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
-			if (uploadedAssetId && storageService.isQuotaExceededError({ error })) {
-				toast.warning("Media uploaded; local autosave is unavailable", {
-					description:
-						"You can keep editing in this session. Free browser storage before reloading the project.",
-				});
-				return newAsset;
-			}
 			this.assets = this.assets.filter((asset) => asset.id !== newAsset.id);
 			this.notify();
 			URL.revokeObjectURL(newAsset.url ?? "");
-			if (uploadedAssetId) {
-				await deleteProjectMediaAsset({ assetId: uploadedAssetId }).catch(
-					() => undefined,
-				);
-			}
 
 			if (storageService.isQuotaExceededError({ error })) {
 				toast.error("Not enough browser storage", {

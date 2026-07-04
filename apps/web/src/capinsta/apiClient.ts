@@ -25,10 +25,64 @@ export class CapinstaApiError extends Error {
 	constructor(
 		message: string,
 		readonly status?: number,
+		readonly diagnostics?: {
+			code?: string;
+			stage?: string;
+			correlationId?: string;
+			endpoint?: string;
+			responseBody?: unknown;
+		},
 	) {
 		super(message);
 		this.name = "CapinstaApiError";
 	}
+}
+
+function readStringField({
+	value,
+	field,
+}: {
+	value: unknown;
+	field: string;
+}): string | undefined {
+	if (typeof value !== "object" || value === null || !(field in value)) {
+		return undefined;
+	}
+	const fieldValue = Reflect.get(value, field);
+	return typeof fieldValue === "string" ? fieldValue : undefined;
+}
+
+function readFastApiErrorBody(body: Record<string, unknown>): {
+	message: string;
+	code?: string;
+	stage?: string;
+	correlationId?: string;
+} {
+	const detail = body.detail;
+	const detailMessage =
+		typeof detail === "string"
+			? detail
+			: readStringField({ value: detail, field: "message" }) ??
+				readStringField({ value: detail, field: "error" }) ??
+				readStringField({ value: detail, field: "detail" });
+	return {
+		message:
+			detailMessage ??
+			readStringField({ value: body, field: "message" }) ??
+			readStringField({ value: body, field: "error" }) ??
+			"Capinsta request failed.",
+		code:
+			readStringField({ value: body, field: "code" }) ??
+			readStringField({ value: detail, field: "code" }),
+		stage:
+			readStringField({ value: body, field: "stage" }) ??
+			readStringField({ value: detail, field: "stage" }),
+		correlationId:
+			readStringField({ value: body, field: "correlationId" }) ??
+			readStringField({ value: body, field: "diagnosticId" }) ??
+			readStringField({ value: detail, field: "correlationId" }) ??
+			readStringField({ value: detail, field: "diagnosticId" }),
+	};
 }
 
 async function readJsonResponse<T>({
@@ -43,28 +97,26 @@ async function readJsonResponse<T>({
 		endpoint,
 	});
 	if (!response.ok) {
-		let detail = response.statusText;
-		let code: string | undefined;
-		let stage: string | undefined;
-		let correlationId = response.headers.get("x-correlation-id") ?? undefined;
-		if (typeof body.detail === "string") detail = body.detail;
-		else if (typeof body.message === "string") detail = body.message;
-		else if (typeof body.error === "string") detail = body.error;
-		if (typeof body.code === "string") code = body.code;
-		if (typeof body.stage === "string") stage = body.stage;
-		if (typeof body.correlationId === "string") {
-			correlationId = body.correlationId;
-		}
-		const diagnostics = [
-			`HTTP ${response.status}`,
-			stage ? `stage=${stage}` : null,
-			code ? `code=${code}` : null,
-			correlationId ? `correlation=${correlationId}` : null,
-		].filter((value): value is string => Boolean(value));
-		throw new CapinstaApiError(
-			`${detail || "Capinsta request failed"} (${diagnostics.join(", ")})`,
-			response.status,
-		);
+		const parsedError = readFastApiErrorBody(body);
+		const correlationId =
+			parsedError.correlationId ??
+			response.headers.get("x-correlation-id") ??
+			undefined;
+		console.warn("[Capinsta captions] API request failed", {
+			endpoint,
+			status: response.status,
+			code: parsedError.code,
+			stage: parsedError.stage,
+			correlationId,
+			responseBody: body,
+		});
+		throw new CapinstaApiError(parsedError.message, response.status, {
+			code: parsedError.code,
+			stage: parsedError.stage,
+			correlationId,
+			endpoint,
+			responseBody: body,
+		});
 	}
 	return body as T;
 }
@@ -104,10 +156,15 @@ export async function startCapinstaCaptionJob({
 	formData.append("project_id", projectId);
 	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
 	else if (file) formData.append("file", file);
-	else throw new CapinstaApiError("Caption media is unavailable.");
+	else {
+		throw new CapinstaApiError(
+			"Caption media is unavailable. Re-import the video and try again.",
+		);
+	}
 	const endpoint = buildCapinstaApiUrl({ baseUrl, path: "/jobs" });
 	console.debug("[Capinsta captions] Upload request", {
 		endpoint,
+		hasFile: Boolean(file),
 		fileName: file?.name,
 		fileType: file?.type,
 		fileSize: file?.size,

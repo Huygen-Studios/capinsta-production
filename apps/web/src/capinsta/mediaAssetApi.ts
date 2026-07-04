@@ -1,9 +1,24 @@
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
+import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { buildCapinstaApiUrl } from "./api-url";
 import { getCapinstaApiBaseUrl } from "./featureFlags";
 
 function endpoint(path: string): string {
 	return buildCapinstaApiUrl({ baseUrl: getCapinstaApiBaseUrl(), path });
+}
+
+function readStringField({
+	value,
+	field,
+}: {
+	value: unknown;
+	field: string;
+}): string | undefined {
+	if (typeof value !== "object" || value === null || !(field in value)) {
+		return undefined;
+	}
+	const fieldValue = Reflect.get(value, field);
+	return typeof fieldValue === "string" ? fieldValue : undefined;
 }
 
 export class MediaUploadError extends Error {
@@ -63,20 +78,16 @@ async function readError(response: Response): Promise<MediaUploadError> {
 	) {
 		const detail = body.detail;
 		if (typeof detail === "string") fallback = detail;
-		if (
-			typeof detail === "object" &&
-			detail !== null &&
-			"message" in detail
-		) {
-			if (typeof detail.message === "string") fallback = detail.message;
-			if ("code" in detail && typeof detail.code === "string") code = detail.code;
-			if (
-				"diagnosticId" in detail &&
-				typeof detail.diagnosticId === "string"
-			) {
-				correlationId = detail.diagnosticId;
-			}
-		}
+		const detailMessage =
+			readStringField({ value: detail, field: "message" }) ??
+			readStringField({ value: detail, field: "error" }) ??
+			readStringField({ value: detail, field: "detail" });
+		if (detailMessage) fallback = detailMessage;
+		code = readStringField({ value: detail, field: "code" }) ?? code;
+		correlationId =
+			readStringField({ value: detail, field: "diagnosticId" }) ??
+			readStringField({ value: detail, field: "correlationId" }) ??
+			correlationId;
 	}
 	if (typeof body === "object" && body !== null) {
 		if ("code" in body && typeof body.code === "string") code = body.code;
@@ -122,7 +133,26 @@ export async function uploadProjectMediaAsset({
 		signal,
 	});
 	if (!response.ok) throw await readError(response);
-	return response.json();
+	const body: unknown = await response.json();
+	const assetId = readStringField({ value: body, field: "assetId" });
+	if (!assetId) {
+		throw new MediaUploadError({
+			message:
+				"The media service did not return a valid media asset ID. Please retry.",
+			status: 502,
+			code: "media_asset_id_missing",
+		});
+	}
+	const sizeBytesValue =
+		typeof body === "object" && body !== null
+			? Reflect.get(body, "sizeBytes")
+			: undefined;
+	return {
+		assetId,
+		downloadUrl:
+			readStringField({ value: body, field: "downloadUrl" }) ?? "",
+		sizeBytes: typeof sizeBytesValue === "number" ? sizeBytesValue : 0,
+	};
 }
 
 export async function fetchProjectMediaAsset({
