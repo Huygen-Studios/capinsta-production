@@ -18,5 +18,11 @@ for server in /app/apps/web/server.js /app/server.js /app/apps/web/apps/web/serv
   fi
 done
 
-echo "capinsta_web_start no standalone server.js found" >&2
+if [ -d /app/apps/web/.next ]; then
+  echo "capinsta_web_start executing $runtime /app/apps/web/node_modules/next/dist/bin/next start"
+  cd /app/apps/web
+  exec "$runtime" /app/apps/web/node_modules/next/dist/bin/next start
+fi
+
+echo "capinsta_web_start no Next production build found" >&2
 exit 1

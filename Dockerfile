@@ -89,7 +89,7 @@ RUN --mount=type=cache,id=capinsta-next-cache,target=/app/apps/web/.next/cache \
     trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT; \
     ./node_modules/.bin/next build
 
-# ---- Stage 3: Runner (Node standalone server) ----
+# ---- Stage 3: Runner (Node Next.js server) ----
 FROM node:22-alpine AS runner
 
 WORKDIR /app
@@ -113,23 +113,22 @@ ENV NEXT_PUBLIC_MARBLE_API_URL="https://api.marblecms.com"
 ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS="true"
 ENV MARBLE_WORKSPACE_KEY="build-placeholder"
 
-# Non-root user for the standalone Next.js server.
+# Non-root user for the Next.js server.
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-# Next monorepo standalone output already contains apps/web/server.js relative
-# to the standalone root. Copy it to /app so the server lands at
-# /app/apps/web/server.js instead of /app/apps/web/apps/web/server.js.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/package.json
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 
-RUN test -f /app/apps/web/server.js \
+RUN test -d /app/apps/web/.next \
  && test -d /app/apps/web/public \
  && test -d /app/apps/web/.next/static \
  && node -e "console.log('next_resolved=' + require.resolve('next', { paths: ['/app/apps/web'] }))" \
- || (echo "Expected Next standalone layout is missing"; \
+ && node /app/apps/web/node_modules/next/dist/bin/next --version \
+ || (echo "Expected Next production layout is missing"; \
      echo "server.js files:"; find /app -maxdepth 5 -type f -name server.js -print; \
      echo "next package candidates:"; find /app -maxdepth 7 -path "*/node_modules/next" -print; \
      echo ".next/static directories:"; find /app -maxdepth 6 -type d -path "*/.next/static" -print; \
@@ -149,5 +148,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Standalone server entrypoint, run under Node (Bun-free runtime).
+# Next production server entrypoint, run under Node (Bun-free runtime).
 CMD ["/app/start-web.sh"]
