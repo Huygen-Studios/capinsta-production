@@ -52,13 +52,6 @@ const nextConfig: NextConfig = {
 		root: workspaceRoot,
 		resolveAlias: {},
 	},
-	webpack: (config) => {
-		config.experiments = {
-			...config.experiments,
-			asyncWebAssembly: true,
-		};
-		return config;
-	},
 	async headers() {
 		return [
 			{

@@ -87,7 +87,7 @@ RUN --mount=type=cache,id=capinsta-next-cache,target=/app/apps/web/.next/cache \
     (while sleep 25; do echo "capinsta_next_build_active"; done) & \
     heartbeat_pid=$!; \
     trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT; \
-    ./node_modules/.bin/next build --webpack
+    ./node_modules/.bin/next build
 
 # ---- Stage 3: Runner (Node standalone server) ----
 FROM node:22-alpine AS runner

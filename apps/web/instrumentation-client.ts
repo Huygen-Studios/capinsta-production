@@ -14,3 +14,5 @@ if (dsn) {
 		beforeSend: (event, hint) => sanitizeSentryEvent({ event, _hint: hint }),
 	});
 }
+
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

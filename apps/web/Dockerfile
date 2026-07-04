@@ -29,7 +29,7 @@ ENV NEXT_PUBLIC_MARBLE_API_URL=$NEXT_PUBLIC_MARBLE_API_URL
 ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 
 WORKDIR /app/apps/web
-RUN ./node_modules/.bin/next build --webpack
+RUN ./node_modules/.bin/next build
 
 # Production image
 FROM base AS runner

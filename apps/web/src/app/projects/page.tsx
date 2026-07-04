@@ -20,7 +20,7 @@ import type {
 	TProjectSortKey,
 	TProjectSortOption,
 } from "@/project/types";
-import { formatTimecode, mediaTimeToSeconds } from "opencut-wasm";
+import { formatProjectDurationTicks } from "@/project/duration-format";
 import { formatDate } from "@/utils/date";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -71,18 +71,13 @@ import { AccountMenu } from "@/components/auth/account-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoStatic } from "@/components/logo";
 import { storageService } from "@/services/storage/service";
+
 const formatProjectDuration = ({
 	duration,
 }: {
 	duration: number | undefined;
 }): string | null => {
-	if (duration === undefined) {
-		return null;
-	}
-
-	const durationSeconds = mediaTimeToSeconds({ time: duration });
-	const format = durationSeconds >= 3600 ? "HH:MM:SS" : "MM:SS";
-	return formatTimecode({ time: duration, format }) ?? "";
+	return formatProjectDurationTicks({ duration });
 };
 
 const VIEW_MODE_OPTIONS = [
