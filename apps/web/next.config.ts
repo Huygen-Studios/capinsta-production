@@ -31,8 +31,6 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-	output: "standalone",
-	outputFileTracingRoot: workspaceRoot,
 	compiler: {
 		removeConsole: process.env.NODE_ENV === "production",
 	},
