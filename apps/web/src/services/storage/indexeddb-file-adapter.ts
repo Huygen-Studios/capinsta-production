@@ -1,4 +1,8 @@
 import type { StorageAdapter } from "./types";
+import {
+	MediaStorageUnavailableError,
+	getIndexedDBStorageCapability,
+} from "./storage-capability";
 
 interface IndexedDBFileRecord {
 	id: string;
@@ -26,6 +30,18 @@ export class IndexedDBFileAdapter implements StorageAdapter<File> {
 
 	private async getDB(): Promise<IDBDatabase> {
 		return new Promise((resolve, reject) => {
+			const capability = getIndexedDBStorageCapability();
+			if (!capability.supported) {
+				reject(
+					new MediaStorageUnavailableError({
+						reason: capability.reason,
+						message: capability.message,
+						cause: capability.cause,
+					}),
+				);
+				return;
+			}
+
 			const request = indexedDB.open(this.dbName, this.version);
 
 			request.onerror = () => reject(request.error);

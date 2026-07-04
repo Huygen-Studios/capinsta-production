@@ -5,6 +5,10 @@ import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { IndexedDBFileAdapter } from "./indexeddb-file-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
 import {
+	assertMediaStorageAvailable,
+	getStorageFailureMessage,
+} from "./storage-capability";
+import {
 	type StorageCapacityCheckResult,
 	StorageQuotaExceededError,
 	evaluateStorageCapacity,
@@ -119,8 +123,9 @@ class StorageService {
 			version: this.config.version,
 		});
 
+		const mediaStorageBackend = assertMediaStorageAvailable();
 		let mediaAssetsAdapter;
-		if (OPFSAdapter.isSupported()) {
+		if (mediaStorageBackend === "opfs") {
 			mediaAssetsAdapter = new OPFSAdapter(`media-files-${projectId}`);
 		} else {
 			console.warn("OPFS unavailable; using IndexedDB media storage fallback.");
@@ -412,6 +417,10 @@ class StorageService {
 
 			throw error;
 		}
+	}
+
+	getMediaStorageFailureMessage({ error }: { error: unknown }): string {
+		return getStorageFailureMessage({ error });
 	}
 
 	async loadMediaAsset({

@@ -11,6 +11,18 @@ import {
 	uploadProjectMediaAsset,
 } from "@/capinsta/mediaAssetApi";
 
+function getImportFailureDescription({ error }: { error: unknown }): string {
+	if (storageService.isQuotaExceededError({ error })) {
+		return error instanceof Error
+			? error.message
+			: "Insufficient browser storage space to import this file.";
+	}
+
+	return storageService.getMediaStorageFailureMessage({
+		error,
+	});
+}
+
 export class MediaManager {
 	private assets: MediaAsset[] = [];
 	private isLoading = false;
@@ -27,9 +39,10 @@ export class MediaManager {
 	}): Promise<MediaAsset | null> {
 		let uploadedAssetId: string | undefined;
 		let uploadedDownloadUrl: string | undefined;
-		const syncStatus: MediaAsset["syncStatus"] = asset.ephemeral
+		let syncStatus: MediaAsset["syncStatus"] = asset.ephemeral
 			? "local"
 			: "synced";
+		let syncError: string | undefined;
 		if (!asset.ephemeral) {
 			try {
 				const uploaded = await uploadProjectMediaAsset({
@@ -39,15 +52,15 @@ export class MediaManager {
 				uploadedAssetId = uploaded.assetId;
 				uploadedDownloadUrl = uploaded.downloadUrl;
 			} catch (error) {
-				console.error("Failed to upload media asset:", error);
-				URL.revokeObjectURL(asset.url ?? "");
-				toast.error("Could not store media", {
-					description:
-						error instanceof Error
-							? error.message
-							: "The upload was interrupted. Please retry the import.",
-				});
-				return null;
+				syncStatus = "local";
+				syncError =
+					error instanceof Error
+						? error.message
+						: "The media service could not store this file.";
+				console.warn(
+					"Media upload failed; attempting local browser storage fallback:",
+					error,
+				);
 			}
 		}
 		const newAsset: MediaAsset = {
@@ -56,6 +69,7 @@ export class MediaManager {
 			serverAssetId: uploadedAssetId,
 			serverDownloadUrl: uploadedDownloadUrl,
 			syncStatus,
+			syncError,
 		};
 
 		this.assets = [...this.assets, newAsset];
@@ -66,6 +80,12 @@ export class MediaManager {
 			this.editor.project.ratchetFpsForImportedMedia({
 				importedAssets: [newAsset],
 			});
+			if (syncStatus === "local" && syncError) {
+				toast.warning("Media imported locally", {
+					description:
+						"Cloud media storage is unavailable right now. The file is saved in this browser and can be edited in this project.",
+				});
+			}
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
@@ -87,14 +107,11 @@ export class MediaManager {
 
 			if (storageService.isQuotaExceededError({ error })) {
 				toast.error("Not enough browser storage", {
-					description: error instanceof Error ? error.message : undefined,
+					description: getImportFailureDescription({ error }),
 				});
 			} else {
-				toast.error("Failed to save media", {
-					description:
-						error instanceof Error
-							? error.message
-							: "Browser storage unavailable",
+				toast.error("Could not store media", {
+					description: getImportFailureDescription({ error }),
 				});
 			}
 

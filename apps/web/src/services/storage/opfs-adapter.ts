@@ -1,4 +1,8 @@
 import type { StorageAdapter } from "./types";
+import {
+	MediaStorageUnavailableError,
+	getOPFSStorageCapability,
+} from "./storage-capability";
 
 export class OPFSAdapter implements StorageAdapter<File> {
 	private directoryName: string;
@@ -8,8 +12,13 @@ export class OPFSAdapter implements StorageAdapter<File> {
 	}
 
 	private async getDirectory(): Promise<FileSystemDirectoryHandle> {
-		if (!OPFSAdapter.isSupported()) {
-			throw new Error("OPFS storage is not supported in this browser.");
+		const capability = getOPFSStorageCapability();
+		if (!capability.supported) {
+			throw new MediaStorageUnavailableError({
+				reason: capability.reason,
+				message: capability.message,
+				cause: capability.cause,
+			});
 		}
 
 		const opfsRoot = await navigator.storage.getDirectory();
@@ -78,15 +87,7 @@ export class OPFSAdapter implements StorageAdapter<File> {
 
 	// Helper method to check OPFS support
 	static isSupported(): boolean {
-		try {
-			return (
-				typeof navigator !== "undefined" &&
-				!!navigator.storage &&
-				typeof navigator.storage.getDirectory === "function"
-			);
-		} catch (error) {
-			return false;
-		}
+		return getOPFSStorageCapability().supported;
 	}
 }
 
