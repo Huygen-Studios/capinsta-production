@@ -12,6 +12,7 @@ async function preparePage(page: Page, theme: "dark" | "light") {
 	await page.addInitScript((selectedTheme) => {
 		localStorage.setItem("theme", selectedTheme);
 		localStorage.setItem("hasSeenOnboarding", "true");
+		localStorage.setItem("capinsta-editor-onboarding:v1", "true");
 		localStorage.setItem(
 			"capinsta-cookie-consent",
 			JSON.stringify({

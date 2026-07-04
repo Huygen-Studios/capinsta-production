@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
 	getAdminMetricsRange,
 	normalizeAdminMetricsRangePreset,
@@ -35,5 +37,14 @@ describe("admin metrics helpers", () => {
 		expect(result.metric.status).toBe("unavailable");
 		expect(result.metric.value).toBeNull();
 		expect(result.error).toEqual({ metric: "newAccounts", code: "query_failed" });
+	});
+
+	test("failed job metrics use terminal timestamps, not creation timestamps", () => {
+		const source = readFileSync(join(import.meta.dir, "metrics.ts"), "utf8");
+		expect(source).toContain('name: "captionJobsFailed"');
+		expect(source).toContain('source: "caption_jobs.completed_at/status"');
+		expect(source).toContain("and completed_at >= ${start}");
+		expect(source).toContain('name: "exportsFailed"');
+		expect(source).toContain('source: "export_jobs.completed_at/status"');
 	});
 });

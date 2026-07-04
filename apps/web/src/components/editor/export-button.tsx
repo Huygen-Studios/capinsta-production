@@ -95,6 +95,7 @@ export function ExportButton() {
 		<Dialog open={isOpen} onOpenChange={handleOpenChange}>
 			<button
 				type="button"
+				data-tour="export"
 				className={cn(
 					"flex h-9 items-center gap-2 rounded-sm border-2 border-[var(--neo-black)] bg-primary px-4 text-sm font-black text-primary-foreground shadow-[4px_4px_0_var(--shadow-strong)] transition hover:bg-[var(--neo-yellow)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none",
 					hasProject ? "cursor-pointer" : "cursor-not-allowed opacity-50",

@@ -18,13 +18,18 @@ function projectToken() {
 }
 
 function configured() {
-	return Boolean(projectToken() && process.env.NEXT_PUBLIC_POSTHOG_HOST);
+	return Boolean(
+		process.env.NODE_ENV !== "test" &&
+			projectToken() &&
+			process.env.NEXT_PUBLIC_POSTHOG_HOST,
+	);
 }
 
 function ensurePostHog() {
 	if (initialized || !configured()) return initialized;
 	posthog.init(projectToken(), {
 		api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+		ui_host: "https://us.posthog.com",
 		defaults: "2026-05-30",
 		capture_pageview: false,
 		disable_session_recording: true,

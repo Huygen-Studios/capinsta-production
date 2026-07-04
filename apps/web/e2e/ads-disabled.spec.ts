@@ -13,6 +13,7 @@ test("disabled ads reserve no editor space", async ({ page }) => {
 	await page.addInitScript(() => {
 		localStorage.setItem("theme", "dark");
 		localStorage.setItem("hasSeenOnboarding", "true");
+		localStorage.setItem("capinsta-editor-onboarding:v1", "true");
 		localStorage.setItem(
 			"capinsta-cookie-consent",
 			JSON.stringify({

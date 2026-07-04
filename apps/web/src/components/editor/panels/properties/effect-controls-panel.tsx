@@ -13,6 +13,8 @@ import type { PropertiesTabDef } from "./registry";
 import type { TimelineElement } from "@/timeline";
 import { useEditor } from "@/editor/use-editor";
 import { cn } from "@/utils/ui";
+import { EditorHelpButton } from "@/components/editor/editor-help-button";
+import { EDITOR_HELP_CONTENT } from "@/components/editor/editor-help-content";
 
 const VISUAL_TYPES = new Set(["video", "image", "text", "sticker", "graphic"]);
 
@@ -157,9 +159,19 @@ export function EffectControlsShell({
 	className?: string;
 }) {
 	return (
-		<div className={cn("panel editor-panel flex h-full min-h-0 flex-col overflow-hidden", className)}>
-			<div className="sticky top-0 z-10 shrink-0 border-b border-border bg-card px-3 py-2.5">
+		<div
+			className={cn(
+				"panel editor-panel flex h-full min-h-0 flex-col overflow-hidden",
+				className,
+			)}
+			data-tour="properties-panel"
+		>
+			<div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-border bg-card px-3 py-2.5">
 				<h2 className="text-sm font-black tracking-wide">Effect Controls</h2>
+				<EditorHelpButton
+					title={EDITOR_HELP_CONTENT.properties.title}
+					description={EDITOR_HELP_CONTENT.properties.description}
+				/>
 			</div>
 			{children}
 		</div>

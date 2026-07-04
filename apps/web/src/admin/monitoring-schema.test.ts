@@ -11,6 +11,13 @@ function migrationSql() {
 	);
 }
 
+function reliabilityMigrationSql() {
+	return readFileSync(
+		join(repoRoot, "migrations", "0011_admin_metrics_reliability.sql"),
+		"utf8",
+	);
+}
+
 describe("monitoring migration", () => {
 	test("creates product events with idempotency, RLS, and auth signup trigger", () => {
 		const sql = migrationSql();
@@ -41,5 +48,14 @@ describe("monitoring migration", () => {
 		]) {
 			expect(sql).toContain(eventName);
 		}
+	});
+
+	test("hardens dashboard terminal-state metrics", () => {
+		const sql = reliabilityMigrationSql();
+		expect(sql).toContain("caption_jobs_status_completed_idx");
+		expect(sql).toContain("export_jobs_status_completed_idx");
+		expect(sql).toContain("NEW.status = 'failed'");
+		expect(sql).toContain("event_time := COALESCE(NEW.completed_at");
+		expect(sql).toContain("WHERE status IN ('completed', 'succeeded', 'failed', 'cancelled'");
 	});
 });

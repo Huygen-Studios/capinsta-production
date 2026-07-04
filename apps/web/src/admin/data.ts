@@ -69,28 +69,52 @@ export async function getOverviewData() {
     providerResult,
     backendResult,
   ] = await Promise.all([
-    overviewQuery({
-      source: "users",
-      query: db
-        .select({
-          total: count(),
-          today: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${today})`,
-          seven: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${sevenDays})`,
-          thirty: sql<number>`count(*) filter (where ${profiles.createdAt} >= ${thirtyDays})`,
-          dau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${today})`,
-          wau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${sevenDays})`,
-          mau: sql<number>`count(*) filter (where ${profiles.lastSeenAt} >= ${thirtyDays})`,
-        })
-        .from(profiles)
-        .then((rows) => rows[0]),
+    overviewQuery<{
+      total: number | null;
+      today: number | null;
+      seven: number | null;
+      thirty: number | null;
+      dau: number | null;
+      wau: number | null;
+      mau: number | null;
+    }>({
+      source: "auth_users",
+      query: db.execute(sql`
+        select
+          count(*)::int as total,
+          count(*) filter (where created_at >= ${today})::int as today,
+          count(*) filter (where created_at >= ${sevenDays})::int as seven,
+          count(*) filter (where created_at >= ${thirtyDays})::int as thirty,
+          (
+            select count(*)::int from profiles
+            where last_seen_at >= ${today}
+          ) as dau,
+          (
+            select count(*)::int from profiles
+            where last_seen_at >= ${sevenDays}
+          ) as wau,
+          (
+            select count(*)::int from profiles
+            where last_seen_at >= ${thirtyDays}
+          ) as mau
+        from auth.users
+      `).then((rows) => rows[0] as {
+        total: number;
+        today: number;
+        seven: number;
+        thirty: number;
+        dau: number;
+        wau: number;
+        mau: number;
+      }),
       fallback: {
-        total: 0,
-        today: 0,
-        seven: 0,
-        thirty: 0,
-        dau: 0,
-        wau: 0,
-        mau: 0,
+        total: null,
+        today: null,
+        seven: null,
+        thirty: null,
+        dau: null,
+        wau: null,
+        mau: null,
       },
     }),
     overviewQuery({

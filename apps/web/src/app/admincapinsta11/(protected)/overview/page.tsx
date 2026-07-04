@@ -47,6 +47,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function metricDisplay(value: unknown): string {
+  if (value === null || value === undefined) return "Unavailable";
+  return String(value);
+}
+
 export default async function OverviewPage() {
   await requireAdminSession();
   const data = await getOverviewData();
@@ -68,7 +73,9 @@ export default async function OverviewPage() {
     [
       "Registered users",
       data.users.total,
-      `${data.users.seven} new in 7 days`,
+      data.users.seven === null || data.users.seven === undefined
+        ? "New accounts unavailable"
+        : `${data.users.seven} new in 7 days`,
       Users,
     ],
     [
@@ -144,7 +151,7 @@ export default async function OverviewPage() {
               <div>
                 <CardDescription>{label}</CardDescription>
                 <CardTitle className="mt-1 font-display text-3xl">
-                  {String(value)}
+                  {metricDisplay(value)}
                 </CardTitle>
               </div>
               <Icon className="text-primary" aria-hidden="true" />
@@ -198,7 +205,7 @@ export default async function OverviewPage() {
                 className="border-l-2 border-primary pl-3"
               >
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="text-xl font-bold">{String(value)}</p>
+                <p className="text-xl font-bold">{metricDisplay(value)}</p>
               </div>
             ))}
           </CardContent>

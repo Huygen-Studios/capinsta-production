@@ -29,8 +29,11 @@ Required only for visitor/acquisition analytics.
 
 Environment variables:
 
-- `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN`: public project token.
-- `NEXT_PUBLIC_POSTHOG_HOST`: PostHog host, for example `https://us.i.posthog.com` or your self-hosted URL.
+- `NEXT_PUBLIC_POSTHOG_KEY`: public project token used only by the browser SDK.
+- `NEXT_PUBLIC_POSTHOG_HOST`: browser capture host. Production should use `https://g.huygenstudios.com`.
+- `POSTHOG_PROJECT_ID`: server-only PostHog project id for admin visitor metrics.
+- `POSTHOG_PERSONAL_API_KEY`: server-only personal API key with the minimum read access needed for analytics queries.
+- `POSTHOG_API_HOST`: server-side PostHog API host, normally `https://us.posthog.com`.
 
 Privacy:
 
@@ -47,7 +50,7 @@ Verification:
 
 Rollback:
 
-- Remove `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` and `NEXT_PUBLIC_POSTHOG_HOST`, then redeploy.
+- Remove `NEXT_PUBLIC_POSTHOG_KEY`, `NEXT_PUBLIC_POSTHOG_HOST`, `POSTHOG_PROJECT_ID`, and `POSTHOG_PERSONAL_API_KEY`, then redeploy. Visitor cards will show `Unavailable`; account and product metrics remain available.
 
 ## Sentry Setup
 

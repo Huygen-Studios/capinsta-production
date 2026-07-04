@@ -52,6 +52,9 @@ const webEnvSchema = z.object({
 	DEDICATED_WORKER_PROVISIONING_ENDPOINT: z.url().optional(),
 	DEDICATED_WORKER_PROVISIONING_TOKEN: z.string().min(1).optional(),
 	SENTRY_DSN: z.url().optional(),
+	POSTHOG_PROJECT_ID: z.string().optional(),
+	POSTHOG_PERSONAL_API_KEY: z.string().optional(),
+	POSTHOG_API_HOST: z.url().default("https://us.posthog.com"),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

@@ -15,7 +15,7 @@ Supported presets:
 
 ## Acquisition
 
-- Website visitors: PostHog visitors for the selected range. Unavailable when PostHog is not configured.
+- Website visitors: distinct PostHog `$pageview` visitors for the selected range, queried by the server. Unavailable when `POSTHOG_PROJECT_ID` or `POSTHOG_PERSONAL_API_KEY` is not configured.
 - New accounts: `auth.users.created_at` rows created in range.
 - Total accounts: all rows in `auth.users`.
 
@@ -27,10 +27,10 @@ Supported presets:
 - Uploads failed: `product_events.event_name = 'media_upload_failed'` in range.
 - Caption jobs started: `caption_jobs.created_at` rows in range.
 - Caption jobs completed: `caption_jobs.completed_at` rows with status `completed` or `succeeded` in range.
-- Caption jobs failed: `caption_jobs.created_at` rows with status `failed` in range.
+- Caption jobs failed: `caption_jobs.completed_at` rows with status `failed` in range. `completed_at` is the terminal timestamp for failed caption jobs.
 - Exports started: `export_jobs.created_at` rows in range.
 - Exports completed: `export_jobs.completed_at` rows with status `completed` or `succeeded` in range.
-- Exports failed: `export_jobs.created_at` rows with status `failed` in range.
+- Exports failed: `export_jobs.completed_at` rows with status `failed` in range. `completed_at` is the terminal timestamp for failed export jobs.
 - Median caption duration: median `completed_at - started_at` seconds for completed caption jobs.
 - Median export duration: median `completed_at - started_at` seconds for completed export jobs.
 

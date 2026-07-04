@@ -13,6 +13,7 @@ describe("admin browser secret boundary", () => {
       "ADMIN_SECURITY_PEPPER",
       "INTERNAL_ADMIN_API_SECRET",
       "UPSTASH_REDIS_REST_TOKEN",
+      "POSTHOG_PERSONAL_API_KEY",
     ]) {
       expect(envSource).toContain(secret);
       expect(envSource).not.toContain(`NEXT_PUBLIC_${secret}`);

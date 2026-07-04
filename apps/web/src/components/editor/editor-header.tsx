@@ -12,6 +12,9 @@ import { RenameProjectDialog } from "@/project/components/rename-project-dialog"
 import { DeleteProjectDialog } from "@/project/components/delete-project-dialog";
 import { useRouter } from "next/navigation";
 import { ExportButton } from "./export-button";
+import { EditorGuideButton } from "./editor-guide-button";
+import { EditorHelpButton } from "./editor-help-button";
+import { EDITOR_HELP_CONTENT } from "./editor-help-content";
 import { FeedbackPopover } from "@/feedback/components/feedback-popover";
 import { ThemeToggle } from "../theme-toggle";
 import { LOGOS } from "@/site/brand";
@@ -42,8 +45,13 @@ export function EditorHeader() {
 				<EditableProjectName />
 			</div>
 			<nav className="flex items-center gap-2">
+				<EditorGuideButton />
 				<FeedbackPopover />
 				<ExportButton />
+				<EditorHelpButton
+					title={EDITOR_HELP_CONTENT.export.title}
+					description={EDITOR_HELP_CONTENT.export.description}
+				/>
 				<ThemeToggle />
 				<AccountMenu compact />
 			</nav>

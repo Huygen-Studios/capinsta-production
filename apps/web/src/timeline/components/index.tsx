@@ -87,6 +87,8 @@ import { DragLine } from "./drag-line";
 import { invokeAction } from "@/actions";
 import { resolveTimelineElementIntersections } from "./selection-hit-testing";
 import { cn } from "@/utils/ui";
+import { EditorHelpButton } from "@/components/editor/editor-help-button";
+import { EDITOR_HELP_CONTENT } from "@/components/editor/editor-help-content";
 
 const TRACKS_CONTAINER_MAX_HEIGHT = 800;
 const FALLBACK_CONTAINER_WIDTH = 1000;
@@ -458,7 +460,14 @@ export function Timeline() {
 			}
 			{...dragProps}
 			aria-label="Timeline"
+			data-tour="timeline"
 		>
+			<div className="absolute right-2 top-2 z-20">
+				<EditorHelpButton
+					title={EDITOR_HELP_CONTENT.timeline.title}
+					description={EDITOR_HELP_CONTENT.timeline.description}
+				/>
+			</div>
 			<TimelineToolbar
 				zoomLevel={zoomLevel}
 				minZoom={minZoomLevel}

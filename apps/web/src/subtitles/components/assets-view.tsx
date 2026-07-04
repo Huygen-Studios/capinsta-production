@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button";
+import { EditorHelpButton } from "@/components/editor/editor-help-button";
+import { EDITOR_HELP_CONTENT } from "@/components/editor/editor-help-content";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -753,10 +755,15 @@ export function Captions() {
 	return (
 		<PanelView
 			title="Captions"
+			data-tour="caption-tools"
 			contentClassName="px-0 flex flex-col h-full"
 			actions={
 				<TooltipProvider>
 					<div className="flex items-center gap-1.5">
+						<EditorHelpButton
+							title={EDITOR_HELP_CONTENT.captions.title}
+							description={EDITOR_HELP_CONTENT.captions.description}
+						/>
 						{!isProcessing &&
 							activeDiagnostics.map((diagnostic) => (
 								<Tooltip key={diagnostic.id}>

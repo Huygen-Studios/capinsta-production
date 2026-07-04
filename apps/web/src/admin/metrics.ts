@@ -10,6 +10,7 @@ import {
 	type AdminMetricsResponse,
 	type MetricQuery,
 } from "./metrics-shared";
+import { queryPostHogWebsiteVisitors } from "./posthog";
 export { normalizeAdminMetricsRangePreset } from "./metrics-shared";
 
 async function countSql(query: ReturnType<typeof sql>): Promise<number | null> {
@@ -45,10 +46,13 @@ export async function getAdminMetrics({
 		{
 			name: "websiteVisitors",
 			source: "PostHog",
-			definition: "Website visitors for the selected period. Disabled until PostHog is configured.",
-			query: async () => {
-				throw new Error("posthog_not_configured");
-			},
+			definition:
+				"Distinct website visitors for pageview events in the selected UTC range, queried server-side from PostHog.",
+			query: () =>
+				queryPostHogWebsiteVisitors({
+					startUtc: range.startUtc,
+					endUtc: range.endUtc,
+				}),
 		},
 		{
 			name: "newAccounts",
@@ -174,15 +178,15 @@ export async function getAdminMetrics({
 		},
 		{
 			name: "captionJobsFailed",
-			source: "caption_jobs.created_at/status",
-			definition: "Caption jobs marked failed in the selected UTC range.",
+			source: "caption_jobs.completed_at/status",
+			definition: "Caption jobs that reached failed terminal state in the selected UTC range.",
 			query: () =>
 				countSql(sql`
 					select count(*)::int as value
 					from caption_jobs
 					where status = 'failed'
-						and created_at >= ${start}
-						and created_at < ${end}
+						and completed_at >= ${start}
+						and completed_at < ${end}
 				`),
 		},
 		{
@@ -212,15 +216,15 @@ export async function getAdminMetrics({
 		},
 		{
 			name: "exportsFailed",
-			source: "export_jobs.created_at/status",
-			definition: "Export jobs marked failed in the selected UTC range.",
+			source: "export_jobs.completed_at/status",
+			definition: "Export jobs that reached failed terminal state in the selected UTC range.",
 			query: () =>
 				countSql(sql`
 					select count(*)::int as value
 					from export_jobs
 					where status = 'failed'
-						and created_at >= ${start}
-						and created_at < ${end}
+						and completed_at >= ${start}
+						and completed_at < ${end}
 				`),
 		},
 		{

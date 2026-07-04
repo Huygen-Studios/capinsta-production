@@ -450,7 +450,7 @@ async def export_payload(export_job_id: str) -> dict[str, Any] | None:
         "render_time_seconds": performance.get("renderTimeSeconds"),
         "queued_at": row["created_at"],
         "started_at": row["created_at"] if status not in {"queued"} else None,
-        "completed_at": row["updated_at"] if status == "completed" else None,
+        "completed_at": row["updated_at"] if status in {"completed", "failed", "cancelled", "expired"} else None,
         "cancelled_at": row["updated_at"] if status == "cancelled" else None,
         "retry_count": row["retry_count"] if "retry_count" in row.keys() else 0,
         "error_class": row["stage"] if row["error"] else None,

@@ -59,7 +59,9 @@ After:
 Project, caption, export, donation, and entitlement metrics use existing authoritative tables and can report historical rows that already exist.
 Upload completed/failed metrics use the new `product_events` ledger and become complete after migration/deployment. No blind historical upload backfill was added because the repository does not currently expose a verified Postgres media upload table in the web control-plane schema.
 
-Website visitors are intentionally separate from accounts. They are only available when PostHog is configured; otherwise the dashboard shows them as unavailable.
+Website visitors are intentionally separate from accounts. They are only available when PostHog server analytics credentials are configured; otherwise the dashboard shows them as unavailable. Browser event ingestion uses the public PostHog key and the custom proxy host. Dashboard visitor counts use server-only `POSTHOG_PROJECT_ID` and `POSTHOG_PERSONAL_API_KEY`.
+
+Caption and export failure metrics use terminal timestamps. Caption jobs already mirror `completed_at` for failed terminal states. Export jobs now mirror `completed_at` for failed, cancelled, and expired terminal states as well, so range filters count when the job actually ended rather than when it was created.
 
 ## Verification
 

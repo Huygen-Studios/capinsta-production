@@ -12,7 +12,7 @@ import { Timeline } from "@/timeline/components";
 import { PreviewPanel } from "@/preview/components";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorProvider } from "@/components/providers/editor-provider";
-import { Onboarding } from "@/components/editor/onboarding";
+import { EditorOnboardingProvider } from "@/components/editor/editor-onboarding";
 import { MigrationDialog } from "@/project/components/migration-dialog";
 import { usePanelStore } from "@/editor/panel-store";
 import { usePasteMedia } from "@/media/use-paste-media";
@@ -45,7 +45,9 @@ export default function Editor() {
 	return (
 		<MobileGate>
 			<EditorProvider projectId={projectId}>
-				<EditorProjectSession />
+				<EditorOnboardingProvider>
+					<EditorProjectSession />
+				</EditorOnboardingProvider>
 			</EditorProvider>
 		</MobileGate>
 	);
@@ -71,20 +73,22 @@ function EditorProjectSession() {
 	}
 
 	return (
-				<div className="editor-shell bg-background flex h-screen w-screen flex-col overflow-hidden">
-					<DegradedRendererBanner />
-					<EditorTopAd />
-					<EditorHeader />
-					<div className="editor-workspace-with-ads min-h-0 min-w-0 flex-1">
-						<div className="min-h-0 min-w-0">
-							<EditorLayout />
-						</div>
-						<EditorAdRail />
-					</div>
-					<Onboarding />
-					<MigrationDialog />
-					<ChangelogNotification />
+		<div
+			className="editor-shell bg-background flex h-screen w-screen flex-col overflow-hidden"
+			data-tour="editor-root"
+		>
+			<DegradedRendererBanner />
+			<EditorTopAd />
+			<EditorHeader />
+			<div className="editor-workspace-with-ads min-h-0 min-w-0 flex-1">
+				<div className="min-h-0 min-w-0">
+					<EditorLayout />
 				</div>
+				<EditorAdRail />
+			</div>
+			<MigrationDialog />
+			<ChangelogNotification />
+		</div>
 	);
 }
 

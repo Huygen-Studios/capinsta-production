@@ -31,6 +31,8 @@ import {
 	computePreviewDimensions,
 } from "@/preview/preview-store";
 import { useAutoPreviewQuality } from "@/preview/hooks/use-auto-preview-quality";
+import { EditorHelpButton } from "@/components/editor/editor-help-button";
+import { EDITOR_HELP_CONTENT } from "@/components/editor/editor-help-content";
 
 function usePreviewSize() {
 	const canvasSize = useEditor(
@@ -87,7 +89,14 @@ export function PreviewPanel({
 		<div
 			ref={handleContainerRef}
 			className="panel editor-panel relative flex size-full min-h-0 min-w-0 flex-col"
+			data-tour="preview-panel"
 		>
+			<div className="absolute right-2 top-2 z-20">
+				<EditorHelpButton
+					title={EDITOR_HELP_CONTENT.preview.title}
+					description={EDITOR_HELP_CONTENT.preview.description}
+				/>
+			</div>
 			<PreviewCanvas
 				container={container}
 				onToggleFullscreen={toggleFullscreen}
