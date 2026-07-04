@@ -1,8 +1,13 @@
-# ---- Stage 1: Installer (Bun) ----
+# ---- Stage 1: Builder (Bun install + Node Next.js build) ----
 # Bun handles `bun install --frozen-lockfile` (reproducible, workspace-aware).
-FROM oven/bun:alpine AS installer
+# Node runs `next build`. Installing Node in this same stage avoids copying a
+# full node_modules tree between Docker stages, which can exhaust small Coolify
+# hosts before the app even starts compiling.
+FROM oven/bun:alpine AS builder
 
 WORKDIR /app
+
+RUN apk add --no-cache nodejs
 
 # Copy only manifest + lockfile for a cacheable dependency layer.
 COPY package.json package.json
@@ -12,24 +17,6 @@ COPY apps/web/package.json apps/web/package.json
 
 RUN --mount=type=cache,id=capinsta-bun-cache,target=/root/.bun/install/cache \
     bun install --frozen-lockfile
-
-# ---- Stage 2: Builder (Node + Next.js build) ----
-# Node runs `next build`. This avoids Bun's SIGILL/segfault on VPS CPUs that
-# Bun (musl build) does not support.
-FROM node:22-alpine AS builder
-
-WORKDIR /app
-
-# Bring in installed deps from the Bun stage.
-COPY --from=installer /app/node_modules ./node_modules
-# Bun keeps workspace-specific packages (including Next config plugins such as
-# botid and @content-collections/next) in the workspace node_modules directory.
-# Preserve those links so Node can resolve them while loading next.config.ts.
-COPY --from=installer /app/apps/web/node_modules ./apps/web/node_modules
-COPY package.json package.json
-COPY bun.lock bun.lock
-COPY turbo.json turbo.json
-COPY apps/web/package.json apps/web/package.json
 
 # Copy the web app source.
 COPY apps/web/ apps/web/
@@ -87,7 +74,7 @@ RUN --mount=type=cache,id=capinsta-next-cache,target=/app/apps/web/.next/cache \
     (while sleep 25; do echo "capinsta_next_build_active"; done) & \
     heartbeat_pid=$!; \
     trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT; \
-    ./node_modules/.bin/next build
+    node ./node_modules/next/dist/bin/next build
 
 # ---- Stage 3: Runner (Node Next.js server) ----
 FROM node:22-alpine AS runner
@@ -117,20 +104,15 @@ ENV MARBLE_WORKSPACE_KEY="build-placeholder"
 RUN addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/package.json
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
 
-RUN test -d /app/apps/web/.next \
+RUN test -f /app/apps/web/server.js \
  && test -d /app/apps/web/public \
  && test -d /app/apps/web/.next/static \
- && node -e "console.log('next_resolved=' + require.resolve('next', { paths: ['/app/apps/web'] }))" \
- && node /app/apps/web/node_modules/next/dist/bin/next --version \
  || (echo "Expected Next production layout is missing"; \
      echo "server.js files:"; find /app -maxdepth 5 -type f -name server.js -print; \
-     echo "next package candidates:"; find /app -maxdepth 7 -path "*/node_modules/next" -print; \
      echo ".next/static directories:"; find /app -maxdepth 6 -type d -path "*/.next/static" -print; \
      echo "public directories:"; find /app -maxdepth 5 -type d -name public -print; \
      exit 1)
