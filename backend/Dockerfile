@@ -70,7 +70,14 @@ RUN python -m pip install --upgrade pip \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
   && python -m playwright install --only-shell chromium \
-  && rm -rf /root/.cache /tmp/*
+  && find /usr/local/lib/python3.11 -type d \( -name '__pycache__' -o -name 'tests' -o -name 'test' \) -prune -exec rm -rf '{}' + \
+  && find /usr/local/lib/python3.11 -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.a' \) -delete \
+  && rm -rf \
+    /root/.cache \
+    /tmp/* \
+    /usr/local/lib/python3.11/site-packages/torch/include \
+    /usr/local/lib/python3.11/site-packages/torch/share \
+    /usr/local/lib/python3.11/site-packages/torch/test
 
 RUN mkdir -p \
     "$CAPINSTA_MODEL_CACHE_DIR" \
