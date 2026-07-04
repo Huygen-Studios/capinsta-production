@@ -343,9 +343,13 @@ def test_public_mode_backend_requires_approved_product_access(monkeypatch):
     async def super_admin(unused):
         return False
 
+    async def direct_entitlements(unused):
+        return set(), set()
+
     monkeypatch.setattr(policy, "_query_one", query_one)
     monkeypatch.setattr(policy, "effective_app_permissions", permissions)
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
+    monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
     with pytest.raises(policy.ProductAccessDeniedError) as error:
         asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
@@ -368,9 +372,13 @@ def test_public_mode_backend_requires_exact_app_permission(monkeypatch):
     async def super_admin(unused):
         return False
 
+    async def direct_entitlements(unused):
+        return set(), set()
+
     monkeypatch.setattr(policy, "_query_one", query_one)
     monkeypatch.setattr(policy, "effective_app_permissions", permissions)
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
+    monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
     with pytest.raises(policy.ProductAccessDeniedError) as error:
         asyncio.run(policy.require_backend_capability(user, "/api/export/jobs"))
@@ -393,9 +401,40 @@ def test_public_mode_backend_allows_approved_member_with_permission(monkeypatch)
     async def super_admin(unused):
         return False
 
+    async def direct_entitlements(unused):
+        return set(), set()
+
     monkeypatch.setattr(policy, "_query_one", query_one)
     monkeypatch.setattr(policy, "effective_app_permissions", permissions)
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
+    monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
+
+    asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
+
+
+def test_backend_capability_honors_direct_product_entitlement(monkeypatch):
+    user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    calls = iter([
+        ("approved", None),
+        ("public",),
+    ])
+
+    async def query_one(query, params=()):
+        return next(calls)
+
+    async def permissions(unused):
+        return set()
+
+    async def super_admin(unused):
+        return False
+
+    async def direct_entitlements(unused):
+        return {"editor"}, set()
+
+    monkeypatch.setattr(policy, "_query_one", query_one)
+    monkeypatch.setattr(policy, "effective_app_permissions", permissions)
+    monkeypatch.setattr(policy, "is_super_admin", super_admin)
+    monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
     asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
 

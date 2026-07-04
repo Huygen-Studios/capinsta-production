@@ -29,6 +29,8 @@ import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { mediaTimeFromSeconds, type MediaTime } from "@/wasm";
 import { useEditor } from "@/editor/use-editor";
 import { useFileUpload } from "@/media/use-file-upload";
+import { EditorHelpButton } from "@/components/editor/editor-help-button";
+import { EDITOR_HELP_CONTENT } from "@/components/editor/editor-help-content";
 import { invokeAction } from "@/actions";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
@@ -543,7 +545,7 @@ function MediaActions({
 	onImport: () => void;
 }) {
 	return (
-		<div className="flex gap-1.5">
+		<div className="flex min-w-0 items-center gap-1.5">
 			<TooltipProvider>
 				<Tooltip>
 					<TooltipTrigger asChild>
@@ -555,7 +557,7 @@ function MediaActions({
 								setMediaViewMode(mediaViewMode === "grid" ? "list" : "grid")
 							}
 							disabled={isProcessing}
-							className="items-center justify-center"
+							className="size-7 shrink-0 items-center justify-center border-transparent"
 						>
 							{mediaViewMode === "grid" ? (
 								<HugeiconsIcon icon={LeftToRightListDashIcon} />
@@ -581,7 +583,7 @@ function MediaActions({
 									size="icon"
 									variant="ghost"
 									disabled={isProcessing}
-									className="items-center justify-center"
+									className="size-7 shrink-0 items-center justify-center border-transparent"
 								>
 									<HugeiconsIcon icon={SortingOneNineIcon} />
 								</Button>
@@ -632,11 +634,16 @@ function MediaActions({
 				onClick={onImport}
 				disabled={isProcessing}
 				size="sm"
-				className="items-center justify-center gap-1.5"
+				className="h-8 shrink-0 items-center justify-center gap-1.5 border-[var(--editor-border)] bg-[var(--editor-surface-raised)] px-2.5 text-[13px] shadow-none"
 			>
-				<HugeiconsIcon icon={CloudUploadIcon} />
+				<HugeiconsIcon icon={CloudUploadIcon} className="size-4 shrink-0" />
 				Import
 			</Button>
+			<EditorHelpButton
+				title={EDITOR_HELP_CONTENT.assets.title}
+				description={EDITOR_HELP_CONTENT.assets.description}
+				className="ml-0.5"
+			/>
 		</div>
 	);
 }

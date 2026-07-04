@@ -317,6 +317,61 @@ async def effective_app_permissions(user_id: str) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+async def direct_product_entitlements(user_id: str) -> tuple[set[str], set[str]]:
+    if _rest_control_plane_enabled():
+        rows = await _rest_rows(
+            "app_product_entitlements",
+            {
+                "select": "product_id,status,expires_at",
+                "user_id": f"eq.{user_id}",
+                "or": "(expires_at.is.null,expires_at.gt.now())",
+            },
+        )
+        grants = {
+            str(row.get("product_id"))
+            for row in rows
+            if row.get("status") == "granted" and row.get("product_id")
+        }
+        revocations = {
+            str(row.get("product_id"))
+            for row in rows
+            if row.get("status") == "revoked" and row.get("product_id")
+        }
+        return grants, revocations
+
+    try:
+        rows = await _query_all(
+            """
+            SELECT product_id, status
+            FROM app_product_entitlements
+            WHERE user_id = %s::uuid
+              AND status IN ('granted', 'revoked')
+              AND (expires_at IS NULL OR expires_at > now())
+            """,
+            (user_id,),
+        )
+    except ControlPlaneUnavailableError:
+        logger.warning(
+            "direct_product_entitlements_unavailable user_id=%s",
+            user_id,
+        )
+        return set(), set()
+    grants = {str(row[0]) for row in rows if str(row[1]) == "granted"}
+    revocations = {str(row[0]) for row in rows if str(row[1]) == "revoked"}
+    return grants, revocations
+
+
+def permissions_for_products(product_ids: set[str]) -> set[str]:
+    permissions: set[str] = set()
+    if "editor" in product_ids:
+        permissions.update(
+            {"app.access", "projects.access", "editor.access", "render.access"}
+        )
+    if "exports" in product_ids:
+        permissions.add("exports.access")
+    return permissions
+
+
 async def is_super_admin(user_id: str) -> bool:
     if _rest_control_plane_enabled():
         profile = await _rest_profile(user_id, "account_status")
@@ -408,6 +463,9 @@ async def require_backend_capability(user: AuthenticatedUser, request_path: str)
         raise ProductAccessDeniedError("maintenance_mode", 503)
     if mode not in {"public", "coming_soon"}:
         raise ProductAccessDeniedError("control_plane_unavailable", 503)
+    direct_grants, direct_revocations = await direct_product_entitlements(user.id)
+    permissions.update(permissions_for_products(direct_grants))
+    permissions.difference_update(permissions_for_products(direct_revocations))
     if product_status != "approved":
         raise ProductAccessDeniedError("product_access_pending")
     if permission not in permissions:

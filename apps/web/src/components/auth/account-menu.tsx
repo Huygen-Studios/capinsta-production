@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { CreditCard, LogOut, UserRound } from "lucide-react";
+import { CreditCard, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,17 +19,20 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 	const router = useRouter();
 	const [user, setUser] = useState<User | null>(null);
 	const [resolved, setResolved] = useState(false);
+	const [avatarFailed, setAvatarFailed] = useState(false);
 
 	useEffect(() => {
 		const supabase = createClient();
 		void supabase.auth.getUser().then(({ data }) => {
 			setUser(data.user);
+			setAvatarFailed(false);
 			setResolved(true);
 		});
 		const {
 			data: { subscription },
 		} = supabase.auth.onAuthStateChange((_event, session) => {
 			setUser(session?.user ?? null);
+			setAvatarFailed(false);
 			setResolved(true);
 		});
 		return () => subscription.unsubscribe();
@@ -53,6 +56,12 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 		typeof user.user_metadata.avatar_url === "string"
 			? user.user_metadata.avatar_url
 			: null;
+	const initials = name
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((part) => part[0]?.toUpperCase())
+		.join("") || "C";
 
 	const signOut = async () => {
 		await createClient().auth.signOut({ scope: "global" });
@@ -68,17 +77,18 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
 					aria-label={`Open account menu for ${name}`}
 					className="h-9 gap-2 rounded-full px-2"
 				>
-					{avatar ? (
+					{avatar && !avatarFailed ? (
 						<Image
 							src={avatar}
 							alt=""
 							width={28}
 							height={28}
 							className="size-7 rounded-full object-cover"
+							onError={() => setAvatarFailed(true)}
 						/>
 					) : (
 						<span className="flex size-7 items-center justify-center rounded-full border-2 border-[var(--neo-black)] bg-[var(--neo-blue)] text-[var(--neo-black)]">
-							<UserRound className="size-4" />
+							<span className="text-[10px] font-bold leading-none">{initials}</span>
 						</span>
 					)}
 					{compact ? null : (

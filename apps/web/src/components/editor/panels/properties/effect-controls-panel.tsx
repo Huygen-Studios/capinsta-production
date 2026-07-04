@@ -118,7 +118,7 @@ function EffectSection({
 			sectionKey={`effect-controls:${element.type}:${tab.id}`}
 			showTopBorder
 			showBottomBorder={false}
-			className="border-border/80"
+			className="mx-2 mt-2 rounded-[var(--editor-radius)] border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)]"
 		>
 			<SectionHeader
 				className="h-9 px-3 text-xs"
@@ -166,7 +166,7 @@ export function EffectControlsShell({
 			)}
 			data-tour="properties-panel"
 		>
-			<div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-border bg-card px-3 py-2.5">
+			<div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-2 border-b border-[var(--editor-border-subtle)] bg-[var(--editor-surface)] px-3 py-2.5">
 				<h2 className="text-sm font-black tracking-wide">Effect Controls</h2>
 				<EditorHelpButton
 					title={EDITOR_HELP_CONTENT.properties.title}

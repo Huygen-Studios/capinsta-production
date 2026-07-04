@@ -39,7 +39,7 @@ import { AccountMenu } from "@/components/auth/account-menu";
 
 export function EditorHeader() {
 	return (
-		<header className="flex h-[3.4rem] items-center justify-between border-b-2 border-border bg-card px-3 pt-0.5 shadow-[0_3px_0_var(--shadow-strong)]">
+		<header className="flex h-[3.25rem] items-center justify-between border-b border-[var(--editor-border)] bg-[var(--editor-surface)] px-3 pt-0.5">
 			<div className="flex items-center gap-1">
 				<ProjectDropdown />
 				<EditableProjectName />

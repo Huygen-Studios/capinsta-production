@@ -8,8 +8,12 @@ const TARGET_SELECTORS = {
 	timeline: '[data-tour="timeline"]',
 	captions: '[data-tour="caption-tools"]',
 	properties: '[data-tour="properties-panel"]',
+	projectInfo: '[data-tour="project-info-settings"]',
+	background: '[data-tour="background-settings"]',
+	backgroundCustomization: '[data-tour="background-customization"]',
 	export: '[data-tour="export"]',
 	guideMe: '[data-tour="guide-me"]',
+	sendFeedback: '[data-tour="send-feedback"]',
 } as const;
 
 export function createEditorTourSteps(): DriveStep[] {
@@ -72,11 +76,51 @@ export function createEditorTourSteps(): DriveStep[] {
 			},
 		},
 		{
+			element: TARGET_SELECTORS.projectInfo,
+			popover: {
+				title: "Project settings",
+				description:
+					"Use Project info to confirm the project name, frame rate, aspect ratio, and canvas size before you export.",
+				side: "right",
+				align: "start",
+			},
+		},
+		{
+			element: TARGET_SELECTORS.background,
+			popover: {
+				title: "Background settings",
+				description:
+					"Open Background to choose blur, solid colors, gradients, and visual presets for caption-only or styled exports.",
+				side: "right",
+				align: "start",
+			},
+		},
+		{
+			element: TARGET_SELECTORS.backgroundCustomization,
+			popover: {
+				title: "Customize the canvas",
+				description:
+					"These controls change the background treatment behind your edit while keeping the timeline and captions untouched.",
+				side: "right",
+				align: "start",
+			},
+		},
+		{
 			element: TARGET_SELECTORS.export,
 			popover: {
 				title: "Export your final video",
 				description:
 					"When your edit is ready, export the video and download subtitle files if needed.",
+				side: "bottom",
+				align: "end",
+			},
+		},
+		{
+			element: TARGET_SELECTORS.sendFeedback,
+			popover: {
+				title: "Send feedback",
+				description:
+					"Use this button to report a bug, suggest an improvement, ask a question, or share what is working well.",
 				side: "bottom",
 				align: "end",
 			},

@@ -24,9 +24,9 @@ export function EditorGuideButton() {
 						data-tour="guide-me"
 						aria-label="Start editor guide"
 						onClick={() => startEditorTour({ source: "manual" })}
-						className="h-9"
+						className="h-8 gap-1.5 border-[var(--editor-border)] bg-[var(--editor-surface-raised)] px-3 text-[13px] font-semibold text-[var(--editor-text)] shadow-none hover:bg-[var(--editor-surface)] hover:text-[var(--editor-text)]"
 					>
-						<Compass className="size-4" />
+						<Compass className="size-3.5" />
 						<span className="hidden sm:inline">Guide me</span>
 					</Button>
 				</TooltipTrigger>

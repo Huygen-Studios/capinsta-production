@@ -36,7 +36,7 @@ export function EditorHelpButton({
 					size="icon"
 					aria-label={getEditorHelpButtonAriaLabel(title)}
 					className={cn(
-						"size-7 bg-card/85 text-muted-foreground hover:bg-muted",
+						"size-7 shrink-0 border border-transparent bg-transparent text-[var(--editor-muted)] shadow-none hover:border-[var(--editor-border)] hover:bg-[var(--editor-surface-raised)] hover:text-[var(--editor-text)]",
 						className,
 					)}
 					onMouseDown={stopEditorPointerHandling}
@@ -47,7 +47,7 @@ export function EditorHelpButton({
 			</PopoverTrigger>
 			<PopoverContent
 				align="end"
-				className="w-72 rounded-sm border-2 border-border bg-card shadow-[4px_4px_0_var(--shadow-strong)]"
+				className="w-72 rounded-[var(--editor-radius)] border border-[var(--editor-border)] bg-[var(--editor-surface-raised)] shadow-[3px_3px_0_rgba(184,255,28,0.24)]"
 			>
 				<div className="space-y-2">
 					<h3 className="text-sm font-black">{title}</h3>

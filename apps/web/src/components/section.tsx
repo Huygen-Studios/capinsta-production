@@ -117,7 +117,7 @@ export function SectionHeader({
 
 	const trailingArea =
 		trailing || isCollapsible ? (
-			<div className="flex items-center">
+			<div className="flex shrink-0 items-center gap-1">
 				{trailing}
 				{isCollapsible && (
 					<Button
@@ -125,6 +125,7 @@ export function SectionHeader({
 						size="icon"
 						aria-label={isOpen ? "Collapse section" : "Expand section"}
 						onClick={handleClick}
+						className="size-7 shrink-0 border-transparent bg-transparent shadow-none"
 					>
 						{chevronIcon}
 					</Button>

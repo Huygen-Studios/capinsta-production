@@ -11,6 +11,7 @@ import {
 } from "react";
 import { driver, type Driver } from "driver.js";
 import "driver.js/dist/driver.css";
+import "./editor-tour-theme.css";
 import { useLocalStorage } from "@/services/storage/use-local-storage";
 import { EDITOR_ONBOARDING_STORAGE_KEY } from "./editor-help-content";
 import {
@@ -87,6 +88,11 @@ export function EditorOnboardingProvider({
 				allowClose: true,
 				showProgress: true,
 				smoothScroll: false,
+				overlayOpacity: 0.6,
+				stagePadding: 8,
+				stageRadius: 6,
+				popoverClass: "editor-tour-popover",
+				disableActiveInteraction: false,
 				nextBtnText: "Next",
 				prevBtnText: "Back",
 				doneBtnText: "Start editing",

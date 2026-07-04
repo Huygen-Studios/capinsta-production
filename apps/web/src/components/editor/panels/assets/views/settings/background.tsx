@@ -36,8 +36,8 @@ const BlurPreview = memo(
 		return (
 			<button
 				className={cn(
-					"border-foreground/15 hover:border-primary relative aspect-square size-20 cursor-pointer overflow-hidden rounded-sm border",
-					isSelected && "border-primary border-2",
+					"relative aspect-square size-20 cursor-pointer overflow-hidden rounded-sm border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)] hover:border-primary",
+					isSelected && "border-primary bg-[var(--editor-surface-raised)]",
 				)}
 				onClick={onSelect}
 				type="button"
@@ -79,10 +79,10 @@ const BackgroundPreviews = memo(
 					<button
 						key={bg}
 						className={cn(
-							"border-foreground/15 hover:border-primary aspect-square size-20 cursor-pointer rounded-sm border",
+							"aspect-square size-20 cursor-pointer rounded-sm border border-[var(--editor-border-subtle)] hover:border-primary",
 							isColorBackground &&
 								bg.toLowerCase() === currentBackgroundColor.toLowerCase() &&
-								"border-primary border-2",
+								"border-primary",
 						)}
 						style={
 							useBackgroundColor
@@ -128,8 +128,8 @@ function CustomColorPreview({
 			<PopoverTrigger asChild>
 				<button
 					className={cn(
-						"border-foreground/15 hover:border-primary relative aspect-square size-20 cursor-pointer overflow-hidden rounded-sm border",
-						isSelected && "border-primary border-2",
+						"relative aspect-square size-20 cursor-pointer overflow-hidden rounded-sm border border-[var(--editor-border-subtle)] hover:border-primary",
+						isSelected && "border-primary",
 					)}
 					type="button"
 					aria-label="Pick a custom background color"
@@ -210,14 +210,14 @@ export function BackgroundContent() {
 
 	const isBlurBackground = activeProject.settings.background.type === "blur";
 	const isColorBackground = activeProject.settings.background.type === "color";
+	const projectBackground = activeProject.settings.background;
 
-	const currentBlurIntensity = isBlurBackground
-		? (activeProject.settings.background as { blurIntensity: number })
-				.blurIntensity
+	const currentBlurIntensity = projectBackground.type === "blur"
+		? projectBackground.blurIntensity
 		: DEFAULT_BACKGROUND_BLUR_INTENSITY;
 
-	const currentBackgroundColor = isColorBackground
-		? (activeProject.settings.background as { color: string }).color
+	const currentBackgroundColor = projectBackground.type === "color"
+		? projectBackground.color
 		: DEFAULT_BACKGROUND_COLOR;
 
 	const hasPresetColorMatch = colors.some(
@@ -245,12 +245,14 @@ export function BackgroundContent() {
 	);
 
 	return (
-		<div className="flex flex-col">
+		<div className="flex flex-col gap-2 px-2 py-2" data-tour="background-customization">
 			<Section
 				collapsible
 				defaultOpen={true}
 				sectionKey="background-blur"
 				showTopBorder={false}
+				showBottomBorder={false}
+				className="rounded-[var(--editor-radius)] border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)]"
 			>
 				<SectionHeader>
 					<SectionTitle>Blur</SectionTitle>
@@ -265,6 +267,9 @@ export function BackgroundContent() {
 					collapsible
 					defaultOpen={false}
 					sectionKey={`settings:background-${section.id}`}
+					showTopBorder={false}
+					showBottomBorder={false}
+					className="rounded-[var(--editor-radius)] border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)]"
 				>
 					<SectionHeader>
 						<SectionTitle>{section.title}</SectionTitle>

@@ -111,7 +111,11 @@ export function FeedbackPopover() {
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
-				<Button variant="outline" className="h-8">
+				<Button
+					variant="outline"
+					data-tour="send-feedback"
+					className="h-8 border-[var(--editor-border)] bg-[var(--editor-surface-raised)] px-3 text-[13px] font-semibold text-[var(--editor-text)] shadow-none hover:bg-[var(--editor-surface)] hover:text-[var(--editor-text)]"
+				>
 					Send feedback
 				</Button>
 			</PopoverTrigger>

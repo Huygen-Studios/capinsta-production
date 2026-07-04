@@ -40,6 +40,19 @@ describe("editor tour steps", () => {
 		expect(
 			steps.some((step) => step.element === '[data-tour="caption-tools"]'),
 		).toBe(true);
+		expect(
+			steps.some((step) => step.element === '[data-tour="send-feedback"]'),
+		).toBe(true);
+		expect(
+			steps.some(
+				(step) => step.element === '[data-tour="project-info-settings"]',
+			),
+		).toBe(true);
+		expect(
+			steps.some(
+				(step) => step.element === '[data-tour="background-settings"]',
+			),
+		).toBe(true);
 	});
 
 	test("manual restart is allowed even after first-run onboarding is complete", () => {

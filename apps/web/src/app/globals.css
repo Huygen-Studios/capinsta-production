@@ -397,6 +397,17 @@
   }
 
   .editor-shell {
+    --editor-bg: #232421;
+    --editor-surface: #2b2c29;
+    --editor-surface-raised: #343632;
+    --editor-border: #555850;
+    --editor-border-subtle: #3d403a;
+    --editor-text: #f1f0e9;
+    --editor-muted: #aaa9a2;
+    --editor-accent: var(--neo-green);
+    --editor-accent-text: #15170f;
+    --editor-radius: 6px;
+    --control-height: 34px;
     background: var(--background);
   }
 
@@ -417,14 +428,14 @@
   }
 
   .editor-shell .panel {
-    border: 1px solid var(--border);
+    border: 1px solid var(--editor-border);
     border-radius: var(--radius-sm);
-    background: var(--panel-bg);
+    background: var(--editor-surface);
     box-shadow: none;
   }
 
   .editor-shell .editor-panel {
-    background: var(--panel-bg);
+    background: var(--editor-surface);
   }
 
   .editor-shell :is(.panel, .editor-panel, [data-radix-scroll-area-viewport]) {
@@ -432,7 +443,7 @@
   }
 
   .editor-shell :is(header, aside, [data-panel], .editor-panel) {
-    border-color: var(--border);
+    border-color: var(--editor-border);
   }
 
   .editor-shell :is(button, [role="button"], input, textarea, select, [data-slot="select-trigger"]) {
@@ -440,7 +451,7 @@
   }
 
   .editor-shell :is(button, [role="button"]) {
-    border-width: 2px;
+    border-width: 1px;
   }
 
   .editor-shell :is(input, textarea, select, [data-slot="select-trigger"]) {

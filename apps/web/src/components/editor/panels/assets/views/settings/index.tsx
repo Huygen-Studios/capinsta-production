@@ -221,9 +221,21 @@ export function SettingsView() {
 						}
 					}}
 				>
-					<TabsList>
-						<TabsTrigger value="project-info">Project info</TabsTrigger>
-						<TabsTrigger value="background">Background</TabsTrigger>
+					<TabsList className="gap-1 bg-transparent p-0">
+						<TabsTrigger
+							value="project-info"
+							data-tour="project-info-settings"
+							className="h-8 border border-transparent px-2.5 text-sm data-[state=active]:border-primary data-[state=active]:bg-[var(--editor-surface-raised)] data-[state=active]:text-foreground"
+						>
+							Project info
+						</TabsTrigger>
+						<TabsTrigger
+							value="background"
+							data-tour="background-settings"
+							className="h-8 border border-transparent px-2.5 text-sm data-[state=active]:border-primary data-[state=active]:bg-[var(--editor-surface-raised)] data-[state=active]:text-foreground"
+						>
+							Background
+						</TabsTrigger>
 					</TabsList>
 				</Tabs>
 			}
@@ -265,6 +277,7 @@ export function SettingsView() {
 						showTopBorder={false}
 						collapsible
 						sectionKey="settings:aspect-ratio"
+						className="mx-2 my-2 rounded-[var(--editor-radius)] border border-[var(--editor-border-subtle)]"
 					>
 						<SectionHeader>
 							<SectionTitle className="flex-1">Aspect ratio</SectionTitle>
@@ -338,8 +351,10 @@ function AspectRatioItem({
 		<Button
 			variant={isSelected ? "secondary" : "ghost"}
 			className={cn(
-				"px-2 py-0 flex flex-col h-fit w-full",
-				!isSelected && "border border-transparent opacity-75!",
+				"h-fit w-full flex-col border px-2 py-0 shadow-none",
+				isSelected
+					? "border-primary bg-[var(--editor-surface-raised)]"
+					: "border-transparent bg-transparent opacity-75! hover:border-[var(--editor-border)] hover:bg-[var(--editor-surface)]",
 			)}
 			onClick={onClick}
 		>
