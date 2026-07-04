@@ -8,6 +8,7 @@ import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
 import {
 	deleteProjectMediaAsset,
+	MediaUploadError,
 	uploadProjectMediaAsset,
 } from "@/capinsta/mediaAssetApi";
 
@@ -27,6 +28,8 @@ export class MediaManager {
 	}): Promise<MediaAsset | null> {
 		let uploadedAssetId: string | undefined;
 		let uploadedDownloadUrl: string | undefined;
+		let syncStatus: MediaAsset["syncStatus"] = asset.ephemeral ? "local" : "synced";
+		let syncError: string | undefined;
 		if (!asset.ephemeral) {
 			try {
 				const uploaded = await uploadProjectMediaAsset({
@@ -36,14 +39,23 @@ export class MediaManager {
 				uploadedAssetId = uploaded.assetId;
 				uploadedDownloadUrl = uploaded.downloadUrl;
 			} catch (error) {
-				URL.revokeObjectURL(asset.url ?? "");
+				syncStatus = "failed";
+				syncError =
+					error instanceof Error
+						? error.message
+						: "The upload was interrupted. You can retry the import.";
 				toast.error("Could not upload media", {
-					description:
-						error instanceof Error
-							? error.message
-							: "The upload was interrupted. You can retry the import.",
+					description: syncError,
+					action:
+						error instanceof MediaUploadError && error.correlationId
+							? {
+									label: "Copy ID",
+									onClick: () => {
+										void navigator.clipboard.writeText(error.correlationId ?? "");
+									},
+								}
+							: undefined,
 				});
-				return null;
 			}
 		}
 		const newAsset: MediaAsset = {
@@ -51,6 +63,8 @@ export class MediaManager {
 			id: generateUUID(),
 			serverAssetId: uploadedAssetId,
 			serverDownloadUrl: uploadedDownloadUrl,
+			syncStatus,
+			syncError,
 		};
 
 		this.assets = [...this.assets, newAsset];

@@ -2,14 +2,17 @@ import { type NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCsrfProtection } from "@/auth/csrf";
 import { checkRateLimit } from "@/auth/rate-limit";
-import { submitFeedback, MAX_MESSAGE_LENGTH } from "@/feedback";
+import { submitFeedback } from "@/feedback";
+import {
+	MAX_FEEDBACK_CHARACTERS,
+	validateFeedbackMessage,
+} from "@/feedback/validation";
 import { createClient } from "@/lib/supabase/server";
 
 const submitSchema = z.object({
 	message: z
 		.string()
-		.min(1, "Message is required")
-		.max(MAX_MESSAGE_LENGTH, "Message too long"),
+		.max(MAX_FEEDBACK_CHARACTERS, "Feedback cannot exceed 2,000 characters."),
 });
 
 export async function POST(request: NextRequest) {
@@ -27,6 +30,16 @@ export async function POST(request: NextRequest) {
 	if (!result.success) {
 		return NextResponse.json(
 			{ error: "Invalid input", details: result.error.flatten().fieldErrors },
+			{ status: 400 },
+		);
+	}
+	const messageValidation = validateFeedbackMessage(result.data.message);
+	if (!messageValidation.ok) {
+		return NextResponse.json(
+			{
+				error: messageValidation.message,
+				details: { message: [messageValidation.message] },
+			},
 			{ status: 400 },
 		);
 	}

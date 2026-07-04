@@ -397,18 +397,69 @@
   }
 
   .editor-shell {
+    --editor-page: #f0eee6;
+    --editor-bg: #f0eee6;
+    --editor-surface: #e6e3da;
+    --editor-surface-raised: #f7f4eb;
+    --editor-surface-inset: #d8d5cc;
+    --editor-canvas-chrome: #f4f1e8;
+    --editor-popover: #f7f4eb;
+    --editor-border: #77786f;
+    --editor-border-subtle: #b8b5aa;
+    --editor-border-strong: #1d1f1a;
+    --editor-text: #15170f;
+    --editor-muted: #5e6158;
+    --editor-accent: var(--neo-green);
+    --editor-accent-text: #15170f;
+    --editor-danger: #b42318;
+    --editor-shadow: #15170f;
+    --editor-focus: var(--neo-green);
+    --editor-radius: 6px;
+    --control-height: 34px;
+    --background: var(--editor-page);
+    --foreground: var(--editor-text);
+    --card: var(--editor-surface);
+    --card-foreground: var(--editor-text);
+    --popover: var(--editor-popover);
+    --popover-foreground: var(--editor-text);
+    --muted: var(--editor-surface-inset);
+    --muted-foreground: var(--editor-muted);
+    --border: var(--editor-border);
+    --input: var(--editor-surface-raised);
+    --ring: var(--editor-focus);
+    background: var(--editor-page);
+    color: var(--editor-text);
+  }
+
+  .dark .editor-shell {
+    --editor-page: #232421;
     --editor-bg: #232421;
     --editor-surface: #2b2c29;
     --editor-surface-raised: #343632;
+    --editor-surface-inset: #1f201d;
+    --editor-canvas-chrome: #252622;
+    --editor-popover: #343632;
     --editor-border: #555850;
     --editor-border-subtle: #3d403a;
+    --editor-border-strong: #7a7d73;
     --editor-text: #f1f0e9;
     --editor-muted: #aaa9a2;
     --editor-accent: var(--neo-green);
     --editor-accent-text: #15170f;
-    --editor-radius: 6px;
-    --control-height: 34px;
-    background: var(--background);
+    --editor-danger: #ff7058;
+    --editor-shadow: rgba(10, 10, 10, 0.92);
+    --editor-focus: var(--neo-green);
+    --background: var(--editor-page);
+    --foreground: var(--editor-text);
+    --card: var(--editor-surface);
+    --card-foreground: var(--editor-text);
+    --popover: var(--editor-popover);
+    --popover-foreground: var(--editor-text);
+    --muted: var(--editor-surface-inset);
+    --muted-foreground: var(--editor-muted);
+    --border: var(--editor-border);
+    --input: var(--editor-surface-inset);
+    --ring: var(--editor-focus);
   }
 
   .projects-shell {
@@ -436,6 +487,10 @@
 
   .editor-shell .editor-panel {
     background: var(--editor-surface);
+  }
+
+  .editor-shell :is(.bg-card, .bg-background, .bg-popover, .bg-muted) {
+    color: var(--editor-text);
   }
 
   .editor-shell :is(.panel, .editor-panel, [data-radix-scroll-area-viewport]) {

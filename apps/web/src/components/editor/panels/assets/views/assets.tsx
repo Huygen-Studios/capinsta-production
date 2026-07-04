@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
 import { MediaDragOverlay } from "@/components/editor/panels/assets/drag-overlay";
@@ -98,15 +99,25 @@ export function MediaView() {
 						onProgress: (progress: { progress: number }) =>
 							setProgress(progress.progress),
 					});
+					const importedAssets: MediaAsset[] = [];
 					for (const asset of processedAssets) {
-						await editor.media.addMediaAsset({
+						const imported = await editor.media.addMediaAsset({
 							projectId: activeProject.metadata.id,
 							asset,
 						});
+						if (imported) importedAssets.push(imported);
 					}
+					const syncedAssets = importedAssets.filter(
+						(asset) => asset.syncStatus === "synced",
+					);
+					const failedSyncCount = importedAssets.filter(
+						(asset) => asset.syncStatus === "failed",
+					).length;
 					return {
-						uploadedCount: processedAssets.length,
-						assetNames: processedAssets.map((asset) => asset.name),
+						uploadedCount: syncedAssets.length,
+						failedSyncCount,
+						localImportCount: importedAssets.length,
+						assetNames: syncedAssets.map((asset) => asset.name),
 					};
 				},
 			});
@@ -464,9 +475,19 @@ function MediaPreview({
 	variant?: "grid" | "compact";
 }) {
 	const shouldShowDurationBadge = variant === "grid";
+	const withSyncState = (content: ReactNode) => (
+		<div className="relative size-full">
+			{content}
+			{item.syncStatus === "failed" ? (
+				<span className="absolute left-1 top-1 max-w-[calc(100%-0.5rem)] rounded-[3px] border border-[var(--editor-danger)] bg-[var(--editor-popover)] px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none text-[var(--editor-danger)] shadow-[1px_1px_0_var(--editor-shadow)]">
+					Unsynced
+				</span>
+			) : null}
+		</div>
+	);
 
 	if (item.type === "image") {
-		return (
+		return withSyncState(
 			<div className="relative flex size-full items-center justify-center bg-muted">
 				<Image
 					src={item.url ?? ""}
@@ -477,13 +498,13 @@ function MediaPreview({
 					loading="lazy"
 					unoptimized
 				/>
-			</div>
+			</div>,
 		);
 	}
 
 	if (item.type === "video") {
 		if (item.thumbnailUrl) {
-			return (
+			return withSyncState(
 				<div className="relative size-full">
 					<Image
 						src={item.thumbnailUrl}
@@ -497,33 +518,33 @@ function MediaPreview({
 					{shouldShowDurationBadge ? (
 						<MediaDurationBadge duration={item.duration} />
 					) : null}
-				</div>
+				</div>,
 			);
 		}
 
-		return (
+		return withSyncState(
 			<MediaTypePlaceholder
 				icon={Video01Icon}
 				label="Video"
 				duration={item.duration}
 				variant="muted"
-			/>
+			/>,
 		);
 	}
 
 	if (item.type === "audio") {
-		return (
+		return withSyncState(
 			<MediaTypePlaceholder
 				icon={MusicNote03Icon}
 				label="Audio"
 				duration={item.duration}
 				variant="bordered"
-			/>
+			/>,
 		);
 	}
 
-	return (
-		<MediaTypePlaceholder icon={Image02Icon} label="Unknown" variant="muted" />
+	return withSyncState(
+		<MediaTypePlaceholder icon={Image02Icon} label="Unknown" variant="muted" />,
 	);
 }
 

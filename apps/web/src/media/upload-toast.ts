@@ -2,6 +2,8 @@ import { toast } from "sonner";
 
 export interface MediaUploadToastResult {
 	uploadedCount: number;
+	localImportCount?: number;
+	failedSyncCount?: number;
 	assetNames?: string[];
 }
 
@@ -30,7 +32,15 @@ export async function showMediaUploadToast<T extends MediaUploadToastResult>({
 		return run();
 	}, {
 		loading: `Uploading ${getAssetLabel({ count: filesCount })}...`,
-		success: ({ uploadedCount, assetNames }) => {
+		success: ({ uploadedCount, localImportCount = uploadedCount, failedSyncCount = 0, assetNames }) => {
+			if (uploadedCount === 0 && failedSyncCount > 0) {
+				return localImportCount === 1
+					? "Imported locally; backend sync failed"
+					: `${localImportCount} media assets imported locally; backend sync failed`;
+			}
+			if (failedSyncCount > 0) {
+				return `${uploadedCount} synced, ${failedSyncCount} imported locally`;
+			}
 			if (uploadedCount === 1) {
 				const assetName = assetNames?.[0];
 				return assetName

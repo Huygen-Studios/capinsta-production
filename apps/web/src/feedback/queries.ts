@@ -1,6 +1,7 @@
 import { db, supportCases } from "@/db";
 import { generateUUID } from "@/utils/id";
 import type { FeedbackEntry, SubmitFeedbackInput } from "./types";
+import { validateFeedbackMessage } from "./validation";
 
 export async function submitFeedback({
 	message,
@@ -10,6 +11,10 @@ export async function submitFeedback({
 	browser,
 	appVersion,
 }: SubmitFeedbackInput): Promise<FeedbackEntry> {
+	const validation = validateFeedbackMessage(message);
+	if (!validation.ok) {
+		throw new Error(validation.message);
+	}
 	const id = generateUUID();
 	const now = new Date();
 

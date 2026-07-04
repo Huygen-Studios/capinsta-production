@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { ClockIcon } from "lucide-react";
 import {
@@ -12,6 +12,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
+import {
+	MAX_FEEDBACK_CHARACTERS,
+	validateFeedbackMessage,
+} from "@/feedback/validation";
 import {
 	Form,
 	FormField,
@@ -131,16 +135,27 @@ type View = "compose" | "history";
 function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 	const { entries, isSubmitting, submit } = useFeedback();
 	const [view, setView] = useState<View>("compose");
+	const [submitAttempted, setSubmitAttempted] = useState(false);
 
 	const form = useForm<FeedbackFormValues>({
 		defaultValues: { message: "" },
 	});
 
+	const message = useWatch({ control: form.control, name: "message" }) ?? "";
+	const messageValidation = validateFeedbackMessage(message);
+	const remaining = MAX_FEEDBACK_CHARACTERS - message.length;
+	const isNearLimit = remaining <= 120;
+	const canSubmit = messageValidation.ok && !isSubmitting;
+
 	async function handleSubmit(values: FeedbackFormValues) {
+		setSubmitAttempted(true);
+		const validation = validateFeedbackMessage(values.message);
+		if (!validation.ok) return;
 		await submit({
 			values,
 			onSuccess: () => {
 				form.reset({ message: "" });
+				setSubmitAttempted(false);
 				clearFormDraft({ key: PERSIST_KEY });
 				onClose();
 			},
@@ -177,7 +192,11 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 	return (
 		<div className="flex flex-col">
 			<Form persistKey={PERSIST_KEY} {...form}>
-				<form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col">
+				<form
+					onSubmit={form.handleSubmit(handleSubmit)}
+					className="flex flex-col"
+					noValidate
+				>
 					<FormField
 						control={form.control}
 						name="message"
@@ -186,14 +205,37 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 								<FormControl>
 									<Textarea
 										placeholder="Thoughts, bugs, ideas..."
-										className="min-h-[7rem] text-sm p-3 bg-background shadow-none border-none! resize-none"
+										maxLength={MAX_FEEDBACK_CHARACTERS}
+										aria-describedby="feedback-message-help feedback-character-count"
+										aria-invalid={submitAttempted && !messageValidation.ok}
+										className="min-h-[7rem] resize-none border-none! bg-background p-3 text-sm shadow-none"
 										{...field}
 									/>
 								</FormControl>
 							</FormItem>
 						)}
 					/>
-					<div className="flex items-center justify-between border-t px-3 py-2">
+					<div className="flex items-center justify-between gap-3 border-t px-3 py-2">
+						<div className="min-w-0 flex-1">
+							<p
+								id="feedback-message-help"
+								className="text-xs text-muted-foreground"
+								aria-live="polite"
+							>
+								{submitAttempted && !messageValidation.ok
+									? messageValidation.message
+									: "Minimum 10 characters."}
+							</p>
+							<p
+								id="feedback-character-count"
+								className={`mt-1 text-[11px] ${
+									isNearLimit ? "text-caution" : "text-muted-foreground/70"
+								}`}
+							>
+								{message.length.toLocaleString()} /{" "}
+								{MAX_FEEDBACK_CHARACTERS.toLocaleString()}
+							</p>
+						</div>
 						{entries.length > 0 ? (
 							<button
 								type="button"
@@ -206,8 +248,8 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 						) : (
 							<span />
 						)}
-						<div className="flex gap-2">
-							{!form.watch("message").trim() && (
+						<div className="flex shrink-0 gap-2">
+							{!message.trim() && (
 								<Button
 									type="button"
 									variant="outline"
@@ -220,7 +262,7 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 							<Button
 								type="submit"
 								size="sm"
-								disabled={isSubmitting || !form.watch("message").trim()}
+								disabled={!canSubmit}
 							>
 								{isSubmitting ? <Spinner /> : "Send"}
 							</Button>

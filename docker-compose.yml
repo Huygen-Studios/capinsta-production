@@ -47,6 +47,53 @@ services:
       retries: 5
       start_period: 10s
 
+  backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "10000"
+    environment:
+      - NODE_ENV=production
+      - PORT=10000
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3100}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3100}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - ADMIN_DATABASE_URL=${ADMIN_DATABASE_URL:-postgresql://opencut:opencut@db:5432/opencut}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://opencut:opencut@db:5432/opencut}
+      - TEMP_DIR=/app/storage/tmp
+      - MEDIA_DIR=/app/storage/media
+      - UPLOAD_DIR=/app/storage/uploads
+      - EXPORT_DIR=/app/storage/exports
+      - CACHE_DIR=/app/storage/cache
+      - DB_PATH=/app/storage/database.sqlite
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-500}
+      - MAX_MEDIA_DURATION_SECONDS=${MAX_MEDIA_DURATION_SECONDS:-600}
+      - MAX_MEDIA_LONG_EDGE=${MAX_MEDIA_LONG_EDGE:-4096}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CAPINSTA_RENDER_BASE_URL=${CAPINSTA_RENDER_BASE_URL:-http://web:3000}
+      - RENDER_PAGE_URL=${RENDER_PAGE_URL:-http://web:3000/render}
+      - CAPINSTA_RENDER_TOKEN_SECRET=${CAPINSTA_RENDER_TOKEN_SECRET}
+    volumes:
+      - backend_runtime:/app/storage
+      - backend_model_cache:/data/capinsta/model-cache
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:10000/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   web:
     build:
       context: .
@@ -66,6 +113,12 @@ services:
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       - UPSTASH_REDIS_REST_TOKEN=example_token
+      - BACKEND_INTERNAL_URL=http://backend:10000
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - ADMIN_SECURITY_PEPPER=${ADMIN_SECURITY_PEPPER}
+      - INTERNAL_ADMIN_API_SECRET=${INTERNAL_ADMIN_API_SECRET}
+      - INTERNAL_MAINTENANCE_SECRET=${INTERNAL_MAINTENANCE_SECRET}
+      - CAPINSTA_RENDER_TOKEN_SECRET=${CAPINSTA_RENDER_TOKEN_SECRET}
       - NEXT_PUBLIC_SITE_URL=http://localhost:3100
       - NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
       - MARBLE_WORKSPACE_KEY=${MARBLE_WORKSPACE_KEY:-placeholder}
@@ -76,6 +129,8 @@ services:
         condition: service_healthy
       serverless-redis-http:
         condition: service_healthy
+      backend:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
       interval: 30s
@@ -85,6 +140,8 @@ services:
 
 volumes:
   postgres_data:
+  backend_runtime:
+  backend_model_cache:
 
 networks:
   default:

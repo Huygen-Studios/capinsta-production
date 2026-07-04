@@ -6,25 +6,98 @@ function endpoint(path: string): string {
 	return buildCapinstaApiUrl({ baseUrl: getCapinstaApiBaseUrl(), path });
 }
 
-async function readError(response: Response): Promise<string> {
+export class MediaUploadError extends Error {
+	public readonly status: number;
+	public readonly code?: string;
+	public readonly correlationId?: string | null;
+
+	constructor({
+		message,
+		status,
+		code,
+		correlationId,
+	}: {
+		message: string;
+		status: number;
+		code?: string;
+		correlationId?: string | null;
+	}) {
+		super(message);
+		this.name = "MediaUploadError";
+		this.status = status;
+		this.code = code;
+		this.correlationId = correlationId;
+	}
+}
+
+function messageForMediaFailure({
+	status,
+	code,
+	fallback,
+}: {
+	status: number;
+	code?: string;
+	fallback: string;
+}) {
+	if (status === 400) return "The project or file upload request is invalid.";
+	if (status === 401) return "Your session expired. Please sign in again.";
+	if (status === 403) return "Your account does not currently have editor access.";
+	if (status === 413) return "This file exceeds the upload limit.";
+	if (status === 429) return "Too many uploads. Please try again shortly.";
+	if (status === 503 || code === "backend_unreachable") {
+		return "The media service is temporarily unavailable.";
+	}
+	if (status >= 500) return "The media service could not save this file.";
+	return fallback || "Media upload failed.";
+}
+
+async function readError(response: Response): Promise<MediaUploadError> {
 	const body: unknown = await response.json().catch(() => null);
+	let code: string | undefined;
+	let correlationId: string | null | undefined;
+	let fallback = response.statusText || "Media upload failed.";
 	if (
 		typeof body === "object" &&
 		body !== null &&
 		"detail" in body
 	) {
 		const detail = body.detail;
-		if (typeof detail === "string") return detail;
+		if (typeof detail === "string") fallback = detail;
 		if (
 			typeof detail === "object" &&
 			detail !== null &&
-			"message" in detail &&
-			typeof detail.message === "string"
+			"message" in detail
 		) {
-			return detail.message;
+			if (typeof detail.message === "string") fallback = detail.message;
+			if ("code" in detail && typeof detail.code === "string") code = detail.code;
+			if (
+				"diagnosticId" in detail &&
+				typeof detail.diagnosticId === "string"
+			) {
+				correlationId = detail.diagnosticId;
+			}
 		}
 	}
-	return response.statusText || "Media request failed.";
+	if (typeof body === "object" && body !== null) {
+		if ("code" in body && typeof body.code === "string") code = body.code;
+		if (
+			"correlationId" in body &&
+			typeof body.correlationId === "string"
+		) {
+			correlationId = body.correlationId;
+		}
+	}
+	const message = messageForMediaFailure({
+		status: response.status,
+		code,
+		fallback,
+	});
+	return new MediaUploadError({
+		message,
+		status: response.status,
+		code,
+		correlationId,
+	});
 }
 
 export async function uploadProjectMediaAsset({
@@ -48,7 +121,7 @@ export async function uploadProjectMediaAsset({
 		body: formData,
 		signal,
 	});
-	if (!response.ok) throw new Error(await readError(response));
+	if (!response.ok) throw await readError(response);
 	return response.json();
 }
 
@@ -60,7 +133,7 @@ export async function fetchProjectMediaAsset({
 	const response = await authenticatedFetch(
 		endpoint(`/media/assets/${encodeURIComponent(assetId)}/content`),
 	);
-	if (!response.ok) throw new Error(await readError(response));
+	if (!response.ok) throw await readError(response);
 	return response.blob();
 }
 
@@ -89,6 +162,6 @@ export async function deleteProjectMediaAsset({
 		{ method: "DELETE" },
 	);
 	if (!response.ok && response.status !== 404) {
-		throw new Error(await readError(response));
+		throw await readError(response);
 	}
 }

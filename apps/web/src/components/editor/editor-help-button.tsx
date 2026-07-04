@@ -36,22 +36,25 @@ export function EditorHelpButton({
 					size="icon"
 					aria-label={getEditorHelpButtonAriaLabel(title)}
 					className={cn(
-						"size-7 shrink-0 border border-transparent bg-transparent text-[var(--editor-muted)] shadow-none hover:border-[var(--editor-border)] hover:bg-[var(--editor-surface-raised)] hover:text-[var(--editor-text)]",
+						"group size-7 shrink-0 border border-transparent bg-transparent text-[var(--editor-muted)] shadow-none hover:border-[var(--editor-border)] hover:bg-[var(--editor-surface-raised)] hover:text-[var(--editor-text)] focus-visible:border-[var(--editor-focus)] focus-visible:ring-0",
 						className,
 					)}
 					onMouseDown={stopEditorPointerHandling}
 					onClick={stopEditorPointerHandling}
 				>
-					<CircleHelp className="size-4" />
+					<CircleHelp className="size-3.5 opacity-55 transition-opacity group-hover:opacity-95 group-focus-visible:opacity-95" />
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent
 				align="end"
-				className="w-72 rounded-[var(--editor-radius)] border border-[var(--editor-border)] bg-[var(--editor-surface-raised)] shadow-[3px_3px_0_rgba(184,255,28,0.24)]"
+				sideOffset={8}
+				className="z-[120] w-72 rounded-[var(--editor-radius)] border border-[var(--editor-border-strong)] bg-[var(--editor-popover)] text-[var(--editor-text)] opacity-100 shadow-[3px_3px_0_var(--editor-shadow)]"
 			>
 				<div className="space-y-2">
 					<h3 className="text-sm font-black">{title}</h3>
-					<p className="text-sm leading-5 text-muted-foreground">{description}</p>
+					<p className="text-sm leading-5 text-[var(--editor-muted)]">
+						{description}
+					</p>
 				</div>
 			</PopoverContent>
 		</Popover>

@@ -50,4 +50,11 @@ describe("submitFeedback", () => {
 			message: "Please add a shortcut",
 		});
 	});
+
+	test("rejects feedback below the server-side minimum", async () => {
+		await expect(submitFeedback({ message: "too short" })).rejects.toThrow(
+			"Please enter at least 10 characters.",
+		);
+		expect(insertMock).not.toHaveBeenCalled();
+	});
 });

@@ -34,6 +34,8 @@ export interface MediaAssetData {
 	thumbnailUrl?: string;
 	serverAssetId?: string;
 	serverDownloadUrl?: string;
+	syncStatus?: "local" | "uploading" | "synced" | "failed";
+	syncError?: string;
 }
 
 export interface LegacyBrowserStorageRecoveryResult {

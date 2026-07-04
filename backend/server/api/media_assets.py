@@ -438,14 +438,28 @@ async def upload_media_asset(
             ),
         )
         await db.commit()
-    except Exception:
+    except Exception as exc:
         destination.unlink(missing_ok=True)
         temporary.unlink(missing_ok=True)
         try:
             destination.parent.rmdir()
         except OSError:
             pass
-        raise
+        diagnostic_id = str(uuid.uuid4())
+        logger.exception(
+            "media_asset_database_write_failed diagnostic_id=%s asset_id=%s project_id=%s",
+            diagnostic_id,
+            asset_id,
+            project_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "media_database_write_failed",
+                "message": "Upload metadata could not be saved. Please retry.",
+                "diagnosticId": diagnostic_id,
+            },
+        ) from exc
     return {
         "assetId": asset_id,
         "projectId": project_id,
