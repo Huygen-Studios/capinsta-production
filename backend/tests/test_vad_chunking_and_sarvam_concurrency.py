@@ -127,12 +127,3 @@ def test_pipeline_does_not_pass_worker_progress_into_sarvam_event_loop(
 ):
     source = pipeline_main.run_pipeline.__code__
     assert "on_parallel_progress" not in source.co_names
-
-
-def test_long_audio_uses_fast_caption_timing_path(monkeypatch):
-    monkeypatch.delenv("STABLE_TS_MAX_AUDIO_SECONDS", raising=False)
-
-    source = pipeline_main.run_pipeline.__code__
-
-    assert "skip_stable_ts_for_speed" in source.co_varnames
-    assert "stable_ts_alignment_skipped_for_speed" in source.co_consts

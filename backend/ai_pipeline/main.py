@@ -948,32 +948,26 @@ def run_pipeline(
                 device=pipeline_config.alignment.stableTsDevice,
             )
             audio_duration = vad_report.get("audioDuration")
-            skip_stable_ts_for_speed = (
+            use_chunked_stable_ts = (
                 pipeline_config.alignment.stableTsEnabled
                 and audio_duration is not None
                 and float(audio_duration) > float(pipeline_config.performance.stableTsMaxAudioSeconds)
+                and len(chunks) > 1
             )
-            if skip_stable_ts_for_speed:
-                skip_reason = (
-                    "stable-ts skipped for fast caption generation "
-                    f"because audio duration {float(audio_duration):.1f}s exceeds "
-                    f"{float(pipeline_config.performance.stableTsMaxAudioSeconds):.1f}s"
-                )
+            if use_chunked_stable_ts:
                 _stage_log(
-                    "stable_ts_alignment_skipped_for_speed",
+                    "stable_ts_chunk_alignment_started",
+                    chunk_count=len(chunks),
                     audioDurationSeconds=round(float(audio_duration), 3),
                     maxAudioSeconds=pipeline_config.performance.stableTsMaxAudioSeconds,
                 )
-                emit_progress("normalizing", 90, "Using fast caption timing path.")
-                stable_result = apply_stable_refinement(
+                stable_result = _stable_refine_by_source_chunk(
                     clamped_segments,
+                    chunks,
                     audio_path,
                     language_mode,
-                    config={**stable_config, "enabled": False},
+                    stable_config,
                 )
-                stable_result.report["reason"] = skip_reason
-                stable_result.report["skippedForSpeed"] = True
-                stable_result.report["resolvedConfiguration"] = resolved_stable_config
             else:
                 stable_result = apply_stable_refinement(
                     clamped_segments,
