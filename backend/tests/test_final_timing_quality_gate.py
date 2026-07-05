@@ -19,25 +19,26 @@ def _vad(provider="silero", degraded=False):
     return {"pauseDetectionProvider": provider, "pauseDetectionDegraded": degraded}
 
 
-def test_final_gate_blocks_estimated_ratio_by_default():
+def test_final_gate_reports_degraded_estimated_ratio_without_blocking_when_estimated_allowed():
     words = []
     for index in range(5):
         words.append({"word": f"w{index}", "start": index * 0.1, "end": index * 0.1 + 0.05, "timingSource": "deterministic_fallback"})
     segments = [{"words": words}]
 
-    with pytest.raises(TimingQualityError) as exc:
-        validate_final_timing_quality(
-            segments,
-            pipeline_config=_base_config(),
-            vad_report=_vad(),
-            sync_report={},
-        )
+    report = validate_final_timing_quality(
+        segments,
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
 
-    assert exc.value.category == "estimated_word_ratio_exceeded"
-    assert exc.value.report["estimatedWordCount"] == 5
-    assert exc.value.report["deterministicFallbackWordCount"] == 5
-    assert exc.value.report["timingQuality"] == "degraded"
-    assert exc.value.report["reviewRequired"] is True
+    assert report["passed"] is False
+    assert report["blockingFailures"] == []
+    assert any(failure["category"] == "estimated_word_ratio_exceeded" for failure in report["failures"])
+    assert report["estimatedWordCount"] == 5
+    assert report["deterministicFallbackWordCount"] == 5
+    assert report["timingQuality"] == "degraded"
+    assert report["reviewRequired"] is True
 
 
 def test_final_gate_reports_partial_and_zero_estimated_ratios():
@@ -86,15 +87,16 @@ def test_final_gate_reports_partial_and_zero_estimated_ratios():
 
 def test_final_gate_ignores_legacy_maximum_estimated_ratio_snapshot():
     config = _base_config(quality={"allowEstimatedWords": True, "maximumEstimatedWordRatio": 0.0})
-    with pytest.raises(TimingQualityError) as exc:
-        validate_final_timing_quality(
-            [{"words": [{"word": "estimated", "start": 0.0, "end": 0.2, "timingSource": "deterministic_fallback"}]}],
-            pipeline_config=config,
-            vad_report=_vad(),
-            sync_report={},
-        )
+    report = validate_final_timing_quality(
+        [{"words": [{"word": "estimated", "start": 0.0, "end": 0.2, "timingSource": "deterministic_fallback"}]}],
+        pipeline_config=config,
+        vad_report=_vad(),
+        sync_report={},
+    )
 
-    assert exc.value.report["estimatedWordRatio"] == 1.0
+    assert report["estimatedWordRatio"] == 1.0
+    assert report["passed"] is False
+    assert report["blockingFailures"] == []
 
 
 def test_final_gate_ignores_legacy_allow_estimated_words_snapshot():
@@ -136,7 +138,7 @@ def test_final_gate_blocks_order_adjusted_when_fallback_disabled():
     assert exc.value.report["stableTsOrderAdjustedCount"] == 1
 
 
-def test_final_gate_blocks_production_fallback_heavy_alignment_regression():
+def test_final_gate_marks_production_fallback_heavy_alignment_degraded_without_blocking_output():
     words = [
         {
             "word": f"fallback-{index}",
@@ -156,15 +158,13 @@ def test_final_gate_blocks_production_fallback_heavy_alignment_regression():
         for index in range(5)
     )
 
-    with pytest.raises(TimingQualityError) as exc:
-        validate_final_timing_quality(
-            [{"words": words}],
-            pipeline_config=_base_config(),
-            vad_report=_vad(),
-            sync_report={"stableTs": {"applied": True, "matchCoverage": 0.6382}},
-        )
+    report = validate_final_timing_quality(
+        [{"words": words}],
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={"stableTs": {"applied": True, "matchCoverage": 0.6382}},
+    )
 
-    report = exc.value.report
     assert report["totalWords"] == 246
     assert report["deterministicFallbackWordCount"] == 241
     assert report["stableTimestampWordCount"] == 5
@@ -173,6 +173,8 @@ def test_final_gate_blocks_production_fallback_heavy_alignment_regression():
     assert report["alignmentPartiallyApplied"] is True
     assert report["timingQuality"] == "degraded"
     assert report["reviewRequired"] is True
+    assert report["passed"] is False
+    assert report["blockingFailures"] == []
 
 
 def test_final_gate_blocks_degraded_pause_detection_when_silero_requested():

@@ -223,6 +223,7 @@ def validate_final_timing_quality(
     }
 
     failures: list[tuple[str, str]] = []
+    blocking_failures: list[tuple[str, str]] = []
     max_estimated_ratio = getattr(pipeline_config.quality, "maximumEstimatedWordRatio", None)
     if total and max_estimated_ratio is not None and estimated_ratio > float(max_estimated_ratio):
         failures.append((
@@ -230,38 +231,45 @@ def validate_final_timing_quality(
             f"{estimated_count} of {total} word(s) use estimated timing ({estimated_ratio:.2%}); maximum is {float(max_estimated_ratio):.2%}.",
         ))
     if total and estimated_count and getattr(pipeline_config.quality, "allowEstimatedWords", True) is False:
-        failures.append((
+        blocking_failures.append((
             "estimated_words_disabled",
             f"{estimated_count} of {total} word(s) use estimated timing, but the selected preset disallows estimated words.",
         ))
     if getattr(pipeline_config.vad, "sileroEnabled", False):
         if final_report["pauseDetectionProvider"] != "silero":
-            failures.append(("pause_detector_not_silero", "Silero VAD is enabled, but the job did not use Silero pause detection."))
+            blocking_failures.append(("pause_detector_not_silero", "Silero VAD is enabled, but the job did not use Silero pause detection."))
         if final_report["pauseDetectionDegraded"]:
-            failures.append(("pause_detection_degraded", "Silero VAD is enabled, but pause detection degraded to a fallback."))
+            blocking_failures.append(("pause_detection_degraded", "Silero VAD is enabled, but pause detection degraded to a fallback."))
     if not getattr(pipeline_config.alignment, "allowStableTsOrderFallback", False) and stable_order_count:
-        failures.append(("stable_ts_order_fallback_disabled", "Stable-ts order fallback is disabled, but order-adjusted words were produced."))
+        blocking_failures.append(("stable_ts_order_fallback_disabled", "Stable-ts order fallback is disabled, but order-adjusted words were produced."))
     if invalid_ranges:
-        failures.append(("invalid_word_ranges", f"{invalid_ranges} word(s) have invalid timestamp ranges."))
+        blocking_failures.append(("invalid_word_ranges", f"{invalid_ranges} word(s) have invalid timestamp ranges."))
     if overlap_count:
-        failures.append(("final_word_overlap", f"{overlap_count} final word overlap(s) remain."))
+        blocking_failures.append(("final_word_overlap", f"{overlap_count} final word overlap(s) remain."))
     if outside_group_count:
-        failures.append(("word_outside_alignment_group", f"{outside_group_count} word timing boundary violation(s) remain."))
+        blocking_failures.append(("word_outside_alignment_group", f"{outside_group_count} word timing boundary violation(s) remain."))
     if caption_cross_boundary_count:
-        failures.append(("caption_crosses_hard_boundary", f"{caption_cross_boundary_count} caption group(s) cross a hard boundary."))
+        blocking_failures.append(("caption_crosses_hard_boundary", f"{caption_cross_boundary_count} caption group(s) cross a hard boundary."))
     if duplicate_token_count:
-        failures.append(("duplicate_token_occurrence", f"{duplicate_token_count} duplicated token occurrence(s) remain in final words."))
+        blocking_failures.append(("duplicate_token_occurrence", f"{duplicate_token_count} duplicated token occurrence(s) remain in final words."))
     if suspected_script_mismatch_count:
-        failures.append(("suspected_script_mismatch", f"{suspected_script_mismatch_count} unsupported script token(s) remain in final captions."))
+        blocking_failures.append(("suspected_script_mismatch", f"{suspected_script_mismatch_count} unsupported script token(s) remain in final captions."))
 
-    final_report["passed"] = not failures
-    final_report["failures"] = [{"category": category, "message": message} for category, message in failures]
-    if failures:
+    all_failures = [*failures, *blocking_failures]
+    final_report["passed"] = not all_failures
+    final_report["failures"] = [{"category": category, "message": message} for category, message in all_failures]
+    final_report["blockingFailures"] = [
+        {"category": category, "message": message} for category, message in blocking_failures
+    ]
+    if all_failures:
         final_report["timingQuality"] = "degraded"
-    final_report["reviewRequired"] = bool(failures) or final_report["reviewRequired"]
-    if failures:
-        category, message = failures[0]
+    final_report["reviewRequired"] = bool(all_failures) or final_report["reviewRequired"]
+    if blocking_failures:
+        category, message = blocking_failures[0]
         logger.error("final_timing_quality_failed report=%s", final_report)
         raise TimingQualityError(category, message, final_report)
+    if all_failures:
+        logger.warning("final_timing_quality_degraded report=%s", final_report)
+        return final_report
     logger.info("final_timing_quality_passed report=%s", final_report)
     return final_report
