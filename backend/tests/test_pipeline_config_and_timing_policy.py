@@ -63,7 +63,7 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
     assert config.quality.maximumEstimatedWordRatio is None
     assert config.quality.minimumProviderTimestampCoverage == 0.90
     assert config.performance.providerTimeoutSeconds == 90
-    assert config.performance.stableTsMaxAudioSeconds == 45.0
+    assert config.performance.stableTsMaxAudioSeconds == 20.0
     assert config.captionChunking.maxWords == 3
     assert config.captionChunking.maxCharacters == 28
     assert config.audioChunking.targetSeconds == 8

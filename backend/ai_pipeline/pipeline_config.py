@@ -20,7 +20,7 @@ class PerformanceConfig:
     providerTimeoutSeconds: int = 90
     sarvamMaxConcurrency: int = 1
     alignmentRetries: int = 3
-    stableTsMaxAudioSeconds: float = 45.0
+    stableTsMaxAudioSeconds: float = 20.0
 
 
 @dataclass(frozen=True)
