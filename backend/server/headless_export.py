@@ -1152,7 +1152,7 @@ async def export_headless(
         render_page_url = render_page_candidates[0]
         render_load_errors: list[str] = []
         loaded_render_page = False
-        render_page_timeout_ms = max(1000, _int_env("CAPINSTA_RENDER_PAGE_TIMEOUT_MS", 30000))
+        render_page_timeout_ms = max(1000, _int_env("CAPINSTA_RENDER_PAGE_TIMEOUT_MS", 120000))
         for candidate_url in render_page_candidates:
             logger.info("headless_render_page url=%s", redact_render_url(candidate_url))
             try:
