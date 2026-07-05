@@ -127,3 +127,41 @@ def test_pipeline_does_not_pass_worker_progress_into_sarvam_event_loop(
 ):
     source = pipeline_main.run_pipeline.__code__
     assert "on_parallel_progress" not in source.co_names
+
+
+def test_stable_ts_refinement_skips_long_audio_by_default(monkeypatch):
+    monkeypatch.delenv("CAPTION_STABLE_TS_MAX_AUDIO_SECONDS", raising=False)
+    monkeypatch.delenv("STABLE_TS_MAX_AUDIO_SECONDS", raising=False)
+
+    should_run, reason = pipeline_main._should_run_stable_ts_refinement(
+        {"stableTsEnabled": True},
+        audio_duration_seconds=91.7,
+    )
+
+    assert should_run is False
+    assert "skipped for fast caption generation" in reason
+
+
+def test_stable_ts_refinement_allows_short_audio_by_default(monkeypatch):
+    monkeypatch.delenv("CAPTION_STABLE_TS_MAX_AUDIO_SECONDS", raising=False)
+    monkeypatch.delenv("STABLE_TS_MAX_AUDIO_SECONDS", raising=False)
+
+    should_run, reason = pipeline_main._should_run_stable_ts_refinement(
+        {"stableTsEnabled": True},
+        audio_duration_seconds=12.1,
+    )
+
+    assert should_run is True
+    assert reason is None
+
+
+def test_stable_ts_refinement_limit_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("CAPTION_STABLE_TS_MAX_AUDIO_SECONDS", "0")
+
+    should_run, reason = pipeline_main._should_run_stable_ts_refinement(
+        {"stableTsEnabled": True},
+        audio_duration_seconds=600.0,
+    )
+
+    assert should_run is True
+    assert reason is None

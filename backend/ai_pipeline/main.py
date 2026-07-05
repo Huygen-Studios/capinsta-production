@@ -80,6 +80,52 @@ def _stage_log(stage: str, **fields: Any) -> None:
     logger.info("pipeline_stage stage=%s %s", stage, details)
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+        return value if value == value else default
+    except ValueError:
+        return default
+
+
+def _stable_ts_fast_path_limit_seconds() -> float:
+    return _env_float(
+        "CAPTION_STABLE_TS_MAX_AUDIO_SECONDS",
+        _env_float("STABLE_TS_MAX_AUDIO_SECONDS", 20.0),
+    )
+
+
+def _should_run_stable_ts_refinement(
+    resolved_config: dict[str, Any],
+    *,
+    audio_duration_seconds: float | None,
+) -> tuple[bool, str | None]:
+    if not bool(resolved_config.get("stableTsEnabled")):
+        return True, None
+
+    limit_seconds = _stable_ts_fast_path_limit_seconds()
+    if limit_seconds <= 0:
+        return True, None
+
+    if audio_duration_seconds is None:
+        return True, None
+
+    if audio_duration_seconds > limit_seconds:
+        return (
+            False,
+            (
+                "stable-ts skipped for fast caption generation "
+                f"because audio duration {audio_duration_seconds:.1f}s exceeds "
+                f"{limit_seconds:.1f}s"
+            ),
+        )
+
+    return True, None
+
+
 def _is_skippable_empty_micro_chunk_error(
     exc: Exception,
     *,
@@ -948,8 +994,18 @@ def run_pipeline(
                 device=pipeline_config.alignment.stableTsDevice,
             )
             audio_duration = vad_report.get("audioDuration")
+            run_stable_ts, stable_ts_skip_reason = _should_run_stable_ts_refinement(
+                resolved_stable_config,
+                audio_duration_seconds=audio_duration,
+            )
+            if not run_stable_ts:
+                logger.info("stable-ts sync refinement skipped: %s", stable_ts_skip_reason)
+                emit_progress("normalizing", 90, "Using fast caption timing path.")
+                stable_config["enabled"] = False
+                resolved_stable_config["stableTsEnabled"] = False
+
             use_chunked_stable_ts = (
-                pipeline_config.alignment.stableTsEnabled
+                resolved_stable_config["stableTsEnabled"]
                 and audio_duration is not None
                 and float(audio_duration) > float(pipeline_config.performance.stableTsMaxAudioSeconds)
                 and len(chunks) > 1
@@ -976,6 +1032,11 @@ def run_pipeline(
                     config=stable_config,
                 )
             clamped_segments = stable_result.segments
+            if not run_stable_ts:
+                stable_result.report["reason"] = stable_ts_skip_reason or "stable-ts skipped for fast caption generation"
+                stable_result.report["skippedForSpeed"] = True
+                stable_result.report["resolvedConfiguration"] = resolved_stable_config
+
             if pipeline_config.alignment.stableTsEnabled:
                 _stage_log(
                     "stable_ts_alignment_completed",
