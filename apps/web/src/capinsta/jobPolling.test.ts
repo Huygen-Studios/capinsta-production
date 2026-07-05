@@ -209,6 +209,67 @@ describe("Capinsta job polling", () => {
     }
   })
 
+  test("does not show local timeout while backend keeps running and later fails", async () => {
+    const originalNow = Date.now
+    let now = 0
+    Date.now = () => now
+    const responses = [
+      {
+        job_id: "job-001",
+        status: "normalizing",
+        progress: 89,
+        filename: "sample.mp4",
+        languageMode: "english",
+        message: "Running caption sync engine.",
+        heartbeatAt: "2026-07-05T10:36:30.439675+00:00",
+        workerHeartbeatAt: "2026-07-05T10:36:30.439675+00:00",
+      },
+      {
+        job_id: "job-001",
+        status: "normalizing",
+        progress: 89,
+        filename: "sample.mp4",
+        languageMode: "english",
+        message: "Running caption sync engine.",
+        heartbeatAt: "2026-07-05T10:36:45.467000+00:00",
+        workerHeartbeatAt: "2026-07-05T10:36:45.467000+00:00",
+      },
+      {
+        job_id: "job-001",
+        status: "failed",
+        progress: -1,
+        filename: "sample.mp4",
+        languageMode: "english",
+        error:
+          "estimated_word_ratio_exceeded: 241 of 246 word(s) use estimated timing (97.97%); maximum is 50.00%.",
+      },
+    ]
+    const seenStatuses: string[] = []
+    let thrown: Error | null = null
+    try {
+      await pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        intervalMs: 1,
+        maxElapsedMs: 1_000,
+        sleep: async () => {
+          now += 1_000
+        },
+        onProgress: (job) => seenStatuses.push(`${job.status}:${job.progress}`),
+        fetchImpl: async () => jsonResponse(responses.shift() ?? responses[0]),
+      })
+    } catch (error) {
+      thrown = error as Error
+    } finally {
+      Date.now = originalNow
+    }
+
+    expect(thrown).toBeTruthy()
+    expect(thrown?.message).toContain("estimated_word_ratio_exceeded")
+    expect(thrown?.message).not.toContain("Timed out waiting")
+    expect(seenStatuses).toEqual(["normalizing:89", "normalizing:89"])
+  })
+
   test("does not falsely fail at the old 120 second polling mark by default", async () => {
     const originalNow = Date.now
     const times = [0, 120_000]

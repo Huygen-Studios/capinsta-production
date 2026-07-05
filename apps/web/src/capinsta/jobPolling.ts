@@ -102,7 +102,7 @@ export async function pollCapinstaJobUntilDone({
   baseUrl,
   jobId,
   intervalMs = 2000,
-  maxAttempts = 300,
+  maxAttempts = Number.POSITIVE_INFINITY,
   maxElapsedMs = 10 * 60 * 1000,
   fetchImpl = fetch,
   signal,
@@ -112,15 +112,43 @@ export async function pollCapinstaJobUntilDone({
   onLifecycle,
 }: PollCapinstaJobOptions): Promise<CapinstaJobDetailResponse> {
   const startedAt = Date.now()
+  const reconcileIntervalMs = Math.max(0, maxElapsedMs)
+  let nextReconcileAt = startedAt + reconcileIntervalMs
   const statusHistory: CapinstaJobStatusHistoryEntry[] = []
   let terminalJob: CapinstaJobDetailResponse | null = null
   let lifecycleState: CapinstaJobLifecycleState | null = null
   let lastJob: CapinstaJobDetailResponse | undefined
+  const recordStatus = (
+    job: CapinstaJobDetailResponse,
+    normalizedStatus: ReturnType<typeof normalizeCapinstaJobStatus>,
+  ) => {
+    const historyEntry: CapinstaJobStatusHistoryEntry = {
+      jobId,
+      rawStatus: String(job.status ?? ""),
+      normalizedStatus,
+      timestamp: new Date().toISOString(),
+      ...(typeof job.progress === "number" && { progress: job.progress }),
+      ...((job.message || job.details) && {
+        message: job.message || job.details || undefined,
+      }),
+      provider: job.currentProvider ?? null,
+      currentChunk: job.currentChunk ?? null,
+      totalChunks: job.totalChunks ?? null,
+    }
+    const previous = statusHistory.at(-1)
+    if (!previous || historyEntryKey(previous) !== historyEntryKey(historyEntry)) {
+      statusHistory.push(historyEntry)
+      if (statusHistory.length > 50) {
+        statusHistory.splice(0, statusHistory.length - 50)
+      }
+      onStatusHistory?.([...statusHistory])
+    }
+  }
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (signal?.aborted) {
       throw new DOMException("Capinsta caption generation was cancelled", "AbortError")
     }
-    if (Date.now() - startedAt >= maxElapsedMs) {
+    if (reconcileIntervalMs > 0 && Date.now() >= nextReconcileAt) {
       console.warn("[Capinsta captions] Client timeout fired; reconciling final backend status", {
         jobId,
         maxElapsedMs,
@@ -150,6 +178,31 @@ export async function pollCapinstaJobUntilDone({
         rememberTerminalCapinstaJob(jobId)
         throw terminalError(reconciledJob)
       }
+      lastJob = reconciledJob
+      recordStatus(reconciledJob, reconciledStatus)
+      onProgress?.(reconciledJob)
+      console.warn("[Capinsta captions] Backend still non-terminal after local timeout; continuing polling", {
+        jobId,
+        status: reconciledJob.status,
+        normalizedStatus: reconciledStatus,
+        progress: reconciledJob.progress,
+        workerHeartbeatAt: reconciledJob.workerHeartbeatAt || reconciledJob.heartbeatAt,
+      })
+      nextReconcileAt = Date.now() + reconcileIntervalMs
+      await sleep(intervalMs)
+      continue
+    }
+    if (reconcileIntervalMs <= 0 && Date.now() - startedAt >= maxElapsedMs) {
+      const reconciledJob = await getCapinstaJob({ baseUrl, jobId, fetchImpl })
+      const reconciledStatus = normalizeCapinstaJobStatus(reconciledJob.status)
+      if (reconciledStatus === "completed") {
+        rememberTerminalCapinstaJob(jobId)
+        return reconciledJob
+      }
+      if (reconciledStatus === "failed" || reconciledStatus === "cancelled") {
+        rememberTerminalCapinstaJob(jobId)
+        throw terminalError(reconciledJob)
+      }
       throw timeoutError({ maxElapsedMs, history: statusHistory, job: reconciledJob })
     }
 
@@ -170,27 +223,7 @@ export async function pollCapinstaJobUntilDone({
     } else {
       onLifecycle?.(lifecycleState)
     }
-    const historyEntry: CapinstaJobStatusHistoryEntry = {
-      jobId,
-      rawStatus: String(job.status ?? ""),
-      normalizedStatus,
-      timestamp: new Date().toISOString(),
-      ...(typeof job.progress === "number" && { progress: job.progress }),
-      ...((job.message || job.details) && {
-        message: job.message || job.details || undefined,
-      }),
-      provider: job.currentProvider ?? null,
-      currentChunk: job.currentChunk ?? null,
-      totalChunks: job.totalChunks ?? null,
-    }
-    const previous = statusHistory.at(-1)
-    if (!previous || historyEntryKey(previous) !== historyEntryKey(historyEntry)) {
-      statusHistory.push(historyEntry)
-      if (statusHistory.length > 50) {
-        statusHistory.splice(0, statusHistory.length - 50)
-      }
-      onStatusHistory?.([...statusHistory])
-    }
+    recordStatus(job, normalizedStatus)
     console.debug("[Capinsta captions] Poll response", {
       jobId,
       status: job.status,
