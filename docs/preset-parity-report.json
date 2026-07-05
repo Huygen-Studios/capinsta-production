@@ -1,0 +1,88 @@
+{
+  "generatedAt": "2026-07-05T00:00:00.000Z",
+  "referencePath": "G:\\Huygen Studios\\side projects\\stable versions\\Huygen-Caps-main-v4\\capinsta-production-main",
+  "currentPath": "F:\\CapInsta\\capinsta-production-editor",
+  "summary": {
+    "referencePresetCount": 10,
+    "currentPresetCount": 10,
+    "allResolvedPresetsMatch": true,
+    "driftResolved": [
+      "performance.stableTsMaxAudioSeconds",
+      "quality.maximumEstimatedWordRatio",
+      "quality.maximumDeterministicFallbackRatio",
+      "quality.minimumRealTimedWordCoverage"
+    ]
+  },
+  "presets": [
+    {
+      "id": "sarvam_telgish_safe_native",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "81372196f4c99481b2ac683dc4b832534aeff4999aaf05a06970bf9202016087",
+      "currentSha256": "81372196f4c99481b2ac683dc4b832534aeff4999aaf05a06970bf9202016087"
+    },
+    {
+      "id": "sarvam_telgish_balanced",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "4536318465bd21a8e61fcf95a8b5f1de78ae1b09e8674cf569a708319c9de2c3",
+      "currentSha256": "4536318465bd21a8e61fcf95a8b5f1de78ae1b09e8674cf569a708319c9de2c3"
+    },
+    {
+      "id": "sarvam_fast_dialogue",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "0378d5a6decc004f5eaae769ff0114a09026e9dc8ea855314219e64a1b49c923",
+      "currentSha256": "0378d5a6decc004f5eaae769ff0114a09026e9dc8ea855314219e64a1b49c923"
+    },
+    {
+      "id": "sarvam_music_pause_protection",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "9c273b70b4838025585815d4c228fd269c6e67d615f5dde90a43f9a46d7ada0b",
+      "currentSha256": "9c273b70b4838025585815d4c228fd269c6e67d615f5dde90a43f9a46d7ada0b"
+    },
+    {
+      "id": "sarvam_noisy_outdoor",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "f883db6c08f0f711951516e4d90627fa9809a8ddc7c46d3d6efb3fa226182399",
+      "currentSha256": "f883db6c08f0f711951516e4d90627fa9809a8ddc7c46d3d6efb3fa226182399"
+    },
+    {
+      "id": "sarvam_two_speaker_dialogue",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "47a63cebf79f2fb7e760cc375adc766e0836b154178c8785c4a414063065e0f4",
+      "currentSha256": "47a63cebf79f2fb7e760cc375adc766e0836b154178c8785c4a414063065e0f4"
+    },
+    {
+      "id": "sarvam_code_switch",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "4f5232e2015114c63099d3ede734367113cc204887ea60bfa603db7a1055796e",
+      "currentSha256": "4f5232e2015114c63099d3ede734367113cc204887ea60bfa603db7a1055796e"
+    },
+    {
+      "id": "sarvam_clean_monologue",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "b0434d5aacf326debca70a5f5b092d4a49f351321b7744840e68c0d76de1192a",
+      "currentSha256": "b0434d5aacf326debca70a5f5b092d4a49f351321b7744840e68c0d76de1192a"
+    },
+    {
+      "id": "provider_native_word_timing",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "81372196f4c99481b2ac683dc4b832534aeff4999aaf05a06970bf9202016087",
+      "currentSha256": "81372196f4c99481b2ac683dc4b832534aeff4999aaf05a06970bf9202016087"
+    },
+    {
+      "id": "strict_timing_qa",
+      "version": 1,
+      "resolvedEqual": true,
+      "referenceSha256": "467d2cc730d727ba9658fd71b1984b329f154ac52e87634670fd27c77a184b68",
+      "currentSha256": "467d2cc730d727ba9658fd71b1984b329f154ac52e87634670fd27c77a184b68"
+    }
+  ]
+}

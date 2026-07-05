@@ -69,6 +69,7 @@ def validate_final_timing_quality(
 
     source_counts: Counter[str] = Counter()
     estimated_count = 0
+    deterministic_fallback_count = 0
     stable_order_count = 0
     invalid_ranges = 0
     overlap_count = 0
@@ -87,6 +88,8 @@ def validate_final_timing_quality(
         source_counts[source] += 1
         if source in PRODUCTION_INVALID_TIMING_SOURCES:
             estimated_count += 1
+        if source == "deterministic_fallback":
+            deterministic_fallback_count += 1
         if _is_order_adjusted(word):
             stable_order_count += 1
         if word.get("suspectedScriptMismatch"):
@@ -150,12 +153,57 @@ def validate_final_timing_quality(
 
     total = len(words)
     estimated_ratio = estimated_count / max(1, total)
+    deterministic_fallback_ratio = deterministic_fallback_count / max(1, total)
+    real_timed_word_count = max(0, total - estimated_count)
+    real_timed_word_coverage = real_timed_word_count / max(1, total)
     stable_ts = sync_report.get("stableTs") if isinstance(sync_report, dict) else {}
+    stable_timestamp_word_count = int(
+        sum(count for source, count in source_counts.items() if source.startswith("stable_ts"))
+    )
+    whisperx_aligned_word_count = int(
+        sum(count for source, count in source_counts.items() if source.startswith("whisperx"))
+    )
+    provider_native_word_count = int(
+        sum(count for source, count in source_counts.items() if source.startswith("provider"))
+    )
+    aligned_word_count = stable_timestamp_word_count + whisperx_aligned_word_count
+    aligned_word_coverage = aligned_word_count / max(1, total)
+    stable_timestamp_coverage = stable_timestamp_word_count / max(1, total)
+    if total == 0:
+        timing_quality = "native"
+    elif estimated_count >= total:
+        timing_quality = "degraded"
+    elif estimated_count:
+        timing_quality = "mixed"
+    elif aligned_word_count:
+        timing_quality = "aligned"
+    else:
+        timing_quality = "native"
+    fallback_reasons: list[str] = []
+    if deterministic_fallback_count:
+        fallback_reasons.append("deterministic_fallback")
+    if estimated_count and estimated_count != deterministic_fallback_count:
+        fallback_reasons.append("estimated_timing")
     final_report = {
         "totalWords": total,
         "timingSourceCounts": dict(source_counts),
         "estimatedWordCount": estimated_count,
         "estimatedWordRatio": round(estimated_ratio, 4),
+        "deterministicFallbackWordCount": deterministic_fallback_count,
+        "deterministicFallbackRatio": round(deterministic_fallback_ratio, 4),
+        "providerNativeWordCount": provider_native_word_count,
+        "stableTimestampWordCount": stable_timestamp_word_count,
+        "whisperxAlignedWordCount": whisperx_aligned_word_count,
+        "realTimedWordCount": real_timed_word_count,
+        "realTimedWordCoverage": round(real_timed_word_coverage, 4),
+        "alignmentAttempted": bool((stable_ts or {}).get("enabled") or (stable_ts or {}).get("available")),
+        "alignmentApplied": aligned_word_count > 0,
+        "alignmentPartiallyApplied": 0 < aligned_word_count < total,
+        "alignmentCoverage": round(aligned_word_coverage, 4),
+        "stableTimestampCoverage": round(stable_timestamp_coverage, 4),
+        "timingQuality": timing_quality,
+        "reviewRequired": timing_quality in {"mixed", "degraded"},
+        "fallbackReasons": fallback_reasons,
         "stableTsOrderAdjustedCount": stable_order_count,
         "stableTsOrderFallbackEnabled": bool(getattr(pipeline_config.alignment, "allowStableTsOrderFallback", False)),
         "stableTsOrderFallbackAppliedWords": int((stable_ts or {}).get("orderFallbackAppliedWords") or 0),
@@ -175,6 +223,17 @@ def validate_final_timing_quality(
     }
 
     failures: list[tuple[str, str]] = []
+    max_estimated_ratio = getattr(pipeline_config.quality, "maximumEstimatedWordRatio", None)
+    if total and max_estimated_ratio is not None and estimated_ratio > float(max_estimated_ratio):
+        failures.append((
+            "estimated_word_ratio_exceeded",
+            f"{estimated_count} of {total} word(s) use estimated timing ({estimated_ratio:.2%}); maximum is {float(max_estimated_ratio):.2%}.",
+        ))
+    if total and estimated_count and getattr(pipeline_config.quality, "allowEstimatedWords", True) is False:
+        failures.append((
+            "estimated_words_disabled",
+            f"{estimated_count} of {total} word(s) use estimated timing, but the selected preset disallows estimated words.",
+        ))
     if getattr(pipeline_config.vad, "sileroEnabled", False):
         if final_report["pauseDetectionProvider"] != "silero":
             failures.append(("pause_detector_not_silero", "Silero VAD is enabled, but the job did not use Silero pause detection."))
@@ -197,6 +256,9 @@ def validate_final_timing_quality(
 
     final_report["passed"] = not failures
     final_report["failures"] = [{"category": category, "message": message} for category, message in failures]
+    if failures:
+        final_report["timingQuality"] = "degraded"
+    final_report["reviewRequired"] = bool(failures) or final_report["reviewRequired"]
     if failures:
         category, message = failures[0]
         logger.error("final_timing_quality_failed report=%s", final_report)

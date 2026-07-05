@@ -92,7 +92,10 @@ async def run_verification():
             return False
         print(f"[verify] render page loaded (HTTP {resp.status})")
 
-        await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=15000)
+        await page.wait_for_function(
+            "() => window.__CAPINSTA_RENDER_STATE__ && window.__CAPINSTA_RENDER_STATE__.version === 1",
+            timeout=15000,
+        )
 
         print("[verify] injecting caption data ...")
         inject_result = await page.evaluate(
@@ -121,9 +124,17 @@ async def run_verification():
         print("[verify] waiting for render readiness ...")
         try:
             await page.wait_for_function(
-                "() => document.documentElement.dataset.renderReady === 'true'",
+                """() => {
+                    const state = window.__CAPINSTA_RENDER_STATE__;
+                    return state && (state.status === 'ready' || state.status === 'error');
+                }""",
                 timeout=20000,
             )
+            render_state = await page.evaluate("() => window.__CAPINSTA_RENDER_STATE__ || null")
+            if isinstance(render_state, dict) and render_state.get("status") == "error":
+                print(f"[verify] FAILED: renderer error state {json.dumps(render_state, default=str)}")
+                await browser.close()
+                return False
             readiness = await page.evaluate(
                 "() => (typeof window.getRenderReadiness === 'function' ? window.getRenderReadiness() : null)"
             )

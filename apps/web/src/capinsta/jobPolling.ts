@@ -1,16 +1,19 @@
 import type { CapinstaJobDetailResponse } from "./apiTypes"
 import { getCapinstaJob } from "./apiClient"
+import {
+  acceptCapinstaJobLifecycleUpdate,
+  lifecycleStateFromJob,
+  normalizeCapinstaJobStatus,
+  rememberTerminalCapinstaJob,
+  type CapinstaJobLifecycleState,
+} from "./captionJobLifecycle"
 
-export type NormalizedCapinstaJobStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "unknown"
+export { normalizeCapinstaJobStatus } from "./captionJobLifecycle"
 
 export interface CapinstaJobStatusHistoryEntry {
   jobId: string
   rawStatus: string
-  normalizedStatus: NormalizedCapinstaJobStatus
+  normalizedStatus: ReturnType<typeof normalizeCapinstaJobStatus>
   timestamp: string
   progress?: number
   message?: string
@@ -30,56 +33,11 @@ export interface PollCapinstaJobOptions {
   sleep?: (milliseconds: number) => Promise<void>
   onProgress?: (job: CapinstaJobDetailResponse) => void
   onStatusHistory?: (history: readonly CapinstaJobStatusHistoryEntry[]) => void
+  onLifecycle?: (state: CapinstaJobLifecycleState) => void
 }
-
-const COMPLETE_STATUSES = new Set([
-  "completed",
-  "complete",
-  "succeeded",
-  "success",
-  "done",
-])
-const FAILED_STATUSES = new Set([
-  "failed",
-  "failure",
-  "error",
-  "cancelled",
-  "canceled",
-])
-const RUNNING_STATUSES = new Set([
-  "queued",
-  "pending",
-  "uploaded",
-  "extracting",
-  "processing",
-  "running",
-  "started",
-  "extracting_audio",
-  "transcribing",
-  "aligning",
-  "normalizing",
-  "romanizing",
-  "chunking",
-  "rendering",
-  "rendering_captions",
-  "finalizing",
-  "saving",
-  "generating_captions",
-  "importing_captions",
-])
 
 function defaultSleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
-}
-
-export function normalizeCapinstaJobStatus(
-  status: string | null | undefined,
-): NormalizedCapinstaJobStatus {
-  const normalized = (status ?? "").trim().toLowerCase()
-  if (COMPLETE_STATUSES.has(normalized)) return "completed"
-  if (FAILED_STATUSES.has(normalized)) return "failed"
-  if (RUNNING_STATUSES.has(normalized)) return "running"
-  return "unknown"
 }
 
 function formatStatusHistory(
@@ -117,17 +75,27 @@ function historyEntryKey(entry: CapinstaJobStatusHistoryEntry): string {
 function timeoutError({
   maxElapsedMs,
   history,
+  job,
 }: {
   maxElapsedMs?: number
   history: readonly CapinstaJobStatusHistoryEntry[]
+  job?: CapinstaJobDetailResponse
 }): Error {
   const durationMessage =
     typeof maxElapsedMs === "number"
       ? ` after ${Math.round(maxElapsedMs / 1000)} seconds`
       : ""
   return new Error(
-    `Timed out waiting for Capinsta caption generation${durationMessage}. Status history: ${formatStatusHistory(history)}`,
+    `Timed out waiting for Capinsta caption generation${durationMessage}. Job ${job?.job_id ?? "unknown"} is still ${job?.status ?? "non-terminal"} at ${job?.progress ?? "unknown"}%. Last worker heartbeat: ${job?.heartbeatAt ?? "unknown"}. Status history: ${formatStatusHistory(history)}`,
   )
+}
+
+function terminalError(job: CapinstaJobDetailResponse): Error {
+  const normalized = normalizeCapinstaJobStatus(job.status)
+  if (normalized === "cancelled") {
+    return new Error(job.error || job.message || `Capinsta job ${job.job_id} was cancelled`)
+  }
+  return new Error(job.error || job.message || `Capinsta job ${job.status}`)
 }
 
 export async function pollCapinstaJobUntilDone({
@@ -141,19 +109,67 @@ export async function pollCapinstaJobUntilDone({
   sleep = defaultSleep,
   onProgress,
   onStatusHistory,
+  onLifecycle,
 }: PollCapinstaJobOptions): Promise<CapinstaJobDetailResponse> {
   const startedAt = Date.now()
   const statusHistory: CapinstaJobStatusHistoryEntry[] = []
+  let terminalJob: CapinstaJobDetailResponse | null = null
+  let lifecycleState: CapinstaJobLifecycleState | null = null
+  let lastJob: CapinstaJobDetailResponse | undefined
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (signal?.aborted) {
       throw new DOMException("Capinsta caption generation was cancelled", "AbortError")
     }
     if (Date.now() - startedAt >= maxElapsedMs) {
-      throw timeoutError({ maxElapsedMs, history: statusHistory })
+      console.warn("[Capinsta captions] Client timeout fired; reconciling final backend status", {
+        jobId,
+        maxElapsedMs,
+        lastStatus: lastJob?.status,
+        lastProgress: lastJob?.progress,
+        lastWorkerHeartbeat: lastJob?.heartbeatAt,
+      })
+      const reconciledJob = await getCapinstaJob({ baseUrl, jobId, fetchImpl })
+      const reconciledLifecycle = lifecycleStateFromJob(reconciledJob, "timeout-reconcile")
+      const acceptedLifecycle = acceptCapinstaJobLifecycleUpdate(lifecycleState, reconciledLifecycle)
+      lifecycleState = acceptedLifecycle.state
+      onLifecycle?.(lifecycleState)
+      const reconciledStatus = normalizeCapinstaJobStatus(reconciledJob.status)
+      console.warn("[Capinsta captions] Final status reconciliation result", {
+        jobId,
+        status: reconciledJob.status,
+        normalizedStatus: reconciledStatus,
+        progress: reconciledJob.progress,
+        updatedAt: reconciledJob.updatedAt,
+        completedAt: reconciledJob.completedAt || reconciledJob.completed_at,
+      })
+      if (reconciledStatus === "completed") {
+        rememberTerminalCapinstaJob(jobId)
+        return reconciledJob
+      }
+      if (reconciledStatus === "failed" || reconciledStatus === "cancelled") {
+        rememberTerminalCapinstaJob(jobId)
+        throw terminalError(reconciledJob)
+      }
+      throw timeoutError({ maxElapsedMs, history: statusHistory, job: reconciledJob })
     }
 
     const job = await getCapinstaJob({ baseUrl, jobId, fetchImpl, signal })
+    lastJob = job
     const normalizedStatus = normalizeCapinstaJobStatus(job.status)
+    const nextLifecycle = lifecycleStateFromJob(job, "poll")
+    const acceptedLifecycle = acceptCapinstaJobLifecycleUpdate(lifecycleState, nextLifecycle)
+    lifecycleState = acceptedLifecycle.state
+    if (!acceptedLifecycle.accepted) {
+      console.debug("[Capinsta captions] Ignored stale lifecycle update", {
+        jobId,
+        reason: acceptedLifecycle.reason,
+        staleStatus: job.status,
+        terminalStatus: lifecycleState.status,
+      })
+      if (lifecycleState.terminalAt && terminalJob) return terminalJob
+    } else {
+      onLifecycle?.(lifecycleState)
+    }
     const historyEntry: CapinstaJobStatusHistoryEntry = {
       jobId,
       rawStatus: String(job.status ?? ""),
@@ -185,13 +201,24 @@ export async function pollCapinstaJobUntilDone({
     })
     onProgress?.(job)
 
-    if (normalizedStatus === "completed") return job
-    if (normalizedStatus === "failed") {
-      throw new Error(job.error || `Capinsta job ${job.status}`)
+    if (normalizedStatus === "completed") {
+      terminalJob = job
+      rememberTerminalCapinstaJob(jobId)
+      console.debug("[Capinsta captions] Polling stopped after terminal completion", { jobId })
+      return job
+    }
+    if (normalizedStatus === "failed" || normalizedStatus === "cancelled") {
+      terminalJob = job
+      rememberTerminalCapinstaJob(jobId)
+      console.debug("[Capinsta captions] Polling stopped after terminal failure", {
+        jobId,
+        status: job.status,
+      })
+      throw terminalError(job)
     }
 
     await sleep(intervalMs)
   }
 
-  throw timeoutError({ history: statusHistory })
+  throw timeoutError({ history: statusHistory, job: lastJob })
 }

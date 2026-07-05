@@ -558,6 +558,95 @@ def _looks_like_sign_in_page(final_url: str, title: str, body_text: str = "") ->
     )
 
 
+def _build_sha() -> str:
+    return os.getenv("GIT_SHA") or os.getenv("SOURCE_COMMIT") or os.getenv("COMMIT_SHA") or "unknown"
+
+
+async def _renderer_ready_diagnostics(
+    *,
+    page,
+    export_job_id: str,
+    reason: str,
+    page_logs: list[str],
+    redirect_chain: list[str] | None = None,
+) -> dict[str, object]:
+    screenshot_path = ""
+    try:
+        diagnostic_dir = TEMP_DIR / "export-render-diagnostics"
+        diagnostic_dir.mkdir(parents=True, exist_ok=True)
+        screenshot = diagnostic_dir / f"{export_job_id}-renderer-ready.png"
+        await page.screenshot(path=str(screenshot), full_page=True)
+        screenshot_path = str(screenshot)
+    except Exception as exc:
+        screenshot_path = f"screenshot_failed:{exc}"
+    try:
+        page_title = await page.title()
+    except Exception:
+        page_title = ""
+    try:
+        final_url = redact_render_url(page.url)
+    except Exception:
+        final_url = ""
+    try:
+        render_state = await page.evaluate("() => window.__CAPINSTA_RENDER_STATE__ || null")
+    except Exception as exc:
+        render_state = {"diagnosticError": str(exc)}
+    try:
+        body_excerpt = await page.evaluate("() => (document.body?.innerText || '').slice(0, 600)")
+    except Exception:
+        body_excerpt = ""
+    return {
+        "stage": "renderer_ready",
+        "reason": reason,
+        "finalUrl": final_url,
+        "redirectChain": redirect_chain or [],
+        "pageTitle": page_title,
+        "bodyExcerpt": redact_render_url(body_excerpt),
+        "renderState": render_state,
+        "consoleErrors": [line for line in page_logs if line.startswith(("console:", "pageerror:"))][-20:],
+        "pageErrors": [line for line in page_logs if line.startswith("pageerror:")][-20:],
+        "failedRequests": [line for line in page_logs if line.startswith("requestfailed:")][-20:],
+        "screenshotPath": screenshot_path,
+        "backendBuildSha": _build_sha(),
+        "frontendBuildSha": os.getenv("FRONTEND_BUILD_SHA") or os.getenv("NEXT_PUBLIC_BUILD_SHA") or "unknown",
+    }
+
+
+async def _wait_for_renderer_ready_state(
+    *,
+    page,
+    timeout_ms: int,
+    export_job_id: str,
+    page_logs: list[str],
+    redirect_chain: list[str] | None = None,
+) -> dict[str, object]:
+    await page.wait_for_function(
+        """() => {
+            const state = window.__CAPINSTA_RENDER_STATE__;
+            return state && (state.status === 'ready' || state.status === 'error');
+        }""",
+        timeout=timeout_ms,
+    )
+    render_state = await page.evaluate("() => window.__CAPINSTA_RENDER_STATE__ || null")
+    if isinstance(render_state, dict) and render_state.get("status") == "ready":
+        return render_state
+    diagnostics = await _renderer_ready_diagnostics(
+        page=page,
+        export_job_id=export_job_id,
+        reason="renderer_error_state",
+        page_logs=page_logs,
+        redirect_chain=redirect_chain,
+    )
+    error = (render_state or {}).get("error") if isinstance(render_state, dict) else {}
+    code = (error or {}).get("code") if isinstance(error, dict) else None
+    message = (error or {}).get("message") if isinstance(error, dict) else None
+    raise ExportStageError(
+        "renderer_ready",
+        f"Renderer reported error state {code or 'render_error'}: {message or 'unknown renderer error'} "
+        f"Diagnostics: {json.dumps(diagnostics, default=str)}",
+    )
+
+
 def check_export_runtime() -> dict[str, object]:
     """Runtime export diagnostics for /api/health/export."""
     ensure_runtime_dirs()
@@ -1152,7 +1241,10 @@ async def export_headless(
         render_page_url = render_page_candidates[0]
         render_load_errors: list[str] = []
         loaded_render_page = False
-        render_page_timeout_ms = max(1000, _int_env("CAPINSTA_RENDER_PAGE_TIMEOUT_MS", 120000))
+        active_redirect_chain: list[str] = []
+        render_page_timeout_ms = max(1000, _int_env("CAPINSTA_RENDER_PAGE_TIMEOUT_MS", 30000))
+        navigation_timeout_ms = render_page_timeout_ms
+        render_ready_timeout_ms = render_page_timeout_ms
         for candidate_url in render_page_candidates:
             logger.info("headless_render_page url=%s", redact_render_url(candidate_url))
             try:
@@ -1174,16 +1266,18 @@ async def export_headless(
                 page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
                 page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
 
-                response = await page.goto(candidate_url, wait_until="networkidle", timeout=render_page_timeout_ms)
+                response = await page.goto(candidate_url, wait_until="domcontentloaded", timeout=navigation_timeout_ms)
                 if response is None:
                     raise ExportStageError("composition_load", f"Render page did not return a response: {redact_render_url(candidate_url)}")
                 page_title = await page.title()
                 final_url = page.url
                 redirect_chain = _redirect_chain(response)
+                active_redirect_chain = redirect_chain
                 readiness_probe = await page.evaluate(
                     """() => ({
                         loadedFlag: window.__RENDER_PAGE_LOADED__ === true,
                         explicitReadyFlag: window.__CAPINSTA_RENDER_READY__ === true,
+                        renderState: window.__CAPINSTA_RENDER_STATE__ || null,
                         hasRendererRoot: Boolean(document.querySelector("#render-frame")),
                         hasAuthError: Boolean(document.querySelector("[data-render-auth-error='true']")),
                         hasSignInForm: Boolean(document.querySelector("form")) && /sign in/i.test(document.body?.innerText || "")
@@ -1220,7 +1314,10 @@ async def export_headless(
                         f"Render page rejected the render token at {redact_render_url(candidate_url)}.",
                     )
 
-                await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=render_page_timeout_ms)
+                await page.wait_for_function(
+                    "() => window.__CAPINSTA_RENDER_STATE__ && window.__CAPINSTA_RENDER_STATE__.version === 1",
+                    timeout=render_ready_timeout_ms,
+                )
                 performance.render_page_load_seconds += time.perf_counter() - page_load_started
                 render_page_url = candidate_url
                 loaded_render_page = True
@@ -1522,7 +1619,7 @@ async def export_headless(
             page.on("console", lambda msg: capture_page_log("console", msg.text))
             page.on("pageerror", lambda exc: capture_page_log("pageerror", str(exc)))
             page.on("requestfailed", lambda request: capture_page_log("requestfailed", f"{request.url} {request.failure}"))
-            response = await page.goto(render_page_url, wait_until="networkidle", timeout=render_page_timeout_ms)
+            response = await page.goto(render_page_url, wait_until="domcontentloaded", timeout=render_page_timeout_ms)
             if response is None or response.status >= 400:
                 status = "no response" if response is None else f"HTTP {response.status}"
                 raise ExportStageError("composition_load", f"Render page reload failed during export recovery: {status} {redact_render_url(render_page_url)}")
@@ -1533,17 +1630,24 @@ async def export_headless(
                     "Headless renderer was redirected to the sign-in page during recovery. "
                     "Check render-route authentication and internal render-token configuration.",
                 )
-            await page.wait_for_function("() => window.__RENDER_PAGE_LOADED__ === true", timeout=render_page_timeout_ms)
+            recovery_redirect_chain = _redirect_chain(response)
+            await page.wait_for_function(
+                "() => window.__CAPINSTA_RENDER_STATE__ && window.__CAPINSTA_RENDER_STATE__.version === 1",
+                timeout=render_page_timeout_ms,
+            )
             await inject_caption_data()
             await wait_for_fonts()
-            # Wait for readiness and assert clean on recreated pages too.
             try:
-                await page.wait_for_function(
-                    "() => window.__CAPINSTA_RENDER_READY__ === true && document.documentElement.dataset.renderReady === 'true'",
-                    timeout=render_page_timeout_ms,
+                await _wait_for_renderer_ready_state(
+                    page=page,
+                    timeout_ms=render_page_timeout_ms,
+                    export_job_id=export_job_id,
+                    page_logs=page_logs,
+                    redirect_chain=recovery_redirect_chain,
                 )
             except Exception:
-                logger.warning("render_ready_timeout during page recovery export_job_id=%s", export_job_id)
+                logger.warning("render_ready_failure during page recovery export_job_id=%s", export_job_id)
+                raise
             try:
                 await page.evaluate("() => typeof window.stripProhibitedRenderUI === 'function' && window.stripProhibitedRenderUI()")
             except Exception:
@@ -1574,9 +1678,12 @@ async def export_headless(
         await progress_callback("preparing", 3, "Waiting for render readiness...")
         readiness_started = time.perf_counter()
         try:
-            await page.wait_for_function(
-                "() => window.__CAPINSTA_RENDER_READY__ === true && document.documentElement.dataset.renderReady === 'true'",
-                timeout=render_page_timeout_ms,
+            await _wait_for_renderer_ready_state(
+                page=page,
+                timeout_ms=render_ready_timeout_ms,
+                export_job_id=export_job_id,
+                page_logs=page_logs,
+                redirect_chain=active_redirect_chain,
             )
             readiness = await page.evaluate(
                 """() => {
@@ -1613,17 +1720,26 @@ async def export_headless(
             logger.info("[render] output size: %sx%s", width, height)
             logger.info("[render] renderReady: %s", ready_reason)
         except Exception as exc:
-            # Fallback: if readiness never fires (e.g. older render page), log a
-            # warning but do not block the export. Extract diagnostics.
-            logger.warning(
-                "render_ready_timeout job_id=%s reason=%s — proceeding with fallback timeout",
-                job_id, exc,
-            )
+            if isinstance(exc, ExportStageError):
+                raise
             try:
-                diag = await page.evaluate("() => ({ loaded: window.__RENDER_PAGE_LOADED__, ready: document.documentElement.dataset.renderReady })")
-                logger.info("render_ready_fallback_diag job_id=%s diag=%s", job_id, json.dumps(diag, default=str))
-            except Exception:
-                pass
+                diag = await _renderer_ready_diagnostics(
+                    page=page,
+                    export_job_id=export_job_id,
+                    reason="render_state_never_ready",
+                    page_logs=page_logs,
+                    redirect_chain=active_redirect_chain,
+                )
+            except Exception as diag_exc:
+                diag = {"diagnosticError": str(diag_exc)}
+            logs = _tail("\n".join(page_logs), 1600)
+            raise ExportStageError(
+                "renderer_ready",
+                "Renderer never reached ready state before timeout. "
+                f"Diagnostics: {json.dumps(diag, default=str)}"
+                + (f" | Render logs: {logs}" if logs else ""),
+                exc,
+            ) from exc
         finally:
             performance.first_frame_readiness_seconds += time.perf_counter() - readiness_started
 

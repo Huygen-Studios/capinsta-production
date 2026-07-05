@@ -218,11 +218,11 @@ export class ProjectManager {
 		}
 	}
 
-	async setCapinstaServerJobId({ jobId }: { jobId: string }): Promise<void> {
+	async setCapinstaServerJobId({ jobId }: { jobId: string | null }): Promise<void> {
 		if (!this.active) return;
 		const updatedProject: TProject = {
 			...this.active,
-			capinstaServerJobId: jobId,
+			capinstaServerJobId: jobId ?? undefined,
 			metadata: { ...this.active.metadata, updatedAt: new Date() },
 		};
 		await storageService.saveProject({ project: updatedProject });

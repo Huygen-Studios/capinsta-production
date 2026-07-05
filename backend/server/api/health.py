@@ -31,6 +31,20 @@ from ..transcription_control import active_transcription_config, transcription_d
 router = APIRouter(prefix="/health", tags=["health"])
 
 
+def _build_sha() -> str:
+    for name in (
+        "COMMIT_SHA",
+        "COOLIFY_GIT_COMMIT_SHA",
+        "SOURCE_COMMIT",
+        "GITHUB_SHA",
+        "VERCEL_GIT_COMMIT_SHA",
+    ):
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value
+    return "unknown"
+
+
 class ReadinessResponse(BaseModel):
     status: str = "ok"
     service: str = "capinsta-backend"
@@ -319,6 +333,11 @@ def export_health_payload() -> dict[str, object]:
         "exportDirWritable": export_writable,
         "exportDirWriteError": type(export_error).__name__ if export_error else None,
         "rendererAvailable": renderer_available,
+        "rendererContractVersion": 1,
+        "backendBuildSha": _build_sha(),
+        "frontendBuildSha": os.getenv("FRONTEND_BUILD_SHA") or os.getenv("NEXT_PUBLIC_BUILD_SHA") or "unknown",
+        "backendBuildVersion": os.getenv("BACKEND_BUILD_VERSION") or os.getenv("APP_VERSION") or "unknown",
+        "renderPageUrl": os.getenv("RENDER_PAGE_URL") or os.getenv("CAPINSTA_RENDER_BASE_URL") or "unset",
         **export_job_metrics(),
     })
     if not (payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and temp_writable and export_writable and renderer_available):
@@ -370,6 +389,11 @@ async def export_health_payload_async() -> dict[str, object]:
         "exportDirWritable": export_writable,
         "exportDirWriteError": type(export_error).__name__ if export_error else None,
         "rendererAvailable": renderer_available,
+        "rendererContractVersion": 1,
+        "backendBuildSha": _build_sha(),
+        "frontendBuildSha": os.getenv("FRONTEND_BUILD_SHA") or os.getenv("NEXT_PUBLIC_BUILD_SHA") or "unknown",
+        "backendBuildVersion": os.getenv("BACKEND_BUILD_VERSION") or os.getenv("APP_VERSION") or "unknown",
+        "renderPageUrl": os.getenv("RENDER_PAGE_URL") or os.getenv("CAPINSTA_RENDER_BASE_URL") or "unset",
         **export_job_metrics(),
     })
     if not (payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and temp_writable and export_writable and renderer_available):

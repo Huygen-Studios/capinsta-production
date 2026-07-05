@@ -44,6 +44,18 @@ export const CAPINSTA_RENDER_ARTIFACT_MARKERS = [
 
 declare global {
 	interface Window {
+		__CAPINSTA_RENDER_STATE__: {
+			version: 1;
+			status: "booting" | "ready" | "error";
+			error: null | { code: string; message: string };
+			diagnostics: {
+				compositionLoaded: boolean;
+				captionsLoaded: boolean;
+				fontsReady: boolean;
+				assetsReady: boolean;
+				firstLayoutComplete: boolean;
+			};
+		};
 		__CAPINSTA_RENDER_ARTIFACT_MARKERS__: readonly string[];
 		__RENDER_PAGE_LOADED__: boolean;
 		__CAPINSTA_RENDER_READY__: boolean;
@@ -300,6 +312,18 @@ export function RenderPageClient() {
 		];
 
 		// Mark page as loaded
+		window.__CAPINSTA_RENDER_STATE__ = {
+			version: 1,
+			status: "booting",
+			error: null,
+			diagnostics: {
+				compositionLoaded: false,
+				captionsLoaded: false,
+				fontsReady: false,
+				assetsReady: true,
+				firstLayoutComplete: false,
+			},
+		};
 		window.__RENDER_PAGE_LOADED__ = true;
 		window.__CAPINSTA_RENDER_READY__ = false;
 		window.__RENDER_PAGE_LAST_ERROR__ = "";
@@ -434,6 +458,16 @@ export function RenderPageClient() {
 			document.documentElement.dataset.renderReady = "true";
 			document.documentElement.dataset.renderReadyReason = reason;
 			window.__CAPINSTA_RENDER_READY__ = true;
+			window.__CAPINSTA_RENDER_STATE__.status = "ready";
+			window.__CAPINSTA_RENDER_STATE__.error = null;
+			window.__CAPINSTA_RENDER_STATE__.diagnostics = {
+				...window.__CAPINSTA_RENDER_STATE__.diagnostics,
+				compositionLoaded: true,
+				captionsLoaded: true,
+				fontsReady: true,
+				assetsReady: true,
+				firstLayoutComplete: true,
+			};
 			window.__RENDER_PAGE_LAST_ERROR__ =
 				window.__RENDER_PAGE_LAST_ERROR__ || "";
 			// eslint-disable-next-line no-console
@@ -622,6 +656,13 @@ export function RenderPageClient() {
 					duration: Number(duration),
 					jobId,
 				});
+				window.__CAPINSTA_RENDER_STATE__.diagnostics = {
+					...window.__CAPINSTA_RENDER_STATE__.diagnostics,
+					compositionLoaded: true,
+					captionsLoaded: true,
+					fontsReady: true,
+					assetsReady: true,
+				};
 
 				// Update overlay rect + signal first-frame readiness after React
 				// commits the composition on the next paint. The readiness check
@@ -658,6 +699,8 @@ export function RenderPageClient() {
 						).fonts;
 						const fontsReady = fontsObj?.ready ?? Promise.resolve();
 						void fontsReady.then(() => {
+							window.__CAPINSTA_RENDER_STATE__.diagnostics.fontsReady = true;
+							window.__CAPINSTA_RENDER_STATE__.diagnostics.firstLayoutComplete = true;
 							window.markRenderReady?.("first-frame-committed");
 						});
 					};
@@ -669,6 +712,13 @@ export function RenderPageClient() {
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				window.__RENDER_PAGE_LAST_ERROR__ = msg;
+				window.__CAPINSTA_RENDER_STATE__.status = "error";
+				window.__CAPINSTA_RENDER_STATE__.error = {
+					code: msg.toLocaleLowerCase().includes("caption font")
+						? "render_font_load_failed"
+						: "render_caption_data_invalid",
+					message: msg,
+				};
 				return {
 					ok: false,
 					error: msg.toLocaleLowerCase().includes("caption font")

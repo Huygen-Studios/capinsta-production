@@ -99,7 +99,12 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
   currentChunk?: number | null
   totalChunks?: number | null
   heartbeatAt?: string | null
+  workerHeartbeatAt?: string | null
   updatedAt?: string | null
+  createdAt?: string | null
+  completedAt?: string | null
+  statusVersion?: number | null
+  stage?: string | null
   elapsedSeconds?: number | null
   srt?: string | null
   vtt?: string | null

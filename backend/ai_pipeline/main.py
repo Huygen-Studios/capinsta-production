@@ -35,10 +35,12 @@ from .sync.stable_refine import apply_stable_refinement, resolved_stable_ts_conf
 from .sync.pause_preserver import preserve_detected_pauses
 from .pipeline_config import resolve_pipeline_config, resolve_pipeline_config_with_sources
 from .timing import (
+    PRODUCTION_INVALID_TIMING_SOURCES,
     alignment_provider_status,
     annotate_word_timing_sources,
     build_timing_report,
     detect_silence_gaps,
+    normalize_timing_source,
 )
 from .transcriber import (
     _configured_provider_sequence,
@@ -324,38 +326,46 @@ def _log_caption_timing_debug(
     )
 
 
+def _chunk_has_provider_words(chunk: Any) -> bool:
+    metadata = getattr(chunk, "asr_metadata", None) or {}
+    if metadata.get("nativeWordsAvailable") is False:
+        return False
+    granularity = str(metadata.get("timing_granularity") or metadata.get("timingGranularity") or "").lower()
+    if granularity == "phrase":
+        return False
+    basis = str(metadata.get("timestamp_basis") or metadata.get("timestampBasis") or "").lower()
+    if basis == "none":
+        return False
+    words = metadata.get("words") or []
+    if not isinstance(words, list) or not words:
+        return False
+    for word in words:
+        if bool((word or {}).get("preservePhraseTiming")):
+            return False
+        source = str(
+            (word or {}).get("timingSource")
+            or (word or {}).get("timing_source")
+            or ""
+        ).lower()
+        if source not in {"provider_native", "provider_native_word", "provider_word_chunk_local", "provider_word_absolute"}:
+            return False
+        if "structured" in source:
+            return False
+        if any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "phrase", "fallback")):
+            return False
+    return True
+
+
 def _chunks_have_provider_words(chunks: list[Any]) -> bool:
     text_chunks = [chunk for chunk in chunks if str(getattr(chunk, "final_text", "") or getattr(chunk, "raw_text", "") or "").strip()]
     if not text_chunks:
         return False
-    for chunk in text_chunks:
-        metadata = getattr(chunk, "asr_metadata", None) or {}
-        if metadata.get("nativeWordsAvailable") is False:
-            return False
-        granularity = str(metadata.get("timing_granularity") or metadata.get("timingGranularity") or "").lower()
-        if granularity == "phrase":
-            return False
-        basis = str(metadata.get("timestamp_basis") or metadata.get("timestampBasis") or "").lower()
-        if basis == "none":
-            return False
-        words = metadata.get("words") or []
-        if not isinstance(words, list) or not words:
-            return False
-        for word in words:
-            if bool((word or {}).get("preservePhraseTiming")):
-                return False
-            source = str(
-                (word or {}).get("timingSource")
-                or (word or {}).get("timing_source")
-                or ""
-            ).lower()
-            if source not in {"provider_native", "provider_native_word", "provider_word_chunk_local", "provider_word_absolute"}:
-                return False
-            if "structured" in source:
-                return False
-            if any(marker in source for marker in ("estimated", "interpolated", "synthetic", "segment_derived", "phrase", "fallback")):
-                return False
-    return True
+    return any(_chunk_has_provider_words(chunk) for chunk in text_chunks)
+
+
+def _chunks_all_have_provider_words(chunks: list[Any]) -> bool:
+    text_chunks = [chunk for chunk in chunks if str(getattr(chunk, "final_text", "") or getattr(chunk, "raw_text", "") or "").strip()]
+    return bool(text_chunks) and all(_chunk_has_provider_words(chunk) for chunk in text_chunks)
 
 
 def _chunks_have_any_provider_words(chunks: list[Any]) -> bool:
@@ -418,11 +428,23 @@ def _mark_segments_realigned(segments: list[dict[str, Any]], *, provider: str) -
                 or word.get("timing_source")
                 or provider
             )
+            normalized_source = normalize_timing_source(detailed_source, word.get("provider"))
+            if normalized_source in PRODUCTION_INVALID_TIMING_SOURCES:
+                word["timingProvenance"] = "estimated"
+                word["timingSourceDetail"] = detailed_source
+                word["timingSource"] = detailed_source
+                word["timing_source"] = normalized_source
+                word["timingSourceCategory"] = normalized_source
+                word["timingNeedsReview"] = True
+                word["timingReviewRequired"] = True
+                word["timingWarning"] = word.get("timingWarning") or "Estimated word timing; alignment did not produce a real timestamp."
+                continue
+            realigned_source = normalize_timing_source(provider, word.get("provider"))
             word["timingProvenance"] = "realigned"
             word["timingSourceDetail"] = detailed_source
-            word["timingSource"] = detailed_source
-            word["timing_source"] = detailed_source
-            word["timingSourceCategory"] = "realigned"
+            word["timingSource"] = detailed_source or provider
+            word["timing_source"] = realigned_source
+            word["timingSourceCategory"] = realigned_source
     return segments
 
 
@@ -763,6 +785,7 @@ def run_pipeline(
 
         chunk_audit: list[dict[str, Any]] = []
         has_provider_word_timing = _chunks_have_provider_words(processed_chunks)
+        all_chunks_have_provider_word_timing = _chunks_all_have_provider_words(processed_chunks)
         has_any_provider_word_timing = _chunks_have_any_provider_words(processed_chunks)
         has_non_word_provider_timing = _chunks_have_non_word_provider_timing(processed_chunks)
         alignment_was_forced = False
@@ -777,7 +800,7 @@ def run_pipeline(
                 )
             )
         )
-        if pipeline_config.timingSourcePolicy == "native_required" and not has_provider_word_timing:
+        if pipeline_config.timingSourcePolicy == "native_required" and not all_chunks_have_provider_word_timing:
             raise TranscriptValidationError(
                 "Configured timing policy requires native provider word timestamps, but the provider did not return them."
             )

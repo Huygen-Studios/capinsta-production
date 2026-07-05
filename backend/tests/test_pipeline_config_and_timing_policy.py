@@ -18,8 +18,8 @@ from ai_pipeline.transcript_normalizer import (
 from server.transcription_control import TranscriptionConfigSnapshot, coerce_snapshot
 
 
-def _chunk(words, *, basis="chunk_local"):
-    chunk = Chunk(0, "unused.wav", 10.0, 15.0)
+def _chunk(words, *, basis="chunk_local", index=0, start=10.0, end=15.0):
+    chunk = Chunk(index, "unused.wav", start, end)
     chunk.final_text = "hello world"
     chunk.asr_metadata = {
         "provider": "openai",
@@ -54,7 +54,7 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
         "STABLE_TS_MAX_AUDIO_SECONDS",
         "ALLOW_ESTIMATED_WORDS",
         "MAXIMUM_ESTIMATED_WORD_RATIO",
-    ):
+        ):
         monkeypatch.delenv(name, raising=False)
     config = resolve_pipeline_config()
     assert config.timingSourcePolicy == "native_then_forced"
@@ -63,7 +63,7 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
     assert config.quality.maximumEstimatedWordRatio is None
     assert config.quality.minimumProviderTimestampCoverage == 0.90
     assert config.performance.providerTimeoutSeconds == 90
-    assert config.performance.stableTsMaxAudioSeconds == 120.0
+    assert config.performance.stableTsMaxAudioSeconds == 45.0
     assert config.captionChunking.maxWords == 3
     assert config.captionChunking.maxCharacters == 28
     assert config.audioChunking.targetSeconds == 8
@@ -95,12 +95,12 @@ def test_pipeline_config_rejects_invalid_policy_and_ranges():
         resolve_pipeline_config({"quality": {"maximumEstimatedWordRatio": 4}})
 
 
-def test_pipeline_config_parses_legacy_maximum_estimated_ratio_without_defaulting(monkeypatch):
+def test_pipeline_config_ignores_legacy_maximum_estimated_ratio_env(monkeypatch):
     monkeypatch.setenv("MAXIMUM_ESTIMATED_WORD_RATIO", "0.5")
 
     config = resolve_pipeline_config()
 
-    assert config.quality.maximumEstimatedWordRatio == 0.5
+    assert config.quality.maximumEstimatedWordRatio is None
 
 
 def test_snapshot_serializes_resolved_pipeline_options_without_loss():
@@ -125,14 +125,45 @@ def test_snapshot_serializes_resolved_pipeline_options_without_loss():
     assert parsed is not None
     assert parsed.resolved_pipeline_options["timingSourcePolicy"] == "native_required"
     assert parsed.resolved_pipeline_options["performance"]["providerTimeoutSeconds"] == 45
+    assert payload["resolved_config_hash"].startswith("sha256:")
+    assert payload["runtime_capabilities"]["provider"] == "openai"
+    assert parsed.to_dict()["resolved_config_hash"] == payload["resolved_config_hash"]
 
 
-def test_stable_ts_max_audio_seconds_env_override(monkeypatch):
+def test_historical_snapshot_remains_immutable_after_environment_changes(monkeypatch):
+    stored_options = resolve_pipeline_config(
+        {
+            "timingSourcePolicy": "native_then_forced",
+            "performance": {"stableTsMaxAudioSeconds": 27},
+            "quality": {"maximumEstimatedWordRatio": 0.42},
+        }
+    ).to_dict()
+    snapshot = TranscriptionConfigSnapshot(
+        configuration_id="legacy-cfg",
+        provider="openai",
+        model="whisper-1",
+        version=3,
+        provider_options={},
+        timestamp_strategy="provider_word",
+        pipeline_options=stored_options,
+        resolved_pipeline_options=stored_options,
+    ).to_dict()
+
+    monkeypatch.setenv("STABLE_TS_MAX_AUDIO_SECONDS", "999")
+    monkeypatch.setenv("MAXIMUM_ESTIMATED_WORD_RATIO", "0.01")
+    parsed = coerce_snapshot(snapshot)
+
+    assert parsed is not None
+    assert parsed.resolved_pipeline_options["performance"]["stableTsMaxAudioSeconds"] == 27
+    assert parsed.resolved_pipeline_options["quality"]["maximumEstimatedWordRatio"] == 0.42
+
+
+def test_stable_ts_max_audio_seconds_env_is_deprecated(monkeypatch):
     monkeypatch.setenv("STABLE_TS_MAX_AUDIO_SECONDS", "30")
 
     config = resolve_pipeline_config()
 
-    assert config.performance.stableTsMaxAudioSeconds == 30.0
+    assert config.performance.stableTsMaxAudioSeconds == 45.0
 
 
 def test_declared_chunk_local_native_words_are_preserved_for_english():
@@ -175,6 +206,33 @@ def test_estimated_segment_derived_words_are_not_counted_as_native_but_can_gener
     words = [word for segment in segments for word in segment["words"]]
     assert [word["word"] for word in words] == ["hello", "world"]
     assert all(word["timingNeedsReview"] for word in words)
+
+
+def test_one_phrase_chunk_does_not_poison_valid_provider_chunks():
+    native_chunk = _chunk(
+        [
+            {"word": "hello", "start": 0.2, "end": 0.5, "timing_source": "provider_native_word"},
+            {"word": "world", "start": 0.7, "end": 1.0, "timing_source": "provider_native_word"},
+        ],
+        index=0,
+        start=0.0,
+        end=5.0,
+    )
+    phrase_chunk = _chunk(
+        [
+            {"word": "good morning", "start": 0.0, "end": 2.0, "timing_source": "provider_segment_derived"},
+        ],
+        index=1,
+        start=5.0,
+        end=10.0,
+    )
+
+    assert _chunks_have_provider_words([native_chunk, phrase_chunk]) is True
+    segments = build_word_timed_transcript_from_chunks([native_chunk, phrase_chunk], "english")
+    words = [word for segment in segments for word in segment["words"]]
+
+    assert words[0]["timingSource"] == "provider_native_word"
+    assert words[-1]["timingNeedsReview"] is True
 
 
 def test_preserved_phrase_timing_words_are_not_counted_as_native():

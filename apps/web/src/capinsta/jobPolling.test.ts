@@ -31,7 +31,8 @@ describe("Capinsta job polling", () => {
     expect(normalizeCapinstaJobStatus("succeeded")).toBe("completed")
     expect(normalizeCapinstaJobStatus("failure")).toBe("failed")
     expect(normalizeCapinstaJobStatus("error")).toBe("failed")
-    expect(normalizeCapinstaJobStatus("canceled")).toBe("failed")
+    expect(normalizeCapinstaJobStatus("canceled")).toBe("cancelled")
+    expect(normalizeCapinstaJobStatus("cancelled")).toBe("cancelled")
     expect(normalizeCapinstaJobStatus("mystery")).toBe("unknown")
   })
 
@@ -149,6 +150,63 @@ describe("Capinsta job polling", () => {
           }),
       }),
     ).rejects.toThrow(/Timed out waiting/)
+  })
+
+  test("reconciles timeout with a completed backend job", async () => {
+    const originalNow = Date.now
+    const times = [0, 601_000]
+    Date.now = () => times.shift() ?? 601_000
+    const calls: string[] = []
+    try {
+      const result = await pollCapinstaJobUntilDone({
+        baseUrl: "http://127.0.0.1:8000",
+        jobId: "job-001",
+        maxElapsedMs: 600_000,
+        fetchImpl: async (_url, init) => {
+          calls.push(init?.signal ? "poll" : "reconcile")
+          return jsonResponse({
+            job_id: "job-001",
+            status: "completed",
+            progress: 100,
+            filename: "sample.mp4",
+            languageMode: "english",
+            segments: [{ start: 0, end: 1, text: "Done", words: [] }],
+            completed_at: "2026-07-05T07:14:31.370Z",
+          })
+        },
+      })
+
+      expect(result.status).toBe("completed")
+      expect(calls).toEqual(["reconcile"])
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
+  test("reconciles timeout with a failed backend job", async () => {
+    const originalNow = Date.now
+    const times = [0, 601_000]
+    Date.now = () => times.shift() ?? 601_000
+    try {
+      await expect(
+        pollCapinstaJobUntilDone({
+          baseUrl: "http://127.0.0.1:8000",
+          jobId: "job-001",
+          maxElapsedMs: 600_000,
+          fetchImpl: async () =>
+            jsonResponse({
+              job_id: "job-001",
+              status: "failed",
+              progress: -1,
+              filename: "sample.mp4",
+              languageMode: "english",
+              error: "provider quota exhausted",
+            }),
+        }),
+      ).rejects.toThrow(/provider quota exhausted/)
+    } finally {
+      Date.now = originalNow
+    }
   })
 
   test("does not falsely fail at the old 120 second polling mark by default", async () => {

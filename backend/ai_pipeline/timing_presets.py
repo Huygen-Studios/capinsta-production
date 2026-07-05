@@ -76,9 +76,7 @@ ENV_KEY_TO_PATH: dict[str, tuple[str, ...]] = {
     "PHRASE_HOLD_SECONDS": ("captionChunking", "phraseHoldSeconds"),
     "PROVIDER_TIMEOUT_SECONDS": ("performance", "providerTimeoutSeconds"),
     "SARVAM_CONCURRENCY": ("performance", "sarvamMaxConcurrency"),
-    "STABLE_TS_MAX_AUDIO_SECONDS": ("performance", "stableTsMaxAudioSeconds"),
     "ALLOW_ESTIMATED_WORDS": ("quality", "allowEstimatedWords"),
-    "MAXIMUM_ESTIMATED_WORD_RATIO": ("quality", "maximumEstimatedWordRatio"),
 }
 
 

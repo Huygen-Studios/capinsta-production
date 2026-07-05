@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import hashlib
 import sqlite3
 import time
 from dataclasses import dataclass, asdict
@@ -44,6 +45,8 @@ class TranscriptionConfigSnapshot:
     pipeline_options: dict[str, Any] | None = None
     resolved_pipeline_options: dict[str, Any] | None = None
     pipeline_option_sources: dict[str, Any] | None = None
+    resolved_config_hash: str | None = None
+    runtime_capabilities: dict[str, Any] | None = None
 
     @property
     def provider_mode(self) -> str:
@@ -63,9 +66,32 @@ class TranscriptionConfigSnapshot:
         payload["preset_id"] = self.preset_id
         payload["preset_version"] = self.preset_version
         payload["pipeline_option_sources"] = self.pipeline_option_sources or {}
+        payload["resolved_config_hash"] = self.resolved_config_hash or _resolved_config_hash(resolved_pipeline_options)
+        payload["runtime_capabilities"] = self.runtime_capabilities or _runtime_capability_snapshot(
+            self.provider,
+            self.model,
+            self.timestamp_strategy,
+        )
         payload["provider_mode"] = self.provider_mode
         payload["provider_language_code"] = self.provider_language_code
         return payload
+
+
+def _resolved_config_hash(options: dict[str, Any]) -> str:
+    encoded = json.dumps(options, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _runtime_capability_snapshot(provider: str, model: str, timestamp_strategy: str) -> dict[str, Any]:
+    entry = catalog_entry(provider, model)
+    availability = model_runtime_availability(entry) if entry is not None else {}
+    return {
+        "provider": provider,
+        "model": model,
+        "timestampStrategy": timestamp_strategy,
+        "productionReady": bool(availability.get("productionReady")) if availability else False,
+        "availabilityReason": availability.get("reason") if isinstance(availability, dict) else None,
+    }
 
 
 _CACHE: tuple[float, TranscriptionConfigSnapshot | None] = (0.0, None)
@@ -472,6 +498,12 @@ def coerce_snapshot(value: TranscriptionConfigSnapshot | dict[str, Any] | str | 
                 value.get("pipeline_option_sources")
                 or value.get("pipelineOptionSources")
                 or {}
+            ),
+            resolved_config_hash=value.get("resolved_config_hash") or value.get("resolvedConfigHash"),
+            runtime_capabilities=(
+                value.get("runtime_capabilities")
+                or value.get("runtimeCapabilities")
+                or None
             ),
         )
     except Exception:

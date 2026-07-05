@@ -45,7 +45,12 @@ class JobDetailResponse(BaseModel):
     currentChunk: Optional[int] = None
     totalChunks: Optional[int] = None
     heartbeatAt: Optional[str] = None
+    workerHeartbeatAt: Optional[str] = None
     updatedAt: Optional[str] = None
+    createdAt: Optional[str] = None
+    completedAt: Optional[str] = None
+    statusVersion: Optional[int] = None
+    stage: Optional[str] = None
     elapsedSeconds: Optional[int] = None
     srt: Optional[str] = None
     vtt: Optional[str] = None

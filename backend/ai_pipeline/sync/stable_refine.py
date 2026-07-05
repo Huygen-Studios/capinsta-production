@@ -1359,7 +1359,7 @@ def apply_stable_refinement(
     resolved_device = _resolve_device(device)
     base_report["model"] = model_name
     base_report["device"] = resolved_device
-    max_audio_seconds = float(config.get("maxAudioSeconds") or _float_env("STABLE_TS_MAX_AUDIO_SECONDS", 45.0))
+    max_audio_seconds = float(config.get("maxAudioSeconds") or 45.0)
     audio_duration = _optional_float(config.get("audioDurationSeconds"))
     if audio_duration is None:
         audio_duration = _audio_duration_seconds(audio_path)

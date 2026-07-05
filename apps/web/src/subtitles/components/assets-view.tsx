@@ -396,6 +396,7 @@ export function Captions() {
 		const abortController = new AbortController();
 		abortControllerRef.current = abortController;
 		captionJobRunningRef.current = true;
+		let activeBackendJobId: string | null = null;
 		setWarnings([]);
 		dispatchCaptionJob({
 			type: "start",
@@ -449,6 +450,7 @@ export function Captions() {
 				captionOutput: selectedCaptionOutput,
 				signal: abortController.signal,
 			});
+			activeBackendJobId = startedJob.job_id;
 			await editor.project.setCapinstaServerJobId({
 				jobId: startedJob.job_id,
 			});
@@ -505,6 +507,8 @@ export function Captions() {
 			console.debug("[Capinsta captions] Transcription completed", {
 				jobId: completedJob.job_id,
 			});
+			await editor.project.setCapinstaServerJobId({ jobId: null });
+			activeBackendJobId = null;
 			dispatchCaptionJob({
 				type: "progress",
 				status: "generating_captions",
@@ -579,6 +583,9 @@ export function Captions() {
 						: "An unexpected error occurred",
 			});
 		} finally {
+			if (activeBackendJobId) {
+				await editor.project.setCapinstaServerJobId({ jobId: null });
+			}
 			captionJobRunningRef.current = false;
 			if (abortControllerRef.current === abortController) {
 				abortControllerRef.current = null;
@@ -602,6 +609,7 @@ export function Captions() {
 				console.warn("Failed to cancel Capinsta backend job:", error);
 			}
 		}
+		await editor.project.setCapinstaServerJobId({ jobId: null });
 		dispatchCaptionJob({
 			type: "error",
 			message: "Caption generation cancelled.",

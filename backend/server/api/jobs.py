@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, List
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -107,6 +107,20 @@ def _elapsed_seconds(row) -> int | None:
     if started is None:
         return None
     return max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+
+
+def _status_version(row) -> int:
+    candidates = [
+        row["completed_at"] if "completed_at" in row.keys() else None,
+        row["updated_at"] if "updated_at" in row.keys() else None,
+        row["heartbeat_at"] if "heartbeat_at" in row.keys() else None,
+        row["created_at"] if "created_at" in row.keys() else None,
+    ]
+    for value in candidates:
+        parsed = _parse_utc_timestamp(value)
+        if parsed is not None:
+            return int(parsed.timestamp() * 1000)
+    return 0
 
 
 async def _mark_stale_if_needed(row, db: aiosqlite.Connection):
@@ -986,6 +1000,12 @@ def _job_detail_from_row(r: aiosqlite.Row) -> JobDetailResponse:
         target_lang=r['target_lang'],
         languageMode=_stored_language_mode(r['target_lang']),
         error=r['error'],
+        createdAt=r['created_at'],
+        updatedAt=r["updated_at"] if "updated_at" in r.keys() else None,
+        workerHeartbeatAt=r["heartbeat_at"] if "heartbeat_at" in r.keys() else None,
+        completedAt=r['completed_at'],
+        statusVersion=_status_version(r),
+        stage=r['status'],
         created_at=r['created_at'],
         completed_at=r['completed_at']
     )
@@ -1029,8 +1049,17 @@ async def list_jobs(
     return pagination_payload(items=items, rows=rows, limit=page.limit)
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
-async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
+async def get_job(
+    job_id: str,
+    response: Response,
+    db: aiosqlite.Connection = Depends(get_db),
+):
     """Get detailed state of a specific job, including output blocks."""
+    if response is not None and not hasattr(response, "headers"):
+        db = response  # type: ignore[assignment]
+        response = None
+    if response is not None:
+        response.headers["Cache-Control"] = "no-store"
     r = await get_owned_job(db, job_id)
     r = await _mark_stale_if_needed(r, db)
     await ensure_project_available(r, db)
@@ -1063,7 +1092,12 @@ async def get_job(job_id: str, db: aiosqlite.Connection = Depends(get_db)):
         currentChunk=r["current_chunk"] if "current_chunk" in r.keys() else None,
         totalChunks=r["total_chunks"] if "total_chunks" in r.keys() else None,
         heartbeatAt=r["heartbeat_at"] if "heartbeat_at" in r.keys() else None,
+        workerHeartbeatAt=r["heartbeat_at"] if "heartbeat_at" in r.keys() else None,
         updatedAt=r["updated_at"] if "updated_at" in r.keys() else None,
+        createdAt=r['created_at'],
+        completedAt=r['completed_at'],
+        statusVersion=_status_version(r),
+        stage=r['status'],
         elapsedSeconds=_elapsed_seconds(r),
         vtt=r['vtt_content'],
         srt=r['srt_content'],
