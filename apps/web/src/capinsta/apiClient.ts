@@ -59,27 +59,40 @@ function readFastApiErrorBody(body: Record<string, unknown>): {
 	correlationId?: string;
 } {
 	const detail = body.detail;
+	const error = body.error;
 	const detailMessage =
 		typeof detail === "string"
 			? detail
 			: readStringField({ value: detail, field: "message" }) ??
 				readStringField({ value: detail, field: "error" }) ??
 				readStringField({ value: detail, field: "detail" });
+	const errorMessage =
+		typeof error === "string"
+			? error
+			: readStringField({ value: error, field: "message" }) ??
+				readStringField({ value: error, field: "detail" }) ??
+				readStringField({ value: error, field: "error" });
 	return {
 		message:
 			detailMessage ??
+			errorMessage ??
 			readStringField({ value: body, field: "message" }) ??
 			readStringField({ value: body, field: "error" }) ??
 			"Capinsta request failed.",
 		code:
 			readStringField({ value: body, field: "code" }) ??
+			readStringField({ value: error, field: "code" }) ??
 			readStringField({ value: detail, field: "code" }),
 		stage:
 			readStringField({ value: body, field: "stage" }) ??
+			readStringField({ value: error, field: "stage" }) ??
 			readStringField({ value: detail, field: "stage" }),
 		correlationId:
 			readStringField({ value: body, field: "correlationId" }) ??
 			readStringField({ value: body, field: "diagnosticId" }) ??
+			readStringField({ value: error, field: "requestId" }) ??
+			readStringField({ value: error, field: "correlationId" }) ??
+			readStringField({ value: error, field: "diagnosticId" }) ??
 			readStringField({ value: detail, field: "correlationId" }) ??
 			readStringField({ value: detail, field: "diagnosticId" }),
 	};
@@ -155,7 +168,14 @@ export async function startCapinstaCaptionJob({
 	formData.append("captionOutput", captionOutput);
 	formData.append("project_id", projectId);
 	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
-	else if (file) formData.append("file", file);
+	else if (file instanceof Blob) {
+		if (file.size <= 0) {
+			throw new CapinstaApiError(
+				"Caption media is empty. Re-import the video and try again.",
+			);
+		}
+		formData.append("file", file, file.name || "caption-video.mp4");
+	}
 	else {
 		throw new CapinstaApiError(
 			"Caption media is unavailable. Re-import the video and try again.",

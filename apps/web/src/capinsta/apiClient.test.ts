@@ -93,6 +93,38 @@ describe("Capinsta API client", () => {
 		});
 	});
 
+	test("surfaces backend request-limit errors from structured error bodies", async () => {
+		const file = new File(["video"], "sample.mp4", { type: "video/mp4" });
+
+		await expect(
+			startCapinstaCaptionJob({
+				baseUrl: "/api/capinsta",
+				file,
+				projectId: "project-1",
+				languageMode: "auto",
+				fetchImpl: async () =>
+					jsonResponse(
+						{
+							error: {
+								code: "payload_too_large",
+								message: "The request is too large.",
+								requestId: "req-413",
+							},
+						},
+						{ status: 413 },
+					),
+			}),
+		).rejects.toMatchObject({
+			name: "CapinstaApiError",
+			message: "The request is too large.",
+			status: 413,
+			diagnostics: {
+				code: "payload_too_large",
+				correlationId: "req-413",
+			},
+		});
+	});
+
 	test("creates caption jobs with a media asset id instead of a file", async () => {
 		const job = await startCapinstaCaptionJob({
 			baseUrl: "http://127.0.0.1:8000",
@@ -120,6 +152,20 @@ describe("Capinsta API client", () => {
 		await expect(
 			startCapinstaCaptionJob({
 				baseUrl: "http://127.0.0.1:8000",
+				projectId: "project-1",
+				languageMode: "auto",
+				fetchImpl: async () => {
+					throw new Error("should not call fetch");
+				},
+			}),
+		).rejects.toThrow("Caption media is unavailable");
+	});
+
+	test("does not submit a caption job when file is not a real Blob", async () => {
+		await expect(
+			startCapinstaCaptionJob({
+				baseUrl: "http://127.0.0.1:8000",
+				file: { name: "video.mp4", size: 10, type: "video/mp4" } as File,
 				projectId: "project-1",
 				languageMode: "auto",
 				fetchImpl: async () => {

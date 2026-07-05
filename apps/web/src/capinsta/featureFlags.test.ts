@@ -12,6 +12,7 @@ function restoreEnv({
 }: {
 	name:
 		| "NEXT_PUBLIC_ENABLE_CAPINSTA_SAMPLE_IMPORT"
+		| "NEXT_PUBLIC_CAPINSTA_API_BASE_URL"
 		| "NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS"
 		| "NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS";
 	value: string | undefined;
@@ -48,17 +49,28 @@ describe("Capinsta feature flags", () => {
 		});
 	});
 
-	test("uses the same-origin Capinsta proxy regardless of a legacy public URL", () => {
+	test("uses a configured public Capinsta API URL when provided", () => {
 		const previous = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
 		process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = "http://127.0.0.1:8000/";
 
+		expect(getCapinstaApiBaseUrl()).toBe("http://127.0.0.1:8000/");
+
+		restoreEnv({
+			name: "NEXT_PUBLIC_CAPINSTA_API_BASE_URL",
+			value: previous,
+		});
+	});
+
+	test("uses the same-origin Capinsta proxy by default", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
+		delete process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
+
 		expect(getCapinstaApiBaseUrl()).toBe("/api/capinsta");
 
-		if (previous === undefined) {
-			delete process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
-			return;
-		}
-		process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = previous;
+		restoreEnv({
+			name: "NEXT_PUBLIC_CAPINSTA_API_BASE_URL",
+			value: previous,
+		});
 	});
 
 	test("uses a configurable caption job timeout", () => {
