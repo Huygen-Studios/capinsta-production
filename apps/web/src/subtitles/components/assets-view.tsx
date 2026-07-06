@@ -38,6 +38,7 @@ import { parseSubtitleFile } from "@/subtitles/parse";
 import { sampleCapinstaTranscriptV1 } from "@/capinsta/sampleTranscript";
 import { ensureAudioForCaptions } from "@/capinsta/audioForCaptions";
 import { resolveCaptionUploadFile } from "@/capinsta/captionMediaAsset";
+import { verifyProjectMediaAsset, uploadProjectMediaAsset } from "@/capinsta/mediaAssetApi";
 import {
 	captionJobButtonLabel,
 	captionJobReducer,
@@ -442,14 +443,108 @@ export function Captions() {
 				mediaAsset: selectedMediaAsset,
 				loadMediaAsset: (args) => storageService.loadMediaAsset(args),
 			});
-			const startedJob = await startCapinstaCaptionJob({
-				baseUrl: capinstaApiBaseUrl,
-				file: captionUploadFile,
-				projectId,
-				languageMode: selectedAudioLanguage,
-				captionOutput: selectedCaptionOutput,
-				signal: abortController.signal,
-			});
+			const activeProject = editor.project.getActive();
+			const cachedAssetId = activeProject.capinstaServerMediaAssetId;
+			const cachedFingerprint = activeProject.capinstaSourceFingerprint;
+			const localFingerprint = `${captionUploadFile.name}_${captionUploadFile.size}_${captionUploadFile.lastModified || 0}`;
+
+			let mediaAssetIdToUse: string | undefined = undefined;
+
+			if (cachedAssetId && cachedFingerprint === localFingerprint) {
+				try {
+					const isVerified = await verifyProjectMediaAsset({ assetId: cachedAssetId });
+					if (isVerified) {
+						mediaAssetIdToUse = cachedAssetId;
+						console.debug("[Capinsta captions] Reusing verified server media asset ID:", mediaAssetIdToUse);
+					}
+				} catch (err) {
+					console.warn("[Capinsta captions] Failed to verify cached media asset:", err);
+				}
+			}
+
+			if (!mediaAssetIdToUse) {
+				dispatchCaptionJob({
+					type: "progress",
+					status: "preparing",
+					message: "Uploading video to media service...",
+				});
+				const uploadResult = await uploadProjectMediaAsset({
+					projectId,
+					file: captionUploadFile,
+					signal: abortController.signal,
+				});
+				mediaAssetIdToUse = uploadResult.assetId;
+				
+				await editor.project.setCapinstaServerMediaAsset({
+					mediaAssetId: mediaAssetIdToUse,
+					mediaAssetVersion: 1,
+					sourceFingerprint: localFingerprint,
+				});
+				console.debug("[Capinsta captions] Uploaded media asset successfully. New ID:", mediaAssetIdToUse);
+			}
+
+			let startedJob;
+			try {
+				startedJob = await startCapinstaCaptionJob({
+					baseUrl: capinstaApiBaseUrl,
+					mediaAssetId: mediaAssetIdToUse,
+					projectId,
+					languageMode: selectedAudioLanguage,
+					captionOutput: selectedCaptionOutput,
+					signal: abortController.signal,
+				});
+			} catch (err: any) {
+				if (
+					err &&
+					(err.status === 404 || err.status === 410) &&
+					mediaAssetIdToUse === cachedAssetId
+				) {
+					console.warn("[Capinsta captions] Cached server media asset ID was not found or gone (404/410). Clearing cache and re-uploading...", err);
+					await editor.project.setCapinstaServerMediaAsset({
+						mediaAssetId: null,
+						mediaAssetVersion: 1,
+						sourceFingerprint: null,
+					});
+					mediaAssetIdToUse = undefined;
+
+					dispatchCaptionJob({
+						type: "progress",
+						status: "preparing",
+						message: "Re-uploading video to media service...",
+					});
+					const uploadResult = await uploadProjectMediaAsset({
+						projectId,
+						file: captionUploadFile,
+						signal: abortController.signal,
+					});
+					mediaAssetIdToUse = uploadResult.assetId;
+
+					await editor.project.setCapinstaServerMediaAsset({
+						mediaAssetId: mediaAssetIdToUse,
+						mediaAssetVersion: 1,
+						sourceFingerprint: localFingerprint,
+					});
+					console.debug("[Capinsta captions] Re-uploaded media asset successfully. New ID:", mediaAssetIdToUse);
+
+					dispatchCaptionJob({
+						type: "progress",
+						status: "transcribing",
+						message: "Transcribing speech...",
+					});
+
+					startedJob = await startCapinstaCaptionJob({
+						baseUrl: capinstaApiBaseUrl,
+						mediaAssetId: mediaAssetIdToUse,
+						projectId,
+						languageMode: selectedAudioLanguage,
+						captionOutput: selectedCaptionOutput,
+						signal: abortController.signal,
+					});
+				} else {
+					throw err;
+				}
+			}
+
 			activeBackendJobId = startedJob.job_id;
 			await editor.project.setCapinstaServerJobId({
 				jobId: startedJob.job_id,

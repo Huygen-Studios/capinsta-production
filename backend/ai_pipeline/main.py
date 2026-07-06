@@ -67,6 +67,110 @@ from .transcript_normalizer import (
 )
 
 
+import math
+
+def validate_chunk_native_timings(chunk: Any, max_duration: float, threshold: float = 0.90) -> tuple[bool, str | None, float]:
+    """
+    Returns (is_valid, failure_reason, native_timing_coverage)
+    """
+    metadata = getattr(chunk, "asr_metadata", None) or {}
+    words = metadata.get("words")
+    if not words or not isinstance(words, list):
+        return False, "no_words_list", 0.0
+    
+    text = metadata.get("text") or ""
+    text_words = text.split()
+    word_count = len(words)
+    if word_count == 0:
+        return False, "empty_words_list", 0.0
+    
+    last_start = -0.001
+    last_end = -0.001
+    valid_words = 0
+    
+    for w in words:
+        start = w.get("start")
+        end = w.get("end")
+        if start is None or end is None:
+            return False, "missing_word_timestamps", 0.0
+        try:
+            start_f = float(start)
+            end_f = float(end)
+        except (ValueError, TypeError):
+            return False, "non_numeric_timestamps", 0.0
+            
+        if not math.isfinite(start_f) or not math.isfinite(end_f):
+            return False, "non_finite_timestamps", 0.0
+        if start_f < -0.05:
+            return False, "negative_timestamps", 0.0
+        if end_f < start_f:
+            return False, "end_before_start", 0.0
+        if start_f + 0.001 < last_start or end_f + 0.001 < last_end:
+            return False, "non_monotonic_timestamps", 0.0
+        if max_duration is not None and end_f > max_duration + 0.35:
+            return False, "outside_chunk_duration", 0.0
+            
+        last_start = start_f
+        last_end = end_f
+        valid_words += 1
+        
+    text_token_count = max(1, len(text_words))
+    coverage = valid_words / text_token_count
+    if coverage < threshold:
+        return False, f"low_coverage_({coverage:.2f}_<__{threshold:.2f})", coverage
+        
+    return True, None, coverage
+
+
+def align_chunk_with_stable_ts(chunk: Any, language_mode: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+    from .sync.stable_refine import force_align_provider_words
+    chunk_duration = float(chunk.end_time) - float(chunk.start_time)
+    dummy_segments = [{
+        "start": 0.0,
+        "end": chunk_duration,
+        "text": chunk.final_text,
+    }]
+    stable_words = force_align_provider_words(
+        dummy_segments,
+        chunk.audio_path,
+        language_mode,
+        model_name=config.get("model"),
+        device=config.get("device"),
+    )
+    offset = float(chunk.start_time)
+    for w in stable_words:
+        w["start"] = round(float(w["start"]) + offset, 3)
+        w["end"] = round(float(w["end"]) + offset, 3)
+        w["timing_source"] = "stable_ts_aligned"
+        w["timingSource"] = "stable_ts_aligned"
+    return stable_words
+
+
+def align_chunk_with_whisperx(chunk: Any, language_mode: str, pipeline_config: Any) -> list[dict[str, Any]]:
+    from .aligner import align_text
+    from .config import MODEL_ALIGN_EN
+    chunk_duration = float(chunk.end_time) - float(chunk.start_time)
+    dummy_tokens = [{"text": chunk.final_text, "start": 0.0, "end": chunk_duration}]
+    aligned_segs = align_text(
+        dummy_tokens,
+        chunk.audio_path,
+        MODEL_ALIGN_EN,
+        allow_fallback=False,
+        enable_whisperx=True,
+        provider="whisperx",
+    )
+    words = []
+    for seg in aligned_segs:
+        words.extend(seg.get("words") or [])
+    offset = float(chunk.start_time)
+    for w in words:
+        w["start"] = round(float(w["start"]) + offset, 3)
+        w["end"] = round(float(w["end"]) + offset, 3)
+        w["timing_source"] = "whisperx_aligned"
+        w["timingSource"] = "whisperx_aligned"
+    return words
+
+
 def _has_enough_words(source_text: str, candidate_text: str) -> bool:
     source_words = len(source_text.split())
     candidate_words = len(candidate_text.split())
@@ -454,6 +558,9 @@ def run_pipeline(
     caption_output: str = "original",
     transcription_config_snapshot: dict[str, Any] | None = None,
     progress_callback=None,
+    source_in_ms: int | None = None,
+    source_out_ms: int | None = None,
+    timeline_offset_ms: int | None = None,
 ) -> Dict[str, Any]:
     """Run transcription, normalization, alignment, and subtitle export."""
     language_mode = normalize_language_mode(user_target_lang)
@@ -478,6 +585,7 @@ def run_pipeline(
     debug_sync_report: dict[str, Any] = {}
     debug_timing_report: dict[str, Any] = {}
     debug_vad_report: dict[str, Any] = {}
+    job_needs_review = False
 
     def emit_progress(status: str, percent: int, details: str = ""):
         logger.info(f"Progress: {percent}% - {status} - {details}")
@@ -505,6 +613,8 @@ def run_pipeline(
             channels=audio_options.channels,
             codec=ffmpeg_codec,
             bitrate_kbps=audio_options.bitrateKbps,
+            start_ms=source_in_ms,
+            end_ms=source_out_ms,
         )
         _stage_log("audio extraction completed", audio_path=audio_path, language_mode=language_mode)
 
@@ -781,6 +891,101 @@ def run_pipeline(
             processed_chunks.append(chunk)
 
         _stage_log("transcription completed", chunk_count=len(processed_chunks))
+
+        # Check and repair chunks with invalid timings
+        for i, chunk in enumerate(processed_chunks):
+            if chunk.asr_metadata.get("skipped") or not chunk.final_text.strip():
+                continue
+            
+            chunk_duration = max(0.0, float(chunk.end_time or 0.0) - float(chunk.start_time or 0.0))
+            is_valid, reason, coverage = validate_chunk_native_timings(
+                chunk,
+                chunk_duration,
+                threshold=pipeline_config.quality.minimumProviderTimestampCoverage
+            )
+            
+            chunk.asr_metadata["timing_validation"] = {
+                "chunk_id": i,
+                "source_start_ms": int(float(chunk.start_time) * 1000),
+                "source_end_ms": int(float(chunk.end_time) * 1000),
+                "provider": chunk.asr_metadata.get("provider", "unknown"),
+                "text": chunk.final_text,
+                "words": chunk.asr_metadata.get("words") or [],
+                "native_timing_coverage": coverage,
+                "timing_valid": is_valid,
+                "timing_failure_reasons": [reason] if reason else [],
+                "attempt_count": chunk.asr_metadata.get("retry_attempts_count", 1),
+                "latency_ms": chunk.asr_metadata.get("latency_ms", 0),
+            }
+            
+            if is_valid:
+                chunk.asr_metadata["timing_provenance"] = "provider_native"
+                for w in chunk.asr_metadata.get("words", []):
+                    w["timing_source"] = "provider_native"
+                    w["timingSource"] = "provider_native"
+            else:
+                repaired_words = None
+                
+                fast_fallback_enabled = os.getenv("CAPTION_FAST_FALLBACK_ENABLED", "false").strip().lower() == "true"
+                if pipeline_config.preset == "fast" and not fast_fallback_enabled:
+                    run_stable_ts = False
+                    run_whisperx = False
+                else:
+                    run_stable_ts = pipeline_config.alignment.stableTsFallbackEnabled
+                    run_whisperx = pipeline_config.alignment.whisperxFallbackEnabled
+                
+                if run_stable_ts:
+                    try:
+                        logger.info("Repairing chunk %d using Stable TS...", i)
+                        repaired_words = align_chunk_with_stable_ts(
+                            chunk,
+                            language_mode,
+                            {
+                                "model": pipeline_config.alignment.stableTsModel,
+                                "device": pipeline_config.alignment.stableTsDevice,
+                            }
+                        )
+                        chunk.asr_metadata["timing_provenance"] = "stable_ts_aligned"
+                    except Exception as e:
+                        logger.warning("Stable TS repair failed for chunk %d: %s", i, e)
+                        
+                if repaired_words is None and run_whisperx:
+                    try:
+                        logger.info("Repairing chunk %d using WhisperX...", i)
+                        repaired_words = align_chunk_with_whisperx(
+                            chunk,
+                            language_mode,
+                            pipeline_config
+                        )
+                        chunk.asr_metadata["timing_provenance"] = "whisperx_aligned"
+                    except Exception as e:
+                        logger.warning("WhisperX repair failed for chunk %d: %s", i, e)
+                        
+                if repaired_words is not None:
+                    chunk.asr_metadata["words"] = repaired_words
+                    chunk.asr_metadata["nativeWordsAvailable"] = True
+                else:
+                    logger.info("Falling back to deterministic estimation for chunk %d", i)
+                    estimated_words = []
+                    words_text = chunk.final_text.split()
+                    if words_text:
+                        seg_dur = chunk_duration / len(words_text)
+                        for idx, w_txt in enumerate(words_text):
+                            w_start = float(chunk.start_time) + idx * seg_dur
+                            w_end = float(chunk.start_time) + (idx + 1) * seg_dur
+                            estimated_words.append({
+                                "word": w_txt,
+                                "start": round(w_start, 3),
+                                "end": round(w_end, 3),
+                                "timing_source": "degraded" if (pipeline_config.preset == "fast" and not fast_fallback_enabled) else "deterministic_estimate",
+                                "timingSource": "degraded" if (pipeline_config.preset == "fast" and not fast_fallback_enabled) else "deterministic_estimate",
+                                "timingReviewRequired": True,
+                            })
+                    chunk.asr_metadata["words"] = estimated_words
+                    chunk.asr_metadata["nativeWordsAvailable"] = False
+                    chunk.asr_metadata["timing_provenance"] = "degraded" if (pipeline_config.preset == "fast" and not fast_fallback_enabled) else "deterministic_estimate"
+                    job_needs_review = True
+
         emit_progress("romanizing", 70, "Romanizing and validating transcript text.")
 
         chunk_audit: list[dict[str, Any]] = []
@@ -1133,6 +1338,11 @@ def run_pipeline(
         )
         sync_report["finalTimingQuality"] = final_quality_report
         timing_report = build_timing_report(clamped_segments, hard_speech_gaps, sync_report)
+        timing_report["chunkValidations"] = [
+            chunk.asr_metadata.get("timing_validation")
+            for chunk in processed_chunks
+            if chunk.asr_metadata and chunk.asr_metadata.get("timing_validation")
+        ]
 
         _stage_log("caption chunks generated", segment_count=len(clamped_segments))
         emit_progress("chunking", 92, "Preparing readable caption chunks.")
@@ -1144,13 +1354,54 @@ def run_pipeline(
         # point; it is removed in the `finally` block below.
         srt_content = generate_srt(clamped_segments, audio_path=audio_path)
         vtt_content = generate_vtt(clamped_segments, audio_path=audio_path)
-        _stage_log("render completed", segment_count=len(clamped_segments))
+
+        offset_seconds = (float(source_in_ms or 0) + float(timeline_offset_ms or 0)) / 1000.0
+
+        if offset_seconds != 0.0:
+            logger.info("Applying timeline offset of %.3f seconds to captions", offset_seconds)
+            for seg in clamped_segments:
+                if "start" in seg:
+                    seg["start"] = round(seg["start"] + offset_seconds, 3)
+                if "end" in seg:
+                    seg["end"] = round(seg["end"] + offset_seconds, 3)
+                if "words" in seg:
+                    for w in seg["words"]:
+                        if "start" in w:
+                            w["start"] = round(w["start"] + offset_seconds, 3)
+                        if "end" in w:
+                            w["end"] = round(w["end"] + offset_seconds, 3)
+            srt_content = generate_srt(clamped_segments)
+            vtt_content = generate_vtt(clamped_segments)
+
+        _stage_log("render completed", segment_count=len(clamped_segments), offset_applied=offset_seconds)
 
         emit_progress("completed", 100, "Captioning finished successfully.")
         pipeline_logger.end_run()
         log_summary = pipeline_logger.get_summary()
         provider_name = ",".join(sorted(transcription_providers)) or "unknown"
         transcript = build_normalized_transcript(clamped_segments, language_mode, provider_name)
+        
+        # Calculate overall provenance
+        provenances = set()
+        for chunk in processed_chunks:
+            if chunk.asr_metadata:
+                prov = chunk.asr_metadata.get("timing_provenance")
+                if prov:
+                    provenances.add(prov)
+        if not provenances:
+            overall_prov = "provider_native"
+        elif len(provenances) == 1:
+            overall_prov = list(provenances)[0]
+        elif "deterministic_estimate" in provenances or "degraded" in provenances:
+            overall_prov = "degraded"
+        else:
+            overall_prov = "mixed"
+        
+        transcript["timingProvenance"] = overall_prov
+        transcript["metadata"] = log_summary
+        transcript["metadata"]["timing_provenance"] = overall_prov
+        transcript["metadata"]["timingProvenance"] = overall_prov
+
         if active_snapshot:
             transcript["transcriptionConfiguration"] = active_snapshot.to_dict()
             transcript["provider"] = {
@@ -1232,6 +1483,7 @@ def run_pipeline(
             "segments": clamped_segments,
             "transcript": transcript,
             "metrics": transcript["metadata"],
+            "reviewRequired": job_needs_review,
         }
 
     except TimingQualityError as e:

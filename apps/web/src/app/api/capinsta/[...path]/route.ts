@@ -46,21 +46,8 @@ async function proxy(
 			signal: request.signal,
 		};
 		if (METHODS_WITH_BODY.has(request.method) && request.body) {
-			const upstreamPath = path.join("/");
-			const shouldBufferBody =
-				request.method === "POST" &&
-				(upstreamPath === "api/export/jobs" ||
-					upstreamPath === "api/jobs" ||
-					upstreamPath === "api/media/assets");
-			if (shouldBufferBody) {
-				// Buffer multipart requests before forwarding. In production, streamed
-				// proxy bodies can arrive at FastAPI as an empty form, which makes
-				// required fields like project_id/file look missing.
-				init.body = await request.arrayBuffer();
-			} else {
-				init.body = request.body;
-				init.duplex = "half";
-			}
+			init.body = request.body;
+			init.duplex = "half";
 		}
 		const response = await fetch(target, init);
 		const responseHeaders = buildProxyResponseHeaders(response.headers);

@@ -42,6 +42,8 @@ def extract_audio(
     channels: int = 1,
     codec: str = "libmp3lame",
     bitrate_kbps: int | None = 64,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
 ) -> str:
     """Extract mono audio for transcription and alignment."""
     if not shutil.which(FFMPEG_BINARY) and not os.path.exists(FFMPEG_BINARY):
@@ -49,11 +51,17 @@ def extract_audio(
 
     ffmpeg_cmd = [
         FFMPEG_BINARY, "-i", video_path,
+    ]
+    if start_ms is not None:
+        ffmpeg_cmd.extend(["-ss", f"{start_ms / 1000.0:.3f}"])
+    if end_ms is not None:
+        ffmpeg_cmd.extend(["-to", f"{end_ms / 1000.0:.3f}"])
+    ffmpeg_cmd.extend([
         "-vn",
         "-ac", str(max(1, min(int(channels), 2))),
         "-ar", str(max(8000, min(int(sample_rate), 48000))),
         "-c:a", codec or "libmp3lame",
-    ]
+    ])
     if bitrate_kbps:
         ffmpeg_cmd.extend(["-b:a", f"{int(bitrate_kbps)}k"])
     ffmpeg_cmd.extend([
@@ -72,6 +80,32 @@ def _float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def clamp_and_split_ranges(
+    ranges: list[tuple[float, float]],
+    max_seconds: float = 28.0
+) -> list[tuple[float, float]]:
+    """Ensure no chunk exceeds max_seconds by splitting it safely."""
+    result = []
+    for start, end in ranges:
+        duration = end - start
+        if duration > max_seconds:
+            logger.warning("Chunk duration %.3fs exceeds max payload limit of %.3fs. Splitting safely.", duration, max_seconds)
+            curr = start
+            # Split to at most max_seconds chunks. If the leftover is very small, we can keep it together
+            while curr < end:
+                next_curr = min(curr + max_seconds, end)
+                # Keep chunks reasonably balanced if possible
+                rem = end - next_curr
+                if rem > 0 and rem < 3.0:
+                    next_curr = curr + (end - curr) / 2.0
+                if next_curr - curr >= 0.05:
+                    result.append((curr, next_curr))
+                curr = next_curr
+        else:
+            result.append((start, end))
+    return result
 
 
 def build_vad_chunk_ranges(
@@ -122,10 +156,16 @@ def build_vad_chunk_ranges(
             group_end = proposed_end
     emit(max(0.0, group_start - padding), min(duration, group_end + padding))
 
-    return [
-        (round(max(0.0, start), 3), round(min(duration, end), 3))
+    raw_ranges = [
+        (max(0.0, start), min(duration, end))
         for start, end in ranges
         if end - start >= 0.05
+    ]
+    max_payload = float(os.getenv("CAPTION_REST_MAX_PAYLOAD_SECONDS", "28.0"))
+    split_ranges = clamp_and_split_ranges(raw_ranges, max_payload)
+    return [
+        (round(start, 3), round(end, 3))
+        for start, end in split_ranges
     ]
 
 
@@ -170,13 +210,17 @@ def overlap_chunk(
         else []
     )
     if not ranges:
+        raw_ranges = []
         start = 0.0
         while start < dur_seconds:
             end = min(start + size, dur_seconds)
-            ranges.append((start, end))
+            raw_ranges.append((start, end))
             if end == dur_seconds:
                 break
             start += size - overlap
+        
+        max_payload = float(os.getenv("CAPTION_REST_MAX_PAYLOAD_SECONDS", "28.0"))
+        ranges = clamp_and_split_ranges(raw_ranges, max_payload)
         chunk_mode = "legacy_overlap"
     else:
         chunk_mode = "vad"

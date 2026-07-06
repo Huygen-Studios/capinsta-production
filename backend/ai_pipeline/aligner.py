@@ -19,6 +19,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+_silero_inference_count = 0
+
 DEFAULT_PAUSE_SPLIT_THRESHOLD = 0.30
 MIN_WORD_DURATION_SECONDS = 0.02
 MIN_CADENCE_STEP_SECONDS = 0.075
@@ -662,8 +664,13 @@ class TranscriptAligner:
             min_silence_ms,
             pad_ms,
         )
-        if cache_key in self._vad_cache:
-            return self._vad_cache[cache_key]
+        from .vad_analysis import VADAnalysis
+        cached = VADAnalysis.get_cached_speech_map(cache_key)
+        if cached is not None:
+            return cached
+
+        global _silero_inference_count
+        _silero_inference_count += 1
 
         import torch
         import torch.nn.functional as functional
@@ -736,6 +743,7 @@ class TranscriptAligner:
             "rawSpeechRanges": speech_ranges,
             "paddedSpeechRanges": padded_ranges,
         }
+        VADAnalysis.set_cached_speech_map(cache_key, speech_map)
         self._vad_cache[cache_key] = speech_map
         return speech_map
 

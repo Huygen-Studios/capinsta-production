@@ -42,7 +42,7 @@ async def is_job_cancelled(job_id: str) -> bool:
 async def update_job_status(job_id: str, status: str, progress: int = None, 
                             error: str = None, srt: str = None, vtt: str = None,
                             segments: list = None, transcript: dict = None,
-                            message: str | None = None) -> bool:
+                            message: str | None = None, metrics: dict = None) -> bool:
     async with aiosqlite.connect(str(DB_PATH)) as db:
         cursor = await db.execute("SELECT status, progress FROM jobs WHERE id = ?", (job_id,))
         current = await cursor.fetchone()
@@ -129,7 +129,10 @@ async def update_job_status(job_id: str, status: str, progress: int = None,
                     if isinstance(report, dict):
                         updates.append("timing_source_summary_json = ?")
                         params.append(json.dumps(report.get("timingSourceCounts") or {}, ensure_ascii=False))
-            
+        if metrics is not None:
+            updates.append("metrics_json = ?")
+            params.append(json.dumps(metrics, ensure_ascii=False))
+
         if status in ['completed', 'failed', 'cancelled']:
             updates.append("completed_at = CURRENT_TIMESTAMP")
             
@@ -207,6 +210,101 @@ def run_pipeline_sync(
         loop.run_until_complete(manager.broadcast_progress(job_id, status, percent, details))
 
     try:
+        # 1. Fetch job range and asset details from DB
+        media_asset_id = None
+        source_in_ms = None
+        source_out_ms = None
+        timeline_offset_ms = None
+        try:
+            async def fetch_job_details():
+                async with aiosqlite.connect(str(DB_PATH)) as db:
+                    db.row_factory = aiosqlite.Row
+                    cursor = await db.execute(
+                        "SELECT media_asset_id, source_in_ms, source_out_ms, timeline_offset_ms FROM jobs WHERE id = ?",
+                        (job_id,)
+                    )
+                    row = await cursor.fetchone()
+                    if row:
+                        return (
+                            row["media_asset_id"],
+                            row["source_in_ms"],
+                            row["source_out_ms"],
+                            row["timeline_offset_ms"]
+                        )
+                    return None, None, None, None
+            media_asset_id, source_in_ms, source_out_ms, timeline_offset_ms = loop.run_until_complete(fetch_job_details())
+        except Exception as e:
+            logger.warning(f"Failed to fetch job details for job {job_id}: {e}")
+
+        # 2. Compute audio fingerprint
+        fingerprint = ""
+        if video_path:
+            try:
+                stat = os.stat(video_path)
+                fingerprint = f"{stat.st_size}_{stat.st_mtime}"
+            except Exception as e:
+                logger.warning(f"Failed to compute file fingerprint for {video_path}: {e}")
+
+        preset_name = "fast"
+        if transcription_config_snapshot:
+            if isinstance(transcription_config_snapshot, dict):
+                preset_name = transcription_config_snapshot.get("preset_id") or transcription_config_snapshot.get("preset") or "fast"
+            else:
+                preset_name = getattr(transcription_config_snapshot, "preset_id", None) or getattr(transcription_config_snapshot, "preset", None) or "fast"
+
+        # 3. Check for cached entry in caption_artifacts
+        cached_entry = None
+        if media_asset_id and fingerprint:
+            try:
+                async def check_cache():
+                    async with aiosqlite.connect(str(DB_PATH)) as db:
+                        db.row_factory = aiosqlite.Row
+                        cursor = await db.execute(
+                            """
+                            SELECT segments_json, transcript_json, srt_content, vtt_content
+                            FROM caption_artifacts
+                            WHERE media_asset_id = ? AND audio_fingerprint = ? AND language_mode = ? AND output_language = ? AND preset = ?
+                              AND source_in_ms IS ? AND source_out_ms IS ? AND timeline_offset_ms IS ?
+                            """,
+                            (media_asset_id, fingerprint, target_lang, caption_output, preset_name, source_in_ms, source_out_ms, timeline_offset_ms)
+                        )
+                        return await cursor.fetchone()
+                cached_entry = loop.run_until_complete(check_cache())
+            except Exception as e:
+                logger.warning(f"Failed to query caption_artifacts for job {job_id}: {e}")
+
+        if cached_entry:
+            _log_stage(job_id, "cache hit", media_asset_id=media_asset_id, preset=preset_name)
+            on_progress("completed", 100, "Captioning completed (cache hit).")
+            
+            segments = json.loads(cached_entry["segments_json"])
+            transcript = json.loads(cached_entry["transcript_json"])
+            srt = cached_entry["srt_content"]
+            vtt = cached_entry["vtt_content"]
+            
+            metrics = {
+                "cache_hit": True,
+                "durations": {"total": 0.0},
+            }
+            
+            updated = loop.run_until_complete(
+                update_job_status(
+                    job_id, "completed", 100,
+                    srt=srt, vtt=vtt,
+                    segments=segments,
+                    transcript=transcript,
+                    metrics=metrics,
+                )
+            )
+            if updated:
+                record_provider_success(transcription_config_snapshot)
+                loop.run_until_complete(
+                    manager.broadcast_progress(job_id, "completed", 100, "Captioning finished successfully.")
+                )
+                _log_stage(job_id, "response returned", status="completed", cache_hit=True)
+                return
+
+        # Cache miss, run the pipeline
         _log_stage(job_id, "pipeline started", video_path=video_path, language_mode=target_lang)
         on_progress("extracting_audio", 1, "Pipeline started.")
         
@@ -215,7 +313,10 @@ def run_pipeline_sync(
             user_target_lang=target_lang,
             caption_output=caption_output,
             transcription_config_snapshot=transcription_config_snapshot,
-            progress_callback=on_progress
+            progress_callback=on_progress,
+            source_in_ms=source_in_ms,
+            source_out_ms=source_out_ms,
+            timeline_offset_ms=timeline_offset_ms,
         )
 
         if loop.run_until_complete(is_job_cancelled(job_id)):
@@ -224,12 +325,61 @@ def run_pipeline_sync(
         
         if result["status"] == "success":
             logger.info(f"Job {job_id} Completed successfully")
+            
+            # Save to cache
+            if media_asset_id and fingerprint:
+                try:
+                    import uuid
+                    artifact_id = str(uuid.uuid4())
+                    async def save_cache():
+                        async with aiosqlite.connect(str(DB_PATH)) as db:
+                            await db.execute(
+                                """
+                                INSERT INTO caption_artifacts (
+                                    id, media_asset_id, audio_fingerprint, language_mode, output_language, preset,
+                                    source_in_ms, source_out_ms, timeline_offset_ms,
+                                    segments_json, transcript_json, srt_content, vtt_content, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    artifact_id,
+                                    media_asset_id,
+                                    fingerprint,
+                                    target_lang,
+                                    caption_output,
+                                    preset_name,
+                                    source_in_ms,
+                                    source_out_ms,
+                                    timeline_offset_ms,
+                                    json.dumps(result.get("segments") or []),
+                                    json.dumps(result.get("transcript") or {}),
+                                    result.get("srt"),
+                                    result.get("vtt"),
+                                    _utc_now_text()
+                                )
+                            )
+                            await db.commit()
+                    loop.run_until_complete(save_cache())
+                except Exception as e:
+                    logger.warning(f"Failed to save caption_artifact for job {job_id}: {e}")
+
+            # Collect metrics
+            metrics = {
+                "cache_hit": False,
+                "durations": result.get("transcript", {}).get("metadata", {}).get("timing", {}).get("report", {}).get("durations", {}),
+                "concurrency": int(os.getenv("SARVAM_MAX_CONCURRENCY_PER_JOB", "4")),
+                "retries": result.get("transcript", {}).get("metadata", {}).get("timing", {}).get("report", {}).get("retryAttempts", []),
+                "timingSourceCounts": result.get("transcript", {}).get("metadata", {}).get("timing", {}).get("report", {}).get("timingSourceCounts", {}),
+                "chunks": result.get("transcript", {}).get("metadata", {}).get("timing", {}).get("report", {}).get("chunkValidations", []),
+            }
+
             updated = loop.run_until_complete(
                 update_job_status(
                     job_id, "completed", 100, 
                     srt=result.get("srt"), vtt=result.get("vtt"),
                     segments=result.get("segments"),
                     transcript=result.get("transcript"),
+                    metrics=metrics,
                 )
             )
             if not updated:
@@ -246,7 +396,14 @@ def run_pipeline_sync(
                 return
             err_msg = result.get("message", "Unknown pipeline error")
             logger.error(f"Job {job_id} Failed gracefully: {err_msg}")
-            updated = loop.run_until_complete(update_job_status(job_id, "failed", progress=-1, error=err_msg))
+            
+            # Save failure metrics if applicable
+            metrics = {
+                "cache_hit": False,
+                "error": err_msg,
+            }
+            
+            updated = loop.run_until_complete(update_job_status(job_id, "failed", progress=-1, error=err_msg, metrics=metrics))
             if not updated:
                 _log_stage(job_id, "failed broadcast skipped", current_status="cancelled")
                 return
@@ -263,7 +420,12 @@ def run_pipeline_sync(
             if loop.run_until_complete(is_job_cancelled(job_id)):
                 _log_stage(job_id, "pipeline crash ignored", status="cancelled")
                 return
-            updated = loop.run_until_complete(update_job_status(job_id, "failed", progress=-1, error=str(e)))
+            metrics = {
+                "cache_hit": False,
+                "error": str(e),
+                "crash": True,
+            }
+            updated = loop.run_until_complete(update_job_status(job_id, "failed", progress=-1, error=str(e), metrics=metrics))
             if not updated:
                 return
             record_provider_failure(transcription_config_snapshot, retryable=True)

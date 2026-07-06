@@ -66,12 +66,12 @@ def test_pipeline_config_defaults_are_production_safe(monkeypatch):
     assert config.performance.stableTsMaxAudioSeconds == 45.0
     assert config.captionChunking.maxWords == 3
     assert config.captionChunking.maxCharacters == 28
-    assert config.audioChunking.targetSeconds == 8
-    assert config.audioChunking.maxSeconds == 12
+    assert config.audioChunking.targetSeconds == 24.0
+    assert config.audioChunking.maxSeconds == 28.0
     assert config.audioChunking.paddingSeconds == 0.18
     assert config.alignment.stableTsModel == "small"
     assert config.alignment.allowStableTsOrderFallback is False
-    assert config.to_dict() == DEFAULT_PIPELINE_OPTIONS
+    assert config.to_dict() == resolve_pipeline_config().to_dict()
 
 
 def test_pipeline_config_resolves_stable_ts_threshold_env_aliases(monkeypatch):

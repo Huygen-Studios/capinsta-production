@@ -231,6 +231,29 @@ export class ProjectManager {
 		this.notify();
 	}
 
+	async setCapinstaServerMediaAsset({
+		mediaAssetId,
+		mediaAssetVersion,
+		sourceFingerprint,
+	}: {
+		mediaAssetId: string | null;
+		mediaAssetVersion: number | null;
+		sourceFingerprint: string | null;
+	}): Promise<void> {
+		if (!this.active) return;
+		const updatedProject: TProject = {
+			...this.active,
+			capinstaServerMediaAssetId: mediaAssetId ?? undefined,
+			capinstaServerMediaAssetVersion: mediaAssetVersion ?? undefined,
+			capinstaSourceFingerprint: sourceFingerprint ?? undefined,
+			metadata: { ...this.active.metadata, updatedAt: new Date() },
+		};
+		await storageService.saveProject({ project: updatedProject });
+		this.active = updatedProject;
+		this.updateMetadata(updatedProject);
+		this.notify();
+	}
+
 	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
 		this.exportCancelRequested = false;
 		this.exportState = { isExporting: true, progress: 0, result: null };

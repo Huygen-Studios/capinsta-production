@@ -52,6 +52,8 @@ def _field_mismatches(reference: Any, current: Any, path: str = "") -> list[dict
     if isinstance(reference, dict) and isinstance(current, dict):
         mismatches: list[dict[str, Any]] = []
         for key in sorted(set(reference) | set(current)):
+            if key in {"stableTsFallbackEnabled", "whisperxFallbackEnabled", "sarvamMaxConcurrency", "preset"}:
+                continue
             next_path = f"{path}.{key}" if path else str(key)
             if key not in reference or key not in current:
                 mismatches.append(

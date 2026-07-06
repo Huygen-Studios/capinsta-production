@@ -198,6 +198,9 @@ class StorageService {
 			capinstaCaptionDocuments: project.capinstaCaptionDocuments,
 			capinstaServerJobId: project.capinstaServerJobId,
 			capinstaLeftAt: project.capinstaLeftAt,
+			capinstaServerMediaAssetId: project.capinstaServerMediaAssetId,
+			capinstaServerMediaAssetVersion: project.capinstaServerMediaAssetVersion,
+			capinstaSourceFingerprint: project.capinstaSourceFingerprint,
 		};
 
 		await this.projectsAdapter.set({
@@ -271,6 +274,9 @@ class StorageService {
 			capinstaCaptionDocuments: serializedProject.capinstaCaptionDocuments,
 			capinstaServerJobId: serializedProject.capinstaServerJobId,
 			capinstaLeftAt: serializedProject.capinstaLeftAt,
+			capinstaServerMediaAssetId: serializedProject.capinstaServerMediaAssetId,
+			capinstaServerMediaAssetVersion: serializedProject.capinstaServerMediaAssetVersion,
+			capinstaSourceFingerprint: serializedProject.capinstaSourceFingerprint,
 		};
 
 		return { project };

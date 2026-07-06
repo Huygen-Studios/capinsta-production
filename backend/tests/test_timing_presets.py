@@ -27,6 +27,10 @@ def test_all_required_timing_presets_are_declared_and_resolve():
         "sarvam_clean_monologue",
         "provider_native_word_timing",
         "strict_timing_qa",
+        "fast",
+        "balanced",
+        "quality",
+        "accurate",
     }
 
     assert {preset.id for preset in TIMING_PRESETS} == expected
@@ -72,7 +76,7 @@ def test_preset_provider_model_compatibility_targets_real_catalog_entries():
 def test_public_preset_registry_exposes_backend_ranges_and_compatibility():
     registry = public_preset_registry(public_catalog())
 
-    assert len(registry["presets"]) == 10
+    assert len(registry["presets"]) == 14
     assert "quality.maximumEstimatedWordRatio" not in registry["fieldRanges"]
     assert "quality.maximumDeterministicFallbackRatio" not in registry["fieldRanges"]
     assert "quality.minimumRealTimedWordCoverage" not in registry["fieldRanges"]

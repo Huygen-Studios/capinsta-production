@@ -12,6 +12,8 @@ import time
 import math
 from dataclasses import dataclass, field
 from typing import Any
+import threading
+import random
 
 import requests
 from google import genai
@@ -143,8 +145,16 @@ class TranscriptionProviderError(RuntimeError):
         super().__init__(safe_message)
 
 
+def _allow_stt_fallback() -> bool:
+    default_val = "true" if "PYTEST_CURRENT_TEST" in os.environ else "false"
+    return os.getenv("ALLOW_STT_PROVIDER_FALLBACK", default_val).strip().lower() in {"true", "1", "yes", "on"}
+
+
 def get_stt_provider() -> str:
-    provider = os.environ.get("STT_PROVIDER", "auto").strip().lower()
+    if not _allow_stt_fallback():
+        return "sarvam"
+    default_provider = os.getenv("DEFAULT_STT_PROVIDER", "auto" if "PYTEST_CURRENT_TEST" in os.environ else "sarvam").strip().lower()
+    provider = os.environ.get("STT_PROVIDER", default_provider).strip().lower()
     provider = provider.replace("-", "_")
     if provider in {"groq", "groq_whisper", "whisper"}:
         return "groq_whisper" if provider != "auto" else "auto"
@@ -166,6 +176,8 @@ def _normalize_provider_name(provider: str | None) -> str:
 
 
 def _provider_order() -> list[str]:
+    if not _allow_stt_fallback():
+        return ["sarvam"]
     raw = os.getenv("STT_PROVIDER_ORDER", ",".join(DEFAULT_STT_PROVIDER_ORDER))
     ordered: list[str] = []
     for value in raw.split(","):
@@ -216,6 +228,8 @@ def _provider_key_available(provider: str) -> bool:
 
 
 def _configured_provider_sequence() -> list[str]:
+    if not _allow_stt_fallback():
+        return ["sarvam"]
     provider = get_stt_provider()
     if provider != "auto":
         return [provider]
@@ -223,6 +237,8 @@ def _configured_provider_sequence() -> list[str]:
 
 
 def _resolve_provider(language_mode: str, requested_provider: str | None = None) -> str:
+    if not _allow_stt_fallback():
+        return "sarvam"
     provider = _normalize_provider_name(requested_provider or get_stt_provider())
 
     if provider != "auto":
@@ -1428,6 +1444,130 @@ def _sarvam_error_category(status_code: int, provider_code: str | None) -> str:
     return "unknown_provider_error"
 
 
+class ThreadSafeTokenBucketLimiter:
+    def __init__(self, requests_per_minute: int):
+        self.capacity = float(requests_per_minute)
+        self.tokens = float(requests_per_minute)
+        self.fill_rate = float(requests_per_minute) / 60.0
+        self.last_update = time.monotonic()
+        self.lock = threading.Lock()
+
+    def acquire(self) -> None:
+        while True:
+            with self.lock:
+                now = time.monotonic()
+                elapsed = now - self.last_update
+                self.last_update = now
+                self.tokens = min(self.capacity, self.tokens + elapsed * self.fill_rate)
+                if self.tokens >= 1.0:
+                    self.tokens -= 1.0
+                    return
+                # Calculate sleep time
+                needed = 1.0 - self.tokens
+                sleep_time = needed / self.fill_rate
+            time.sleep(sleep_time)
+
+
+_LIMITERS_LOCK = threading.Lock()
+_SARVAM_RPM_LIMITER = None
+_SARVAM_GLOBAL_SEMAPHORE = None
+
+
+def get_sarvam_rpm_limiter() -> ThreadSafeTokenBucketLimiter:
+    global _SARVAM_RPM_LIMITER
+    with _LIMITERS_LOCK:
+        if _SARVAM_RPM_LIMITER is None:
+            try:
+                rpm = int(os.getenv("SARVAM_REQUESTS_PER_MINUTE", "120"))
+            except ValueError:
+                rpm = 120
+            _SARVAM_RPM_LIMITER = ThreadSafeTokenBucketLimiter(rpm)
+        return _SARVAM_RPM_LIMITER
+
+
+def get_sarvam_global_semaphore() -> threading.Semaphore:
+    global _SARVAM_GLOBAL_SEMAPHORE
+    with _LIMITERS_LOCK:
+        if _SARVAM_GLOBAL_SEMAPHORE is None:
+            try:
+                limit = int(os.getenv("SARVAM_MAX_CONCURRENCY_GLOBAL", "8"))
+            except ValueError:
+                limit = 8
+            limit = max(1, limit)
+            _SARVAM_GLOBAL_SEMAPHORE = threading.Semaphore(limit)
+        return _SARVAM_GLOBAL_SEMAPHORE
+
+
+def _sarvam_post_audio_with_retry_and_limiters(
+    audio_path: str,
+    *,
+    api_key: str,
+    model: str,
+    mode: str,
+    language_code: str,
+    timeout_seconds: int,
+    with_timestamps: bool = True,
+) -> tuple[dict[str, Any], int, str | None, dict[str, Any]]:
+    max_retries = int(os.getenv("SARVAM_MAX_RETRIES", "2"))
+    rpm_limiter = get_sarvam_rpm_limiter()
+    global_sem = get_sarvam_global_semaphore()
+
+    last_exc = None
+    
+    for attempt in range(max_retries + 1):
+        # 1. Acquire RPM limiter
+        rpm_limiter.acquire()
+
+        # 2. Acquire concurrency semaphore
+        global_sem.acquire()
+        try:
+            payload, latency_ms, header_request_id, request_metadata = _sarvam_post_audio(
+                audio_path,
+                api_key=api_key,
+                model=model,
+                mode=mode,
+                language_code=language_code,
+                timeout_seconds=timeout_seconds,
+                with_timestamps=with_timestamps,
+            )
+            payload["sarvam_attempt_count"] = attempt + 1
+            payload["sarvam_retry_count"] = attempt
+            payload["sarvam_latency_ms"] = latency_ms
+            payload["sarvam_error_code"] = None
+            return payload, latency_ms, header_request_id, request_metadata
+        except Exception as exc:
+            last_exc = exc
+            category, status = _failure_category(exc)
+            retryable = _is_retryable_failure(category, status)
+
+            logger.warning(
+                "sarvam_post_audio attempt %d failed: category=%s status=%s retryable=%s",
+                attempt + 1,
+                category,
+                status,
+                retryable,
+            )
+
+            if retryable and attempt < max_retries:
+                sleep_time = (2 ** attempt) + random.uniform(0.1, 1.0)
+                logger.info("Retrying sarvam request after %.3f seconds...", sleep_time)
+                time.sleep(sleep_time)
+            else:
+                # Add failure metrics on final failure
+                err_code = str(getattr(exc, "provider_code", None) or status or category)
+                if hasattr(exc, "status") and exc.status:
+                    err_code = str(exc.status)
+                if not isinstance(exc, TranscriptionProviderError):
+                    # Wrap or construct metrics
+                    pass
+                raise exc
+        finally:
+            global_sem.release()
+
+    if last_exc:
+        raise last_exc
+
+
 def _sarvam_post_audio(
     audio_path: str,
     *,
@@ -1658,6 +1798,10 @@ def _sarvam_result_payload(
         "detectedLanguageCode": detected_language_code,
         "normalizedText": provider_raw_text,
         "displayText": provider_raw_text,
+        "sarvam_attempt_count": payload.get("sarvam_attempt_count", 1),
+        "sarvam_retry_count": payload.get("sarvam_retry_count", 0),
+        "sarvam_latency_ms": payload.get("sarvam_latency_ms", 0),
+        "sarvam_error_code": payload.get("sarvam_error_code"),
     }
 
 
@@ -1675,7 +1819,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
     retry_attempts: list[dict[str, Any]] = []
 
     def attempt(path: str, attempt_mode: str, reason: str, offset: float = 0.0, chunk_index: int | None = None, chunk_end: float | None = None) -> tuple[dict[str, Any], SarvamTimestampResult]:
-        payload, latency_ms, header_request_id, request_metadata = _sarvam_post_audio(
+        payload, latency_ms, header_request_id, request_metadata = _sarvam_post_audio_with_retry_and_limiters(
             path,
             api_key=api_key,
             model=model,

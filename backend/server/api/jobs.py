@@ -396,6 +396,9 @@ def _job_creation_idempotency_input(
     audio_language: str,
     caption_output: str,
     transcription_snapshot_payload: dict[str, Any],
+    source_in_ms: int | None = None,
+    source_out_ms: int | None = None,
+    timeline_offset_ms: int | None = None,
 ) -> dict[str, Any]:
     return {
         "project_id": project_id,
@@ -410,6 +413,9 @@ def _job_creation_idempotency_input(
         "config_version": transcription_snapshot_payload.get("version"),
         "timestamp_strategy": transcription_snapshot_payload.get("timestamp_strategy"),
         "provider_mode": transcription_snapshot_payload.get("provider_mode"),
+        "source_in_ms": source_in_ms,
+        "source_out_ms": source_out_ms,
+        "timeline_offset_ms": timeline_offset_ms,
     }
 
 
@@ -671,8 +677,18 @@ async def create_job(
     project_id: str | None = Form(None),
     media_asset_id: str | None = Form(None),
     file: UploadFile | None = File(None),
+    source_in_ms: int | None = Form(None),
+    source_out_ms: int | None = Form(None),
+    timeline_offset_ms: int | None = Form(None),
 ):
     """Uploads a video and starts a background captioning job."""
+    # When create_job is called directly (e.g. in tests, not through the HTTP
+    # layer) FastAPI's Form(None) sentinel is never unwrapped, so the default
+    # arrives as a FieldInfo object rather than None.  Coerce to int | None.
+    source_in_ms = int(source_in_ms) if isinstance(source_in_ms, int) else None
+    source_out_ms = int(source_out_ms) if isinstance(source_out_ms, int) else None
+    timeline_offset_ms = int(timeline_offset_ms) if isinstance(timeline_offset_ms, int) else None
+
     job_id = str(uuid.uuid4())
     requested_audio_language = audioLanguage or sourceLanguage or languageMode or target_lang or "auto"
     requested_output_language = captionOutput or outputLanguage or "original"
@@ -762,6 +778,9 @@ async def create_job(
         audio_language=normalized_mode,
         caption_output=normalized_output_language,
         transcription_snapshot_payload=transcription_snapshot_payload,
+        source_in_ms=source_in_ms,
+        source_out_ms=source_out_ms,
+        timeline_offset_ms=timeline_offset_ms,
     )
     if idempotency_key:
         async with aiosqlite.connect(str(DB_PATH)) as replay_db:
@@ -864,6 +883,16 @@ async def create_job(
         media_duration = await _media_duration_seconds(file_path)
         timing.mark("FFprobe/duration", mode="fallback_ffprobe", duration_seconds=media_duration)
     try:
+        target_duration = media_duration
+        if source_in_ms is not None and source_out_ms is not None:
+            target_duration = float(source_out_ms - source_in_ms) / 1000.0
+        
+        if target_duration > 300.0:
+            raise HTTPException(
+                status_code=400,
+                detail="The requested media/range exceeds 5 minutes. Please select a shorter range (up to 5 minutes) to generate captions.",
+            )
+
         await enforce_caption_quota(
             current_user().id,
             media_duration if media_duration > 0 else None,
@@ -914,8 +943,9 @@ async def create_job(
                  media_asset_id, message, heartbeat_at, updated_at,
                  transcription_provider, transcription_model, transcription_config_version,
                  timestamp_strategy, provider_mode, transcription_config_snapshot_json,
-                 idempotency_key, immutable_request_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 idempotency_key, immutable_request_json,
+                 source_in_ms, source_out_ms, timeline_offset_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, "queued", filename, normalized_mode, now_text, now_text,
@@ -929,6 +959,9 @@ async def create_job(
                 json.dumps(transcription_snapshot_payload, ensure_ascii=False),
                 idempotency_key,
                 json.dumps(immutable_request, ensure_ascii=False, sort_keys=True),
+                source_in_ms,
+                source_out_ms,
+                timeline_offset_ms,
             ),
         )
         await db.commit()

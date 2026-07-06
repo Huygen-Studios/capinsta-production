@@ -228,6 +228,10 @@ async def init_db():
             "transcription_config_snapshot_json TEXT",
             "idempotency_key TEXT",
             "immutable_request_json TEXT",
+            "metrics_json TEXT",
+            "source_in_ms INTEGER",
+            "source_out_ms INTEGER",
+            "timeline_offset_ms INTEGER",
         ):
             try:
                 await db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
@@ -255,6 +259,45 @@ async def init_db():
             CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_user_idempotency
             ON jobs (user_id, idempotency_key)
             WHERE idempotency_key IS NOT NULL
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS caption_artifacts (
+                id TEXT PRIMARY KEY,
+                media_asset_id TEXT NOT NULL,
+                audio_fingerprint TEXT NOT NULL,
+                language_mode TEXT NOT NULL,
+                output_language TEXT NOT NULL,
+                preset TEXT NOT NULL,
+                source_in_ms INTEGER,
+                source_out_ms INTEGER,
+                timeline_offset_ms INTEGER,
+                segments_json TEXT NOT NULL,
+                transcript_json TEXT NOT NULL,
+                srt_content TEXT,
+                vtt_content TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        for col in (
+            "srt_content TEXT", "vtt_content TEXT",
+            "source_in_ms INTEGER", "source_out_ms INTEGER",
+            "timeline_offset_ms INTEGER"
+        ):
+            try:
+                await db.execute(f"ALTER TABLE caption_artifacts ADD COLUMN {col}")
+                await db.commit()
+            except Exception:
+                pass
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_caption_artifacts_lookup
+            ON caption_artifacts (
+                media_asset_id, audio_fingerprint, language_mode, output_language, preset,
+                source_in_ms, source_out_ms, timeline_offset_ms
+            )
             """
         )
         await db.commit()

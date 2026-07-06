@@ -47,6 +47,8 @@ class AlignmentConfig:
     stableTsMinWordRatio: float = 0.45
     stableTsMaxWordRatio: float = 2.25
     allowStableTsOrderFallback: bool = False
+    stableTsFallbackEnabled: bool = True
+    whisperxFallbackEnabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,7 @@ class AudioConfig:
 @dataclass(frozen=True)
 class CaptionPipelineConfig:
     schemaVersion: int = 1
+    preset: str = "fast"
     timingSourcePolicy: TimingSourcePolicy = "native_then_forced"
     audio: AudioConfig = field(default_factory=AudioConfig)
     audioChunking: AudioChunkingConfig = field(default_factory=AudioChunkingConfig)
@@ -194,6 +197,78 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+PRESET_DEFAULTS = {
+    "fast": {
+        "audioChunking": {
+            "vadEnabled": True,
+            "targetSeconds": 24.0,
+            "maxSeconds": 28.0,
+            "paddingSeconds": 0.18,
+        },
+        "performance": {
+            "sarvamMaxConcurrency": 4,
+        },
+        "alignment": {
+            "whisperxEnabled": False,
+            "stableTsEnabled": False,
+            "stableTsFallbackEnabled": False,
+            "whisperxFallbackEnabled": False,
+        }
+    },
+    "balanced": {
+        "audioChunking": {
+            "vadEnabled": True,
+            "targetSeconds": 24.0,
+            "maxSeconds": 28.0,
+            "paddingSeconds": 0.18,
+        },
+        "performance": {
+            "sarvamMaxConcurrency": 4,
+        },
+        "alignment": {
+            "whisperxEnabled": False,
+            "stableTsEnabled": False,
+            "stableTsFallbackEnabled": True,
+            "whisperxFallbackEnabled": False,
+        }
+    },
+    "quality": {
+        "audioChunking": {
+            "vadEnabled": True,
+            "targetSeconds": 24.0,
+            "maxSeconds": 28.0,
+            "paddingSeconds": 0.18,
+        },
+        "performance": {
+            "sarvamMaxConcurrency": 4,
+        },
+        "alignment": {
+            "whisperxEnabled": False,
+            "stableTsEnabled": False,
+            "stableTsFallbackEnabled": True,
+            "whisperxFallbackEnabled": True,
+        }
+    },
+    "accurate": {
+        "audioChunking": {
+            "vadEnabled": True,
+            "targetSeconds": 8.0,
+            "maxSeconds": 12.0,
+            "paddingSeconds": 0.18,
+        },
+        "performance": {
+            "sarvamMaxConcurrency": 2,
+        },
+        "alignment": {
+            "whisperxEnabled": False,
+            "stableTsEnabled": True,
+            "stableTsFallbackEnabled": True,
+            "whisperxFallbackEnabled": True,
+        }
+    }
+}
+
+
 def environment_pipeline_options() -> dict[str, Any]:
     options: dict[str, Any] = {}
 
@@ -202,11 +277,15 @@ def environment_pipeline_options() -> dict[str, Any]:
             return
         options.setdefault(section, {})[key] = value
 
+    preset = _env_str("CAPTION_DEFAULT_PRESET")
+    if preset:
+        options["preset"] = preset
+
     policy = _env_str("TIMING_SOURCE_POLICY")
     if policy:
         options["timingSourcePolicy"] = policy
-    set_path("audioChunking", "targetSeconds", _env_num("VAD_TARGET_SECONDS"))
-    set_path("audioChunking", "maxSeconds", _env_num("VAD_MAX_SECONDS"))
+    set_path("audioChunking", "targetSeconds", _env_num("CAPTION_TARGET_CHUNK_SECONDS") or _env_num("VAD_TARGET_SECONDS"))
+    set_path("audioChunking", "maxSeconds", _env_num("CAPTION_MAX_CHUNK_SECONDS") or _env_num("VAD_MAX_SECONDS"))
     set_path("audioChunking", "paddingSeconds", _env_num("CHUNK_PADDING_SECONDS"))
     set_path("audioChunking", "vadEnabled", _env_bool("USE_VAD_CHUNKING", True))
     set_path("vad", "pauseThresholdSeconds", _env_num("PAUSE_SPLIT_SECONDS"))
@@ -223,6 +302,8 @@ def environment_pipeline_options() -> dict[str, Any]:
     set_path("alignment", "stableTsMinWordRatio", _env_num("STABLE_TS_MIN_WORD_RATIO"))
     set_path("alignment", "stableTsMaxWordRatio", _env_num("STABLE_TS_MAX_WORD_RATIO"))
     set_path("alignment", "allowStableTsOrderFallback", _env_bool("ALLOW_STABLE_TS_ORDER_FALLBACK", False))
+    set_path("alignment", "stableTsFallbackEnabled", _env_bool("STABLE_TS_FALLBACK_ENABLED", True))
+    set_path("alignment", "whisperxFallbackEnabled", _env_bool("WHISPERX_FALLBACK_ENABLED", False))
     set_path("autoSync", "enabled", _env_bool("ENABLE_AUTO_GLOBAL_SYNC", False))
     set_path("autoSync", "maxShiftSeconds", _env_num("MAX_SHIFT_SECONDS"))
     set_path("autoSync", "minScore", _env_num("MIN_SYNC_SCORE"))
@@ -234,14 +315,25 @@ def environment_pipeline_options() -> dict[str, Any]:
     set_path("captionChunking", "pauseSplitThresholdSeconds", _env_num("PAUSE_SPLIT_SECONDS"))
     set_path("captionChunking", "phraseHoldSeconds", _env_num("PHRASE_HOLD_SECONDS"))
     set_path("performance", "providerTimeoutSeconds", _env_num("PROVIDER_TIMEOUT_SECONDS"))
-    set_path("performance", "sarvamMaxConcurrency", _env_num("SARVAM_CONCURRENCY"))
+    set_path("performance", "sarvamMaxConcurrency", _env_num("SARVAM_MAX_CONCURRENCY_PER_JOB") or _env_num("SARVAM_CONCURRENCY"))
     set_path("quality", "allowEstimatedWords", _env_bool("ALLOW_ESTIMATED_WORDS", True))
     return options
 
 
 def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipelineConfig:
+    # 1. Determine preset name
+    val_preset = (value or {}).get("preset") if isinstance(value, dict) else None
+    preset_name = str(val_preset or _env_str("CAPTION_DEFAULT_PRESET") or "fast").lower()
+    if preset_name not in {"fast", "balanced", "quality", "accurate"}:
+        preset_name = "fast"
+
+    # 2. Get preset defaults, then merge env options, then merge value
+    preset_defaults = PRESET_DEFAULTS[preset_name]
     env_options = environment_pipeline_options()
-    raw = _deep_merge(env_options, value if isinstance(value, dict) else {})
+    raw = _deep_merge(preset_defaults, env_options)
+    raw = _deep_merge(raw, value if isinstance(value, dict) else {})
+    raw["preset"] = preset_name
+
     policy = str(raw.get("timingSourcePolicy") or "native_then_forced")
     if policy not in {"native_required", "native_then_forced", "forced", "estimated_debug_only"}:
         raise ValueError("invalid_timing_source_policy")
@@ -256,6 +348,8 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
     audio = _section(raw, "audio")
 
     return CaptionPipelineConfig(
+        schemaVersion=_int(raw.get("schemaVersion"), 1, 1, 100),
+        preset=preset_name,
         timingSourcePolicy=policy,  # type: ignore[arg-type]
         audio=AudioConfig(
             sampleRate=_int(audio.get("sampleRate"), 16000, 8000, 48000),
@@ -294,6 +388,8 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
             stableTsMinWordRatio=_num(alignment.get("stableTsMinWordRatio"), 0.45, 0.0, 10.0),
             stableTsMaxWordRatio=_num(alignment.get("stableTsMaxWordRatio"), 2.25, 0.1, 10.0),
             allowStableTsOrderFallback=_bool(alignment.get("allowStableTsOrderFallback"), AlignmentConfig.allowStableTsOrderFallback),
+            stableTsFallbackEnabled=_bool(alignment.get("stableTsFallbackEnabled"), True),
+            whisperxFallbackEnabled=_bool(alignment.get("whisperxFallbackEnabled"), False),
         ),
         repair=RepairConfig(
             speechSpanRetimerEnabled=_bool(repair.get("speechSpanRetimerEnabled"), True),
@@ -372,4 +468,4 @@ def resolve_pipeline_config_with_sources(value: dict[str, Any] | None = None) ->
     return {"resolved": resolved, "sources": sources}
 
 
-DEFAULT_PIPELINE_OPTIONS = CaptionPipelineConfig().to_dict()
+DEFAULT_PIPELINE_OPTIONS = resolve_pipeline_config().to_dict()
