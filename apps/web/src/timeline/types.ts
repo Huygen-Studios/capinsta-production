@@ -54,7 +54,7 @@ export interface AudioTrack extends BaseTrack {
 
 export interface GraphicTrack extends BaseTrack {
 	type: "graphic";
-	elements: (StickerElement | GraphicElement)[];
+	elements: (StickerElement | GraphicElement | MotionTemplateElement)[];
 	hidden: boolean;
 }
 
@@ -161,6 +161,26 @@ export interface GraphicElement extends BaseTimelineElement {
 	masks?: Mask[];
 }
 
+export interface MotionTemplateElement extends BaseTimelineElement {
+	type: "motion-template";
+	templateId: string;
+	templateVersion: number;
+	slotBindings: Record<string, MotionTemplateSlotBinding | null>;
+	slotOrder?: string[];
+	templateParams: Record<string, unknown>;
+	hidden?: boolean;
+	effects?: Effect[];
+}
+
+export interface MotionTemplateSlotBinding {
+	mediaId: string;
+	fit?: "cover" | "contain" | "fill";
+	sourceStart?: MediaTime;
+	sourceEnd?: MediaTime;
+	playbackMode?: "loop" | "freeze" | "trim";
+	crop?: { x: number; y: number; scale: number };
+}
+
 export interface EffectElement extends BaseTimelineElement {
 	type: "effect";
 	effectType: string;
@@ -175,6 +195,7 @@ export type TimelineElement =
 	| TextElement
 	| StickerElement
 	| GraphicElement
+	| MotionTemplateElement
 	| EffectElement;
 
 export type ElementType = TimelineElement["type"];
@@ -203,6 +224,7 @@ export const VISUAL_ELEMENT_TYPES = elementTypes(
 	"text",
 	"sticker",
 	"graphic",
+	"motion-template",
 );
 
 export type VisualElement = Extract<
@@ -220,6 +242,7 @@ export type CreateImageElement = Omit<ImageElement, "id">;
 export type CreateTextElement = Omit<TextElement, "id">;
 export type CreateStickerElement = Omit<StickerElement, "id">;
 export type CreateGraphicElement = Omit<GraphicElement, "id">;
+export type CreateMotionTemplateElement = Omit<MotionTemplateElement, "id">;
 export type CreateEffectElement = Omit<EffectElement, "id">;
 export type CreateTimelineElement =
 	| CreateAudioElement
@@ -228,6 +251,7 @@ export type CreateTimelineElement =
 	| CreateTextElement
 	| CreateStickerElement
 	| CreateGraphicElement
+	| CreateMotionTemplateElement
 	| CreateEffectElement;
 
 export interface ElementDragState {

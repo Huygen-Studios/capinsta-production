@@ -11,6 +11,7 @@ import { MediaView } from "./views/assets";
 import { SettingsView } from "./views/settings";
 import { TextView } from "@/text/components/assets-view";
 import { EffectsView } from "@/effects/components/assets-view";
+import { TemplatesView } from "@/templates/components/templates-view";
 
 function FuturePanel({ title }: { title: string }) {
 	return <div className="text-muted-foreground p-4">{title}</div>;
@@ -23,6 +24,7 @@ export function AssetsPanel() {
 		media: <MediaView />,
 		text: <TextView />,
 		effects: <EffectsView />,
+		templates: <TemplatesView />,
 		transitions: <FuturePanel title="Transitions" />,
 		captions: <Captions />,
 		adjustment: <FuturePanel title="Adjustments" />,

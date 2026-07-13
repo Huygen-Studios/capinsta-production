@@ -61,8 +61,8 @@ function EditorProjectSession() {
 				<div className="max-w-md text-center">
 					<h1 className="text-xl font-semibold">Project expired</h1>
 					<p className="mt-3 text-sm text-muted-foreground">
-						This project expired after 15 minutes of inactivity. Please start a new
-						project.
+						This project expired after 15 minutes of inactivity. Please start a
+						new project.
 					</p>
 					<Button asChild className="mt-6">
 						<Link href="/projects">Start a new project</Link>
@@ -75,6 +75,7 @@ function EditorProjectSession() {
 	return (
 		<div
 			className="editor-shell bg-background flex h-screen w-screen flex-col overflow-hidden"
+			data-testid="editor-ready"
 			data-tour="editor-root"
 		>
 			<DegradedRendererBanner />

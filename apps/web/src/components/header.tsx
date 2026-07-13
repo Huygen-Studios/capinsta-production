@@ -6,10 +6,7 @@ import { Button } from "./ui/button";
 import { LogoStatic } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { ROUTES, BRAND } from "@/site/brand";
-import {
-	Menu02Icon,
-	Cancel01Icon,
-} from "@hugeicons/core-free-icons";
+import { Menu02Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AccountMenu } from "@/components/auth/account-menu";
 
@@ -36,7 +33,12 @@ export function Header() {
 						aria-label={`${BRAND.productName} home`}
 						className="flex items-center gap-2.5"
 					>
-						<LogoStatic variant="wordmark" height={28} alt={BRAND.productName} priority />
+						<LogoStatic
+							variant="wordmark"
+							height={28}
+							alt={BRAND.productName}
+							priority
+						/>
 					</Link>
 					<nav className="hidden items-center gap-1 lg:flex">
 						{NAV_LINKS.map((link) => (
@@ -56,7 +58,7 @@ export function Header() {
 					<div className="hidden items-center gap-3 sm:flex">
 						<Link href={ROUTES.projects}>
 							<Button size="sm" variant="lime" className="text-sm font-black">
-								Caption a video
+								Create a video
 							</Button>
 						</Link>
 					</div>
@@ -96,7 +98,7 @@ export function Header() {
 						<div className="mt-4 border-t border-border pt-4">
 							<Link href={ROUTES.projects} onClick={closeMenu}>
 								<Button variant="lime" className="w-full font-black">
-									Caption a video
+									Create a video
 								</Button>
 							</Link>
 						</div>

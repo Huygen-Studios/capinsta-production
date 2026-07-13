@@ -3,6 +3,7 @@ import type { CapinstaCaptionBinding } from "@/capinsta/captionTimelineSync";
 import type {
 	EffectElement,
 	GraphicElement,
+	MotionTemplateElement,
 	ImageElement,
 	MaskableElement,
 	RetimableElement,
@@ -31,6 +32,7 @@ import {
 import { MasksTab } from "@/masks/components/masks-tab";
 import { SpeedTab } from "@/speed/components/speed-tab";
 import { GraphicTab } from "@/graphics/components/graphic-tab";
+import { TemplateInspector } from "@/templates/components/template-inspector";
 import { OcShapesIcon } from "@/components/icons";
 import { CapinstaCaptionStylePanel } from "@/capinsta/components/CapinstaCaptionStylePanel";
 
@@ -228,6 +230,22 @@ function buildGraphicTab({
 	};
 }
 
+function buildTemplateTab({
+	element,
+}: {
+	element: MotionTemplateElement;
+}): PropertiesTabDef {
+	return {
+		id: "template",
+		label: "Template",
+		icon: <OcShapesIcon size={16} />,
+		content: ({ trackId }) => (
+			<TemplateInspector element={element} trackId={trackId} />
+		),
+		ownsScroll: true,
+	};
+}
+
 function buildStandaloneEffectTab({
 	element,
 }: {
@@ -254,9 +272,7 @@ function getTextConfig({
 		defaultTab: capinstaBinding ? "capinsta-style" : "text",
 		tabs: [
 			...(capinstaBinding
-				? [
-						buildCapinstaStyleTab({ binding: capinstaBinding }),
-					]
+				? [buildCapinstaStyleTab({ binding: capinstaBinding })]
 				: []),
 			buildTextTab({ element }),
 			buildTransformTab({ element }),
@@ -334,6 +350,22 @@ function getGraphicConfig({
 	};
 }
 
+function getMotionTemplateConfig({
+	element,
+}: {
+	element: MotionTemplateElement;
+}): ElementPropertiesConfig {
+	return {
+		defaultTab: "template",
+		tabs: [
+			buildTemplateTab({ element }),
+			buildTransformTab({ element }),
+			buildBlendingTab({ element }),
+			buildClipEffectsTab({ element }),
+		],
+	};
+}
+
 function getAudioConfig({
 	element,
 }: {
@@ -378,6 +410,8 @@ export function getPropertiesConfig({
 			return getStickerConfig({ element });
 		case "graphic":
 			return getGraphicConfig({ element });
+		case "motion-template":
+			return getMotionTemplateConfig({ element });
 		case "audio":
 			return getAudioConfig({ element });
 		case "effect":

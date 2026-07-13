@@ -9,6 +9,10 @@ let gpuAvailable = false;
 let initPromise: Promise<void> | null = null;
 
 export function initializeGpuRenderer(): Promise<void> {
+	if (process.env.NEXT_PUBLIC_CAPINSTA_E2E === "true") {
+		gpuAvailable = false;
+		return Promise.resolve();
+	}
 	if (!initPromise) {
 		initPromise = initializeGpu()
 			.then(() => {

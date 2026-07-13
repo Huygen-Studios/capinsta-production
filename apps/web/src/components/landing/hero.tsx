@@ -48,23 +48,37 @@ export function Hero() {
 			<div className="pointer-events-none absolute inset-0 opacity-25 [background-image:linear-gradient(var(--border)_1px,transparent_1px),linear-gradient(90deg,var(--border)_1px,transparent_1px)] [background-size:42px_42px]" />
 			<div className="relative mx-auto grid min-h-[calc(100svh-4rem)] max-w-[1500px] items-center gap-12 px-4 py-12 sm:px-6 lg:grid-cols-[0.86fr_1.14fr] lg:px-8 lg:py-16">
 				<div className="relative z-10">
+					<p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
+						AI VIDEO EDITOR FOR CREATORS
+					</p>
 					<h1 className="mt-7 max-w-3xl text-[clamp(3rem,13vw,5rem)] font-black leading-[0.9] tracking-normal text-foreground lg:text-[clamp(4rem,6.5vw,6.8rem)]">
 						Turn any video into{" "}
 						<span className="text-primary [-webkit-text-stroke:1.5px_var(--neo-black)] [paint-order:stroke_fill] [text-shadow:3px_3px_0_var(--neo-black)]">
-							animated captions.
+							scroll-stopping content.
 						</span>
 					</h1>
 					<p className="mt-7 max-w-xl text-lg font-semibold leading-relaxed text-muted-foreground sm:text-xl">
-						Generate, style, and fine-tune word-timed captions in your browser.
+						Edit videos with AI, generate word-perfect animated captions, and
+						create professional motion graphics—all directly in your browser.
 					</p>
 					<div className="mt-8 flex flex-col gap-4 sm:flex-row">
-						<Button asChild variant="lime" size="lg" className="h-14 px-7 text-base font-black">
+						<Button
+							asChild
+							variant="lime"
+							size="lg"
+							className="h-14 px-7 text-base font-black"
+						>
 							<Link href={ROUTES.projects}>
-								Caption a video free <ArrowRight />
+								Start editing free <ArrowRight />
 							</Link>
 						</Button>
-						<Button asChild variant="brutal" size="lg" className="h-14 px-7 text-base font-black">
-							<Link href="#caption-styles">See caption styles</Link>
+						<Button
+							asChild
+							variant="brutal"
+							size="lg"
+							className="h-14 px-7 text-base font-black"
+						>
+							<Link href="#caption-styles">Explore motion templates</Link>
 						</Button>
 					</div>
 					<p className="mt-5 text-sm font-bold text-muted-foreground">

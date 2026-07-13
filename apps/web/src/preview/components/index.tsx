@@ -277,6 +277,7 @@ function PreviewCanvas({
 		const mount = canvasMountRef.current;
 		if (!mount) return;
 		const outputCanvas = renderer.getOutputCanvas();
+		outputCanvas.dataset.testid = "editor-preview-canvas";
 		outputCanvas.style.display = "block";
 		outputCanvas.style.imageRendering = "auto";
 		outputCanvas.style.width = "100%";

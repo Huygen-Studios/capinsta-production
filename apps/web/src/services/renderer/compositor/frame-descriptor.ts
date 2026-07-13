@@ -15,6 +15,7 @@ import {
 	GraphicNode,
 	type ResolvedGraphicNodeState,
 } from "../nodes/graphic-node";
+import { MotionTemplateNode } from "../nodes/motion-template-node";
 import { ImageNode } from "../nodes/image-node";
 import { RootNode } from "../nodes/root-node";
 import { StickerNode } from "../nodes/sticker-node";
@@ -194,6 +195,28 @@ async function collectNode({
 			path,
 			items,
 			textures,
+		});
+		return;
+	}
+
+	if (node instanceof MotionTemplateNode) {
+		if (!node.resolved) return;
+		const textureId = `${path}:motion-template`;
+		textures.set(textureId, {
+			kind: "external",
+			id: textureId,
+			source: node.resolved.source,
+			width: node.resolved.width,
+			height: node.resolved.height,
+		});
+		items.push({
+			type: "layer",
+			textureId,
+			transform: fullCanvasTransform(renderer),
+			opacity: 1,
+			blendMode: "normal",
+			effectPassGroups: [],
+			mask: null,
 		});
 		return;
 	}

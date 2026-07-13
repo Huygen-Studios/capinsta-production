@@ -47,7 +47,10 @@ import {
 	getSourceAudioActionLabel,
 	isSourceAudioSeparated,
 } from "@/timeline/audio-separation";
-import { buildWaveformGainSamples, isElementMuted } from "@/timeline/audio-state";
+import {
+	buildWaveformGainSamples,
+	isElementMuted,
+} from "@/timeline/audio-state";
 import { getTimelinePixelsPerSecond } from "@/timeline";
 import { buildWaveformSourceKey } from "@/media/waveform-summary";
 import { addMediaTime, type MediaTime, TICKS_PER_SECOND } from "@/wasm";
@@ -554,6 +557,11 @@ function ElementInner({
 	return (
 		<div
 			data-timeline-element="true"
+			data-testid={
+				element.type === "motion-template"
+					? "motion-template-timeline-element"
+					: undefined
+			}
 			data-timeline-element-selected={isSelected ? "true" : undefined}
 			className="absolute top-0 bottom-0"
 			style={{
@@ -911,7 +919,9 @@ function TextElementContent({
 	return (
 		<div className="flex size-full items-center justify-start pl-2">
 			<span className="truncate text-xs text-white">
-				{typeof element.params.content === "string" ? element.params.content : ""}
+				{typeof element.params.content === "string"
+					? element.params.content
+					: ""}
 			</span>
 		</div>
 	);
@@ -975,6 +985,19 @@ function GraphicElementContent({
 				height={20}
 				unoptimized
 			/>
+			<span className="truncate text-xs text-white">{element.name}</span>
+		</div>
+	);
+}
+
+function MotionTemplateElementContent({
+	element,
+}: {
+	element: Extract<TimelineElementType, { type: "motion-template" }>;
+}) {
+	return (
+		<div className="flex size-full items-center gap-2 pl-2">
+			<div className="size-4 shrink-0 rounded-sm border border-white/50 bg-white/20" />
 			<span className="truncate text-xs text-white">{element.name}</span>
 		</div>
 	);
@@ -1175,6 +1198,8 @@ function ElementContent({ element, track }: ElementContentProps) {
 			return <StickerElementContent element={element} />;
 		case "graphic":
 			return <GraphicElementContent element={element} />;
+		case "motion-template":
+			return <MotionTemplateElementContent element={element} />;
 		case "audio":
 			return <AudioElementContent element={element} trackId={track.id} />;
 		case "video":

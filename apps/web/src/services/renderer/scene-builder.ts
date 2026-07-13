@@ -6,6 +6,7 @@ import { ImageNode } from "./nodes/image-node";
 import { TextNode } from "./nodes/text-node";
 import { StickerNode } from "./nodes/sticker-node";
 import { GraphicNode } from "./nodes/graphic-node";
+import { MotionTemplateNode } from "./nodes/motion-template-node";
 import { ColorNode } from "./nodes/color-node";
 import { BlurBackgroundNode } from "./nodes/blur-background-node";
 import { EffectLayerNode } from "./nodes/effect-layer-node";
@@ -22,9 +23,7 @@ import {
 	isCapinstaExportCarrierTextElement,
 	getCapinstaTextRenderDataForElement,
 } from "@/capinsta/exportRender";
-import {
-	getCapinstaCaptionTrackIds,
-} from "@/capinsta/captionTimelineSync";
+import { getCapinstaCaptionTrackIds } from "@/capinsta/captionTimelineSync";
 
 // NOTE: CapinstaCaptionNode is intentionally NOT imported here.
 // CapInsta captions have a single visual renderer: CapinstaActiveCaptionOverlay
@@ -55,7 +54,8 @@ function buildTrackNodes({
 	mediaMap: Map<string, MediaAsset>;
 	canvasSize: TCanvasSize;
 	isPreview?: boolean;
-	capinstaCaptionDocuments?: CapinstaCaptionDocumentRecord[];
+
+	capinstaCaptionDocuments?: CapinstaCaptionDocumentRecord[];
 }): AnyBaseNode[] {
 	const nodes: AnyBaseNode[] = [];
 
@@ -124,51 +124,55 @@ function buildTrackNodes({
 			}
 
 			if (element.type === "text") {
-					const renderElement = element;
-					const records = capinstaCaptionDocuments ?? [];
-					const capinstaTrackIds =
-						records.length > 0
-							? getCapinstaCaptionTrackIds({ records })
-							: undefined;
+				const renderElement = element;
+				const records = capinstaCaptionDocuments ?? [];
+				const capinstaTrackIds =
+					records.length > 0
+						? getCapinstaCaptionTrackIds({ records })
+						: undefined;
 
-					// CapInsta captions are rendered ONLY by CapinstaActiveCaptionOverlay
-					// (React DOM) — never by canvas/TextNode/CapinstaCaptionNode.
-					// scene-builder pushes a TextNode with capinstaExport metadata so the
-					// render tree has a node for the element, but renderTextToContext()
-					// early-returns for any capinstaExport element (no visible pixels).
-					// The actual caption pixels for both preview AND export come from the
-					// same React overlay DOM (see capinsta-overlay-capture.ts).
-					const isCapinstaCarrier =
-						records.length > 0 &&
-						isCapinstaExportCarrierTextElement({
-							element: renderElement,
-							trackId: track.id,
-							capinstaTrackIds,
-						});
+				// CapInsta captions are rendered ONLY by CapinstaActiveCaptionOverlay
+				// (React DOM) — never by canvas/TextNode/CapinstaCaptionNode.
+				// scene-builder pushes a TextNode with capinstaExport metadata so the
+				// render tree has a node for the element, but renderTextToContext()
+				// early-returns for any capinstaExport element (no visible pixels).
+				// The actual caption pixels for both preview AND export come from the
+				// same React overlay DOM (see capinsta-overlay-capture.ts).
+				const isCapinstaCarrier =
+					records.length > 0 &&
+					isCapinstaExportCarrierTextElement({
+						element: renderElement,
+						trackId: track.id,
+						capinstaTrackIds,
+					});
 
-					const capinstaExport =
-						isCapinstaCarrier || records.length > 0
-							? getCapinstaTextRenderDataForElement({
-									records,
-									element: renderElement as any,
-									canvasSize,
-								})
-							: undefined;
+				const capinstaExport =
+					isCapinstaCarrier || records.length > 0
+						? getCapinstaTextRenderDataForElement({
+								records,
+								element: renderElement,
+								canvasSize,
+							})
+						: undefined;
 
-					nodes.push(
-						new TextNode({
-							...renderElement,
-							capinstaExport: capinstaExport ?? undefined,
-							transform: buildTransformFromParams({ params: renderElement.params }),
-							opacity: readOpacityFromParams({ params: renderElement.params }),
-							blendMode: readBlendModeFromParams({ params: renderElement.params }),
-							canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
-							canvasHeight: canvasSize.height,
-							textBaseline: "middle",
-							effects: renderElement.effects ?? [],
+				nodes.push(
+					new TextNode({
+						...renderElement,
+						capinstaExport: capinstaExport ?? undefined,
+						transform: buildTransformFromParams({
+							params: renderElement.params,
 						}),
-					);
-				}
+						opacity: readOpacityFromParams({ params: renderElement.params }),
+						blendMode: readBlendModeFromParams({
+							params: renderElement.params,
+						}),
+						canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+						canvasHeight: canvasSize.height,
+						textBaseline: "middle",
+						effects: renderElement.effects ?? [],
+					}),
+				);
+			}
 
 			if (element.type === "sticker") {
 				nodes.push(
@@ -204,6 +208,18 @@ function buildTrackNodes({
 						blendMode: readBlendModeFromParams({ params: element.params }),
 						effects: element.effects ?? [],
 						masks: element.masks ?? [],
+					}),
+				);
+			}
+
+			if (element.type === "motion-template") {
+				nodes.push(
+					new MotionTemplateNode({
+						element,
+						mediaAssets: Array.from(mediaMap.values()),
+						duration: element.duration,
+						timeOffset: element.startTime,
+						isPreview,
 					}),
 				);
 			}

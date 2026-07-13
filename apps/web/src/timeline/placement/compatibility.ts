@@ -5,6 +5,7 @@ const ELEMENT_TRACK_MAP: Record<ElementType, TrackType> = {
 	text: "text",
 	sticker: "graphic",
 	graphic: "graphic",
+	"motion-template": "graphic",
 	effect: "effect",
 	video: "video",
 	image: "video",

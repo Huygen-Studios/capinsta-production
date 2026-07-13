@@ -34,9 +34,16 @@ export interface EffectDragData extends BaseDragData {
 	targetElementTypes: VisualElement["type"][];
 }
 
+export interface MotionTemplateDragData extends BaseDragData {
+	type: "motion-template";
+	templateId: string;
+	templateVersion: number;
+}
+
 export type TimelineDragData =
 	| MediaDragData
 	| TextDragData
 	| StickerDragData
 	| GraphicDragData
-	| EffectDragData;
+	| EffectDragData
+	| MotionTemplateDragData;

@@ -13,6 +13,7 @@ import {
 	buildStickerElement,
 	buildElementFromMedia,
 	buildEffectElement,
+	buildMotionTemplateElement,
 } from "@/timeline/element-utils";
 import { AddTrackCommand, InsertElementCommand } from "@/commands/timeline";
 import type { InsertElementParams } from "@/commands/timeline/element/insert-element";
@@ -33,6 +34,8 @@ import type { MediaAsset } from "@/media/types";
 import type { ProcessedMediaAsset } from "@/media/processing";
 import { roundFrameTime, type MediaTime } from "@/wasm";
 import { buildLinkedVideoAudioElements } from "@/timeline/linked-media";
+import { findTemplateDefinition } from "@/templates";
+import { mediaTimeFromSeconds } from "@/wasm";
 
 // --- Config ---
 
@@ -95,6 +98,8 @@ function elementTypeFromDrag({
 			return "sticker";
 		case "effect":
 			return "effect";
+		case "motion-template":
+			return "motion-template";
 		case "media":
 			return dragData.mediaType;
 	}
@@ -117,6 +122,14 @@ function getDurationForDrag({
 	dragData: TimelineDragData;
 	mediaAssets: MediaAsset[];
 }): MediaTime {
+	if (dragData.type === "motion-template") {
+		const definition = findTemplateDefinition({
+			templateId: dragData.templateId,
+		});
+		return definition
+			? mediaTimeFromSeconds({ seconds: definition.defaultDuration })
+			: DEFAULT_NEW_ELEMENT_DURATION;
+	}
 	if (dragData.type !== "media") return DEFAULT_NEW_ELEMENT_DURATION;
 	const media = mediaAssets.find((asset) => asset.id === dragData.id);
 	return toElementDurationTicks({ seconds: media?.duration });
@@ -378,6 +391,9 @@ export class DragDropController {
 			case "effect":
 				this.executeEffectDrop({ target, dragData });
 				return;
+			case "motion-template":
+				this.executeMotionTemplateDrop({ target, dragData });
+				return;
 			case "media":
 				this.executeMediaDrop({ target, dragData });
 				return;
@@ -428,6 +444,24 @@ export class DragDropController {
 			name: dragData.name,
 			startTime: target.xPosition,
 			params: dragData.params,
+		});
+		this.insertAtTarget({ element, target, trackType: "graphic" });
+	}
+
+	private executeMotionTemplateDrop({
+		target,
+		dragData,
+	}: {
+		target: DropTarget;
+		dragData: Extract<TimelineDragData, { type: "motion-template" }>;
+	}): void {
+		const definition = findTemplateDefinition({
+			templateId: dragData.templateId,
+		});
+		if (!definition || definition.version !== dragData.templateVersion) return;
+		const element = buildMotionTemplateElement({
+			templateId: definition.id,
+			startTime: target.xPosition,
 		});
 		this.insertAtTarget({ element, target, trackType: "graphic" });
 	}
@@ -553,12 +587,14 @@ export class DragDropController {
 							: null;
 
 					if (reuseMainTrackId) {
-						if (shouldInsertVideoWithLinkedAudio({ mediaAsset: createdAsset })) {
+						if (
+							shouldInsertVideoWithLinkedAudio({ mediaAsset: createdAsset })
+						) {
 							const { videoElement, audioElement } =
 								buildLinkedVideoAudioElements({
-								mediaAsset: createdAsset,
-								duration,
-								startTime: currentTime,
+									mediaAsset: createdAsset,
+									duration,
+									startTime: currentTime,
 								});
 							this.config.insertElement({
 								placement: { mode: "explicit", trackId: reuseMainTrackId },
@@ -600,9 +636,9 @@ export class DragDropController {
 					if (shouldInsertVideoWithLinkedAudio({ mediaAsset: createdAsset })) {
 						const { videoElement, audioElement } =
 							buildLinkedVideoAudioElements({
-							mediaAsset: createdAsset,
-							duration,
-							startTime: dropTarget.xPosition,
+								mediaAsset: createdAsset,
+								duration,
+								startTime: dropTarget.xPosition,
 							});
 						this.insertAtTarget({
 							element: videoElement,

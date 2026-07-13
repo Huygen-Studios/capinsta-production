@@ -5,11 +5,11 @@ import {
 	ArrowRightDoubleIcon,
 	ClosedCaptionIcon,
 	Folder03Icon,
+	GridViewIcon,
 	MagicWand05Icon,
 	TextIcon,
 	Settings01Icon,
 	SlidersHorizontalIcon,
-	ColorsIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -17,6 +17,7 @@ export const TAB_KEYS = [
 	"media",
 	"text",
 	"effects",
+	"templates",
 	"transitions",
 	"captions",
 	"adjustment",
@@ -25,11 +26,12 @@ export const TAB_KEYS = [
 
 export type Tab = (typeof TAB_KEYS)[number];
 
-const createHugeiconsIcon =
-	({ icon }: { icon: IconSvgElement }) =>
-	({ className }: { className?: string }) => (
-		<HugeiconsIcon icon={icon} className={className} />
-	);
+const createHugeiconsIcon = ({ icon }: { icon: IconSvgElement }) => {
+	function HugeiconsPanelIcon({ className }: { className?: string }) {
+		return <HugeiconsIcon icon={icon} className={className} />;
+	}
+	return HugeiconsPanelIcon;
+};
 
 export const tabs = {
 	media: {
@@ -43,6 +45,10 @@ export const tabs = {
 	effects: {
 		icon: createHugeiconsIcon({ icon: MagicWand05Icon }),
 		label: "Effects",
+	},
+	templates: {
+		icon: createHugeiconsIcon({ icon: GridViewIcon }),
+		label: "Templates",
 	},
 	transitions: {
 		icon: createHugeiconsIcon({ icon: ArrowRightDoubleIcon }),

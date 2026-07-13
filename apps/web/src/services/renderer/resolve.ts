@@ -39,6 +39,10 @@ import {
 	GraphicNode,
 	type ResolvedGraphicNodeState,
 } from "./nodes/graphic-node";
+import {
+	MotionTemplateNode,
+	resolveMotionTemplateSource,
+} from "./nodes/motion-template-node";
 import { ImageNode, loadImageSource } from "./nodes/image-node";
 import { StickerNode, loadStickerSource } from "./nodes/sticker-node";
 import { TextNode, type ResolvedTextNodeState } from "./nodes/text-node";
@@ -91,6 +95,13 @@ async function resolveNode({
 		node.resolved = await resolveStickerNode({ node, context });
 	} else if (node instanceof GraphicNode) {
 		node.resolved = resolveGraphicNode({ node, context });
+	} else if (node instanceof MotionTemplateNode) {
+		node.resolved = await resolveMotionTemplateSource({
+			node,
+			width: context.renderer.width,
+			height: context.renderer.height,
+			time: context.time,
+		});
 	} else if (node instanceof TextNode) {
 		node.resolved = resolveTextNode({ node, context });
 	} else if (node instanceof CapinstaCaptionNode) {
@@ -215,7 +226,9 @@ async function resolveVideoNode({
 	const frame = await videoCache.getFrameAt({
 		mediaId: node.params.mediaId,
 		file: node.params.file,
-		time: mediaTimeToSeconds({ time: roundMediaTime({ time: sourceTimeTicks }) }),
+		time: mediaTimeToSeconds({
+			time: roundMediaTime({ time: sourceTimeTicks }),
+		}),
 	});
 	if (!frame) {
 		return null;
@@ -364,16 +377,33 @@ function resolveCapinstaCaptionNode({
 	};
 }
 
-function buildTransformFromExportParams(renderData: ReturnType<typeof getActiveCapinstaTextRenderDataAtTime>) {
+function buildTransformFromExportParams(
+	renderData: ReturnType<typeof getActiveCapinstaTextRenderDataAtTime>,
+) {
 	const params = renderData?.style.textParams ?? {};
 	return {
 		position: {
-			x: typeof params["transform.positionX"] === "number" ? params["transform.positionX"] : 0,
-			y: typeof params["transform.positionY"] === "number" ? params["transform.positionY"] : 0,
+			x:
+				typeof params["transform.positionX"] === "number"
+					? params["transform.positionX"]
+					: 0,
+			y:
+				typeof params["transform.positionY"] === "number"
+					? params["transform.positionY"]
+					: 0,
 		},
-		scaleX: typeof params["transform.scaleX"] === "number" ? params["transform.scaleX"] : 1,
-		scaleY: typeof params["transform.scaleY"] === "number" ? params["transform.scaleY"] : 1,
-		rotate: typeof params["transform.rotate"] === "number" ? params["transform.rotate"] : 0,
+		scaleX:
+			typeof params["transform.scaleX"] === "number"
+				? params["transform.scaleX"]
+				: 1,
+		scaleY:
+			typeof params["transform.scaleY"] === "number"
+				? params["transform.scaleY"]
+				: 1,
+		rotate:
+			typeof params["transform.rotate"] === "number"
+				? params["transform.rotate"]
+				: 0,
 	};
 }
 
@@ -498,7 +528,9 @@ async function resolveBackdropSource({
 		const frame = await videoCache.getFrameAt({
 			mediaId: node.params.mediaId,
 			file: node.params.file,
-			time: mediaTimeToSeconds({ time: roundMediaTime({ time: sourceTimeTicks }) }),
+			time: mediaTimeToSeconds({
+				time: roundMediaTime({ time: sourceTimeTicks }),
+			}),
 		});
 		if (!frame) {
 			return null;

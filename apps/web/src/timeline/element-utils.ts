@@ -5,6 +5,7 @@ import {
 	VISUAL_ELEMENT_TYPES,
 	type CreateEffectElement,
 	type CreateGraphicElement,
+	type CreateMotionTemplateElement,
 	type CreateTimelineElement,
 	type CreateVideoElement,
 	type CreateImageElement,
@@ -32,7 +33,8 @@ import {
 	getBuiltInElementParams,
 } from "@/params/registry";
 import { capitalizeFirstLetter } from "@/utils/string";
-import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import { mediaTimeFromSeconds, type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import { getTemplateDefinition, normalizeTemplateSlotOrder } from "@/templates";
 
 export function canElementHaveAudio(
 	element: TimelineElement,
@@ -199,6 +201,32 @@ export function buildGraphicElement({
 		startTime,
 		trimStart: ZERO_MEDIA_TIME,
 		trimEnd: ZERO_MEDIA_TIME,
+	};
+}
+
+export function buildMotionTemplateElement({
+	templateId,
+	startTime,
+}: {
+	templateId: string;
+	startTime: MediaTime;
+}): CreateMotionTemplateElement {
+	const definition = getTemplateDefinition({ templateId });
+	return {
+		type: "motion-template",
+		name: definition.name,
+		templateId: definition.id,
+		templateVersion: definition.version,
+		slotBindings: Object.fromEntries(
+			definition.mediaSlots.map((slot) => [slot.id, null]),
+		),
+		slotOrder: normalizeTemplateSlotOrder({ definition }),
+		templateParams: { ...definition.defaults },
+		duration: mediaTimeFromSeconds({ seconds: definition.defaultDuration }),
+		startTime,
+		trimStart: ZERO_MEDIA_TIME,
+		trimEnd: ZERO_MEDIA_TIME,
+		params: buildDefaultElementParams({ type: "graphic" }),
 	};
 }
 
@@ -393,7 +421,10 @@ export function getElementFontFamilies({
 	const families = new Set<string>();
 	for (const track of [...tracks.overlay, tracks.main, ...tracks.audio]) {
 		for (const element of track.elements) {
-			if (element.type === "text" && typeof element.params.fontFamily === "string") {
+			if (
+				element.type === "text" &&
+				typeof element.params.fontFamily === "string"
+			) {
 				families.add(element.params.fontFamily);
 			}
 			if ("masks" in element) {
