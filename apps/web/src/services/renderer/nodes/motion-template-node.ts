@@ -2,6 +2,8 @@ import type { MediaAsset } from "@/media/types";
 import {
 	evaluateTemplateScene,
 	findTemplateDefinition,
+	projectedCardScaleX,
+	projectedCardScaleY,
 	ratioValue,
 	type TemplateMediaFit,
 } from "@/templates";
@@ -77,6 +79,7 @@ export async function resolveMotionTemplateSource({
 	const layers = evaluateTemplateScene({
 		element,
 		localTime: localTimeSeconds,
+		durationSeconds: node.params.duration / TICKS_PER_SECOND,
 	});
 	const mediaById = new Map(
 		node.params.mediaAssets.map((asset) => [asset.id, asset]),
@@ -202,6 +205,10 @@ function drawCard({
 	ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
 	ctx.translate(x, y);
 	ctx.rotate((layer.rotation * Math.PI) / 180);
+	ctx.scale(
+		projectedCardScaleX({ rotationY: layer.rotationY }),
+		projectedCardScaleY({ rotationX: layer.rotationX }),
+	);
 	if (params.shadowEnabled === true) {
 		ctx.shadowColor = shadowColor({
 			color:
@@ -259,7 +266,6 @@ function drawCard({
 	}
 	ctx.restore();
 }
-
 type TemplateFrameRect = {
 	x: number;
 	y: number;

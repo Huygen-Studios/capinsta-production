@@ -43,6 +43,8 @@ export type TemplateLayer = {
 	z: number;
 	scale: number;
 	rotation: number;
+	rotationX: number;
+	rotationY: number;
 	opacity: number;
 	cardRatio: number;
 };
@@ -634,12 +636,14 @@ export function applyTemplateEasing({
 export function evaluateTemplateScene({
 	element,
 	localTime,
+	durationSeconds,
 }: {
 	element: Pick<
 		MotionTemplateElement,
 		"templateId" | "slotBindings" | "slotOrder" | "templateParams"
 	>;
 	localTime: number;
+	durationSeconds?: number;
 }): TemplateLayer[] {
 	const definition = findTemplateDefinition({ templateId: element.templateId });
 	if (!definition) return [];
@@ -649,10 +653,12 @@ export function evaluateTemplateScene({
 		min: 0.1,
 		max: 60,
 	});
-	const rawPhase =
-		positiveModulo({ value: localTime, divisor: duration }) / duration;
-	const phase =
-		element.templateParams.direction === "reverse" ? 1 - rawPhase : rawPhase;
+	const phase = resolveTemplatePhase({
+		localTime,
+		cycleDuration: duration,
+		durationSeconds,
+		direction: element.templateParams.direction,
+	});
 	const slotMap = new Map(definition.mediaSlots.map((slot) => [slot.id, slot]));
 	const slots = normalizeTemplateSlotOrder({
 		definition,
@@ -720,9 +726,21 @@ function evaluateLayer({
 	let z = 0;
 	let scale = cardSize;
 	let rotation = 0;
+	let rotationX = 0;
+	let rotationY = 0;
 	let opacity = 1;
 
-	if (["showcase-stream", "orbit-carousel"].includes(templateId)) {
+	if (templateId === "showcase-stream") {
+		// Project a horizontal 3D ring pitched toward the viewer. Each card's
+		// Y rotation follows its radial angle so side cards become edge-on.
+		z = Math.cos(angle);
+		x += Math.sin(angle) * (0.24 + spacing);
+		y += z * (0.12 + spacing * 0.5);
+		scale *= 0.72 + (z + 1) * 0.18;
+		opacity = 0.48 + (z + 1) * 0.24;
+		rotation = Math.sin(angle) * rotationAmount;
+		rotationY = (angle * 180) / Math.PI;
+	} else if (templateId === "orbit-carousel") {
 		x += Math.cos(angle) * (0.24 + spacing);
 		y += Math.sin(angle) * (0.1 + spacing);
 		z = Math.sin(angle);
@@ -730,12 +748,15 @@ function evaluateLayer({
 		opacity = 0.45 + (z + 1) * 0.27;
 		rotation = Math.cos(angle) * rotationAmount;
 	} else if (templateId === "card-totem") {
-		const p = positiveModulo({ value: phase + index / n, divisor: 1 });
-		x = 0.5 + Math.sin(p * tau) * 0.05;
-		y = p * 1.35 - 0.18;
-		z = Math.cos(p * tau);
-		scale *= 0.72 + (z + 1) * 0.16;
-		rotation = Math.sin(p * tau) * rotationAmount;
+		const verticalRadius = 0.38 + spacing * 0.35;
+		z = Math.cos(angle);
+		x = 0.5;
+		y = 0.5 + Math.sin(angle) * verticalRadius;
+		const perspectiveScale = 1 / (1 - z * 0.18);
+		scale *= perspectiveScale;
+		opacity = ((z + 1) / 2) ** 1.5;
+		rotation = Math.sin(angle) * rotationAmount;
+		rotationX = (angle * 180) / Math.PI;
 	} else if (["film-strip", "carousel-flow"].includes(templateId)) {
 		const p = positiveModulo({ value: phase + index / n, divisor: 1 });
 		x = p * (1.2 + spacing * 1.8) - (0.1 + spacing);
@@ -745,11 +766,12 @@ function evaluateLayer({
 		rotation = Math.cos(p * tau) * rotationAmount;
 	} else if (templateId === "photo-orbit") {
 		const variant = deterministicUnit({ index });
-		x += Math.cos(angle * (0.7 + variant * 0.6)) * (0.16 + spacing);
-		y += Math.sin(angle + variant * tau) * (0.14 + spacing * 0.5);
-		z = Math.sin(angle + variant);
+		const orbitAngle = angle + variant * tau;
+		x += Math.cos(orbitAngle) * (0.16 + spacing);
+		y += Math.sin(orbitAngle) * (0.14 + spacing * 0.5);
+		z = Math.sin(orbitAngle);
 		scale *= 0.75 + variant * 0.45;
-		rotation = Math.sin(angle + variant) * rotationAmount;
+		rotation = Math.sin(orbitAngle) * rotationAmount;
 	} else if (templateId === "wheel-carousel") {
 		const stepped = Math.floor(phase * n);
 		const sub = applyTemplateEasing({
@@ -776,12 +798,14 @@ function evaluateLayer({
 	} else if (templateId === "column-drift") {
 		const column = index % 3;
 		x = 0.5 + (column - 1) * (0.18 + spacing);
-		y = positiveModulo({
+		const columnProgress = positiveModulo({
 			value:
 				phase * (column === 1 ? 1 : -1) +
 				Math.floor(index / 3) * (0.26 + spacing),
 			divisor: 1,
 		});
+		const verticalBuffer = cardSize + spacing * 2;
+		y = columnProgress * (1 + verticalBuffer * 2) - verticalBuffer;
 		scale *= 0.75 + deterministicUnit({ index }) * 0.2;
 		rotation = (column - 1) * rotationAmount;
 	} else if (templateId === "position-dance") {
@@ -832,7 +856,7 @@ function evaluateLayer({
 		scale *=
 			0.25 + applyTemplateEasing({ value: p, easing: params.easing }) * 2.4;
 		rotation = (deterministicUnit({ index }) - 0.5) * rotationAmount * 2;
-		opacity = p < 0.9 ? 1 : (1 - p) * 10;
+		opacity = Math.min(1, p * 10, (1 - p) * 10);
 		z = p;
 	} else {
 		const p = positiveModulo({ value: phase - index / n, divisor: 1 });
@@ -847,7 +871,53 @@ function evaluateLayer({
 		z = p;
 	}
 
-	return { slotId, x, y, z, scale, rotation, opacity, cardRatio };
+	return {
+		slotId,
+		x,
+		y,
+		z,
+		scale,
+		rotation,
+		rotationX,
+		rotationY,
+		opacity,
+		cardRatio,
+	};
+}
+
+export function resolveTemplatePhase({
+	localTime,
+	cycleDuration,
+	durationSeconds,
+	direction,
+}: {
+	localTime: number;
+	cycleDuration: number;
+	durationSeconds?: number;
+	direction: unknown;
+}): number {
+	const safeLocalTime = Number.isFinite(localTime) ? localTime : 0;
+	const safeCycleDuration =
+		Number.isFinite(cycleDuration) && cycleDuration > 0 ? cycleDuration : 4;
+	const hasElementDuration =
+		typeof durationSeconds === "number" &&
+		Number.isFinite(durationSeconds) &&
+		durationSeconds > 0;
+	const rawPhase = hasElementDuration
+		? positiveModulo({
+				value:
+					(safeLocalTime *
+						Math.max(1, Math.round(durationSeconds / safeCycleDuration))) /
+					durationSeconds,
+				divisor: 1,
+			})
+		: positiveModulo({
+				value: safeLocalTime / safeCycleDuration,
+				divisor: 1,
+			});
+	return direction === "reverse"
+		? positiveModulo({ value: -rawPhase, divisor: 1 })
+		: rawPhase;
 }
 
 function readNumber({
@@ -890,6 +960,22 @@ export function ratioValue({ value }: { value: unknown }): number {
 					: value === "9:16"
 						? 9 / 16
 						: 1;
+}
+
+export function projectedCardScaleX({
+	rotationY,
+}: {
+	rotationY: number;
+}): number {
+	return Math.cos((rotationY * Math.PI) / 180);
+}
+
+export function projectedCardScaleY({
+	rotationX,
+}: {
+	rotationX: number;
+}): number {
+	return Math.cos((rotationX * Math.PI) / 180);
 }
 
 export { resolveTemplateVideoSourceTimeSeconds } from "./media-timing";

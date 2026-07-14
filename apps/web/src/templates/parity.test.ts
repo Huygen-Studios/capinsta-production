@@ -162,10 +162,12 @@ describe("motion template preview/export scene parity inputs", () => {
 				const previewScene = evaluateTemplateScene({
 					element: previewNode.params.element,
 					localTime: time,
+					durationSeconds: previewNode.params.duration / ticks({ seconds: 1 }),
 				});
 				const exportScene = evaluateTemplateScene({
 					element: exportNode.params.element,
 					localTime: time,
+					durationSeconds: exportNode.params.duration / ticks({ seconds: 1 }),
 				});
 				expect(exportScene).toEqual(previewScene);
 				expect(previewScene.every((layer) => Number.isFinite(layer.x))).toBe(

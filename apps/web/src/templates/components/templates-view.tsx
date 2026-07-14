@@ -13,6 +13,8 @@ import { useEditor } from "@/editor/use-editor";
 import { buildMotionTemplateElement } from "@/timeline/element-utils";
 import {
 	evaluateTemplateScene,
+	projectedCardScaleX,
+	projectedCardScaleY,
 	templateDefinitions,
 	type MotionTemplateDefinition,
 	type TemplateCategory,
@@ -335,7 +337,11 @@ function drawTemplateThumbnail({
 	context.clearRect(0, 0, width, height);
 	context.fillStyle = "#101014";
 	context.fillRect(0, 0, width, height);
-	const layers = evaluateTemplateScene({ element, localTime: time });
+	const layers = evaluateTemplateScene({
+		element,
+		localTime: time,
+		durationSeconds: definition.defaultDuration,
+	});
 	for (const [index, layer] of layers.entries()) {
 		const cardWidth = Math.max(8, width * layer.scale);
 		const cardHeight = cardWidth / Math.max(0.1, layer.cardRatio);
@@ -343,6 +349,10 @@ function drawTemplateThumbnail({
 		context.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
 		context.translate(layer.x * width, layer.y * height);
 		context.rotate((layer.rotation * Math.PI) / 180);
+		context.scale(
+			projectedCardScaleX({ rotationY: layer.rotationY }),
+			projectedCardScaleY({ rotationX: layer.rotationX }),
+		);
 		context.fillStyle = `hsl(${(index * 47 + definition.id.length * 13) % 360} 8% ${48 + index * 2}%)`;
 		context.fillRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight);
 		context.restore();
