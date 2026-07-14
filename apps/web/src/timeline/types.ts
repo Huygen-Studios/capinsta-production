@@ -3,6 +3,7 @@ import type { Effect } from "@/effects/types";
 import type { Mask } from "@/masks/types";
 import type { ParamValues } from "@/params";
 import type { MediaTime } from "@/wasm";
+import type { Layer3DEffect } from "@/layer-3d";
 
 export type ElementRef = {
 	trackId: string;
@@ -127,6 +128,7 @@ export interface VideoElement extends BaseTimelineElement {
 	retime?: RetimeConfig;
 	effects?: Effect[];
 	masks?: Mask[];
+	layer3DEffect?: Layer3DEffect;
 }
 
 export interface ImageElement extends BaseTimelineElement {
@@ -135,6 +137,7 @@ export interface ImageElement extends BaseTimelineElement {
 	hidden?: boolean;
 	effects?: Effect[];
 	masks?: Mask[];
+	layer3DEffect?: Layer3DEffect;
 }
 
 export interface TextElement extends BaseTimelineElement {
@@ -159,6 +162,7 @@ export interface GraphicElement extends BaseTimelineElement {
 	hidden?: boolean;
 	effects?: Effect[];
 	masks?: Mask[];
+	layer3DEffect?: Layer3DEffect;
 }
 
 export interface MotionTemplateElement extends BaseTimelineElement {

@@ -31,6 +31,7 @@ import type {
 	TextureUploadDescriptor,
 } from "./types";
 import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
+import type { EvaluatedLayer3D, Point2D } from "@/layer-3d";
 
 export async function buildFrameDescriptor({
 	node,
@@ -291,6 +292,40 @@ async function collectVisualSourceNode({
 		sourceWidth,
 		sourceHeight,
 	});
+	if (node.resolved.layer3D) {
+		const texture3DId = `${path}:source-3d`;
+		const evaluated = applyBaseTransformToLayer3D({
+			evaluated: node.resolved.layer3D,
+			transform,
+			renderer,
+		});
+		textures.delete(textureId);
+		textures.set(texture3DId, {
+			kind: "rendered",
+			id: texture3DId,
+			contentHash: `layer3d:${identityKey(source)}:${JSON.stringify(evaluated)}`,
+			width: renderer.width,
+			height: renderer.height,
+			draw: (ctx) =>
+				drawEvaluatedLayer3D({
+					ctx,
+					source,
+					sourceWidth,
+					sourceHeight,
+					evaluated,
+				}),
+		});
+		items.push({
+			type: "layer",
+			textureId: texture3DId,
+			transform: fullCanvasTransform(renderer),
+			opacity: node.resolved.opacity,
+			blendMode: node.params.blendMode ?? "normal",
+			effectPassGroups: node.resolved.effectPasses,
+			mask: null,
+		});
+		return;
+	}
 	const { mask, strokeLayer } = buildMaskArtifacts({
 		node,
 		renderer,
@@ -311,6 +346,272 @@ async function collectVisualSourceNode({
 	if (strokeLayer) {
 		items.push(strokeLayer);
 	}
+}
+
+function applyBaseTransformToLayer3D({
+	evaluated,
+	transform,
+	renderer,
+}: {
+	evaluated: EvaluatedLayer3D;
+	transform: QuadTransformDescriptor;
+	renderer: CanvasRenderer;
+}): EvaluatedLayer3D {
+	const angle = (transform.rotationDegrees * Math.PI) / 180;
+	const cosine = Math.cos(angle);
+	const sine = Math.sin(angle);
+	const offsetX = transform.centerX - renderer.width / 2;
+	const offsetY = transform.centerY - renderer.height / 2;
+	const transformCorner = ({ point }: { point: Point2D }): Point2D => {
+		const x = point.x - renderer.width / 2;
+		const y = point.y - renderer.height / 2;
+		return {
+			x: renderer.width / 2 + x * cosine - y * sine + offsetX,
+			y: renderer.height / 2 + x * sine + y * cosine + offsetY,
+		};
+	};
+	return {
+		...evaluated,
+		projectedCorners: [
+			transformCorner({ point: evaluated.projectedCorners[0] }),
+			transformCorner({ point: evaluated.projectedCorners[1] }),
+			transformCorner({ point: evaluated.projectedCorners[2] }),
+			transformCorner({ point: evaluated.projectedCorners[3] }),
+		],
+	};
+}
+
+function drawEvaluatedLayer3D({
+	ctx,
+	source,
+	sourceWidth,
+	sourceHeight,
+	evaluated,
+}: {
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	source: CanvasImageSource;
+	sourceWidth: number;
+	sourceHeight: number;
+	evaluated: EvaluatedLayer3D;
+}): void {
+	const corners = evaluated.projectedCorners;
+	if (evaluated.shadow.enabled) {
+		ctx.save();
+		ctx.filter = `blur(${Math.max(0, evaluated.shadow.blur)}px)`;
+		ctx.fillStyle = `rgba(0,0,0,${evaluated.shadow.opacity})`;
+		polygonPath({
+			ctx,
+			points: corners.map((point) => ({
+				x: point.x + evaluated.shadow.offsetX,
+				y: point.y + evaluated.shadow.offsetY,
+			})),
+		});
+		ctx.fill();
+		ctx.restore();
+	}
+
+	drawPerspectiveImage({
+		ctx,
+		source,
+		sourceWidth,
+		sourceHeight,
+		corners,
+	});
+
+	ctx.save();
+	polygonPath({ ctx, points: corners });
+	ctx.clip();
+	const brightness = Math.min(
+		1.4,
+		evaluated.material.ambient +
+			evaluated.material.diffuse * evaluated.material.lightIntensity,
+	);
+	if (brightness < 1) {
+		ctx.fillStyle = `rgba(0,0,0,${1 - brightness})`;
+		ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+	} else if (brightness > 1) {
+		ctx.fillStyle = colorWithAlpha({
+			color: evaluated.material.lightColor,
+			alpha: Math.min(0.35, brightness - 1),
+		});
+		ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+	}
+	if (
+		evaluated.material.lightingEnabled &&
+		evaluated.material.sweepPosition !== null
+	) {
+		const minX = Math.min(...corners.map((point) => point.x));
+		const maxX = Math.max(...corners.map((point) => point.x));
+		const sweepX = minX + (maxX - minX) * evaluated.material.sweepPosition;
+		const width = Math.max(20, (maxX - minX) * 0.32);
+		const gradient = ctx.createLinearGradient(
+			sweepX - width,
+			0,
+			sweepX + width,
+			0,
+		);
+		gradient.addColorStop(0, "rgba(255,255,255,0)");
+		gradient.addColorStop(
+			0.5,
+			colorWithAlpha({
+				color: evaluated.material.lightColor,
+				alpha: Math.min(
+					0.8,
+					evaluated.material.specular * evaluated.material.lightIntensity +
+						evaluated.material.metallic * 0.18,
+				),
+			}),
+		);
+		gradient.addColorStop(1, "rgba(255,255,255,0)");
+		ctx.globalCompositeOperation = "screen";
+		ctx.fillStyle = gradient;
+		ctx.fillRect(minX, 0, maxX - minX, ctx.canvas.height);
+	}
+	ctx.restore();
+}
+
+function drawPerspectiveImage({
+	ctx,
+	source,
+	sourceWidth,
+	sourceHeight,
+	corners,
+}: {
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	source: CanvasImageSource;
+	sourceWidth: number;
+	sourceHeight: number;
+	corners: [Point2D, Point2D, Point2D, Point2D];
+}): void {
+	const divisions = 8;
+	for (let row = 0; row < divisions; row++) {
+		for (let column = 0; column < divisions; column++) {
+			const u0 = column / divisions;
+			const u1 = (column + 1) / divisions;
+			const v0 = row / divisions;
+			const v1 = (row + 1) / divisions;
+			const sourcePoints = [
+				{ x: u0 * sourceWidth, y: v0 * sourceHeight },
+				{ x: u1 * sourceWidth, y: v0 * sourceHeight },
+				{ x: u1 * sourceWidth, y: v1 * sourceHeight },
+				{ x: u0 * sourceWidth, y: v1 * sourceHeight },
+			];
+			const destination = [
+				bilinearPoint({ corners, u: u0, v: v0 }),
+				bilinearPoint({ corners, u: u1, v: v0 }),
+				bilinearPoint({ corners, u: u1, v: v1 }),
+				bilinearPoint({ corners, u: u0, v: v1 }),
+			];
+			drawMappedTriangle({
+				ctx,
+				source,
+				sourcePoints: [sourcePoints[0], sourcePoints[1], sourcePoints[2]],
+				destination: [destination[0], destination[1], destination[2]],
+			});
+			drawMappedTriangle({
+				ctx,
+				source,
+				sourcePoints: [sourcePoints[0], sourcePoints[2], sourcePoints[3]],
+				destination: [destination[0], destination[2], destination[3]],
+			});
+		}
+	}
+}
+
+function bilinearPoint({
+	corners,
+	u,
+	v,
+}: {
+	corners: [Point2D, Point2D, Point2D, Point2D];
+	u: number;
+	v: number;
+}): Point2D {
+	const top = {
+		x: corners[0].x + (corners[1].x - corners[0].x) * u,
+		y: corners[0].y + (corners[1].y - corners[0].y) * u,
+	};
+	const bottom = {
+		x: corners[3].x + (corners[2].x - corners[3].x) * u,
+		y: corners[3].y + (corners[2].y - corners[3].y) * u,
+	};
+	return {
+		x: top.x + (bottom.x - top.x) * v,
+		y: top.y + (bottom.y - top.y) * v,
+	};
+}
+
+function drawMappedTriangle({
+	ctx,
+	source,
+	sourcePoints,
+	destination,
+}: {
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	source: CanvasImageSource;
+	sourcePoints: [Point2D, Point2D, Point2D];
+	destination: [Point2D, Point2D, Point2D];
+}): void {
+	const [s0, s1, s2] = sourcePoints;
+	const [d0, d1, d2] = destination;
+	const denominator =
+		s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y);
+	if (Math.abs(denominator) < 1e-8) return;
+	const a =
+		(d0.x * (s1.y - s2.y) + d1.x * (s2.y - s0.y) + d2.x * (s0.y - s1.y)) /
+		denominator;
+	const c =
+		(d0.x * (s2.x - s1.x) + d1.x * (s0.x - s2.x) + d2.x * (s1.x - s0.x)) /
+		denominator;
+	const e =
+		(d0.x * (s1.x * s2.y - s2.x * s1.y) +
+			d1.x * (s2.x * s0.y - s0.x * s2.y) +
+			d2.x * (s0.x * s1.y - s1.x * s0.y)) /
+		denominator;
+	const b =
+		(d0.y * (s1.y - s2.y) + d1.y * (s2.y - s0.y) + d2.y * (s0.y - s1.y)) /
+		denominator;
+	const d =
+		(d0.y * (s2.x - s1.x) + d1.y * (s0.x - s2.x) + d2.y * (s1.x - s0.x)) /
+		denominator;
+	const f =
+		(d0.y * (s1.x * s2.y - s2.x * s1.y) +
+			d1.y * (s2.x * s0.y - s0.x * s2.y) +
+			d2.y * (s0.x * s1.y - s1.x * s0.y)) /
+		denominator;
+	ctx.save();
+	polygonPath({ ctx, points: destination });
+	ctx.clip();
+	ctx.transform(a, b, c, d, e, f);
+	ctx.drawImage(source, 0, 0);
+	ctx.restore();
+}
+
+function polygonPath({
+	ctx,
+	points,
+}: {
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	points: Point2D[];
+}): void {
+	ctx.beginPath();
+	ctx.moveTo(points[0].x, points[0].y);
+	for (let index = 1; index < points.length; index++)
+		ctx.lineTo(points[index].x, points[index].y);
+	ctx.closePath();
+}
+
+function colorWithAlpha({
+	color,
+	alpha,
+}: {
+	color: string;
+	alpha: number;
+}): string {
+	const red = Number.parseInt(color.slice(1, 3), 16);
+	const green = Number.parseInt(color.slice(3, 5), 16);
+	const blue = Number.parseInt(color.slice(5, 7), 16);
+	return `rgba(${red},${green},${blue},${alpha})`;
 }
 
 function collectTextNode({

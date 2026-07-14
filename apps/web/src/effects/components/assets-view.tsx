@@ -1,5 +1,5 @@
-import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
+import { Layer3DEffectsView } from "@/layer-3d/components/effects-view";
 
 export function EffectsView() {
-	return <PanelView title="Effects">{null}</PanelView>;
+	return <Layer3DEffectsView />;
 }

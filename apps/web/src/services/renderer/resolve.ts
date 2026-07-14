@@ -7,6 +7,7 @@ import {
 } from "@/effects/definitions/blur";
 import { effectsRegistry, resolveEffectPasses } from "@/effects";
 import type { Effect, EffectPass } from "@/effects/types";
+import { evaluateLayer3DEffect } from "@/layer-3d";
 import { getSourceTimeAtClipTime } from "@/retime";
 import {
 	DEFAULT_GRAPHIC_SOURCE_SIZE,
@@ -195,6 +196,22 @@ function resolveVisualState({
 		localTime,
 		transform,
 		opacity,
+		layer3D: params.layer3DEffect
+			? evaluateLayer3DEffect({
+					effect: params.layer3DEffect,
+					localTimeSeconds: mediaTimeToSeconds({
+						time: roundMediaTime({ time: localTime }),
+					}),
+					frame: {
+						width: context.renderer.width,
+						height: context.renderer.height,
+					},
+					layer: {
+						width: Math.abs(sourceWidth * containScale * transform.scaleX),
+						height: Math.abs(sourceHeight * containScale * transform.scaleY),
+					},
+				})
+			: null,
 		effectPasses: resolveEffectPassGroups({
 			effects: params.effects,
 			animations: params.animations,

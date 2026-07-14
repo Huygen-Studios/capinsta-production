@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Box } from "lucide-react";
 import type { CapinstaCaptionBinding } from "@/capinsta/captionTimelineSync";
 import type {
 	EffectElement,
@@ -33,6 +34,7 @@ import { MasksTab } from "@/masks/components/masks-tab";
 import { SpeedTab } from "@/speed/components/speed-tab";
 import { GraphicTab } from "@/graphics/components/graphic-tab";
 import { TemplateInspector } from "@/templates/components/template-inspector";
+import { Layer3DInspector } from "@/layer-3d/components/inspector";
 import { OcShapesIcon } from "@/components/icons";
 import { CapinstaCaptionStylePanel } from "@/capinsta/components/CapinstaCaptionStylePanel";
 
@@ -184,6 +186,22 @@ function buildClipEffectsTab({
 	};
 }
 
+function buildLayer3DTab({
+	element,
+}: {
+	element: VideoElement | ImageElement | GraphicElement;
+}): PropertiesTabDef {
+	return {
+		id: "layer-3d",
+		label: "3D Motion",
+		icon: <Box size={16} />,
+		content: ({ trackId }) => (
+			<Layer3DInspector element={element} trackId={trackId} />
+		),
+		ownsScroll: true,
+	};
+}
+
 function buildTextTab({ element }: { element: TextElement }): PropertiesTabDef {
 	return {
 		id: "text",
@@ -298,6 +316,7 @@ function getVideoConfig({
 			buildBlendingTab({ element }),
 			buildMasksTab({ element }),
 			buildClipEffectsTab({ element }),
+			buildLayer3DTab({ element }),
 		],
 	};
 }
@@ -314,6 +333,7 @@ function getImageConfig({
 			buildBlendingTab({ element }),
 			buildMasksTab({ element }),
 			buildClipEffectsTab({ element }),
+			buildLayer3DTab({ element }),
 		],
 	};
 }
@@ -346,6 +366,7 @@ function getGraphicConfig({
 			buildBlendingTab({ element }),
 			buildMasksTab({ element }),
 			buildClipEffectsTab({ element }),
+			buildLayer3DTab({ element }),
 		],
 	};
 }

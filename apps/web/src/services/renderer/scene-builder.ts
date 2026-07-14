@@ -98,6 +98,7 @@ function buildTrackNodes({
 							blendMode: readBlendModeFromParams({ params: element.params }),
 							effects: element.effects ?? [],
 							masks: element.masks ?? [],
+							layer3DEffect: element.layer3DEffect,
 						}),
 					);
 				}
@@ -115,6 +116,7 @@ function buildTrackNodes({
 							blendMode: readBlendModeFromParams({ params: element.params }),
 							effects: element.effects ?? [],
 							masks: element.masks ?? [],
+							layer3DEffect: element.layer3DEffect,
 							...(isPreview && {
 								maxSourceSize: PREVIEW_MAX_IMAGE_SIZE,
 							}),
@@ -208,6 +210,7 @@ function buildTrackNodes({
 						blendMode: readBlendModeFromParams({ params: element.params }),
 						effects: element.effects ?? [],
 						masks: element.masks ?? [],
+						layer3DEffect: element.layer3DEffect,
 					}),
 				);
 			}

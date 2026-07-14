@@ -3,6 +3,7 @@ import type { Effect, EffectPass } from "@/effects/types";
 import type { Mask } from "@/masks/types";
 import type { BlendMode, Transform } from "@/rendering";
 import type { RetimeConfig, VisualElement } from "@/timeline";
+import type { EvaluatedLayer3D, Layer3DEffect } from "@/layer-3d";
 
 export interface VisualNodeParams {
 	duration: number;
@@ -16,6 +17,7 @@ export interface VisualNodeParams {
 	blendMode?: BlendMode;
 	effects?: Effect[];
 	masks?: Mask[];
+	layer3DEffect?: Layer3DEffect;
 }
 
 export interface ResolvedVisualNodeState {
@@ -23,6 +25,7 @@ export interface ResolvedVisualNodeState {
 	transform: Transform;
 	opacity: number;
 	effectPasses: EffectPass[][];
+	layer3D: EvaluatedLayer3D | null;
 }
 
 export interface ResolvedVisualSourceNodeState extends ResolvedVisualNodeState {
