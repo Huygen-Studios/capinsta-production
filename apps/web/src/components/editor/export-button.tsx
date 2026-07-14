@@ -3,14 +3,7 @@
 import { useRef, useState } from "react";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Check,
-	Copy,
-	Download,
-	Film,
-	Layers3,
-	RotateCcw,
-} from "lucide-react";
+import { Check, Copy, Download, Film, Layers3, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,13 +25,12 @@ import {
 	getExportFileExtension,
 	getExportMimeType,
 	normalizeExportError,
+	type ExportMode,
 	type ExportQuality,
 } from "@/export";
 import { useEditor } from "@/editor/use-editor";
 import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
-
-const FULL_VIDEO_COMING_SOON =
-	"Full video export is coming soon. For now, use Animated Captions with Solid Background. It exports faster and works as a green-screen caption layer in editing apps.";
+import { normalizeExportHexColor } from "@/export/color";
 
 const BACKGROUND_PRESETS = [
 	{ label: "Green", value: "#00FF00" },
@@ -53,7 +45,7 @@ const RESOLUTION_PRESETS = [
 	{ label: "720x1280", detail: "Fast", width: 720, height: 1280 },
 ] as const;
 
-const FPS_OPTIONS = [24, 30] as const;
+const FPS_OPTIONS = [24, 30, 60] as const;
 const QUALITY_OPTIONS: Array<{
 	value: Extract<ExportQuality, "fast" | "balanced" | "high">;
 	label: string;
@@ -63,12 +55,6 @@ const QUALITY_OPTIONS: Array<{
 	{ value: "balanced", label: "Balanced", description: "Recommended" },
 	{ value: "high", label: "High", description: "Best detail" },
 ];
-
-function normalizeHexColor(value: string): string | null {
-	const trimmed = value.trim();
-	const normalized = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-	return /^#[0-9A-Fa-f]{6}$/.test(normalized) ? normalized.toUpperCase() : null;
-}
 
 export function ExportButton() {
 	const [isOpen, setIsOpen] = useState(false);
@@ -137,6 +123,7 @@ function ExportDialog({
 	const [hexInput, setHexInput] = useState(
 		DEFAULT_EXPORT_OPTIONS.backgroundColor,
 	);
+	const [exportMode, setExportMode] = useState<ExportMode>("full_video");
 	const [resolutionIndex, setResolutionIndex] = useState(0);
 	const [fps, setFps] = useState<(typeof FPS_OPTIONS)[number]>(30);
 	const [quality, setQuality] =
@@ -152,27 +139,29 @@ function ExportDialog({
 	const exportResult = exportState.result;
 
 	const applyBackgroundColor = (value: string) => {
-		const normalized = normalizeHexColor(value);
+		const normalized = normalizeExportHexColor({ value });
 		if (!normalized) return;
 		setBackgroundColor(normalized);
 		setHexInput(normalized);
 	};
 
 	const handleExport = async () => {
-		const normalizedColor = normalizeHexColor(hexInput);
-		if (!normalizedColor) {
+		const normalizedColor = normalizeExportHexColor({ value: hexInput });
+		if (exportMode === "captions_solid_background" && !normalizedColor) {
 			toast.error("Enter a valid six-digit hex background color.");
 			return;
 		}
 
 		const result = await editor.project.export({
 			options: {
-				exportMode: "captions_solid_background",
+				exportMode,
 				format: "mp4",
 				quality,
 				fps: { numerator: fps, denominator: 1 },
 				includeAudio,
-				backgroundColor: normalizedColor,
+				...(exportMode === "captions_solid_background" && normalizedColor
+					? { backgroundColor: normalizedColor }
+					: {}),
 				canvasSize: {
 					width: selectedResolution.width,
 					height: selectedResolution.height,
@@ -188,7 +177,7 @@ function ExportDialog({
 		if (result.success && result.buffer) {
 			downloadBuffer({
 				buffer: result.buffer,
-				filename: `${activeProject.metadata.name}-animated-captions${getExportFileExtension({ format: "mp4" })}`,
+				filename: `${activeProject.metadata.name}-${exportMode === "full_video" ? "full-video" : "graphics-layer"}${getExportFileExtension({ format: "mp4" })}`,
 				mimeType: getExportMimeType({ format: "mp4" }),
 			});
 			editor.project.clearExportState();
@@ -208,9 +197,10 @@ function ExportDialog({
 			}}
 		>
 			<DialogHeader className="px-7 py-6">
-				<DialogTitle className="text-xl">Export</DialogTitle>
+				<DialogTitle className="text-xl">Export video</DialogTitle>
 				<DialogDescription>
-					Create an animated caption layer ready for your editing workflow.
+					Render the full project or export your graphics and captions over a
+					solid background.
 				</DialogDescription>
 				<p className="text-xs text-muted-foreground">
 					Free storage notice: Projects are deleted after 15 minutes of
@@ -234,110 +224,136 @@ function ExportDialog({
 						<div className="grid gap-3 md:grid-cols-2">
 							<button
 								type="button"
-								aria-disabled="true"
-								onClick={() => toast.info(FULL_VIDEO_COMING_SOON)}
-								className="group relative flex min-h-32 cursor-not-allowed flex-col items-start rounded-sm border-2 border-border bg-muted/20 p-4 text-left opacity-70 outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-muted-foreground/30"
+								aria-pressed={exportMode === "full_video"}
+								onClick={() => setExportMode("full_video")}
+								className={cn(
+									"group relative flex min-h-32 flex-col items-start rounded-sm border-2 p-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary",
+									exportMode === "full_video"
+										? "border-primary bg-primary/10 shadow-[4px_4px_0_var(--shadow-strong)]"
+										: "border-border bg-background hover:bg-accent/50",
+								)}
 							>
 								<div className="mb-4 flex w-full items-start justify-between gap-3">
 									<span className="rounded-sm border bg-background p-2">
 										<Film className="size-5 text-muted-foreground" />
 									</span>
-									<span className="rounded-sm border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-										Coming soon
-									</span>
-								</div>
-								<span className="font-medium">Full Video Export</span>
-								<span className="mt-1 text-xs leading-relaxed text-muted-foreground">
-									Render the original video with captions burned in.
-								</span>
-							</button>
-
-							<div className="relative flex min-h-32 flex-col items-start rounded-sm border-2 border-primary bg-primary/10 p-4 text-left shadow-[4px_4px_0_var(--shadow-strong)]">
-								<div className="mb-4 flex w-full items-start justify-between gap-3">
-									<span className="rounded-sm border-2 border-border bg-primary p-2 text-primary-foreground">
-										<Layers3 className="size-5" />
-									</span>
 									<span className="rounded-sm border border-[var(--neo-black)] bg-[var(--neo-yellow)] px-2.5 py-1 text-[11px] font-black text-[var(--neo-black)]">
 										Recommended
 									</span>
 								</div>
-								<span className="font-medium">
-									Animated Captions with Solid Background
-								</span>
+								<span className="font-medium">Full Video</span>
 								<span className="mt-1 text-xs leading-relaxed text-muted-foreground">
-									Fast caption-layer MP4 with no original video frames.
+									Render the complete edited video with source media, captions,
+									text, effects, motion templates and audio.
 								</span>
-							</div>
+							</button>
+
+							<button
+								type="button"
+								aria-pressed={exportMode === "captions_solid_background"}
+								onClick={() => setExportMode("captions_solid_background")}
+								className={cn(
+									"relative flex min-h-32 flex-col items-start rounded-sm border-2 p-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary",
+									exportMode === "captions_solid_background"
+										? "border-primary bg-primary/10 shadow-[4px_4px_0_var(--shadow-strong)]"
+										: "border-border bg-background hover:bg-accent/50",
+								)}
+							>
+								<div className="mb-4 flex w-full items-start justify-between gap-3">
+									<span className="rounded-sm border-2 border-border bg-primary p-2 text-primary-foreground">
+										<Layers3 className="size-5" />
+									</span>
+								</div>
+								<span className="font-medium">Graphics & Captions Layer</span>
+								<span className="mt-1 text-xs leading-relaxed text-muted-foreground">
+									Render captions, text, effects and motion templates over a
+									solid background without the base video track.
+								</span>
+							</button>
 						</div>
 
 						<div className="grid gap-x-8 gap-y-6 rounded-sm border bg-background/40 p-5 md:grid-cols-2">
-							<OptionSection
-								title="Background"
-								description="Choose the chroma or solid canvas color."
-							>
-								<div className="flex items-center gap-2">
-									<label
-										className="relative size-9 shrink-0 overflow-hidden rounded-md border"
-										style={{ backgroundColor }}
-									>
-										<span className="sr-only">Background color</span>
-										<input
-											ref={colorInputRef}
-											type="color"
-											value={backgroundColor}
-											onChange={(event) =>
-												applyBackgroundColor(event.target.value)
-											}
-											className="absolute inset-0 size-full cursor-pointer opacity-0"
-										/>
-									</label>
-									<Input
-										value={hexInput}
-										onChange={(event) => {
-											const value = event.target.value;
-											setHexInput(value);
-											const normalized = normalizeHexColor(value);
-											if (normalized) setBackgroundColor(normalized);
-										}}
-										onBlur={() => {
-											const normalized = normalizeHexColor(hexInput);
-											setHexInput(normalized ?? backgroundColor);
-										}}
-										aria-label="Background hex color"
-										className="font-mono uppercase"
-									/>
-								</div>
-								<div
-									className="grid gap-2"
-									style={{
-										gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-									}}
+							{exportMode === "captions_solid_background" ? (
+								<OptionSection
+									title="Background"
+									description="Choose the chroma or solid canvas color."
 								>
-									{BACKGROUND_PRESETS.map((preset) => (
-										<ChoiceButton
-											key={preset.value}
-											selected={backgroundColor === preset.value}
-											onClick={() => applyBackgroundColor(preset.value)}
+									<div className="flex items-center gap-2">
+										<label
+											className="relative size-9 shrink-0 overflow-hidden rounded-md border"
+											style={{ backgroundColor }}
 										>
-											<span
-												className="size-2.5 rounded-full border"
-												style={{ backgroundColor: preset.value }}
+											<span className="sr-only">Background color</span>
+											<input
+												ref={colorInputRef}
+												type="color"
+												value={backgroundColor}
+												onChange={(event) =>
+													applyBackgroundColor(event.target.value)
+												}
+												className="absolute inset-0 size-full cursor-pointer opacity-0"
 											/>
-											{preset.label}
-										</ChoiceButton>
-									))}
-									<ChoiceButton
-										selected={
-											!BACKGROUND_PRESETS.some(
-												(preset) => preset.value === backgroundColor,
-											)
-										}
-										onClick={() => colorInputRef.current?.click()}
+										</label>
+										<Input
+											value={hexInput}
+											onChange={(event) => {
+												const value = event.target.value;
+												setHexInput(value);
+												const normalized = normalizeExportHexColor({ value });
+												if (normalized) setBackgroundColor(normalized);
+											}}
+											onBlur={() => {
+												const normalized = normalizeExportHexColor({
+													value: hexInput,
+												});
+												setHexInput(normalized ?? backgroundColor);
+											}}
+											aria-label="Background hex color"
+											className="font-mono uppercase"
+										/>
+									</div>
+									<div
+										className="grid gap-2"
+										style={{
+											gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+										}}
 									>
-										Custom
-									</ChoiceButton>
-								</div>
-							</OptionSection>
+										{BACKGROUND_PRESETS.map((preset) => (
+											<ChoiceButton
+												key={preset.value}
+												selected={backgroundColor === preset.value}
+												onClick={() => applyBackgroundColor(preset.value)}
+											>
+												<span
+													className="size-2.5 rounded-full border"
+													style={{ backgroundColor: preset.value }}
+												/>
+												{preset.label}
+											</ChoiceButton>
+										))}
+										<ChoiceButton
+											selected={
+												!BACKGROUND_PRESETS.some(
+													(preset) => preset.value === backgroundColor,
+												)
+											}
+											onClick={() => colorInputRef.current?.click()}
+										>
+											Custom
+										</ChoiceButton>
+									</div>
+								</OptionSection>
+							) : (
+								<OptionSection
+									title="Background"
+									description="Background is determined by your project canvas and source media."
+								>
+									<p className="text-xs text-muted-foreground">
+										Solid background selection is available for Graphics &
+										Captions Layer exports.
+									</p>
+								</OptionSection>
+							)}
 
 							<OptionSection
 								title="Resolution"
@@ -363,8 +379,8 @@ function ExportDialog({
 							</OptionSection>
 
 							<OptionSection
-								title="FPS"
-								description="Caption animation frame rate."
+								title="Frame rate"
+								description="Controls the exported composition frame rate."
 							>
 								<div className="grid grid-cols-2 gap-2">
 									{FPS_OPTIONS.map((value) => (
@@ -373,7 +389,14 @@ function ExportDialog({
 											selected={fps === value}
 											onClick={() => setFps(value)}
 										>
-											{value} FPS
+											<span className="flex flex-col">
+												<span>{value} FPS</span>
+												{value === 60 ? (
+													<span className="text-[10px] font-normal text-muted-foreground">
+														Smoother motion
+													</span>
+												) : null}
+											</span>
 										</ChoiceButton>
 									))}
 								</div>
@@ -402,24 +425,27 @@ function ExportDialog({
 
 							<div className="flex items-center justify-between gap-4 border-2 border-border bg-muted/15 p-3 md:col-span-2">
 								<div>
-									<p className="text-sm font-medium">Include original audio</p>
+									<p className="text-sm font-medium">Include audio</p>
 									<p className="mt-0.5 text-xs text-muted-foreground">
-										Uses only the source audio; original video frames are
-										skipped.
+										{exportMode === "full_video"
+											? "Include enabled project audio in the rendered video."
+											: "Include original audio while ordinary source video frames remain excluded."}
 									</p>
 								</div>
 								<Switch
 									checked={includeAudio}
 									onCheckedChange={setIncludeAudio}
-									aria-label="Include original audio"
+									aria-label="Include audio"
 								/>
 							</div>
 						</div>
 
-						<p className="text-xs leading-relaxed text-muted-foreground">
-							Use green background export as a caption layer in Premiere Pro,
-							CapCut, DaVinci Resolve, or any editor with chroma key.
-						</p>
+						{exportMode === "captions_solid_background" ? (
+							<p className="text-xs leading-relaxed text-muted-foreground">
+								Use a green background as a graphics layer in Premiere Pro,
+								CapCut, DaVinci Resolve, or another editor with chroma key.
+							</p>
+						) : null}
 					</DialogBody>
 
 					<DialogFooter className="px-7">
@@ -428,7 +454,9 @@ function ExportDialog({
 						</Button>
 						<Button onClick={handleExport} className="min-w-52 gap-2">
 							<Download className="size-4" />
-							Export Animated Captions
+							{exportMode === "full_video"
+								? "Export Full Video"
+								: "Export Graphics Layer"}
 						</Button>
 					</DialogFooter>
 				</>

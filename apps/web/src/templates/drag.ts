@@ -1,10 +1,12 @@
-import type { MotionTemplateDefinition } from "@/templates";
+import type { MotionTemplateDefinition, TemplateFrameRatio } from "@/templates";
 import type { MotionTemplateDragData } from "@/timeline/drag";
 
 export function createMotionTemplateDragData({
 	definition,
+	frameRatio,
 }: {
 	definition: MotionTemplateDefinition;
+	frameRatio?: TemplateFrameRatio;
 }): MotionTemplateDragData {
 	return {
 		type: "motion-template",
@@ -12,5 +14,6 @@ export function createMotionTemplateDragData({
 		name: definition.name,
 		templateId: definition.id,
 		templateVersion: definition.version,
+		...(frameRatio ? { frameRatio } : {}),
 	};
 }

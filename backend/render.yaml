@@ -19,13 +19,13 @@ services:
       - key: EXPORT_RENDER_SAFE_MODE
         value: "true"
       - key: EXPORT_MAX_LONG_EDGE
-        value: "1280"
+        value: "1920"
       - key: EXPORT_MAX_FPS
-        value: "24"
+        value: "60"
       - key: EXPORT_SAFE_QUALITY
         value: standard
       - key: EXPORT_FFMPEG_THREADS
-        value: "1"
+        value: "2"
       - key: TEMP_DIR
         value: /tmp/huygen-caps
       - key: UPLOAD_DIR

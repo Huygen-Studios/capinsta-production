@@ -19,30 +19,23 @@
  *    source video remains visible below the caption overlay.
  */
 
-/** Captions-only default background. Green chroma key. */
-export const CAPTIONS_ONLY_DEFAULT_BACKGROUND = "#00FF00";
+import {
+	DEFAULT_SOLID_EXPORT_BACKGROUND,
+	normalizeExportHexColor,
+	resolveSolidExportBackground,
+} from "@/export/color";
 
-const HEX_3 = /^#[0-9a-fA-F]{3}$/;
-const HEX_6 = /^#[0-9a-fA-F]{6}$/;
+/** Captions-only default background. Green chroma key. */
+export const CAPTIONS_ONLY_DEFAULT_BACKGROUND = DEFAULT_SOLID_EXPORT_BACKGROUND;
 
 /**
  * Normalize an arbitrary color string to `#RRGGBB`. Returns `null` when the
  * value is missing/empty or not a valid 3- or 6-digit hex color.
  */
-export function normalizeHexColor(value: string | null | undefined): string | null {
-	if (!value) return null;
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-	const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-	// Expand shorthand (#rgb -> #rrggbb).
-	let expanded = withHash;
-	if (withHash.length === 4 && HEX_3.test(withHash)) {
-		expanded = `#${withHash[1]}${withHash[1]}${withHash[2]}${withHash[2]}${withHash[3]}${withHash[3]}`;
-	}
-	if (HEX_6.test(expanded)) {
-		return expanded.toUpperCase();
-	}
-	return null;
+export function normalizeHexColor(
+	value: string | null | undefined,
+): string | null {
+	return normalizeExportHexColor({ value });
 }
 
 /**
@@ -55,9 +48,7 @@ export function normalizeHexColor(value: string | null | undefined): string | nu
 export function resolveCaptionsOnlyBackground(
 	value: string | null | undefined,
 ): string {
-	const normalized = normalizeHexColor(value);
-	if (normalized) return normalized;
-	return CAPTIONS_ONLY_DEFAULT_BACKGROUND;
+	return resolveSolidExportBackground({ value });
 }
 
 /**
@@ -65,6 +56,8 @@ export function resolveCaptionsOnlyBackground(
  * the raw value (the source video fills the frame, so the color is unused by
  * the composition). Captions-only mode applies the green default when absent.
  */
+// Keep the established render-route API stable; new export helpers use object parameters.
+// eslint-disable-next-line opencut/prefer-object-params
 export function resolveRenderBackground(
 	renderMode: string | null | undefined,
 	value: string | null | undefined,

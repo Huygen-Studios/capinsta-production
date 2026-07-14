@@ -107,9 +107,9 @@ describe("renderColor", () => {
 			expect(
 				resolveRenderBackground("captions_solid_background", "#000000"),
 			).toBe("#000000");
-			expect(
-				resolveRenderBackground("captions_solid_background", null),
-			).toBe(CAPTIONS_ONLY_DEFAULT_BACKGROUND);
+			expect(resolveRenderBackground("captions_solid_background", null)).toBe(
+				CAPTIONS_ONLY_DEFAULT_BACKGROUND,
+			);
 		});
 
 		test("captions_only_solid_background mode: same behavior", () => {

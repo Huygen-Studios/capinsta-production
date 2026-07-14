@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from ..database import get_db, runtime_db
 from ..headless_export import (
     ExportStageError,
+    _normalize_hex_color,
     _looks_like_browser_disconnect,
     export_headless,
     redact_render_url,
@@ -42,6 +43,10 @@ from ..storage_pressure import require_disk_capacity
 
 router = APIRouter(prefix="/export/jobs", tags=["export"])
 logger = logging.getLogger(__name__)
+
+MAX_EXPORT_LONG_EDGE = 1920
+MAX_EXPORT_PIXEL_COUNT = 2_073_600
+MAX_EXPORT_FPS = 60
 
 ensure_runtime_dirs()
 
@@ -536,6 +541,26 @@ def _validate_duration(duration: float | None) -> None:
         )
 
 
+def _validate_export_output_settings(width: int, height: int, fps: int) -> None:
+    if width <= 0 or height <= 0:
+        raise HTTPException(status_code=400, detail="Export dimensions must be positive.")
+    if max(width, height) > MAX_EXPORT_LONG_EDGE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Export dimensions exceed the {MAX_EXPORT_LONG_EDGE}px edge limit.",
+        )
+    if width * height > MAX_EXPORT_PIXEL_COUNT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Export dimensions exceed the {MAX_EXPORT_PIXEL_COUNT} pixel limit.",
+        )
+    if fps <= 0 or fps > MAX_EXPORT_FPS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Export FPS must be between 1 and {MAX_EXPORT_FPS}.",
+        )
+
+
 async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
     queue_started = time.perf_counter()
     queued_job = await _set_job(
@@ -778,7 +803,7 @@ async def start_export_job(
     custom_bitrate_mbps: float | None = Form(None),
     export_mode: str = Form("full_video"),
     captions_only: bool = Form(False),
-    background_color: str = Form("#101010"),
+    background_color: str | None = Form(None),
     duration_override: float | None = Form(None),
     duration_source: str | None = Form(None),
     duration_mode: str | None = Form(None),
@@ -795,8 +820,50 @@ async def start_export_job(
         duration_override = custom_duration
     if duration_source is None and duration_mode is not None:
         duration_source = duration_mode
-    export_fps = max(1, min(120, int(export_fps or 30)))
+    export_fps = int(export_fps or 30)
     export_mode = "captions_only" if captions_only else export_mode
+    if export_mode not in {
+        "full_video",
+        "captions_only",
+        "captions_only_solid_background",
+        "captions_solid_background",
+    }:
+        return JSONResponse(
+            {"success": False, "stage": "validate_request", "error": f"Unsupported export mode: {export_mode}"},
+            status_code=400,
+        )
+    resolved_width, resolved_height = _resolve_export_dimensions(
+        resolution, export_width, export_height
+    )
+    try:
+        _validate_export_output_settings(resolved_width, resolved_height, export_fps)
+    except HTTPException as exc:
+        return JSONResponse(
+            {"success": False, "stage": "validate_request", "error": str(exc.detail)},
+            status_code=exc.status_code,
+        )
+    export_width = resolved_width
+    export_height = resolved_height
+    requested_background_color = background_color
+    is_captions_only = export_mode in {
+        "captions_only",
+        "captions_only_solid_background",
+        "captions_solid_background",
+    }
+    background_color = _normalize_hex_color(
+        background_color,
+        "#00FF00" if is_captions_only else "#101010",
+    )
+    logger.info(
+        "export_request_normalized export_mode=%s requested_background=%s normalized_background=%s width=%s height=%s requested_fps=%s effective_fps=%s",
+        export_mode,
+        requested_background_color,
+        background_color,
+        export_width,
+        export_height,
+        export_fps,
+        export_fps,
+    )
     requested_idempotency_input = _normalized_export_idempotency_input(
         source_job_id=source_job_id,
         captions_json=captions_json,
@@ -850,17 +917,6 @@ async def start_export_job(
     _validate_duration(duration_override)
     await enforce_export_quota(current_user().id, float(duration_override or 0))
 
-    if export_mode not in {
-        "full_video",
-        "captions_only",
-        "captions_only_solid_background",
-        "captions_solid_background",
-    }:
-        return JSONResponse(
-            {"success": False, "stage": "validate_request", "error": f"Unsupported export mode: {export_mode}"},
-            status_code=400,
-        )
-
     try:
         row = await get_owned_job(db, source_job_id)
     except HTTPException:
@@ -886,11 +942,6 @@ async def start_export_job(
             detail.get("code"),
         )
         return JSONResponse({"error": detail}, status_code=exc.status_code)
-    is_captions_only = export_mode in {
-        "captions_only",
-        "captions_only_solid_background",
-        "captions_solid_background",
-    }
     if not os.path.exists(original_video_path) and not is_captions_only:
         return JSONResponse(
             {

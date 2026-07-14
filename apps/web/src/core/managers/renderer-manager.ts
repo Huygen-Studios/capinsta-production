@@ -24,6 +24,17 @@ import {
 } from "@/capinsta/export/capinsta-export-validation";
 import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
 import { getVisibleCapinstaCaptionRecords } from "@/capinsta/captionVisibility";
+import {
+	resolveExportSceneBackground,
+	resolveSolidExportBackground,
+} from "@/export/color";
+import {
+	applyExportLayerPolicy,
+	exportLayerPolicyForMode,
+	hasIndependentVisualLayers,
+} from "@/export/layer-policy";
+import { createExportRequestFormData } from "@/export/request";
+import { validateExportOutput } from "@/export/output-limits";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -192,9 +203,28 @@ export class RendererManager {
 
 			const exportFps = fps ?? activeProject.settings.fps;
 			const canvasSize =
-				exportMode === "captions_solid_background" && requestedCanvasSize
-					? requestedCanvasSize
-					: activeProject.settings.canvasSize;
+				requestedCanvasSize ?? activeProject.settings.canvasSize;
+			const exportFpsValue =
+				typeof exportFps === "number"
+					? exportFps
+					: exportFps.numerator / (exportFps.denominator || 1);
+			const outputValidationError = validateExportOutput({
+				width: canvasSize.width,
+				height: canvasSize.height,
+				fps: exportFpsValue,
+			});
+			if (outputValidationError) {
+				return { success: false, error: outputValidationError };
+			}
+			const normalizedBackgroundColor = resolveSolidExportBackground({
+				value: backgroundColor,
+			});
+			const layerPolicy = exportLayerPolicyForMode({ exportMode });
+			const exportBackground = resolveExportSceneBackground({
+				exportMode,
+				requestedColor: backgroundColor,
+				projectBackground: activeProject.settings.background,
+			});
 
 			// CapInsta captions are now rendered by a SINGLE visual renderer:
 			// the React DOM overlay (CapinstaActiveCaptionOverlay for preview,
@@ -209,27 +239,46 @@ export class RendererManager {
 				tracks: rawTracks,
 				includeHidden: exportMode === "captions_solid_background",
 			});
-			const tracks =
+			const captionPreparedTracks =
 				allCapinstaRecords.length > 0
 					? buildCapinstaPreviewTracks({
 							records: allCapinstaRecords,
 							tracks: rawTracks,
 						})
 					: rawTracks;
+			const tracks = applyExportLayerPolicy({
+				tracks: captionPreparedTracks,
+				policy: layerPolicy,
+			});
+			const useSparseCaptionBackend =
+				exportMode === "captions_solid_background" &&
+				capinstaRecords.length > 0 &&
+				!hasIndependentVisualLayers({ tracks });
+
+			console.info("[export] composition request", {
+				exportMode,
+				layerPolicy,
+				requestedBackgroundColor: backgroundColor ?? null,
+				normalizedBackgroundColor,
+				finalBackgroundColor:
+					exportBackground.type === "color"
+						? exportBackground.color
+						: exportBackground.type,
+				width: canvasSize.width,
+				height: canvasSize.height,
+				requestedFps: fps ?? null,
+				effectiveFps: exportFps,
+				renderPath: useSparseCaptionBackend
+					? "sparse-caption-backend"
+					: "shared-scene-exporter",
+			});
 
 			const isDebug = process.env.NEXT_PUBLIC_CAPINSTA_DEBUG === "true";
 
 			// Pre-export validation: single-renderer invariant, no duplicates,
 			// no empty/stale captions, preview/export style hash parity.
 			let overlayHost: CapinstaExportOverlayHost | undefined;
-			const fallback =
-				process.env.NEXT_PUBLIC_CAPINSTA_EXPORT_FALLBACK_FOREIGNOBJECT ===
-				"true";
-
-			if (
-				capinstaRecords.length > 0 &&
-				(exportMode === "captions_solid_background" || !fallback)
-			) {
+			if (useSparseCaptionBackend) {
 				// 1. Pre-export validation
 				const preCheck = validateCapinstaPreExport({
 					records: capinstaRecords,
@@ -336,62 +385,31 @@ export class RendererManager {
 							.filter((word) => word !== undefined),
 					})),
 				);
-				const formData = new FormData();
-				formData.append("source_job_id", sourceJobId);
-				formData.append("captions_json", captionsJson);
-				formData.append(
-					"theme",
-					capinstaDoc.stylePresetId || "word_highlight_box",
-				);
-				formData.append(
-					"style_config_json",
-					JSON.stringify(
+				const fpsValue = Math.round(exportFpsValue);
+
+				// FIX: getTotalDuration() returns MediaTime in TICKS, but the backend
+				// interprets duration_override as SECONDS. Convert here. Sending ticks
+				// raw caused "duration 4351080.00s exceeds MAX_EXPORT_DURATION_SECONDS".
+				const durationSeconds = duration / TICKS_PER_SECOND;
+				const formData = createExportRequestFormData({
+					sourceJobId,
+					captionsJson,
+					theme: capinstaDoc.stylePresetId || "word_highlight_box",
+					styleConfigJson: JSON.stringify(
 						resolveCapinstaClipStyle({
 							document: capinstaDoc,
 							clip: capinstaDoc.clips[0]!,
 						}),
 					),
-				);
-				const fpsValue =
-					typeof exportFps === "number"
-						? exportFps
-						: typeof exportFps === "object" &&
-							  exportFps !== null &&
-							  "numerator" in exportFps
-							? Math.round(exportFps.numerator / (exportFps.denominator || 1))
-							: 30;
-
-				formData.append(
-					"resolution",
-					`${canvasSize.width}x${canvasSize.height}`,
-				);
-				formData.append("export_width", canvasSize.width.toString());
-				formData.append("export_height", canvasSize.height.toString());
-				formData.append("export_fps", fpsValue.toString());
-				formData.append("include_audio", includeAudio ? "true" : "false");
-				formData.append("quality", quality);
-				formData.append(
-					"export_mode",
-					exportMode === "captions_solid_background"
-						? "captions_solid_background"
-						: "full_video",
-				);
-				formData.append("captions_only", "false");
-				formData.append(
-					"background_color",
-					exportMode === "captions_solid_background"
-						? backgroundColor || "#00FF00"
-						: activeProject.settings.background.type === "color"
-							? activeProject.settings.background.color
-							: "#101010",
-				);
-				// FIX: getTotalDuration() returns MediaTime in TICKS, but the backend
-				// interprets duration_override as SECONDS. Convert here. Sending ticks
-				// raw caused "duration 4351080.00s exceeds MAX_EXPORT_DURATION_SECONDS".
-				const durationSeconds = duration / TICKS_PER_SECOND;
-				formData.append("duration_override", durationSeconds.toString());
-				formData.append("duration_source", "frontend");
-				formData.append("render_mode", "headless");
+					width: canvasSize.width,
+					height: canvasSize.height,
+					fps: fpsValue,
+					includeAudio: Boolean(includeAudio),
+					quality,
+					exportMode,
+					backgroundColor: normalizedBackgroundColor,
+					durationSeconds,
+				});
 
 				// 4. Send POST request to start export job
 				const apiBase = getCapinstaApiBaseUrl();
@@ -578,7 +596,7 @@ export class RendererManager {
 					success: true,
 					buffer,
 				};
-			} else if (capinstaRecords.length > 0 && fallback) {
+			} else if (capinstaRecords.length > 0) {
 				// Pre-export validation for fallback path
 				const preCheck = validateCapinstaPreExport({
 					records: capinstaRecords,
@@ -651,7 +669,8 @@ export class RendererManager {
 				mediaAssets,
 				duration,
 				canvasSize,
-				background: activeProject.settings.background,
+				background: exportBackground,
+				isPreview: false,
 				capinstaCaptionDocuments: capinstaRecords,
 			});
 

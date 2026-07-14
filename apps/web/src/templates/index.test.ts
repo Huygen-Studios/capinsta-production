@@ -6,6 +6,7 @@ import {
 	projectedCardScaleX,
 	projectedCardScaleY,
 	resolveTemplatePhase,
+	templateFrameRatioForCanvas,
 	templateDefinitions,
 } from "@/templates";
 
@@ -24,6 +25,25 @@ describe("motion template registry", () => {
 				definition.mediaSlots.length,
 			);
 		}
+	});
+
+	test("maps project canvas dimensions to template frame ratios", () => {
+		expect(templateFrameRatioForCanvas({ width: 1920, height: 1080 })).toBe(
+			"16:9",
+		);
+		expect(templateFrameRatioForCanvas({ width: 1080, height: 1920 })).toBe(
+			"9:16",
+		);
+		expect(templateFrameRatioForCanvas({ width: 1080, height: 1080 })).toBe(
+			"1:1",
+		);
+		expect(templateFrameRatioForCanvas({ width: 1440, height: 1080 })).toBe(
+			"4:3",
+		);
+		expect(templateFrameRatioForCanvas({ width: 1080, height: 1350 })).toBe(
+			"4:5",
+		);
+		expect(templateFrameRatioForCanvas({ width: 0, height: 1080 })).toBe("1:1");
 	});
 
 	test("easing presets are finite and deterministic", () => {

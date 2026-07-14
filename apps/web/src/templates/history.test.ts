@@ -53,12 +53,14 @@ describe("motion template history integration", () => {
 			element: buildMotionTemplateElement({
 				templateId: definition.id,
 				startTime: 0,
+				frameRatio: "16:9",
 			}),
 			placement: { mode: "explicit", trackId },
 		});
 
 		const inserted = getOnlyTemplate({ editor, trackId });
 		expect(inserted.templateId).toBe("position-dance");
+		expect(inserted.templateParams.frameRatio).toBe("16:9");
 		expect(editor.command.canUndo()).toBe(true);
 
 		editor.command.undo();

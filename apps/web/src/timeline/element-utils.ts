@@ -34,7 +34,11 @@ import {
 } from "@/params/registry";
 import { capitalizeFirstLetter } from "@/utils/string";
 import { mediaTimeFromSeconds, type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
-import { getTemplateDefinition, normalizeTemplateSlotOrder } from "@/templates";
+import {
+	getTemplateDefinition,
+	normalizeTemplateSlotOrder,
+	type TemplateFrameRatio,
+} from "@/templates";
 
 export function canElementHaveAudio(
 	element: TimelineElement,
@@ -207,9 +211,11 @@ export function buildGraphicElement({
 export function buildMotionTemplateElement({
 	templateId,
 	startTime,
+	frameRatio,
 }: {
 	templateId: string;
 	startTime: MediaTime;
+	frameRatio?: TemplateFrameRatio;
 }): CreateMotionTemplateElement {
 	const definition = getTemplateDefinition({ templateId });
 	return {
@@ -221,7 +227,10 @@ export function buildMotionTemplateElement({
 			definition.mediaSlots.map((slot) => [slot.id, null]),
 		),
 		slotOrder: normalizeTemplateSlotOrder({ definition }),
-		templateParams: { ...definition.defaults },
+		templateParams: {
+			...definition.defaults,
+			...(frameRatio ? { frameRatio } : {}),
+		},
 		duration: mediaTimeFromSeconds({ seconds: definition.defaultDuration }),
 		startTime,
 		trimStart: ZERO_MEDIA_TIME,

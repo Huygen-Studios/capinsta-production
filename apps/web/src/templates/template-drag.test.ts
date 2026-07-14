@@ -15,6 +15,15 @@ describe("motion template drag/default element", () => {
 		});
 	});
 
+	test("carries the active project frame ratio through timeline drag", () => {
+		const definition = templateDefinitions[0];
+		const payload = createMotionTemplateDragData({
+			definition,
+			frameRatio: "16:9",
+		});
+		expect(payload.frameRatio).toBe("16:9");
+	});
+
 	test("definition provides default element inputs", () => {
 		const definition = templateDefinitions.find(
 			(item) => item.id === "position-dance",

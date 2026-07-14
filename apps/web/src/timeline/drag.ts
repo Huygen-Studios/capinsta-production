@@ -1,5 +1,6 @@
 import type { MaskableElement, VisualElement } from "./types";
 import type { ParamValues } from "@/params";
+import type { TemplateFrameRatio } from "@/templates";
 
 interface BaseDragData {
 	id: string;
@@ -38,6 +39,7 @@ export interface MotionTemplateDragData extends BaseDragData {
 	type: "motion-template";
 	templateId: string;
 	templateVersion: number;
+	frameRatio?: TemplateFrameRatio;
 }
 
 export type TimelineDragData =

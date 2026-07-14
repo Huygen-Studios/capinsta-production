@@ -18,6 +18,8 @@ import struct
 import shutil
 import time
 import tempfile
+import subprocess
+from functools import lru_cache
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -258,6 +260,39 @@ def resolve_ffmpeg_threads(raw_value: str | None = None, cpu_count: int | None =
         return max(1, min(automatic, int(configured)))
     except ValueError:
         return automatic
+
+
+@lru_cache(maxsize=1)
+def h264_nvenc_capability_available() -> bool:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    try:
+        result = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=16x16:d=0.04",
+                "-frames:v",
+                "1",
+                "-c:v",
+                "h264_nvenc",
+                "-f",
+                "null",
+                "-",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def resolve_ffmpeg_preset(hardware_acceleration: bool, *, fastest: bool) -> str:
@@ -687,8 +722,8 @@ def check_export_runtime() -> dict[str, object]:
         "export_render_page_recycle_frames": _int_env("EXPORT_RENDER_PAGE_RECYCLE_FRAMES", 0),
         "export_clean_check_interval_frames": _int_env("EXPORT_CLEAN_CHECK_INTERVAL_FRAMES", 0),
         "render_safe_mode": _bool_env("EXPORT_RENDER_SAFE_MODE", _render_safe_default()),
-        "export_max_long_edge": _int_env("EXPORT_MAX_LONG_EDGE", 1280 if _render_safe_default() else 0),
-        "export_max_fps": _int_env("EXPORT_MAX_FPS", 24 if _render_safe_default() else 120),
+        "export_max_long_edge": _int_env("EXPORT_MAX_LONG_EDGE", 1920),
+        "export_max_fps": _int_env("EXPORT_MAX_FPS", 60),
         "detected_cpu_count": os.cpu_count() or 2,
         "export_ffmpeg_threads_configured": os.getenv("EXPORT_FFMPEG_THREADS", "auto"),
         "export_ffmpeg_threads_resolved": resolve_ffmpeg_threads(),
@@ -869,7 +904,17 @@ async def export_headless(
             exc,
         ) from exc
 
-    export_fps = max(1, min(120, int(export_fps or EXPORT_FPS)))
+    export_fps = max(1, min(60, int(export_fps or EXPORT_FPS)))
+    requested_hardware_acceleration = hardware_acceleration
+    hardware_acceleration = bool(
+        hardware_acceleration and h264_nvenc_capability_available()
+    )
+    _log_export_event(
+        "export_encoder_capability",
+        requestedHardwareAcceleration=requested_hardware_acceleration,
+        effectiveHardwareAcceleration=hardware_acceleration,
+        codec="h264_nvenc" if hardware_acceleration else "libx264",
+    )
     requested_quality = quality
     requested_fps = export_fps
     video_bitrate = None
@@ -955,8 +1000,8 @@ async def export_headless(
 
     requested_width, requested_height = width, height
     render_safe_mode = _bool_env("EXPORT_RENDER_SAFE_MODE", _render_safe_default())
-    max_long_edge = max(0, _int_env("EXPORT_MAX_LONG_EDGE", 1280 if render_safe_mode else 0))
-    max_export_fps = max(1, _int_env("EXPORT_MAX_FPS", 24 if render_safe_mode else 120))
+    max_long_edge = max(0, _int_env("EXPORT_MAX_LONG_EDGE", 1920))
+    max_export_fps = max(1, min(60, _int_env("EXPORT_MAX_FPS", 60)))
     ffmpeg_threads = resolve_ffmpeg_threads()
     safe_quality = os.getenv("EXPORT_SAFE_QUALITY", "standard").strip() or "standard"
 
@@ -2775,7 +2820,17 @@ async def export_headless(
                 ffmpeg_cmd.extend(["-map", "2:a?", "-c:a", "copy"])
             else:
                 ffmpeg_cmd.append("-an")
-            ffmpeg_cmd.extend(["-t", f"{duration:.6f}", "-pix_fmt", "yuv420p", output_path])
+            ffmpeg_cmd.extend(
+                [
+                    "-t",
+                    f"{duration:.6f}",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    output_path,
+                ]
+            )
         else:
             # OVERLAY PIPELINE: original video + transparent caption frames.
             # Input 0: original source video (preserves quality, has audio track).

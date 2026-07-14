@@ -962,6 +962,33 @@ export function ratioValue({ value }: { value: unknown }): number {
 						: 1;
 }
 
+export function templateFrameRatioForCanvas({
+	width,
+	height,
+}: {
+	width: number;
+	height: number;
+}): TemplateFrameRatio {
+	if (
+		!Number.isFinite(width) ||
+		!Number.isFinite(height) ||
+		width <= 0 ||
+		height <= 0
+	) {
+		return "1:1";
+	}
+	const canvasRatio = width / height;
+	return aspectRatios.reduce((closest, candidate) => {
+		const closestDistance = Math.abs(
+			Math.log(canvasRatio / ratioValue({ value: closest })),
+		);
+		const candidateDistance = Math.abs(
+			Math.log(canvasRatio / ratioValue({ value: candidate })),
+		);
+		return candidateDistance < closestDistance ? candidate : closest;
+	}, aspectRatios[0]);
+}
+
 export function projectedCardScaleX({
 	rotationY,
 }: {

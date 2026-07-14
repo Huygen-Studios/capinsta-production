@@ -462,6 +462,7 @@ export class DragDropController {
 		const element = buildMotionTemplateElement({
 			templateId: definition.id,
 			startTime: target.xPosition,
+			...(dragData.frameRatio ? { frameRatio: dragData.frameRatio } : {}),
 		});
 		this.insertAtTarget({ element, target, trackType: "graphic" });
 	}
