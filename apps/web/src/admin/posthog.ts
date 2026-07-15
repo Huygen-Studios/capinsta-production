@@ -2,12 +2,10 @@ import "server-only";
 
 import { webEnv } from "@/env/web";
 
-type PostHogQueryResponse = {
-	results?: unknown;
-};
-
-function firstNumericResult(payload: PostHogQueryResponse): number | null {
-	const first = Array.isArray(payload.results) ? payload.results[0] : null;
+function firstNumericResult(payload: unknown): number | null {
+	if (!payload || typeof payload !== "object" || !("results" in payload)) return null;
+	const results = Reflect.get(payload, "results");
+	const first = Array.isArray(results) ? results[0] : null;
 	if (Array.isArray(first)) {
 		const value = first[0];
 		return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -48,6 +46,7 @@ export async function queryPostHogWebsiteVisitors({
 				},
 			}),
 			cache: "no-store",
+			signal: AbortSignal.timeout(8000),
 		},
 	);
 
@@ -55,6 +54,8 @@ export async function queryPostHogWebsiteVisitors({
 		throw new Error(`posthog_query_failed_${response.status}`);
 	}
 
-	const payload = (await response.json()) as PostHogQueryResponse;
-	return firstNumericResult(payload);
+	const payload: unknown = await response.json();
+	const value = firstNumericResult(payload);
+	if (value === null) throw new Error("posthog_invalid_response");
+	return value;
 }

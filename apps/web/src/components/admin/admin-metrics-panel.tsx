@@ -94,12 +94,19 @@ const LABELS: Record<string, string> = {
 
 function valueFor({ name, metric }: { name: string; metric: AdminMetric }) {
 	if (metric.status !== "ok") return "Unavailable";
-	if (metric.value === null) return "No data";
+	if (metric.value === null) return name.startsWith("lastSuccessful") ? "Never" : "0";
 	if (name.endsWith("Rate")) return `${metric.value}%`;
 	if (name.startsWith("median")) return `${metric.value}s`;
-	if (name.startsWith("lastSuccessful")) return `${metric.value} min ago`;
+	if (name.startsWith("lastSuccessful")) return formatAge(metric.value);
 	if (name === "donationTotalInr") return `₹${metric.value.toLocaleString("en-IN")}`;
 	return metric.value.toLocaleString("en-IN");
+}
+
+function formatAge(minutes: number) {
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	const days = Math.floor(hours / 24);
+	return days ? `${days}d ${hours % 24}h ago` : `${hours}h ${minutes % 60}m ago`;
 }
 
 function isAdminMetricsResponse(value: unknown): value is AdminMetricsResponse {
@@ -180,6 +187,7 @@ export function AdminMetricsPanel() {
 	const [data, setData] = useState<AdminMetricsResponse | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [autoRefreshSeconds, setAutoRefreshSeconds] = useState(0);
 
 	const refresh = useCallback(async ({ signal }: { signal?: AbortSignal } = {}) => {
 		setLoading(true);
@@ -200,6 +208,14 @@ export function AdminMetricsPanel() {
 			if (!signal?.aborted) setLoading(false);
 		}
 	}, [range]);
+
+	useEffect(() => {
+		if (!autoRefreshSeconds) return;
+		const timer = window.setInterval(() => {
+			if (document.visibilityState === "visible") void refresh();
+		}, autoRefreshSeconds * 1000);
+		return () => window.clearInterval(timer);
+	}, [autoRefreshSeconds, refresh]);
 
 	useEffect(() => {
 		const controller = new AbortController();
@@ -228,10 +244,12 @@ export function AdminMetricsPanel() {
 	}, [range]);
 
 	const groupedMetrics = useMemo(() => data?.metrics ?? {}, [data]);
+	const unavailable = useMemo(() => Object.entries(groupedMetrics)
+		.filter(([, metric]) => metric.status === "unavailable"), [groupedMetrics]);
 
 	return (
 		<section className="space-y-4">
-			<div className="flex flex-col gap-3 rounded-md border-2 p-4 md:flex-row md:items-center md:justify-between">
+			<div className="sticky top-16 z-10 flex flex-col gap-3 rounded-md border-2 bg-background/95 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
 				<div>
 					<h2 className="font-display text-2xl">Admin metrics</h2>
 					<p className="text-sm text-muted-foreground">
@@ -255,9 +273,17 @@ export function AdminMetricsPanel() {
 							{option}
 						</Button>
 					))}
-					<Button variant="background" size="sm" onClick={() => void refresh()}>
-						<RefreshCw aria-hidden="true" />
-						Refresh
+					<label className="flex items-center gap-2 text-xs font-semibold">
+						Auto refresh
+						<select className="h-8 rounded-sm border-2 bg-background px-2" value={autoRefreshSeconds}
+							onChange={(event) => setAutoRefreshSeconds(Number(event.target.value))}>
+							<option value={0}>Off</option><option value={30}>30 seconds</option>
+							<option value={60}>60 seconds</option><option value={300}>5 minutes</option>
+						</select>
+					</label>
+					<Button variant="background" size="sm" disabled={loading} onClick={() => void refresh()}>
+						<RefreshCw className={loading ? "animate-spin" : undefined} aria-hidden="true" />
+						{loading ? "Refreshing…" : "Refresh"}
 					</Button>
 				</div>
 			</div>
@@ -268,14 +294,15 @@ export function AdminMetricsPanel() {
 					<AlertDescription>{error}</AlertDescription>
 				</Alert>
 			) : null}
-			{data?.errors.length ? (
+			{unavailable.length ? (
 				<Alert className="border-caution">
 					<AlertTriangle aria-hidden="true" />
 					<AlertTitle>Some metric sources are unavailable</AlertTitle>
 					<AlertDescription>
-						Unavailable metrics:{" "}
-						{data.errors.map((item) => item.metric).join(", ")}. Successful
-						metrics remain authoritative.
+						{unavailable.length} unavailable metric{unavailable.length === 1 ? "" : "s"} grouped here; healthy metrics remain prominent.
+						<details className="mt-2"><summary className="cursor-pointer font-semibold">View diagnostics</summary>
+							<ul className="mt-2 list-disc pl-5">{unavailable.map(([name, metric]) => <li key={name}>{LABELS[name] ?? name}: {metric.errorCode} · {metric.adminMessage}</li>)}</ul>
+						</details>
 					</AlertDescription>
 				</Alert>
 			) : null}
@@ -289,6 +316,7 @@ export function AdminMetricsPanel() {
 								{group.metrics.map((name) => {
 									const metric = groupedMetrics[name];
 									return metric ? (
+										metric.status === "unavailable" ? null :
 										<MetricCard
 											key={name}
 											name={name}
@@ -300,6 +328,7 @@ export function AdminMetricsPanel() {
 							</div>
 						</div>
 					))}
+					{data.sourceHealth.length ? <Card className="border-2"><CardHeader><CardTitle>Data source health</CardTitle><CardDescription>Safe server-side diagnostics; credentials and personal data are never included.</CardDescription></CardHeader><CardContent className="space-y-2">{data.sourceHealth.map((source) => <details key={source.source} className="rounded-sm border p-3"><summary className="flex cursor-pointer items-center justify-between font-semibold"><span>{source.source}</span><Badge variant="outline">{source.status}</Badge></summary><div className="mt-2 grid gap-1 text-xs text-muted-foreground"><p>Configuration: {source.configuration}</p><p>Last success: {source.lastSuccess ? new Date(source.lastSuccess).toLocaleString() : "Never"}</p><p>Last error: {source.lastErrorSummary ?? "None"}</p></div></details>)}</CardContent></Card> : null}
 				</div>
 			) : null}
 		</section>

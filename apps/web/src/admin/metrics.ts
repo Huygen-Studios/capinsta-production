@@ -11,6 +11,7 @@ import {
 	type MetricQuery,
 } from "./metrics-shared";
 import { queryPostHogWebsiteVisitors } from "./posthog";
+import { querySupabaseAuthUserMetrics } from "./auth-metrics";
 export { normalizeAdminMetricsRangePreset } from "./metrics-shared";
 
 async function countSql(query: ReturnType<typeof sql>): Promise<number | null> {
@@ -37,6 +38,10 @@ export async function getAdminMetrics({
 	const range = getAdminMetricsRange({ preset, now });
 	const { start, end } = rangeParams(range);
 	const generatedAt = now.toISOString();
+	const authMetrics = querySupabaseAuthUserMetrics({
+		startUtc: range.startUtc,
+		endUtc: range.endUtc,
+	});
 	const metricSpecs: Array<{
 		name: string;
 		source: string;
@@ -59,23 +64,13 @@ export async function getAdminMetrics({
 			source: "auth.users.created_at",
 			definition:
 				"Registered Supabase Auth users created within the selected UTC range, using inclusive start and exclusive end.",
-			query: () =>
-				countSql(sql`
-					select count(*)::int as value
-					from auth.users
-					where created_at >= ${start}
-						and created_at < ${end}
-				`),
+			query: async () => (await authMetrics).newInRange,
 		},
 		{
 			name: "totalAccounts",
 			source: "auth.users",
 			definition: "All registered Supabase Auth users currently present.",
-			query: () =>
-				countSql(sql`
-					select count(*)::int as value
-					from auth.users
-				`),
+			query: async () => (await authMetrics).total,
 		},
 		{
 			name: "activeAccessUsers",
@@ -239,6 +234,7 @@ export async function getAdminMetrics({
 					from caption_jobs
 					where started_at is not null
 						and completed_at is not null
+						and completed_at >= started_at
 						and completed_at >= ${start}
 						and completed_at < ${end}
 						and status in ('completed','succeeded')
@@ -256,6 +252,7 @@ export async function getAdminMetrics({
 					from export_jobs
 					where started_at is not null
 						and completed_at is not null
+						and completed_at >= started_at
 						and completed_at >= ${start}
 						and completed_at < ${end}
 						and status in ('completed','succeeded')
@@ -344,7 +341,7 @@ export async function getAdminMetrics({
 				countSql(sql`
 					select coalesce(
 						round(
-							100.0 * count(*) filter (where status = 'failed') / nullif(count(*), 0)
+							100.0 * count(*) filter (where status = 'failed') / nullif(count(*) filter (where status in ('failed','completed','succeeded','cancelled')), 0)
 						),
 						0
 					)::int as value
@@ -361,7 +358,7 @@ export async function getAdminMetrics({
 				countSql(sql`
 					select coalesce(
 						round(
-							100.0 * count(*) filter (where status = 'failed') / nullif(count(*), 0)
+							100.0 * count(*) filter (where status = 'failed') / nullif(count(*) filter (where status in ('failed','completed','succeeded','cancelled')), 0)
 						),
 						0
 					)::int as value
@@ -394,16 +391,47 @@ export async function getAdminMetrics({
 		},
 	];
 
-	const resolved = await Promise.all(
+	const settled = await Promise.allSettled(
 		metricSpecs.map((spec) => resolveAdminMetric({ ...spec, now })),
 	);
+	const resolved = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
+	const metricMap = Object.fromEntries(resolved.map((item) => [item.name, item.metric]));
+	const configuredPostHog = Boolean(process.env.POSTHOG_PROJECT_ID && process.env.POSTHOG_PERSONAL_API_KEY && process.env.POSTHOG_API_HOST);
+	const sourceGroups = new Map<string, typeof resolved>();
+	for (const item of resolved) {
+		const raw = item.metric.source;
+		const source = raw.includes("PostHog") ? "PostHog" :
+			raw.startsWith("auth.users") ? "Supabase Auth" :
+			raw.includes("product_events") ? "product events" :
+			raw.includes("caption_jobs") ? "caption jobs" :
+			raw.includes("export_jobs") ? "export jobs" :
+			raw.includes("donations") ? "donations" :
+			raw.includes("private_server_requests") ? "private-server requests" : "application database";
+		sourceGroups.set(source, [...(sourceGroups.get(source) ?? []), item]);
+	}
+	const sourceHealth = [...sourceGroups].map(([source, items]) => {
+		const failed = items.filter((item) => item.metric.status === "unavailable");
+		return {
+			source,
+			status: failed.length === 0 ? "healthy" as const : failed.length === items.length ? "unavailable" as const : "degraded" as const,
+			lastSuccess: items.some((item) => item.metric.status === "ok") ? generatedAt : null,
+			lastErrorAt: failed.length ? generatedAt : null,
+			lastErrorSummary: failed[0]?.metric.adminMessage ?? null,
+			configuration: source === "PostHog" ? (configuredPostHog ? "present" as const : "missing" as const) : "present" as const,
+		};
+	});
+	let authUsers: AdminMetricsResponse["authUsers"];
+	try {
+		const snapshot = await authMetrics;
+		authUsers = { dailyNewUsers: snapshot.dailyNewUsers, latestUsers: snapshot.latestUsers };
+	} catch { /* represented safely by the two Auth metrics */ }
 	return {
 		generatedAt,
 		range,
 		queryVersion: ADMIN_METRICS_QUERY_VERSION,
-		metrics: Object.fromEntries(
-			resolved.map((item) => [item.name, item.metric]),
-		),
+		metrics: metricMap,
 		errors: resolved.flatMap((item) => (item.error ? [item.error] : [])),
+		sourceHealth,
+		authUsers,
 	};
 }

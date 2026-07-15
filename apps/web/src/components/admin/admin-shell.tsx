@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { AdminSignOut } from "./admin-sign-out";
+import type { SiteAccessMode } from "@/access/permissions";
 
 const navigation = [
   ["Overview", "overview", Gauge],
@@ -38,9 +39,11 @@ const navigation = [
 export function AdminShell({
   context,
   children,
+  siteMode,
 }: {
   context: AdminContext;
   children: React.ReactNode;
+  siteMode: SiteAccessMode;
 }) {
   return (
     <div className="admin-shell grid min-h-svh grid-cols-1 bg-background lg:grid-cols-[252px_minmax(0,1fr)]">
@@ -75,6 +78,7 @@ export function AdminShell({
       </aside>
       <div className="min-w-0">
         <header className="sticky top-0 z-20 flex min-h-16 items-center gap-4 border-b-2 border-border bg-card px-4 shadow-[0_3px_0_var(--shadow-strong)] md:px-6">
+		  <Badge className="hidden md:inline-flex">Mode: {siteMode.replace("_", " ")}</Badge>
           <form action="/admincapinsta11/users" className="max-w-lg flex-1">
             <Input
               name="q"

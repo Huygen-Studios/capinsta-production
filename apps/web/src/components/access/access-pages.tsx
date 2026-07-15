@@ -88,7 +88,7 @@ export function MaintenancePage({ policy }: { policy: SitePolicy }) {
 			<section className="max-w-xl text-center">
 				<LogoStatic variant="wordmark" height={40} alt="Capinsta" priority />
 				<h1 className="mt-8 font-display text-4xl font-black">
-					Capinsta is temporarily unavailable.
+					CapInsta is temporarily under maintenance.
 				</h1>
 				<p className="mt-4 text-muted-foreground">
 					{policy.maintenanceMessage}
@@ -134,16 +134,17 @@ export function AccessRevokedPage({ context }: { context: AccessContext }) {
 			<section className="w-full max-w-lg rounded-lg border-2 bg-card p-6 shadow-[4px_4px_0_var(--foreground)]">
 				<LogoStatic variant="wordmark" height={36} alt="Capinsta" priority />
 				<h1 className="mt-8 font-display text-3xl font-black">
-					Access is unavailable.
+					Your product access has been restricted.
 				</h1>
 				<p className="mt-3 text-muted-foreground">
-					This account cannot access Capinsta product pages right now.
+					This account cannot access CapInsta product pages right now. Internal security notes are never shown here.
 				</p>
 				<p className="mt-5 rounded-md border bg-background p-3 font-mono text-sm">
 					{context.email ?? context.userId}
 				</p>
-				<div className="mt-6">
+				<div className="mt-6 flex gap-3">
 					<AccessSignOutButton />
+					<Button asChild variant="outline"><Link href="/contact">Contact support</Link></Button>
 				</div>
 			</section>
 		</main>

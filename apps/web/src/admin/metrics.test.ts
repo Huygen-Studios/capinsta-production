@@ -39,6 +39,19 @@ describe("admin metrics helpers", () => {
 		expect(result.error).toEqual({ metric: "newAccounts", code: "query_failed" });
 	});
 
+	test("no matching rows returns zero with ok status", async () => {
+		const result = await resolveAdminMetric({ name: "empty", source: "test", definition: "empty source", query: async () => null });
+		expect(result.metric.status).toBe("ok");
+		expect(result.metric.value).toBe(0);
+	});
+
+	test("failed source includes a safe classified diagnostic", async () => {
+		const result = await resolveAdminMetric({ name: "visitors", source: "PostHog", definition: "test", query: async () => { throw new Error("posthog_not_configured"); } });
+		expect(result.metric.errorCode).toBe("missing_configuration");
+		expect(result.metric.adminMessage).not.toContain("secret");
+		expect(result.metric.retryable).toBe(false);
+	});
+
 	test("failed job metrics use terminal timestamps, not creation timestamps", () => {
 		const source = readFileSync(join(import.meta.dir, "metrics.ts"), "utf8");
 		expect(source).toContain('name: "captionJobsFailed"');
@@ -46,5 +59,7 @@ describe("admin metrics helpers", () => {
 		expect(source).toContain("and completed_at >= ${start}");
 		expect(source).toContain('name: "exportsFailed"');
 		expect(source).toContain('source: "export_jobs.completed_at/status"');
+		expect(source).toContain("and completed_at >= started_at");
+		expect(source).toContain("Promise.allSettled");
 	});
 });

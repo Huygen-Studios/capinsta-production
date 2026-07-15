@@ -1,5 +1,6 @@
 import { requireAdminSession } from "@/admin/auth";
 import { AdminShell } from "@/components/admin/admin-shell";
+import { getSiteAccessPolicy } from "@/access/server";
 
 export default async function ProtectedAdminLayout({
   children,
@@ -7,5 +8,6 @@ export default async function ProtectedAdminLayout({
   children: React.ReactNode;
 }) {
   const context = await requireAdminSession();
-  return <AdminShell context={context}>{children}</AdminShell>;
+  const policy = await getSiteAccessPolicy();
+  return <AdminShell context={context} siteMode={policy.mode}>{children}</AdminShell>;
 }

@@ -1,4 +1,4 @@
-export const ADMIN_METRICS_QUERY_VERSION = "admin_metrics_v1";
+export const ADMIN_METRICS_QUERY_VERSION = "admin_metrics_v2";
 
 export type AdminMetricStatus = "ok" | "unavailable" | "partial";
 export type AdminMetricsRangePreset = "24h" | "7d" | "30d";
@@ -10,6 +10,18 @@ export type AdminMetric = {
 	definition: string;
 	updatedAt: string;
 	errorCode?: string;
+	adminMessage?: string;
+	retryable?: boolean;
+	queryAdapter?: string;
+};
+
+export type AdminSourceHealth = {
+	source: string;
+	status: "healthy" | "degraded" | "unavailable";
+	lastSuccess: string | null;
+	lastErrorAt: string | null;
+	lastErrorSummary: string | null;
+	configuration: "present" | "missing" | "not_applicable";
 };
 
 export type AdminMetricsResponse = {
@@ -24,6 +36,11 @@ export type AdminMetricsResponse = {
 	queryVersion: typeof ADMIN_METRICS_QUERY_VERSION;
 	metrics: Record<string, AdminMetric>;
 	errors: Array<{ metric: string; code: string }>;
+	sourceHealth: AdminSourceHealth[];
+	authUsers?: {
+		dailyNewUsers: Array<{ date: string; value: number }>;
+		latestUsers: Array<{ id: string; email: string | null; createdAt: string }>;
+	};
 };
 
 export type MetricQuery = () => Promise<number | null>;
@@ -73,6 +90,9 @@ function metric({
 	definition,
 	status = "ok",
 	errorCode,
+	adminMessage,
+	retryable,
+	queryAdapter,
 	now,
 }: {
 	value: number | null;
@@ -80,6 +100,9 @@ function metric({
 	definition: string;
 	status?: AdminMetricStatus;
 	errorCode?: string;
+	adminMessage?: string;
+	retryable?: boolean;
+	queryAdapter?: string;
 	now: Date;
 }): AdminMetric {
 	return {
@@ -89,6 +112,9 @@ function metric({
 		definition,
 		updatedAt: now.toISOString(),
 		errorCode,
+		adminMessage,
+		retryable,
+		queryAdapter,
 	};
 }
 
@@ -106,12 +132,18 @@ export async function resolveAdminMetric({
 	now?: Date;
 }): Promise<{ name: string; metric: AdminMetric; error?: { metric: string; code: string } }> {
 	try {
-		const value = await query();
+		const value = (await query()) ?? 0;
 		return {
 			name,
 			metric: metric({ value, source, definition, now }),
 		};
 	} catch (error) {
+		const message = error instanceof Error ? error.message : "unknown_failure";
+		const errorCode = message.includes("not_configured") ? "missing_configuration" :
+			message.includes("401") || message.includes("403") ? "permission_failure" :
+			message.includes("timeout") || message.includes("Timeout") ? "timeout" :
+			message.includes("invalid") ? "invalid_response" :
+			message.includes("42P01") || message.includes("42703") ? "schema_mismatch" : "query_failed";
 		console.error("admin_metric_query_failed", {
 			metric: name,
 			source,
@@ -126,10 +158,13 @@ export async function resolveAdminMetric({
 				status: "unavailable",
 				source,
 				definition,
-				errorCode: "query_failed",
+					errorCode,
+					adminMessage: `${source} failed in ${name}; inspect server diagnostics.`,
+					retryable: !["missing_configuration", "schema_mismatch"].includes(errorCode),
+					queryAdapter: name,
 				now,
 			}),
-			error: { metric: name, code: "query_failed" },
+			error: { metric: name, code: errorCode },
 		};
 	}
 }

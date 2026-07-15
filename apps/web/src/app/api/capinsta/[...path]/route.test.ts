@@ -1,9 +1,11 @@
 import { mock } from "bun:test";
+/* eslint-disable @typescript-eslint/no-explicit-any, opencut/prefer-object-params -- Fetch/stream test doubles intentionally model the runtime boundary. */
 
 mock.module("server-only", () => ({}));
 mock.module("@/access/server", () => ({
 	appPermissionForPath: () => "mock-permission",
 	requireApiPermission: () => null,
+	getCurrentAccessContext: () => ({ userId: "test-user" }),
 }));
 mock.module("@/auth/csrf", () => ({
 	requireCsrfProtection: () => null,
@@ -18,6 +20,7 @@ mock.module("@/capinsta/proxy-http", () => ({
 mock.module("@/env/web", () => ({
 	webEnv: { BACKEND_INTERNAL_URL: "http://localhost:8000" },
 }));
+mock.module("@/product-events/ledger", () => ({ recordProductEvent: () => Promise.resolve() }));
 
 import { describe, expect, test, spyOn } from "bun:test";
 

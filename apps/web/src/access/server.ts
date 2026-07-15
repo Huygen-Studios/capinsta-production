@@ -54,7 +54,10 @@ export type AccessContext = {
 	emailConfirmedAt: Date | null;
 	authProviderSnapshot: string | null;
 	permissions: Set<AppPermission>;
+	explicitGrantPermissions: Set<AppPermission>;
+	explicitRevocationPermissions: Set<AppPermission>;
 	roleKeys: string[];
+	isAdmin: boolean;
 	isSuperAdmin: boolean;
 	sitePolicy: SitePolicy;
 };
@@ -190,7 +193,10 @@ export const getCurrentAccessContext = cache(
 				emailConfirmedAt: null,
 				authProviderSnapshot: "ui-test",
 				permissions: new Set(["app.access", "projects.access", "editor.access", "exports.access", "render.access"]),
+				explicitGrantPermissions: new Set(["app.access", "projects.access", "editor.access", "exports.access", "render.access"]),
+				explicitRevocationPermissions: new Set(),
 				roleKeys: ["member"],
+				isAdmin: false,
 				isSuperAdmin: false,
 				sitePolicy: await getSiteAccessPolicy(),
 			};
@@ -208,11 +214,13 @@ export const getCurrentAccessContext = cache(
 			.limit(1);
 		if (!profile) return null;
 
-		const [{ permissions, roleKeys }, sitePolicy, adminContext] =
+		const [{ permissions, roleKeys }, sitePolicy, adminContext, directGrants, directRevocations] =
 			await Promise.all([
 				resolveEffectiveAppPermissions(user.id),
 				getSiteAccessPolicy(),
 				getCurrentAdminContext(),
+				directProductGrantsForUser(user.id),
+				directProductRevocationsForUser(user.id),
 			]);
 		const expiresAt = profile.productAccessExpiresAt;
 		const productAccessStatus = isProductAccessStatus(
@@ -230,7 +238,10 @@ export const getCurrentAccessContext = cache(
 			emailConfirmedAt: profile.emailConfirmedAt,
 			authProviderSnapshot: profile.authProviderSnapshot,
 			permissions,
+			explicitGrantPermissions: permissionsForProducts(directGrants),
+			explicitRevocationPermissions: permissionsForProducts([...directRevocations]),
 			roleKeys,
+			isAdmin: Boolean(adminContext),
 			isSuperAdmin: Boolean(adminContext?.roleKeys.includes("super_admin")),
 			sitePolicy,
 		};
@@ -281,12 +292,11 @@ export async function requireAppPermission(
 	const context = await requireAuthenticatedUser(pathname);
 	const denial = accessDenial(context, permission);
 	if (!denial) return context;
-	if (denial.code === "product_access_pending") redirect("/access-pending");
-	if (denial.code === "maintenance_mode") redirect("/maintenance");
-	if (denial.code === "product_access_revoked") redirect("/access-revoked");
-	if (denial.code === "account_inactive") redirect("/account-unavailable");
-	if (denial.code === "product_access_expired") redirect("/access-pending");
-	if (denial.code === "insufficient_product_permission") redirect("/access-pending");
+	if (["denied_coming_soon", "denied_missing_entitlement"].includes(denial.code)) redirect("/access-pending");
+	if (denial.code === "denied_maintenance") redirect("/maintenance");
+	if (["denied_restricted", "denied_banned", "denied_security_blocked"].includes(denial.code)) redirect("/access-revoked");
+	if (["denied_suspended", "denied_disabled"].includes(denial.code)) redirect("/account-unavailable");
+	if (denial.code === "denied_expired_entitlement") redirect("/access-expired");
 	notFound();
 }
 
@@ -300,19 +310,14 @@ export async function resolvePostAuthDestination(
 ) {
 	const context = await getCurrentAccessContext();
 	if (!context || context.userId !== userId) return "/sign-in";
-	if (context.accountStatus !== "active") return "/account-unavailable";
-	if (context.productAccessStatus === "revoked") return "/access-revoked";
-	if (context.sitePolicy.mode === "maintenance")
-		return canBypassMaintenance(context) ? requestedPath || "/" : "/maintenance";
 	const destination = requestedPath || "/";
 	const denial = accessDenial(context, appPermissionForPath(destination));
 	if (!denial) return destination;
-	if (denial.code === "product_access_pending") return "/access-pending";
-	if (denial.code === "product_access_expired") return "/access-pending";
-	if (denial.code === "product_access_revoked") return "/access-revoked";
-	if (denial.code === "maintenance_mode") return "/maintenance";
-	if (denial.code === "account_inactive") return "/account-unavailable";
-	if (denial.code === "insufficient_product_permission") return "/access-pending";
+	if (["denied_coming_soon", "denied_missing_entitlement"].includes(denial.code)) return "/access-pending";
+	if (denial.code === "denied_expired_entitlement") return "/access-expired";
+	if (["denied_restricted", "denied_banned", "denied_security_blocked"].includes(denial.code)) return "/access-revoked";
+	if (denial.code === "denied_maintenance") return "/maintenance";
+	if (["denied_suspended", "denied_disabled"].includes(denial.code)) return "/account-unavailable";
 	return "/";
 }
 
@@ -324,7 +329,7 @@ export async function requireApiPermission(
 	const denial = accessDenial(context, permission);
 	if (!denial) return null;
 	return Response.json(
-		{ detail: "Access denied", code: denial.code },
+		{ detail: denial.decision.userMessage, code: denial.code, effectiveLaunchMode: denial.decision.effectiveLaunchMode },
 		{ status: denial.status },
 	);
 }

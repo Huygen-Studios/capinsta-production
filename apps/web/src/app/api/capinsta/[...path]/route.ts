@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { appPermissionForPath, requireApiPermission } from "@/access/server";
+import { appPermissionForPath, getCurrentAccessContext, requireApiPermission } from "@/access/server";
 import { requireCsrfProtection } from "@/auth/csrf";
 import { capinstaBackendUrl } from "@/capinsta/proxy-url";
 import {
@@ -7,6 +7,7 @@ import {
 	buildProxyResponseHeaders,
 } from "@/capinsta/proxy-http";
 import { webEnv } from "@/env/web";
+import { recordProductEvent, type ProductEventName } from "@/product-events/ledger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,7 @@ async function proxy(
 			init.duplex = "half";
 		}
 		const response = await fetch(target, init);
+		await recordOperationalEvent({ request, requestPath, response, correlationId: headers.get("x-correlation-id") ?? crypto.randomUUID() }).catch((error) => console.error("product_event_record_failed", { requestPath, errorName: error instanceof Error ? error.name : "unknown" }));
 		const responseHeaders = buildProxyResponseHeaders(response.headers);
 		return new Response(response.body, {
 			status: response.status,
@@ -74,6 +76,19 @@ async function proxy(
 			{ status: 503 },
 		);
 	}
+}
+
+async function recordOperationalEvent({ request, requestPath, response, correlationId }: { request: Request; requestPath: string; response: Response; correlationId: string }) {
+	if (!METHODS_WITH_BODY.has(request.method)) return;
+	const failed = !response.ok;
+	let eventName: ProductEventName | null = null;
+	if (requestPath.includes("/projects") && request.method === "POST") eventName = "project_created";
+	else if (requestPath.includes("/media")) eventName = failed ? "media_upload_failed" : "media_upload_completed";
+	else if (requestPath.includes("/export")) eventName = failed ? "export_failed" : "export_started";
+	else if (requestPath.includes("/captions") || requestPath.includes("/jobs")) eventName = failed ? "caption_job_failed" : "caption_job_started";
+	if (!eventName) return;
+	const context = await getCurrentAccessContext();
+	await recordProductEvent({ eventName, eventKey: `${eventName}:${correlationId}`, userId: context?.userId, metadata: { status: response.status, adapter: "capinsta_proxy" } });
 }
 
 export const GET = proxy;

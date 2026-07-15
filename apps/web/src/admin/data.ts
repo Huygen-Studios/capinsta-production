@@ -1,7 +1,7 @@
 import "server-only";
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-type-assertion, opencut/prefer-object-params -- Generic Drizzle pagination preserves each query's inferred row shape at runtime. */
-import { count, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { asc, count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   adminAuditLog,
@@ -13,13 +13,16 @@ import {
   exportJobs,
   featureFlags,
   profiles,
+  productEvents,
   projectRegistry,
   providerHealthEvents,
   supportCases,
 } from "@/db/schema";
 import { webEnv } from "@/env/web";
+import { querySupabaseAuthUserMetrics } from "./auth-metrics";
 
 export type AdminTableRow = Record<string, string | number | boolean | null>;
+type RecentActivityRow = { id: string; type: string; actor: string | null; status: string; createdAt: Date | null; target: string | null };
 
 async function overviewQuery<T>({
   source,
@@ -79,33 +82,18 @@ export async function getOverviewData() {
       mau: number | null;
     }>({
       source: "auth_users",
-      query: db.execute(sql`
-        select
-          count(*)::int as total,
-          count(*) filter (where created_at >= ${today})::int as today,
-          count(*) filter (where created_at >= ${sevenDays})::int as seven,
-          count(*) filter (where created_at >= ${thirtyDays})::int as thirty,
-          (
-            select count(*)::int from profiles
-            where last_seen_at >= ${today}
-          ) as dau,
-          (
-            select count(*)::int from profiles
-            where last_seen_at >= ${sevenDays}
-          ) as wau,
-          (
-            select count(*)::int from profiles
-            where last_seen_at >= ${thirtyDays}
-          ) as mau
-        from auth.users
-      `).then((rows) => rows[0] as {
-        total: number;
-        today: number;
-        seven: number;
-        thirty: number;
-        dau: number;
-        wau: number;
-        mau: number;
+      query: Promise.all([
+        querySupabaseAuthUserMetrics({ startUtc: thirtyDays.toISOString(), endUtc: new Date().toISOString() }),
+        db.execute(sql`select
+          count(*) filter (where last_seen_at >= ${today})::int as dau,
+          count(*) filter (where last_seen_at >= ${sevenDays})::int as wau,
+          count(*) filter (where last_seen_at >= ${thirtyDays})::int as mau
+          from profiles`),
+      ]).then(([auth, activity]) => {
+        const daily = auth.dailyNewUsers;
+        const countSince = (date: Date) => daily.filter((item) => Date.parse(item.date + "T00:00:00.000Z") >= date.getTime()).reduce((sum, item) => sum + item.value, 0);
+        const row = activity[0] as { dau: number; wau: number; mau: number };
+        return { total: auth.total, today: countSince(today), seven: countSince(sevenDays), thirty: auth.newInRange, ...row };
       }),
       fallback: {
         total: null,
@@ -228,6 +216,23 @@ export async function getOverviewData() {
   ].flatMap((result) =>
     result.degradedSource ? [result.degradedSource] : [],
   );
+  const activitySettled = await Promise.allSettled([
+    db.select({ id: productEvents.id, type: productEvents.eventName, actor: productEvents.userId, status: sql<string>`coalesce(${productEvents.metadata}->>'status', 'recorded')`, createdAt: productEvents.occurredAt, target: sql<string>`coalesce(${productEvents.projectId}, ${productEvents.captionJobId}, ${productEvents.exportJobId})` }).from(productEvents).orderBy(desc(productEvents.occurredAt)).limit(15),
+    db.select({ id: profiles.userId, type: sql<string>`'new_account'`, actor: profiles.emailSnapshot, status: sql<string>`'created'`, createdAt: profiles.createdAt, target: profiles.userId }).from(profiles).orderBy(desc(profiles.createdAt)).limit(8),
+    db.select({ id: projectRegistry.projectId, type: sql<string>`'project_created'`, actor: projectRegistry.userId, status: projectRegistry.state, createdAt: projectRegistry.createdAt, target: projectRegistry.projectId }).from(projectRegistry).orderBy(desc(projectRegistry.createdAt)).limit(8),
+	 db.select({ id: captionJobs.id, type: sql<string>`case when ${captionJobs.status} = 'failed' then 'caption_failed' else 'caption_completed' end`, actor: captionJobs.userId, status: captionJobs.status, createdAt: captionJobs.completedAt, target: captionJobs.id }).from(captionJobs).where(sql`${captionJobs.completedAt} is not null and ${captionJobs.status} in ('failed','completed','succeeded')`).orderBy(desc(captionJobs.completedAt)).limit(8),
+	 db.select({ id: exportJobs.id, type: sql<string>`case when ${exportJobs.status} = 'failed' then 'export_failed' else 'export_completed' end`, actor: exportJobs.userId, status: exportJobs.status, createdAt: exportJobs.completedAt, target: exportJobs.id }).from(exportJobs).where(sql`${exportJobs.completedAt} is not null and ${exportJobs.status} in ('failed','completed','succeeded')`).orderBy(desc(exportJobs.completedAt)).limit(8),
+    db.select({ id: adminAuditLog.id, type: adminAuditLog.action, actor: adminAuditLog.adminUserId, status: sql<string>`case when ${adminAuditLog.success} then 'success' else 'failed' end`, createdAt: adminAuditLog.createdAt, target: adminAuditLog.targetId }).from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(8),
+  ]);
+	const activityRows: RecentActivityRow[] = [];
+	for (const result of activitySettled) {
+		if (result.status !== "fulfilled") continue;
+		for (const item of result.value) activityRows.push({ ...item, target: item.target ?? null });
+	}
+  const recentActivity = activityRows
+	.filter((item): item is RecentActivityRow & { createdAt: Date } => item.createdAt instanceof Date)
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime()).slice(0, 20)
+	.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() }));
   return {
     users: usersResult.data,
     captions: captionsResult.data,
@@ -239,6 +244,7 @@ export async function getOverviewData() {
     backendHealth: backendResult.data,
     degradedSources,
     refreshedAt: new Date(),
+    recentActivity,
   };
 }
 
@@ -248,10 +254,12 @@ export async function getAdminModuleRows({
   module,
   page,
   query,
+  sort = "newest",
 }: {
   module: string;
   page: number;
   query?: string;
+  sort?: string;
 }): Promise<{ rows: AdminTableRow[]; total: number; selectableUserIds?: string[] }> {
   const offset = Math.max(0, page - 1) * PAGE_SIZE;
   const search = query?.trim();
@@ -305,7 +313,12 @@ export async function getAdminModuleRows({
               ? sql`(${where}) and ${profiles.accountStatus} = 'active'`
               : eq(profiles.accountStatus, "active"),
           )
-          .orderBy(desc(profiles.createdAt))
+          .orderBy(
+            sort === "oldest" ? asc(profiles.createdAt) :
+            sort === "email" ? asc(profiles.emailSnapshot) :
+            sort === "access_status" ? asc(profiles.productAccessStatus) :
+            sort === "last_activity" ? desc(profiles.lastSeenAt) : desc(profiles.createdAt),
+          )
           .limit(250),
       ]);
       return {
@@ -327,7 +340,11 @@ export async function getAdminModuleRows({
             created: captionJobs.createdAt,
           })
           .from(captionJobs),
-        captionJobs.createdAt,
+        sort === "oldest" ? asc(captionJobs.createdAt) :
+        sort === "running_first" ? sql`${captionJobs.status} = 'running' desc, ${captionJobs.createdAt} desc` :
+        sort === "failed_first" ? sql`${captionJobs.status} = 'failed' desc, ${captionJobs.createdAt} desc` :
+        sort === "longest_duration" ? sql`${captionJobs.completedAt} - ${captionJobs.startedAt} desc nulls last` :
+        sort === "shortest_duration" ? sql`${captionJobs.completedAt} - ${captionJobs.startedAt} asc nulls last` : desc(captionJobs.createdAt),
         offset,
         db.select({ total: count() }).from(captionJobs),
       );
@@ -344,7 +361,11 @@ export async function getAdminModuleRows({
             created: exportJobs.createdAt,
           })
           .from(exportJobs),
-        exportJobs.createdAt,
+        sort === "oldest" ? asc(exportJobs.createdAt) :
+        sort === "queued_first" ? sql`${exportJobs.status} = 'queued' desc, ${exportJobs.createdAt} desc` :
+        sort === "failed_first" ? sql`${exportJobs.status} = 'failed' desc, ${exportJobs.createdAt} desc` :
+        sort === "longest_duration" ? sql`${exportJobs.completedAt} - ${exportJobs.startedAt} desc nulls last` :
+        sort === "shortest_duration" ? sql`${exportJobs.completedAt} - ${exportJobs.startedAt} asc nulls last` : desc(exportJobs.createdAt),
         offset,
         db.select({ total: count() }).from(exportJobs),
       );
@@ -362,7 +383,11 @@ export async function getAdminModuleRows({
             updated: projectRegistry.updatedAt,
           })
           .from(projectRegistry)
-          .orderBy(desc(projectRegistry.updatedAt))
+          .orderBy(
+            sort === "oldest" ? asc(projectRegistry.createdAt) :
+            sort === "nearing_expiry" ? asc(projectRegistry.expiresAt) :
+            sort === "owner" ? asc(projectRegistry.userId) : desc(projectRegistry.updatedAt),
+          )
           .limit(PAGE_SIZE)
           .offset(offset),
           db
@@ -376,7 +401,7 @@ export async function getAdminModuleRows({
               updated: deletedProjectRecords.deletedAt,
             })
             .from(deletedProjectRecords)
-            .orderBy(desc(deletedProjectRecords.deletedAt))
+            .orderBy(sort === "oldest" ? asc(deletedProjectRecords.deletedAt) : desc(deletedProjectRecords.deletedAt))
             .limit(PAGE_SIZE)
             .offset(offset),
           db.select({ total: count() }).from(projectRegistry),
@@ -406,7 +431,7 @@ export async function getAdminModuleRows({
             created: supportCases.createdAt,
           })
           .from(supportCases),
-        supportCases.createdAt,
+        desc(supportCases.createdAt),
         offset,
         db.select({ total: count() }).from(supportCases),
       );
@@ -422,7 +447,7 @@ export async function getAdminModuleRows({
             updated: featureFlags.updatedAt,
           })
           .from(featureFlags),
-        featureFlags.updatedAt,
+        desc(featureFlags.updatedAt),
         offset,
         db.select({ total: count() }).from(featureFlags),
       );
@@ -440,7 +465,7 @@ export async function getAdminModuleRows({
             created: adminAuditLog.createdAt,
           })
           .from(adminAuditLog),
-        adminAuditLog.createdAt,
+        desc(adminAuditLog.createdAt),
         offset,
         db.select({ total: count() }).from(adminAuditLog),
       );
@@ -449,6 +474,7 @@ export async function getAdminModuleRows({
         db
           .select({
             id: adminSecurityEvents.id,
+            recordType: sql<string>`'event'`,
             event: adminSecurityEvents.eventType,
             severity: adminSecurityEvents.severity,
             attempts: adminSecurityEvents.attemptCount,
@@ -457,12 +483,17 @@ export async function getAdminModuleRows({
             created: adminSecurityEvents.createdAt,
           })
           .from(adminSecurityEvents)
-          .orderBy(desc(adminSecurityEvents.createdAt))
+          .orderBy(
+            sort === "oldest" ? asc(adminSecurityEvents.createdAt) :
+            sort === "severity" ? desc(adminSecurityEvents.severity) :
+            sort === "unresolved" ? asc(adminSecurityEvents.resolvedAt) : desc(adminSecurityEvents.createdAt),
+          )
           .limit(PAGE_SIZE)
           .offset(offset),
         db
           .select({
             id: adminRoleMembers.id,
+            recordType: sql<string>`'user'`,
             user: adminRoleMembers.userId,
             role: adminRoles.name,
             active: adminRoleMembers.active,
@@ -484,12 +515,12 @@ export async function getAdminModuleRows({
 
 async function pagedRows(
   selectQuery: any,
-  orderColumn: any,
+  orderExpression: any,
   offset: number,
   countQuery: any,
 ) {
   const [rows, [{ total }]] = await Promise.all([
-    selectQuery.orderBy(desc(orderColumn)).limit(PAGE_SIZE).offset(offset),
+    selectQuery.orderBy(orderExpression).limit(PAGE_SIZE).offset(offset),
     countQuery,
   ]);
   return { rows: rows.map(serializeRow), total };
@@ -561,6 +592,11 @@ export async function getAdminDetail({
           createdAt: profiles.createdAt,
           updatedAt: profiles.updatedAt,
           lastSeenAt: profiles.lastSeenAt,
+		  projects: sql<number>`(select count(*)::int from project_registry pr where pr.user_id = ${profiles.userId})`,
+		  recentCaptions: sql<string>`coalesce((select string_agg(cj.id || ':' || cj.status, ', ' order by cj.created_at desc) from (select id, status, created_at from caption_jobs where user_id = ${profiles.userId} order by created_at desc limit 5) cj), '')`,
+		  recentExports: sql<string>`coalesce((select string_agg(ej.id || ':' || ej.status, ', ' order by ej.created_at desc) from (select id, status, created_at from export_jobs where user_id = ${profiles.userId} order by created_at desc limit 5) ej), '')`,
+		  recentAuditEvents: sql<string>`coalesce((select string_agg(a.action, ', ' order by a.created_at desc) from (select action, created_at from admin_audit_log where target_id = ${profiles.userId}::text order by created_at desc limit 5) a), '')`,
+		  currentLaunchMode: sql<string>`coalesce((select mode from site_access_policy where id = 'global'), 'public')`,
         })
         .from(profiles)
         .where(eq(profiles.userId, id))

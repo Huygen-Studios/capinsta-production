@@ -92,6 +92,9 @@ const transcriptionProviderOptions = z.record(z.string(), z.unknown()).optional(
 
 const schema = z.discriminatedUnion("action", [
 	z.object({ action: z.literal("user.suspend"), targetId: z.uuid(), reason }),
+	z.object({ action: z.literal("user.restrict"), targetId: z.uuid(), reason }),
+	z.object({ action: z.literal("user.ban"), targetId: z.uuid(), reason }),
+	z.object({ action: z.literal("user.security_block"), targetId: z.uuid(), reason }),
 	z.object({ action: z.literal("user.restore"), targetId: z.uuid(), reason }),
 	z.object({
 		action: z.literal("user.sessions.revoke"),
@@ -252,6 +255,7 @@ const schema = z.discriminatedUnion("action", [
 		action: z.literal("access.site_mode.update"),
 		targetId: z.literal("global"),
 		mode: z.enum(["coming_soon", "maintenance", "public"]),
+		confirmation: z.string(),
 		reason,
 	}),
 	z.object({
@@ -400,7 +404,7 @@ function withTranscriptionMetadata(
 }
 
 function permissionFor(value: Mutation) {
-	if (value.action === "user.suspend") return "users.suspend" as const;
+	if (["user.suspend", "user.restrict", "user.ban", "user.security_block"].includes(value.action)) return "users.suspend" as const;
 	if (value.action === "user.restore") return "users.restore" as const;
 	if (
 		["user.sessions.revoke", "admin.role.assign", "admin.role.revoke"].includes(
@@ -485,6 +489,8 @@ export async function POST(request: Request) {
 	if (!parsed.success)
 		return NextResponse.json({ error: "Invalid request." }, { status: 400 });
 	const value = parsed.data;
+	if (value.action === "access.site_mode.update" && value.confirmation !== value.mode)
+		return Response.json({ error: "confirmation_mismatch" }, { status: 400 });
 	const metadata = await getAdminRequestMetadata();
 	const rate = await checkAdminApiRateLimit({
 		key: metadata.ipHash,
@@ -565,7 +571,7 @@ export async function POST(request: Request) {
 		}
 
 		await db.transaction(async (tx) => {
-			if (value.action === "user.suspend" || value.action === "user.restore") {
+			if (["user.suspend", "user.restrict", "user.ban", "user.security_block", "user.restore"].includes(value.action)) {
 				[beforeValue] = await tx
 					.select()
 					.from(profiles)
@@ -575,11 +581,10 @@ export async function POST(request: Request) {
 				[afterValue] = await tx
 					.update(profiles)
 					.set({
-						accountStatus:
-							value.action === "user.suspend" ? "suspended" : "active",
+					accountStatus: value.action === "user.restore" ? "active" : value.action === "user.restrict" ? "restricted" : value.action === "user.security_block" ? "security_blocked" : value.action.replace("user.", ""),
 						suspendedAt: value.action === "user.suspend" ? new Date() : null,
 						suspensionReason:
-							value.action === "user.suspend" ? value.reason : null,
+							value.action === "user.restore" ? null : value.reason,
 						updatedAt: new Date(),
 					})
 					.where(eq(profiles.userId, value.targetId))
@@ -1355,7 +1360,7 @@ export async function POST(request: Request) {
 
 		if (securityBlock) await clearAdminSecurityBlock(securityBlock);
 		if (
-			value.action === "user.suspend" ||
+			["user.suspend", "user.restrict", "user.ban", "user.security_block"].includes(value.action) ||
 			value.action === "user.sessions.revoke" ||
 			value.action === "admin.role.revoke" ||
 			value.action === "access.user.revoke"

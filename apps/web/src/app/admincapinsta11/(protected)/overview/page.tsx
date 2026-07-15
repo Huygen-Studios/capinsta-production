@@ -14,6 +14,7 @@ import { getOverviewData } from "@/admin/data";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminMetricsPanel } from "@/components/admin/admin-metrics-panel";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -52,9 +53,11 @@ function metricDisplay(value: unknown): string {
   return String(value);
 }
 
-export default async function OverviewPage() {
+export default async function OverviewPage({ searchParams }: { searchParams: Promise<{ activity?: string }> }) {
   await requireAdminSession();
+  const { activity = "all" } = await searchParams;
   const data = await getOverviewData();
+  const recentActivity = data.recentActivity.filter((event) => activity === "all" || activityCategory(event.type) === activity);
   const captionTotal = Number(data.captions.total || 0);
   const captionSuccess = captionTotal
     ? Math.round((Number(data.captions.succeeded || 0) / captionTotal) * 100)
@@ -212,6 +215,10 @@ export default async function OverviewPage() {
         </Card>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
+		<Card>
+		  <CardHeader><CardTitle>Recent activity</CardTitle><CardDescription>Merged server-side product, account, project, access, and security events · newest first</CardDescription><div className="flex flex-wrap gap-1 pt-2">{["all","users","projects","uploads","captions","exports","access","security"].map((filter) => <Button asChild key={filter} size="sm" variant={activity === filter ? "default" : "outline"}><Link href={`?activity=${filter}`}>{filter[0].toUpperCase()+filter.slice(1)}</Link></Button>)}</div></CardHeader>
+		  <CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Event</TableHead><TableHead>Actor</TableHead><TableHead>Result</TableHead><TableHead>When</TableHead></TableRow></TableHeader><TableBody>{recentActivity.map((event) => <TableRow key={`${event.type}:${event.id}`}><TableCell className="font-semibold"><Link className="hover:underline" href={activityHref({ type: event.type, target: event.target, actor: event.actor })}>{event.type.replaceAll("_", " ")}</Link></TableCell><TableCell className="max-w-40 truncate font-mono text-xs">{event.actor ?? "System"}</TableCell><TableCell><Badge variant="outline">{event.status}</Badge></TableCell><TableCell title={new Date(event.createdAt).toLocaleString()}>{relativeTime(event.createdAt)}</TableCell></TableRow>)}</TableBody></Table>{!recentActivity.length ? <p className="p-6 text-sm text-muted-foreground">No recent activity matches this filter.</p> : null}</CardContent>
+		</Card>
         <Card>
           <CardHeader>
             <CardTitle>Server storage</CardTitle>
@@ -320,4 +327,31 @@ export default async function OverviewPage() {
       </p>
     </>
   );
+}
+
+function relativeTime(value: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m ago`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h ago`;
+}
+
+function activityCategory(type: string) {
+  if (type === "new_account") return "users";
+  if (type.includes("project")) return "projects";
+  if (type.includes("upload") || type.includes("media")) return "uploads";
+  if (type.includes("caption")) return "captions";
+  if (type.includes("export")) return "exports";
+  if (type.includes("access") || type.includes("entitlement") || type.includes("user.")) return "access";
+  return "security";
+}
+
+function activityHref({ type, target, actor }: { type: string; target: string | null; actor: string | null }) {
+  if (type.includes("project") && target) return `/admincapinsta11/projects/${encodeURIComponent(target)}`;
+  if (type.includes("caption") && target) return `/admincapinsta11/caption-jobs/${encodeURIComponent(target)}`;
+  if (type.includes("export") && target) return `/admincapinsta11/exports/${encodeURIComponent(target)}`;
+  if ((type === "new_account" || type.includes("access") || type.includes("user.")) && (target ?? actor)) return `/admincapinsta11/users/${encodeURIComponent(String(target ?? actor))}`;
+  return "/admincapinsta11/audit-log";
 }

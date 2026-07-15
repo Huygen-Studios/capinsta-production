@@ -69,23 +69,23 @@ export default async function Page() {
 					{
 						mode: "coming_soon" as const,
 						title: "Coming Soon",
-						text: "The public landing page stays visible. New account creation is controlled separately by the signup policy.",
+						text: "The landing page remains public. Only administrators and explicitly approved accounts can access product features.",
 						confirmation:
 							"Changing to Coming Soon keeps product routes protected and leaves the public landing page available.",
 					},
 					{
 						mode: "maintenance" as const,
 						title: "Maintenance",
-						text: "Normal users are blocked. Super administrators and maintenance bypass can enter.",
+						text: "Normal product access is temporarily blocked. Administrators and approved maintenance operators may continue operational work.",
 						confirmation:
 							"Changing to Maintenance will block normal product use until bypassed or restored.",
 					},
 					{
 						mode: "public" as const,
 						title: "Public",
-						text: "The public landing page is available. Product routes still require granted editor/product access.",
+						text: "Authenticated users can access the editor and product features by default. Explicit account bans and restrictions still apply.",
 						confirmation:
-							"Changing to Public will not grant editor access by itself.",
+							"Changing to Public enables default product access for eligible authenticated users; explicit restrictions remain enforced.",
 					},
 				].map((card) => (
 					<Card key={card.mode} className="border-2">

@@ -1,22 +1,9 @@
 {
 	"version": 1,
-	"errors": 157,
-	"warnings": 20,
-	"files": 101,
+	"errors": 156,
+	"warnings": 17,
+	"files": 99,
 	"rows": [
-		{
-			"file": "src/access/decision.ts",
-			"errors": 1,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "opencut/prefer-object-params",
-					"severity": 2,
-					"line": 36,
-					"column": 8
-				}
-			]
-		},
 		{
 			"file": "src/actions/registry.ts",
 			"errors": 2,
@@ -241,97 +228,97 @@
 				{
 					"ruleId": "react-hooks/immutability",
 					"severity": 2,
-					"line": 185,
+					"line": 197,
 					"column": 4
 				},
 				{
 					"ruleId": "react-hooks/exhaustive-deps",
 					"severity": 1,
-					"line": 210,
+					"line": 222,
 					"column": 3
 				},
 				{
 					"ruleId": "react-hooks/immutability",
 					"severity": 2,
-					"line": 215,
+					"line": 227,
 					"column": 4
 				},
 				{
 					"ruleId": "react-hooks/exhaustive-deps",
 					"severity": 1,
-					"line": 224,
+					"line": 236,
 					"column": 5
 				},
 				{
 					"ruleId": null,
 					"severity": 2,
-					"line": 439,
+					"line": 473,
 					"column": 4
 				},
 				{
 					"ruleId": "opencut/prefer-object-params",
 					"severity": 2,
-					"line": 447,
+					"line": 481,
 					"column": 27
 				},
 				{
 					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
 					"severity": 2,
-					"line": 469,
+					"line": 503,
 					"column": 9
 				},
 				{
 					"ruleId": null,
 					"severity": 2,
-					"line": 484,
+					"line": 518,
 					"column": 5
 				},
 				{
 					"ruleId": null,
 					"severity": 2,
-					"line": 486,
+					"line": 520,
 					"column": 5
 				},
 				{
 					"ruleId": null,
 					"severity": 2,
-					"line": 490,
+					"line": 524,
 					"column": 5
 				},
 				{
 					"ruleId": null,
 					"severity": 2,
-					"line": 494,
+					"line": 528,
 					"column": 5
 				},
 				{
 					"ruleId": "@typescript-eslint/no-explicit-any",
 					"severity": 2,
-					"line": 503,
+					"line": 537,
 					"column": 39
 				},
 				{
 					"ruleId": "@typescript-eslint/no-explicit-any",
 					"severity": 2,
-					"line": 510,
+					"line": 544,
 					"column": 11
 				},
 				{
 					"ruleId": "@typescript-eslint/no-explicit-any",
 					"severity": 2,
-					"line": 522,
+					"line": 556,
 					"column": 43
 				},
 				{
 					"ruleId": "@typescript-eslint/no-explicit-any",
 					"severity": 2,
-					"line": 523,
+					"line": 557,
 					"column": 33
 				},
 				{
 					"ruleId": "react-hooks/exhaustive-deps",
 					"severity": 1,
-					"line": 735,
+					"line": 785,
 					"column": 5
 				}
 			]
@@ -381,19 +368,6 @@
 			]
 		},
 		{
-			"file": "src/app/render/renderColor.ts",
-			"errors": 1,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "opencut/prefer-object-params",
-					"severity": 2,
-					"line": 68,
-					"column": 8
-				}
-			]
-		},
-		{
 			"file": "src/blog/query.ts",
 			"errors": 1,
 			"warnings": 0,
@@ -403,6 +377,25 @@
 					"severity": 2,
 					"line": 77,
 					"column": 10
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/captionJobLifecycle.ts",
+			"errors": 2,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 85,
+					"column": 8
+				},
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 127,
+					"column": 8
 				}
 			]
 		},
@@ -491,6 +484,32 @@
 			]
 		},
 		{
+			"file": "src/capinsta/jobPolling.test.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 262,
+					"column": 16
+				}
+			]
+		},
+		{
+			"file": "src/capinsta/jobPolling.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "opencut/prefer-object-params",
+					"severity": 2,
+					"line": 121,
+					"column": 24
+				}
+			]
+		},
+		{
 			"file": "src/capinsta/useProjectHeartbeat.ts",
 			"errors": 1,
 			"warnings": 0,
@@ -498,7 +517,7 @@
 				{
 					"ruleId": "react-hooks/set-state-in-effect",
 					"severity": 2,
-					"line": 36,
+					"line": 50,
 					"column": 3
 				}
 			]
@@ -655,44 +674,6 @@
 					"severity": 2,
 					"line": 24,
 					"column": 3
-				}
-			]
-		},
-		{
-			"file": "src/components/editor/panels/assets/assets-panel-store.tsx",
-			"errors": 1,
-			"warnings": 1,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unused-vars",
-					"severity": 1,
-					"line": 12,
-					"column": 2
-				},
-				{
-					"ruleId": "react/display-name",
-					"severity": 2,
-					"line": 30,
-					"column": 2
-				}
-			]
-		},
-		{
-			"file": "src/components/editor/panels/assets/views/settings/background.tsx",
-			"errors": 2,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 215,
-					"column": 6
-				},
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 220,
-					"column": 6
 				}
 			]
 		},
@@ -858,7 +839,7 @@
 				{
 					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
 					"severity": 2,
-					"line": 622,
+					"line": 645,
 					"column": 24
 				}
 			]
@@ -898,19 +879,6 @@
 					"severity": 2,
 					"line": 46,
 					"column": 19
-				}
-			]
-		},
-		{
-			"file": "src/feedback/components/feedback-popover.tsx",
-			"errors": 0,
-			"warnings": 1,
-			"messages": [
-				{
-					"ruleId": "react-hooks/incompatible-library",
-					"severity": 1,
-					"line": 206,
-					"column": 10
 				}
 			]
 		},
@@ -1298,25 +1266,6 @@
 			]
 		},
 		{
-			"file": "src/services/renderer/scene-builder.ts",
-			"errors": 2,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 154,
-					"column": 19
-				},
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 154,
-					"column": 36
-				}
-			]
-		},
-		{
 			"file": "src/services/storage/components/storage-persistence-dialog.tsx",
 			"errors": 1,
 			"warnings": 0,
@@ -1358,19 +1307,6 @@
 					"severity": 1,
 					"line": 60,
 					"column": 11
-				}
-			]
-		},
-		{
-			"file": "src/services/storage/opfs-adapter.ts",
-			"errors": 0,
-			"warnings": 1,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unused-vars",
-					"severity": 1,
-					"line": 87,
-					"column": 12
 				}
 			]
 		},
@@ -1458,6 +1394,19 @@
 			]
 		},
 		{
+			"file": "src/subtitles/components/assets-view.tsx",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-explicit-any",
+					"severity": 2,
+					"line": 496,
+					"column": 18
+				}
+			]
+		},
+		{
 			"file": "src/subtitles/components/caption-editor-panel.tsx",
 			"errors": 6,
 			"warnings": 0,
@@ -1497,6 +1446,19 @@
 					"severity": 2,
 					"line": 413,
 					"column": 9
+				}
+			]
+		},
+		{
+			"file": "src/templates/persistence.test.ts",
+			"errors": 1,
+			"warnings": 0,
+			"messages": [
+				{
+					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
+					"severity": 2,
+					"line": 53,
+					"column": 13
 				}
 			]
 		},

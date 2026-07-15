@@ -24,6 +24,9 @@ export function AdminMutationPanel({
 }: {
   action:
     | "user.suspend"
+	| "user.restrict"
+	| "user.ban"
+	| "user.security_block"
     | "user.restore"
     | "security.unblock"
     | "access.user.approve"

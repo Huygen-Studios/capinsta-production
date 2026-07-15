@@ -12,6 +12,8 @@ import { AdminSupportControls } from "./admin-support-controls";
 import { AdminProjectControls } from "./admin-project-controls";
 import { AdminProductAccessPanel } from "./admin-product-access-panel";
 import { getUserProductAccess } from "@/admin/product-access";
+import { evaluateProductAccess } from "@/access/decision";
+import { isSiteAccessMode } from "@/access/permissions";
 
 export async function AdminDetailPage({
   module,
@@ -33,6 +35,12 @@ export async function AdminDetailPage({
       context.permissions.has("access.manage_users"))
       ? await getUserProductAccess(id).catch(() => null)
       : null;
+	const effectiveDecision = module === "users" ? evaluateProductAccess({
+		launchMode: launchModeFor(record.currentLaunchMode),
+		user: { accountStatus: String(record.accountStatus), isAdmin: Boolean(record.effectiveAdmin), isSuperAdmin: String(record.effectiveAdminRoles ?? "").includes("super_admin"), hasMaintenanceBypass: false },
+		entitlement: { status: record.productAccessStatus === "approved" || record.productAccessStatus === "pending" || record.productAccessStatus === "revoked" ? record.productAccessStatus : "missing", expired: Boolean(productAccess?.products.some((product) => product.state === "Expired")), hasCapabilityGrant: Boolean(productAccess?.products.some((product) => product.state === "Granted")), hasCapabilityRevocation: Boolean(productAccess?.products.some((product) => product.entitlementStatus === "revoked")) },
+		restriction: null, requestedCapability: "open_editor",
+	}) : null;
   return (
     <>
       <AdminPageHeader
@@ -59,16 +67,17 @@ export async function AdminDetailPage({
           ))}
         </CardContent>
       </Card>
+	  {effectiveDecision ? <Card className="mt-4 border-2"><CardContent className="grid gap-3 p-4 sm:grid-cols-3"><div><p className="text-xs uppercase text-muted-foreground">Effective product access</p><p className="font-semibold">{effectiveDecision.allowed ? "Allowed" : "Denied"}</p></div><div><p className="text-xs uppercase text-muted-foreground">Decision reason</p><p className="font-mono text-sm">{effectiveDecision.reasonCode}</p></div><div><p className="text-xs uppercase text-muted-foreground">Launch mode</p><p className="font-mono text-sm">{effectiveDecision.effectiveLaunchMode}</p></div></CardContent></Card> : null}
       {module === "users" &&
       record.accountStatus === "active" &&
       context.permissions.has("users.suspend") ? (
-        <AdminMutationPanel
+		<div className="mt-6 grid gap-4 lg:grid-cols-3"><AdminMutationPanel
           action="user.suspend"
           targetId={id}
           title="Suspend application access"
           description="Immediately denies Capinsta application and admin access. A recent MFA verification and audit reason are required."
           confirmText={id}
-        />
+		/><AdminMutationPanel action="user.restrict" targetId={id} title="Restrict product access" description="Blocks all product capabilities without deleting the account or projects." confirmText={id} /><AdminMutationPanel action="user.ban" targetId={id} title="Ban account" description="Explicitly bans product access in every launch mode for normal users." confirmText={id} /></div>
       ) : null}
       {module === "users" ? (
         <AdminUserControls
@@ -215,7 +224,7 @@ export async function AdminDetailPage({
         />
       ) : null}
       {module === "users" &&
-      record.accountStatus === "suspended" &&
+      record.accountStatus !== "active" &&
       context.permissions.has("users.restore") ? (
         <AdminMutationPanel
           action="user.restore"
@@ -233,4 +242,9 @@ function humanize(value: string) {
   return value
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function launchModeFor(value: unknown) {
+  const mode = String(value);
+  return isSiteAccessMode(mode) ? mode : "public";
 }

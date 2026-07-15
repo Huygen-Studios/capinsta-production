@@ -32,6 +32,7 @@ export function AdminSiteModeForm({
 				action: "access.site_mode.update",
 				targetId: "global",
 				mode,
+				confirmation: typed,
 				reason,
 			}),
 		});

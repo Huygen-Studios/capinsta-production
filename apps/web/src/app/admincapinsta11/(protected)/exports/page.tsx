@@ -2,7 +2,7 @@ import { AdminModulePage } from "@/components/admin/admin-module-page";
 export default function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; q?: string }>;
+  searchParams: Promise<{ page?: string; q?: string; sort?: string }>;
 }) {
   return (
     <AdminModulePage

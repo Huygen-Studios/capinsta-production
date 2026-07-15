@@ -17,6 +17,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { AdminUsersProductAccessTable } from "./admin-users-product-access-table";
+import { AdminRefreshControls } from "./admin-refresh-controls";
+import { adminRoutes } from "@/admin/routes";
+
+const SORT_OPTIONS: Record<string, Array<[string, string]>> = {
+	users: [["newest", "Newest"], ["oldest", "Oldest"], ["email", "Email"], ["access_status", "Access status"], ["last_activity", "Last activity"]],
+	"caption-jobs": [["newest", "Newest"], ["oldest", "Oldest"], ["running_first", "Running first"], ["failed_first", "Failed first"], ["longest_duration", "Longest duration"], ["shortest_duration", "Shortest duration"]],
+	exports: [["newest", "Newest"], ["oldest", "Oldest"], ["queued_first", "Queued first"], ["failed_first", "Failed first"], ["longest_duration", "Longest duration"], ["shortest_duration", "Shortest duration"]],
+	projects: [["newest", "Newest"], ["oldest", "Oldest"], ["recently_active", "Recently active"], ["nearing_expiry", "Nearing expiry"], ["owner", "Owner"]],
+	security: [["newest", "Newest"], ["oldest", "Oldest"], ["severity", "Severity"], ["unresolved", "Unresolved"], ["user", "User"]],
+};
 
 export async function AdminModulePage({
   module,
@@ -30,20 +40,21 @@ export async function AdminModulePage({
   title: string;
   description: string;
   permission: AdminPermission;
-  searchParams: Promise<{ page?: string; q?: string }>;
+  searchParams: Promise<{ page?: string; q?: string; sort?: string }>;
   detailLinks?: boolean;
 }) {
   await requireAdminPermission(permission);
   const params = await searchParams;
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-  const data = await getAdminModuleRows({ module, page, query: params.q });
+  const sort = params.sort ?? "newest";
+  const data = await getAdminModuleRows({ module, page, query: params.q, sort });
   const columns = data.rows[0] ? Object.keys(data.rows[0]) : [];
   const totalPages = Math.max(1, Math.ceil(data.total / ADMIN_PAGE_SIZE));
 
   return (
     <>
       <AdminPageHeader title={title} description={description} />
-      <form className="mb-4 flex max-w-xl gap-2">
+      <div className="sticky top-16 z-10 mb-4 flex flex-wrap items-center gap-3 rounded-md border-2 bg-background/95 p-3 backdrop-blur"><form className="flex max-w-xl flex-1 gap-2">
         <div className="relative flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -59,7 +70,8 @@ export async function AdminModulePage({
         <Button type="submit" variant="secondary">
           Search
         </Button>
-      </form>
+        {SORT_OPTIONS[module] ? <select aria-label="Sort records" name="sort" defaultValue={sort} className="h-9 rounded-sm border-2 bg-background px-3 text-sm font-semibold">{SORT_OPTIONS[module].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select> : null}
+      </form><AdminRefreshControls /></div>
       <Card className="overflow-hidden border-2 shadow-[3px_3px_0_color-mix(in_srgb,var(--primary)_45%,transparent)]">
         <CardContent className="p-0">
           {data.rows.length ? (
@@ -83,10 +95,11 @@ export async function AdminModulePage({
                 </TableHeader>
                 <TableBody>
                   {data.rows.map((row, rowIndex) => {
-                    const detailHref =
+                    const detailHref = module === "security" && row.recordType === "user" && row.user
+                      ? adminRoutes.userSecurity({ userId: String(row.user) }) :
                       row.id === null || row.id === undefined
                         ? null
-                        : `/admincapinsta11/${module}/${encodeURIComponent(String(row.id))}`;
+                        : adminRoutes.detail({ module, id: String(row.id) });
                     return (
                       <TableRow key={String(row.id ?? rowIndex)}>
                         {columns.map((column) => (
@@ -149,7 +162,7 @@ export async function AdminModulePage({
           <Button asChild size="sm" variant="outline" disabled={page <= 1}>
             <Link
               aria-disabled={page <= 1}
-              href={`?page=${Math.max(1, page - 1)}&q=${encodeURIComponent(params.q ?? "")}`}
+              href={`?page=${Math.max(1, page - 1)}&q=${encodeURIComponent(params.q ?? "")}&sort=${encodeURIComponent(sort)}`}
             >
               <ChevronLeft aria-hidden="true" /> Previous
             </Link>
@@ -165,7 +178,7 @@ export async function AdminModulePage({
           >
             <Link
               aria-disabled={page >= totalPages}
-              href={`?page=${Math.min(totalPages, page + 1)}&q=${encodeURIComponent(params.q ?? "")}`}
+              href={`?page=${Math.min(totalPages, page + 1)}&q=${encodeURIComponent(params.q ?? "")}&sort=${encodeURIComponent(sort)}`}
             >
               Next <ChevronRight aria-hidden="true" />
             </Link>

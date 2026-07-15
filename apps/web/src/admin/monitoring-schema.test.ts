@@ -59,3 +59,15 @@ describe("monitoring migration", () => {
 		expect(sql).toContain("WHERE status IN ('completed', 'succeeded', 'failed', 'cancelled'");
 	});
 });
+
+describe("public launch access migration", () => {
+	test("adds explicit restriction states and operational indexes without rewriting users", () => {
+		const sql = readFileSync(join(repoRoot, "migrations", "0012_public_launch_access_and_admin_indexes.sql"), "utf8");
+		for (const status of ["restricted", "banned", "security_blocked", "disabled"]) expect(sql).toContain(status);
+		expect(sql).toContain("NOT VALID");
+		expect(sql).toContain("VALIDATE CONSTRAINT");
+		expect(sql).not.toMatch(/delete\s+from\s+public\.profiles/i);
+		expect(sql).not.toMatch(/update\s+public\.profiles/i);
+		expect(sql).toContain("admin_audit_target_created_idx");
+	});
+});
