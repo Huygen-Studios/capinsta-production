@@ -31,7 +31,7 @@ export function readableAuthError(
 		return "This authentication link is invalid or has expired.";
 	}
 	if (message.includes("password")) {
-		return "Please use a stronger password with at least 15 characters.";
+		return "Please use a password with at least 6 characters, one number, and one symbol.";
 	}
 	return fallback;
 }

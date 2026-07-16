@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { readableAuthError } from "@/auth/messages";
-import { validatePasswordLength } from "@/auth/password-policy";
+import { PASSWORD_POLICY, validatePassword } from "@/auth/password-policy";
 import { createClient } from "@/lib/supabase/client";
 import {
   AuthError,
@@ -39,7 +39,7 @@ export function SignUpForm({
     setError(null);
     if (!fullName.trim()) return setError("Enter your full name.");
     if (!email.includes("@")) return setError("Enter a valid email address.");
-    const passwordError = validatePasswordLength(password);
+    const passwordError = validatePassword(password);
     if (passwordError) return setError(passwordError);
     if (password !== confirmPassword)
       return setError("Passwords do not match.");
@@ -136,6 +136,7 @@ export function SignUpForm({
             value={password}
             onChange={setPassword}
             autoComplete="new-password"
+            hint={PASSWORD_POLICY.requirementsMessage}
           />
           <PasswordField
             id="confirm-password"

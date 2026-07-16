@@ -90,6 +90,7 @@ export function SignInForm({
 						value={password}
 						onChange={setPassword}
 						autoComplete="current-password"
+						minLength={1}
 					/>
 					<div className="text-right">
 						<Link href="/forgot-password" className="text-sm font-semibold text-primary hover:underline">

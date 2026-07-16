@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { readableAuthError } from "@/auth/messages";
-import { validatePasswordLength } from "@/auth/password-policy";
+import { PASSWORD_POLICY, validatePassword } from "@/auth/password-policy";
 import { createClient } from "@/lib/supabase/client";
 import { AuthError, AuthShell, primaryAuthButtonClass } from "@/components/auth/auth-shell";
 import { PasswordField } from "@/components/auth/password-field";
@@ -36,7 +36,7 @@ export function ResetPasswordForm() {
 	const submit = async (event: React.FormEvent) => {
 		event.preventDefault();
 		if (loading) return;
-		const passwordError = validatePasswordLength(password);
+		const passwordError = validatePassword(password);
 		if (passwordError) return setError(passwordError);
 		if (password !== confirmPassword) return setError("Passwords do not match.");
 		setLoading(true);
@@ -72,7 +72,14 @@ export function ResetPasswordForm() {
 		<AuthShell title="Set a new password" description="Choose a strong password you have not used before.">
 			<AuthError message={error} />
 			<form className="mt-4 space-y-4" onSubmit={(event) => void submit(event)}>
-				<PasswordField id="password" label="New password" value={password} onChange={setPassword} autoComplete="new-password" />
+				<PasswordField
+					id="password"
+					label="New password"
+					value={password}
+					onChange={setPassword}
+					autoComplete="new-password"
+					hint={PASSWORD_POLICY.requirementsMessage}
+				/>
 				<PasswordField id="confirm-password" label="Confirm password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
 				<button className={primaryAuthButtonClass} disabled={loading}>{loading ? "Updating..." : "Update password"}</button>
 			</form>

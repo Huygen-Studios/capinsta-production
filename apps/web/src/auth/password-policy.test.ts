@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readableAuthError, GENERIC_LOGIN_ERROR } from "./messages";
-import { PASSWORD_POLICY, validatePasswordLength } from "./password-policy";
+import { PASSWORD_POLICY, validatePassword } from "./password-policy";
 
 describe("auth hardening policy", () => {
 	test("maps login-related provider failures to one generic response", () => {
@@ -19,9 +19,17 @@ describe("auth hardening policy", () => {
 		);
 	});
 
-	test("enforces new password minimum and hard maximum without truncation", () => {
-		expect(validatePasswordLength("short")).toBe(PASSWORD_POLICY.tooShortMessage);
-		expect(validatePasswordLength("x".repeat(PASSWORD_POLICY.maxLength + 1))).toBe(PASSWORD_POLICY.tooLongMessage);
-		expect(validatePasswordLength("x".repeat(PASSWORD_POLICY.minLength))).toBeNull();
+	test("requires six characters, a number, and a symbol", () => {
+		expect(validatePassword("Ab1!")).toBe(PASSWORD_POLICY.tooShortMessage);
+		expect(validatePassword("abcdef!")).toBe(PASSWORD_POLICY.missingNumberMessage);
+		expect(validatePassword("abcdef1")).toBe(PASSWORD_POLICY.missingSymbolMessage);
+		expect(validatePassword("abcd1!")).toBeNull();
+	});
+
+	test("enforces the hard maximum without truncation", () => {
+		expect(validatePassword(`1!${"x".repeat(PASSWORD_POLICY.maxLength - 2)}`)).toBeNull();
+		expect(validatePassword(`1!${"x".repeat(PASSWORD_POLICY.maxLength - 1)}`)).toBe(
+			PASSWORD_POLICY.tooLongMessage,
+		);
 	});
 });

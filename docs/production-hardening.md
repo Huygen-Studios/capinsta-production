@@ -18,7 +18,7 @@ This repository now contains application-side controls for safer production oper
 - Caption job idempotency conflict detection for duplicate transcription starts.
 - `/api/v1` aliases for backend API routes while preserving existing `/api` compatibility.
 - Signed cursor pagination for versioned caption-job and export-job list endpoints.
-- Password UX policy for new passwords: 15 character minimum, 128 character hard maximum, no truncation.
+- Password UX policy for new passwords: 6 character minimum with at least one number and one symbol, 128 character hard maximum, no truncation.
 - Generic user-facing login errors to reduce account enumeration.
 - Caption timing preservation: estimated timing remains telemetry only; structural timing failures remain blocking.
 

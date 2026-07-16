@@ -11,6 +11,7 @@ export function PasswordField({
 	value,
 	onChange,
 	autoComplete,
+	hint,
 	minLength = PASSWORD_POLICY.minLength,
 	maxLength = PASSWORD_POLICY.maxLength,
 }: {
@@ -19,6 +20,7 @@ export function PasswordField({
 	value: string;
 	onChange: (value: string) => void;
 	autoComplete: string;
+	hint?: string;
 	minLength?: number;
 	maxLength?: number;
 }) {
@@ -48,6 +50,9 @@ export function PasswordField({
 					{visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
 				</button>
 			</span>
+			{hint ? (
+				<span className="mt-1 block text-xs font-normal text-muted-foreground">{hint}</span>
+			) : null}
 		</label>
 	);
 }
