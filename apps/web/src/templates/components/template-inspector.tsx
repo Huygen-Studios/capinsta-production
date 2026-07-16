@@ -110,7 +110,7 @@ export function TemplateInspector({
 					parameter={
 						definition.parameters.find((item) => item.id === "frameRatio")!
 					}
-					value={element.templateParams.frameRatio ?? "1:1"}
+					value={element.templateParams.frameRatio ?? "project"}
 					onChange={(value) => updateParam({ key: "frameRatio", value })}
 				/>
 			</Section>

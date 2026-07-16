@@ -183,7 +183,7 @@ async function setupEditor(): Promise<{
 			originalCanvasSize: null,
 			background: { type: "color", color: "transparent" },
 		},
-		version: 33,
+		version: 34,
 	};
 	editor.project.setActiveProject({ project });
 	editor.scenes.initializeScenes({ scenes: [scene], currentSceneId: scene.id });

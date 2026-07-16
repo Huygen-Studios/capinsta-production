@@ -59,7 +59,7 @@ describe("V31 to V32 Migration", () => {
 		const overlayTrack = asRecordArray(asRecord(scene.tracks).overlay)[0];
 		const overlay = asRecordArray(overlayTrack.elements);
 		const element = overlay[0];
-		expect(element.templateVersion).toBe(1);
+		expect(element.templateVersion).toBe(2);
 		expect(element.slotOrder).toEqual([
 			"slot-3",
 			"slot-1",
@@ -78,7 +78,8 @@ describe("V31 to V32 Migration", () => {
 		const params = asRecord(element.templateParams);
 		expect(params.cycleDuration).toBe(1);
 		expect(params.cardRatio).toBe("1:1");
-		expect(params.frameRatio).toBe("1:1");
+		expect(params.frameRatio).toBe("project");
+		expect(params.backgroundEnabled).toBe(false);
 		expect(params.easing).toBe("smooth");
 		expect(params.shadowOpacity).toBe(0.3);
 	});

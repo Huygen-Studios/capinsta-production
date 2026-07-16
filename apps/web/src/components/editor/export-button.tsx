@@ -31,6 +31,12 @@ import {
 import { useEditor } from "@/editor/use-editor";
 import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
 import { normalizeExportHexColor } from "@/export/color";
+import { frameRateToFloat } from "@/fps/utils";
+import {
+	normalizeProjectExportFps,
+	resolveExportCanvasSize,
+	resolveExportFps,
+} from "@/export/project-defaults";
 
 const BACKGROUND_PRESETS = [
 	{ label: "Green", value: "#00FF00" },
@@ -124,8 +130,11 @@ function ExportDialog({
 		DEFAULT_EXPORT_OPTIONS.backgroundColor,
 	);
 	const [exportMode, setExportMode] = useState<ExportMode>("full_video");
-	const [resolutionIndex, setResolutionIndex] = useState(0);
-	const [fps, setFps] = useState<(typeof FPS_OPTIONS)[number]>(30);
+	const [resolutionOverride, setResolutionOverride] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
+	const [fpsOverride, setFpsOverride] = useState<number | null>(null);
 	const [quality, setQuality] =
 		useState<Extract<ExportQuality, "fast" | "balanced" | "high">>("balanced");
 	const [includeAudio, setIncludeAudio] = useState(true);
@@ -135,7 +144,36 @@ function ExportDialog({
 		return null;
 	}
 
-	const selectedResolution = RESOLUTION_PRESETS[resolutionIndex];
+	const projectCanvasSize = activeProject.settings.canvasSize;
+	const selectedResolution = resolveExportCanvasSize({
+		projectCanvasSize,
+		override: resolutionOverride,
+	});
+	const projectFps = normalizeProjectExportFps({
+		fps: frameRateToFloat(activeProject.settings.fps),
+	});
+	const fps = resolveExportFps({ projectFps, override: fpsOverride });
+	const resolutionOptions = [
+		{
+			label: `${projectCanvasSize.width}x${projectCanvasSize.height}`,
+			detail: "Project",
+			width: projectCanvasSize.width,
+			height: projectCanvasSize.height,
+			isProject: true,
+		},
+		...RESOLUTION_PRESETS.filter(
+			(preset) =>
+				preset.width !== projectCanvasSize.width ||
+				preset.height !== projectCanvasSize.height,
+		).map((preset) => ({ ...preset, isProject: false })),
+	];
+	const fpsOptions = [
+		{ value: projectFps, isProject: true },
+		...FPS_OPTIONS.filter((value) => value !== projectFps).map((value) => ({
+			value,
+			isProject: false,
+		})),
+	];
 	const exportResult = exportState.result;
 
 	const applyBackgroundColor = (value: string) => {
@@ -360,11 +398,22 @@ function ExportDialog({
 								description="Pick the canvas that matches your edit."
 							>
 								<div className="grid grid-cols-2 gap-2">
-									{RESOLUTION_PRESETS.map((preset, index) => (
+									{resolutionOptions.map((preset) => (
 										<ChoiceButton
-											key={`${preset.width}x${preset.height}`}
-											selected={resolutionIndex === index}
-											onClick={() => setResolutionIndex(index)}
+											key={`${preset.isProject ? "project" : "preset"}:${preset.width}x${preset.height}`}
+											selected={
+												preset.isProject
+													? resolutionOverride === null
+													: resolutionOverride?.width === preset.width &&
+														resolutionOverride.height === preset.height
+											}
+											onClick={() =>
+												setResolutionOverride(
+													preset.isProject
+														? null
+														: { width: preset.width, height: preset.height },
+												)
+											}
 											className="h-auto items-start justify-start px-3 py-2.5"
 										>
 											<span className="flex flex-col items-start">
@@ -383,15 +432,24 @@ function ExportDialog({
 								description="Controls the exported composition frame rate."
 							>
 								<div className="grid grid-cols-2 gap-2">
-									{FPS_OPTIONS.map((value) => (
+									{fpsOptions.map((option) => (
 										<ChoiceButton
-											key={value}
-											selected={fps === value}
-											onClick={() => setFps(value)}
+											key={`${option.isProject ? "project" : "preset"}:${option.value}`}
+											selected={
+												option.isProject
+													? fpsOverride === null
+													: fpsOverride === option.value
+											}
+											onClick={() =>
+												setFpsOverride(option.isProject ? null : option.value)
+											}
 										>
 											<span className="flex flex-col">
-												<span>{value} FPS</span>
-												{value === 60 ? (
+												<span>
+													{option.value} FPS
+													{option.isProject ? " · Project" : ""}
+												</span>
+												{option.value === 60 ? (
 													<span className="text-[10px] font-normal text-muted-foreground">
 														Smoother motion
 													</span>

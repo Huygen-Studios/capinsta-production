@@ -5,6 +5,7 @@ import {
 	normalizeTemplateSlotOrder,
 	projectedCardScaleX,
 	projectedCardScaleY,
+	resolveTemplateFrameAppearance,
 	resolveTemplatePhase,
 	templateFrameRatioForCanvas,
 	templateDefinitions,
@@ -25,6 +26,35 @@ describe("motion template registry", () => {
 				definition.mediaSlots.length,
 			);
 		}
+	});
+
+	test("new templates inherit the project frame and render transparently", () => {
+		for (const definition of templateDefinitions) {
+			expect(definition.version).toBe(2);
+			expect(definition.defaults.frameRatio).toBe("project");
+			expect(definition.defaults.backgroundEnabled).toBe(false);
+		}
+	});
+
+	test("frame appearance follows project settings until explicitly overridden", () => {
+		expect(
+			resolveTemplateFrameAppearance({
+				templateVersion: 1,
+				params: { frameRatio: "1:1", background: "#101014" },
+				canvasSize: { width: 1920, height: 1080 },
+			}),
+		).toEqual({ ratio: 16 / 9, backgroundColor: null });
+		expect(
+			resolveTemplateFrameAppearance({
+				templateVersion: 2,
+				params: {
+					frameRatio: "4:5",
+					backgroundEnabled: true,
+					background: "#123456",
+				},
+				canvasSize: { width: 1920, height: 1080 },
+			}),
+		).toEqual({ ratio: 4 / 5, backgroundColor: "#123456" });
 	});
 
 	test("maps project canvas dimensions to template frame ratios", () => {

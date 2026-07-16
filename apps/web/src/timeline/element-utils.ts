@@ -229,7 +229,7 @@ export function buildMotionTemplateElement({
 		slotOrder: normalizeTemplateSlotOrder({ definition }),
 		templateParams: {
 			...definition.defaults,
-			...(frameRatio ? { frameRatio } : {}),
+			...(frameRatio && frameRatio !== "project" ? { frameRatio } : {}),
 		},
 		duration: mediaTimeFromSeconds({ seconds: definition.defaultDuration }),
 		startTime,

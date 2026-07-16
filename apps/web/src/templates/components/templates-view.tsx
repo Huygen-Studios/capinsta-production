@@ -15,7 +15,6 @@ import {
 	evaluateTemplateScene,
 	projectedCardScaleX,
 	projectedCardScaleY,
-	templateFrameRatioForCanvas,
 	templateDefinitions,
 	type MotionTemplateDefinition,
 	type TemplateCategory,
@@ -67,13 +66,9 @@ export function TemplatesView() {
 	}
 
 	const add = ({ templateId }: { templateId: string }) => {
-		const canvasSize = editor.project.getActive()?.settings.canvasSize;
 		const element = buildMotionTemplateElement({
 			templateId,
 			startTime: editor.playback.getCurrentTime(),
-			...(canvasSize
-				? { frameRatio: templateFrameRatioForCanvas(canvasSize) }
-				: {}),
 		});
 		editor.timeline.insertElement({ element, placement: { mode: "auto" } });
 	};
@@ -154,7 +149,6 @@ function TemplateCard({
 	onAdd: () => void;
 }) {
 	const editor = useEditor();
-	const canvasSize = editor.project.getActive()?.settings.canvasSize;
 	return (
 		<button
 			type="button"
@@ -166,9 +160,6 @@ function TemplateCard({
 					dataTransfer: event.dataTransfer,
 					dragData: createMotionTemplateDragData({
 						definition,
-						...(canvasSize
-							? { frameRatio: templateFrameRatioForCanvas(canvasSize) }
-							: {}),
 					}),
 				})
 			}

@@ -4,7 +4,7 @@ import {
 	findTemplateDefinition,
 	projectedCardScaleX,
 	projectedCardScaleY,
-	ratioValue,
+	resolveTemplateFrameAppearance,
 	type TemplateMediaFit,
 } from "@/templates";
 import type {
@@ -64,17 +64,20 @@ export async function resolveMotionTemplateSource({
 	if (!definition) return null;
 
 	const { canvas, context } = createCanvasSurface({ width, height });
+	const appearance = resolveTemplateFrameAppearance({
+		templateVersion: element.templateVersion,
+		params: element.templateParams,
+		canvasSize: { width, height },
+	});
 	const frame = templateFrameRect({
 		width,
 		height,
-		ratio: ratioValue({ value: element.templateParams.frameRatio }),
+		ratio: appearance.ratio,
 	});
-	const background =
-		typeof element.templateParams.background === "string"
-			? element.templateParams.background
-			: "#101014";
-	context.fillStyle = background;
-	context.fillRect(frame.x, frame.y, frame.width, frame.height);
+	if (appearance.backgroundColor) {
+		context.fillStyle = appearance.backgroundColor;
+		context.fillRect(frame.x, frame.y, frame.width, frame.height);
+	}
 
 	const layers = evaluateTemplateScene({
 		element,

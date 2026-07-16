@@ -14,7 +14,7 @@ const easingValues = new Set([
 	"elastic",
 	"linear",
 ]);
-const frameRatios = new Set(["16:9", "4:3", "1:1", "4:5", "9:16"]);
+const frameRatios = new Set(["project", "16:9", "4:3", "1:1", "4:5", "9:16"]);
 const cardRatios = new Set(["1:1", "4:3", "3:4", "16:9", "9:16"]);
 
 export function normalizeTemplateParams({

@@ -7,7 +7,13 @@ export type TemplateCategory =
 
 export type TemplateMediaFit = "cover" | "contain" | "fill";
 export type TemplatePlaybackMode = "loop" | "freeze" | "trim";
-export type TemplateFrameRatio = "16:9" | "4:3" | "1:1" | "4:5" | "9:16";
+export type TemplateFrameRatio =
+	| "project"
+	| "16:9"
+	| "4:3"
+	| "1:1"
+	| "4:5"
+	| "9:16";
 export type TemplateCardRatio = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 export type TemplateParameterDefinition = {
@@ -58,8 +64,11 @@ const commonParameters: TemplateParameterDefinition[] = [
 		label: "Frame",
 		group: "frame",
 		type: "select",
-		default: "1:1",
-		options: aspectRatios.map((value) => ({ label: value, value })),
+		default: "project",
+		options: [
+			{ label: "Project canvas", value: "project" },
+			...aspectRatios.map((value) => ({ label: value, value })),
+		],
 	},
 	{
 		id: "cycleDuration",
@@ -84,8 +93,15 @@ const commonParameters: TemplateParameterDefinition[] = [
 		],
 	},
 	{
-		id: "background",
+		id: "backgroundEnabled",
 		label: "Background",
+		group: "appearance",
+		type: "boolean",
+		default: false,
+	},
+	{
+		id: "background",
+		label: "Background colour",
 		group: "appearance",
 		type: "color",
 		default: "#101014",
@@ -289,6 +305,7 @@ const rotationTemplateIds = new Set([
 
 const rendererParameterIds = new Set([
 	"frameRatio",
+	"backgroundEnabled",
 	"background",
 	"padding",
 	"cornerRadius",
@@ -407,7 +424,7 @@ export const templateDefinitions: MotionTemplateDefinition[] = catalog.map(
 		name,
 		description,
 		category,
-		version: 1,
+		version: 2,
 		defaultDuration: 5,
 		allowSlotReorder: true,
 		mediaSlots: Array.from({ length: slotCount }, (_, index) => ({
@@ -415,7 +432,8 @@ export const templateDefinitions: MotionTemplateDefinition[] = catalog.map(
 			label: `Slot ${index + 1}`,
 		})),
 		defaults: {
-			frameRatio: "1:1",
+			frameRatio: "project",
+			backgroundEnabled: false,
 			background: "#101014",
 			padding: 0.06,
 			cornerRadius: 0.04,
@@ -448,6 +466,7 @@ function templateParametersFor({
 		"frameRatio",
 		"cycleDuration",
 		"direction",
+		"backgroundEnabled",
 		"background",
 		"padding",
 		"cornerRadius",
@@ -960,6 +979,35 @@ export function ratioValue({ value }: { value: unknown }): number {
 					: value === "9:16"
 						? 9 / 16
 						: 1;
+}
+
+export function resolveTemplateFrameAppearance({
+	templateVersion,
+	params,
+	canvasSize,
+}: {
+	templateVersion: number;
+	params: Record<string, unknown>;
+	canvasSize: { width: number; height: number };
+}): { ratio: number; backgroundColor: string | null } {
+	const canvasRatio =
+		Number.isFinite(canvasSize.width) &&
+		Number.isFinite(canvasSize.height) &&
+		canvasSize.width > 0 &&
+		canvasSize.height > 0
+			? canvasSize.width / canvasSize.height
+			: 1;
+	const frameRatio = templateVersion < 2 ? "project" : params.frameRatio;
+	return {
+		ratio:
+			frameRatio === "project"
+				? canvasRatio
+				: ratioValue({ value: frameRatio }),
+		backgroundColor:
+			params.backgroundEnabled === true && typeof params.background === "string"
+				? params.background
+				: null,
+	};
 }
 
 export function templateFrameRatioForCanvas({
