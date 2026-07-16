@@ -788,6 +788,39 @@ def test_stable_ts_phrase_fallback_disables_active_word_highlighting(monkeypatch
     assert result.segments[0]["timingQualityMode"] == "phrase_timed_fallback"
 
 
+def test_stable_ts_concurrency_wait_defaults_to_thirty_seconds(monkeypatch):
+    class BusySemaphore:
+        def __init__(self):
+            self.timeout = None
+
+        def acquire(self, *, timeout):
+            self.timeout = timeout
+            return False
+
+    semaphore = BusySemaphore()
+    monkeypatch.delenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: True)
+    monkeypatch.setattr(stable_refine, "_cache_dir_writable", lambda _path: True)
+    monkeypatch.setattr(stable_refine, "_ALIGNMENT_SEMAPHORE", semaphore)
+
+    result = stable_refine.apply_stable_refinement(
+        [
+            {
+                "text": "hello",
+                "start": 0.0,
+                "end": 1.0,
+                "words": [{"word": "hello", "start": 0.0, "end": 0.5}],
+            }
+        ],
+        "audio.wav",
+        "english",
+        config={"enabled": True, "audioDurationSeconds": 1.0},
+    )
+
+    assert semaphore.timeout == 30.0
+    assert result.report["errorCategory"] == "stable_ts_timeout"
+
+
 def test_stable_ts_recovery_uses_vad_speech_range_when_segment_anchor_is_missing(monkeypatch):
     monkeypatch.setattr(stable_refine, "stable_ts_available", lambda: False)
 

@@ -29,7 +29,11 @@ from .sync.aligned_words import (
     sanitize_aligned_word_ranges,
 )
 from .sync.auto_sync import apply_auto_sync_if_confident
-from .sync.final_quality_gate import TimingQualityError, validate_final_timing_quality
+from .sync.final_quality_gate import (
+    TimingQualityError,
+    has_timed_caption_content,
+    validate_final_timing_quality,
+)
 from .sync.report import SyncPassResult, build_sync_report
 from .sync.stable_refine import apply_stable_refinement, resolved_stable_ts_config
 from .sync.pause_preserver import preserve_detected_pauses
@@ -1129,6 +1133,12 @@ def run_pipeline(
                 )
 
             clamped_segments = normalize_aligned_segments(clamped_segments, language_mode)
+
+        if not has_timed_caption_content(clamped_segments):
+            raise TranscriptValidationError(
+                "no_timed_caption_content: Caption transcription produced no usable timed speech. "
+                "Check that the selected media has an audible speech track and retry."
+            )
 
         emit_progress("normalizing", 88, "Optimizing word-level timestamps.")
         if alignment_was_forced and pipeline_config.alignment.stableTsEnabled:

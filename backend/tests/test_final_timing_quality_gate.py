@@ -66,12 +66,13 @@ def test_final_gate_reports_partial_and_zero_estimated_ratios():
         vad_report=_vad(),
         sync_report={},
     )
-    zero_word_report = validate_final_timing_quality(
-        [{"words": []}],
-        pipeline_config=_base_config(),
-        vad_report=_vad(),
-        sync_report={},
-    )
+    with pytest.raises(TimingQualityError) as zero_word_error:
+        validate_final_timing_quality(
+            [{"words": []}],
+            pipeline_config=_base_config(),
+            vad_report=_vad(),
+            sync_report={},
+        )
 
     assert partial_report["passed"] is True
     assert partial_report["estimatedWordCount"] == 2
@@ -81,8 +82,19 @@ def test_final_gate_reports_partial_and_zero_estimated_ratios():
     assert partial_report["reviewRequired"] is True
     assert zero_estimated_report["estimatedWordRatio"] == 0
     assert zero_estimated_report["timingQuality"] == "native"
-    assert zero_word_report["totalWords"] == 0
-    assert zero_word_report["estimatedWordRatio"] == 0
+    assert zero_word_error.value.category == "no_timed_caption_content"
+
+
+def test_final_gate_accepts_timed_phrase_fallback_without_words():
+    report = validate_final_timing_quality(
+        [{"text": "phrase fallback", "start": 0.2, "end": 1.0, "words": []}],
+        pipeline_config=_base_config(),
+        vad_report=_vad(),
+        sync_report={},
+    )
+
+    assert report["totalWords"] == 0
+    assert report["passed"] is True
 
 
 def test_final_gate_ignores_legacy_maximum_estimated_ratio_snapshot():

@@ -24,6 +24,29 @@ def _finite(value: Any) -> float | None:
     return None
 
 
+def has_timed_caption_content(segments: Any) -> bool:
+    """Return whether a pipeline result contains at least one usable timed cue."""
+    if not isinstance(segments, list):
+        return False
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        start = _finite(segment.get("start"))
+        end = _finite(segment.get("end"))
+        text = str(segment.get("text") or "").strip()
+        if text and start is not None and end is not None and end > start:
+            return True
+        for word in segment.get("words") or []:
+            if not isinstance(word, dict):
+                continue
+            word_start = _finite(word.get("start"))
+            word_end = _finite(word.get("end"))
+            word_text = str(word.get("word") or word.get("text") or word.get("displayedWord") or "").strip()
+            if word_text and word_start is not None and word_end is not None and word_end > word_start:
+                return True
+    return False
+
+
 def _word_source(word: dict[str, Any]) -> str:
     return normalize_timing_source(
         word.get("timingSourceCategory") or word.get("timing_source") or word.get("timingSource"),
@@ -224,6 +247,11 @@ def validate_final_timing_quality(
 
     failures: list[tuple[str, str]] = []
     blocking_failures: list[tuple[str, str]] = []
+    if not has_timed_caption_content(segments):
+        blocking_failures.append((
+            "no_timed_caption_content",
+            "Caption processing produced no usable timed speech. Check that the selected media has an audible speech track and retry.",
+        ))
     max_estimated_ratio = getattr(pipeline_config.quality, "maximumEstimatedWordRatio", None)
     if total and max_estimated_ratio is not None and estimated_ratio > float(max_estimated_ratio):
         failures.append((

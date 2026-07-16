@@ -1374,7 +1374,11 @@ def apply_stable_refinement(
         base_report["errorCategory"] = "stable_ts_audio_too_long_for_cpu"
         return _recover_all_segments(next_segments, base_report, "stable_ts_audio_too_long_for_cpu", speech_ranges=speech_ranges)
 
-    acquired = _ALIGNMENT_SEMAPHORE.acquire(timeout=float(os.getenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", "300") or 300))
+    semaphore_timeout_seconds = max(
+        1.0,
+        float(os.getenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", "30") or 30),
+    )
+    acquired = _ALIGNMENT_SEMAPHORE.acquire(timeout=semaphore_timeout_seconds)
     if not acquired:
         base_report["reason"] = "stable-ts alignment timed out waiting for concurrency slot"
         base_report["errorCategory"] = "stable_ts_timeout"

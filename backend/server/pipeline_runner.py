@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from threading import Event, Thread
 from ai_pipeline.main import run_pipeline
+from ai_pipeline.sync.final_quality_gate import has_timed_caption_content
 from .database import DB_PATH
 import aiosqlite
 from .progress import manager
@@ -261,7 +262,7 @@ def run_pipeline_sync(
                         db.row_factory = aiosqlite.Row
                         cursor = await db.execute(
                             """
-                            SELECT segments_json, transcript_json, srt_content, vtt_content
+                            SELECT id, segments_json, transcript_json, srt_content, vtt_content
                             FROM caption_artifacts
                             WHERE media_asset_id = ? AND audio_fingerprint = ? AND language_mode = ? AND output_language = ? AND preset = ?
                               AND source_in_ms IS ? AND source_out_ms IS ? AND timeline_offset_ms IS ?
@@ -272,6 +273,28 @@ def run_pipeline_sync(
                 cached_entry = loop.run_until_complete(check_cache())
             except Exception as e:
                 logger.warning(f"Failed to query caption_artifacts for job {job_id}: {e}")
+
+        if cached_entry:
+            try:
+                cached_segments = json.loads(cached_entry["segments_json"] or "[]")
+            except (TypeError, json.JSONDecodeError):
+                cached_segments = []
+            if not has_timed_caption_content(cached_segments):
+                _log_stage(
+                    job_id,
+                    "invalid cache entry discarded",
+                    artifact_id=cached_entry["id"],
+                    reason="no_timed_caption_content",
+                )
+                async def delete_invalid_cache():
+                    async with aiosqlite.connect(str(DB_PATH)) as db:
+                        await db.execute(
+                            "DELETE FROM caption_artifacts WHERE id = ?",
+                            (cached_entry["id"],),
+                        )
+                        await db.commit()
+                loop.run_until_complete(delete_invalid_cache())
+                cached_entry = None
 
         if cached_entry:
             _log_stage(job_id, "cache hit", media_asset_id=media_asset_id, preset=preset_name)
@@ -324,6 +347,11 @@ def run_pipeline_sync(
             return
         
         if result["status"] == "success":
+            if not has_timed_caption_content(result.get("segments")):
+                raise RuntimeError(
+                    "no_timed_caption_content: Caption processing produced no usable timed speech. "
+                    "Check that the selected media has an audible speech track and retry."
+                )
             logger.info(f"Job {job_id} Completed successfully")
             
             # Save to cache
