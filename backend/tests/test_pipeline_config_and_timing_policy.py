@@ -7,6 +7,7 @@ from ai_pipeline.main import (
     _chunks_have_any_provider_words,
     _chunks_have_non_word_provider_timing,
     _chunks_have_provider_words,
+    should_run_stable_refinement,
 )
 from ai_pipeline.sync.aligned_words import build_segments_from_aligned_words
 from ai_pipeline.audio import build_vad_chunk_ranges
@@ -817,8 +818,30 @@ def test_stable_ts_concurrency_wait_defaults_to_thirty_seconds(monkeypatch):
         config={"enabled": True, "audioDurationSeconds": 1.0},
     )
 
-    assert semaphore.timeout == 30.0
+    assert semaphore.timeout == 10.0
     assert result.report["errorCategory"] == "stable_ts_timeout"
+
+
+def test_native_word_timing_uses_fast_path_without_redundant_stable_ts(monkeypatch):
+    monkeypatch.delenv("REFINE_NATIVE_WORD_TIMING_WITH_STABLE_TS", raising=False)
+
+    assert should_run_stable_refinement(
+        alignment_was_forced=False,
+        has_valid_provider_word_timing=True,
+    ) is False
+    assert should_run_stable_refinement(
+        alignment_was_forced=True,
+        has_valid_provider_word_timing=False,
+    ) is True
+
+
+def test_native_word_timing_can_opt_in_to_stable_ts_refinement(monkeypatch):
+    monkeypatch.setenv("REFINE_NATIVE_WORD_TIMING_WITH_STABLE_TS", "true")
+
+    assert should_run_stable_refinement(
+        alignment_was_forced=False,
+        has_valid_provider_word_timing=True,
+    ) is True
 
 
 def test_stable_ts_recovery_uses_vad_speech_range_when_segment_anchor_is_missing(monkeypatch):

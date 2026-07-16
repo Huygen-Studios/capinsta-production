@@ -1376,7 +1376,7 @@ def apply_stable_refinement(
 
     semaphore_timeout_seconds = max(
         1.0,
-        float(os.getenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", "30") or 30),
+        float(os.getenv("STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS", "10") or 10),
     )
     acquired = _ALIGNMENT_SEMAPHORE.acquire(timeout=semaphore_timeout_seconds)
     if not acquired:

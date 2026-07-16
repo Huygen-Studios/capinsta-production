@@ -46,8 +46,12 @@ services:
         value: "false"
       - key: ENABLE_STABLE_TS
         value: "false"
-      - key: ENABLE_SILERO_VAD
+      - key: REFINE_NATIVE_WORD_TIMING_WITH_STABLE_TS
         value: "false"
+      - key: STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS
+        value: "10"
+      - key: ENABLE_SILERO_VAD
+        value: "true"
       - key: PAUSE_SPLIT_THRESHOLD
         value: "0.30"
       - key: DEFAULT_GLOBAL_CAPTION_OFFSET

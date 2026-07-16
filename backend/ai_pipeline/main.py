@@ -35,7 +35,11 @@ from .sync.final_quality_gate import (
     validate_final_timing_quality,
 )
 from .sync.report import SyncPassResult, build_sync_report
-from .sync.stable_refine import apply_stable_refinement, resolved_stable_ts_config
+from .sync.stable_refine import (
+    apply_stable_refinement,
+    resolved_stable_ts_config,
+    stable_ts_available,
+)
 from .sync.pause_preserver import preserve_detected_pauses
 from .pipeline_config import resolve_pipeline_config, resolve_pipeline_config_with_sources
 from .timing import (
@@ -72,6 +76,19 @@ from .transcript_normalizer import (
 
 
 import math
+
+
+def should_run_stable_refinement(
+    *,
+    alignment_was_forced: bool,
+    has_valid_provider_word_timing: bool,
+) -> bool:
+    """Avoid a second ASR pass when validated native word timing already exists."""
+    refine_native = os.getenv(
+        "REFINE_NATIVE_WORD_TIMING_WITH_STABLE_TS",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    return alignment_was_forced or not has_valid_provider_word_timing or refine_native
 
 def validate_chunk_native_timings(chunk: Any, max_duration: float, threshold: float = 0.90) -> tuple[bool, str | None, float]:
     """
@@ -1156,7 +1173,17 @@ def run_pipeline(
                     exc,
                 )
 
-        emit_progress("normalizing", 89, "Running caption sync engine.")
+        run_stable_refinement = should_run_stable_refinement(
+            alignment_was_forced=alignment_was_forced,
+            has_valid_provider_word_timing=use_provider_word_timing,
+        )
+        emit_progress(
+            "normalizing",
+            89,
+            "Aligning caption timing to speech."
+            if run_stable_refinement
+            else "Validating caption timing and speech pauses.",
+        )
         hard_speech_gaps = vad_report.get("hardSpeechGaps") or vad_report.get("silenceGaps") or []
         clamped_segments, pre_refine_group_report = assign_alignment_groups_from_speech_gaps(
             clamped_segments,
@@ -1164,7 +1191,7 @@ def run_pipeline(
             pause_threshold=transcript_aligner.pause_threshold,
         )
         try:
-            if pipeline_config.alignment.stableTsEnabled:
+            if pipeline_config.alignment.stableTsEnabled and run_stable_refinement:
                 _stage_log("stable_ts_model_loading", model=pipeline_config.alignment.stableTsModel)
             stable_config = {
                 "enabled": pipeline_config.alignment.stableTsEnabled,
@@ -1192,7 +1219,26 @@ def run_pipeline(
                 and float(audio_duration) > float(pipeline_config.performance.stableTsMaxAudioSeconds)
                 and len(chunks) > 1
             )
-            if use_chunked_stable_ts:
+            if not run_stable_refinement:
+                stable_result = SyncPassResult(
+                    clamped_segments,
+                    {
+                        "enabled": False,
+                        "configuredEnabled": pipeline_config.alignment.stableTsEnabled,
+                        "available": stable_ts_available(),
+                        "applied": False,
+                        "appliedWords": 0,
+                        "reason": "validated provider-native word timestamps retained",
+                        "finalTimingQualityMode": "word_timed_verified",
+                        "nativeTimingFastPath": True,
+                        "warnings": [],
+                    },
+                )
+                _stage_log(
+                    "stable_ts_alignment_skipped",
+                    reason="validated_provider_native_word_timestamps",
+                )
+            elif use_chunked_stable_ts:
                 _stage_log(
                     "stable_ts_chunk_alignment_started",
                     chunk_count=len(chunks),
@@ -1214,7 +1260,7 @@ def run_pipeline(
                     config=stable_config,
                 )
             clamped_segments = stable_result.segments
-            if pipeline_config.alignment.stableTsEnabled:
+            if pipeline_config.alignment.stableTsEnabled and run_stable_refinement:
                 _stage_log(
                     "stable_ts_alignment_completed",
                     applied=stable_result.report.get("applied"),
