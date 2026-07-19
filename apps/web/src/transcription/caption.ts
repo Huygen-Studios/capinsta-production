@@ -4,7 +4,13 @@ import {
 	MIN_CAPTION_DURATION_SECONDS,
 } from "@/transcription/caption-defaults";
 
-export function buildCaptionChunks({
+/**
+ * Legacy segment interpolation for static subtitle fallback only.
+ *
+ * This data has no acoustic word alignment and must never drive production
+ * active-word effects. Canonical captions are built by the Rust timing core.
+ */
+export function buildEstimatedCaptionChunks({
 	segments,
 	wordsPerChunk = DEFAULT_WORDS_PER_CAPTION,
 	minDuration = MIN_CAPTION_DURATION_SECONDS,
@@ -38,6 +44,9 @@ export function buildCaptionChunks({
 				text: chunk,
 				startTime: adjustedStartTime,
 				duration: chunkDuration,
+				timingSource: "estimated",
+				timingNeedsReview: true,
+				activeWordEffectsEnabled: false,
 			});
 
 			globalEndTime = adjustedStartTime + chunkDuration;
@@ -47,3 +56,6 @@ export function buildCaptionChunks({
 
 	return captions;
 }
+
+/** @deprecated Use Rust-owned canonical word timings. */
+export const buildCaptionChunks = buildEstimatedCaptionChunks;

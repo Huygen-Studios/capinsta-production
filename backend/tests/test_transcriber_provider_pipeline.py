@@ -157,14 +157,7 @@ def test_gemini_uses_explicit_sdk_key_and_prefers_gemini_key(monkeypatch, tmp_pa
                 json.dumps(
                     {
                         "language": "en",
-                        "segments": [
-                            {
-                                "start": 0,
-                                "end": 0.5,
-                                "text": "hello",
-                                "words": [{"word": "hello", "start": 0, "end": 0.5}],
-                            }
-                        ],
+                        "text": "hello",
                     }
                 )
             )
@@ -175,6 +168,10 @@ def test_gemini_uses_explicit_sdk_key_and_prefers_gemini_key(monkeypatch, tmp_pa
     result = transcriber._call_gemini(_write_wav(tmp_path / "a.wav"), "english")
 
     assert result["provider"] == "gemini"
+    assert result["text"] == "hello"
+    assert result["segments"] == []
+    assert result["words"] == []
+    assert result["timestamp_strategy"] == "local_forced_alignment"
     assert seen["keys"] == ["preferred-gemini-key"]
     assert seen["kwargs"]["model"] == transcriber.GEMINI_MODEL
     assert seen["kwargs"]["timeout"] == transcriber.STT_PROVIDER_ATTEMPT_TIMEOUT_SECONDS

@@ -1,3 +1,4 @@
+use captions::CaptionDocument;
 use gpui::{
     div, prelude::*, px, rgb, size, App, Application, Bounds, Context, SharedString, Window,
     WindowBounds, WindowOptions,
@@ -5,10 +6,16 @@ use gpui::{
 
 struct AppWindow {
     title: SharedString,
+    /// Rust-owned canonical caption state. GPUI only renders/edits this model.
+    caption_document: Option<CaptionDocument>,
 }
 
 impl Render for AppWindow {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let _caption_page_count = self
+            .caption_document
+            .as_ref()
+            .map_or(0, |document| document.pages.len());
         div()
             .size_full()
             .bg(rgb(0x0f0f0f))
@@ -32,6 +39,7 @@ fn main() {
             |_, cx| {
                 cx.new(|_| AppWindow {
                     title: "OpenCut".into(),
+                    caption_document: None,
                 })
             },
         )

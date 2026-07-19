@@ -8,4 +8,5 @@ name = "opencut"
 path = "src/main.rs"
 
 [dependencies]
+captions = { path = "../../rust/crates/captions" }
 gpui = "0.2.2"

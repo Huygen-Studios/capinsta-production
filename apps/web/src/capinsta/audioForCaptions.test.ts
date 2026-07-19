@@ -14,6 +14,26 @@ afterEach(() => {
 });
 
 describe("ensureAudioForCaptions", () => {
+	test("preserves the zero point of a rendered timeline selection", async () => {
+		const file = buildFile({ name: "timeline.wav", type: "audio/wav" });
+		const audio = await ensureAudioForCaptions({
+			videoAssetId: "timeline",
+			getAssets: () => [],
+			renderedTimelineAudio: {
+				file,
+				name: file.name,
+				duration: 5,
+				timelineOffsetUs: 6_500_000,
+				timelineDurationUs: 30_000_000,
+				selection: true,
+			},
+		});
+
+		expect(audio.audioOrigin).toBe("rendered_selection");
+		expect(audio.timelineOffsetUs).toBe(6_500_000);
+		expect(audio.timelineDurationUs).toBe(30_000_000);
+	});
+
 	test("reuses an existing extracted audio asset", async () => {
 		const assets: MediaAsset[] = [
 			{

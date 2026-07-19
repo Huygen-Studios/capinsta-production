@@ -767,6 +767,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "captions"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3815,6 +3823,7 @@ dependencies = [
 name = "opencut-desktop"
 version = "0.1.0"
 dependencies = [
+ "captions",
  "gpui",
 ]
 
@@ -3823,6 +3832,7 @@ name = "opencut-wasm"
 version = "0.2.10"
 dependencies = [
  "bridge",
+ "captions",
  "compositor",
  "console_error_panic_hook",
  "effects",

@@ -146,17 +146,36 @@ def test_extract_audio_range_args(tmp_path, monkeypatch):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/ffmpeg")
 
+    from pydub import AudioSegment
+    class DummyAudioSegment:
+        def __init__(self):
+            self.rms = 100
+        def set_frame_rate(self, rate):
+            return self
+        def set_sample_width(self, width):
+            return self
+        def split_to_mono(self):
+            return [self]
+        def set_channels(self, channels):
+            return self
+        def export(self, path, **kwargs):
+            pass
+        def __len__(self):
+            return 1000
+
+    monkeypatch.setattr(AudioSegment, "from_wav", lambda path: DummyAudioSegment())
+
     video = tmp_path / "v.mp4"
     video.touch()
     out = tmp_path / "out.wav"
 
     audio.extract_audio(str(video), str(out), start_ms=5000, end_ms=10000)
 
-    # -ss 5.000 and -to 10.000 must appear in the constructed command
+    # -ss 5.000000 and -to 10.000000 must appear in the constructed command
     assert "-ss" in captured_cmd
-    assert captured_cmd[captured_cmd.index("-ss") + 1] == "5.000"
+    assert captured_cmd[captured_cmd.index("-ss") + 1] == "5.000000"
     assert "-to" in captured_cmd
-    assert captured_cmd[captured_cmd.index("-to") + 1] == "10.000"
+    assert captured_cmd[captured_cmd.index("-to") + 1] == "10.000000"
 
 
 def test_timeline_offset_shift():

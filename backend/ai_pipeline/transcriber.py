@@ -868,8 +868,11 @@ def _derive_words_for_segment(text: str, start: float, end: float, provider: str
                 "start": round(max(0.0, word_start), 3),
                 "end": round(max(word_start + 0.001, word_end), 3),
                 "provider": provider,
-                "timing_source": "provider_segment_derived",
-                "timingSource": "provider_segment_derived",
+                "timing_source": "estimated",
+                "timingSource": "estimated",
+                "timingNeedsReview": True,
+                "disableActiveWordHighlighting": True,
+                "timingWarning": "Uniform segment interpolation is display-only and requires realignment.",
                 "timestampBasis": "chunk_local",
             }
         )
@@ -984,8 +987,8 @@ def _gemini_transcription_prompt(language_mode: str) -> str:
         "Transcribe this audio for Capinsta captions. "
         f"Spoken language hint: {language_mode}. "
         "Return only JSON with this exact shape: "
-        '{"language":"detected language","segments":[{"start":0.0,"end":1.0,"text":"spoken words","words":[{"word":"spoken","start":0.0,"end":0.4}]}]}. '
-        "Use seconds from the start of the audio. Include segment timestamps and word timestamps when you can align them reliably."
+        '{"language":"detected language","text":"all spoken words"}. '
+        "Do not generate or estimate timestamps. Capinsta performs local forced alignment against the waveform."
     )
 
 
@@ -993,32 +996,9 @@ GEMINI_TRANSCRIPTION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "language": {"type": "string"},
-        "segments": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "start": {"type": "number"},
-                    "end": {"type": "number"},
-                    "text": {"type": "string"},
-                    "words": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "word": {"type": "string"},
-                                "start": {"type": "number"},
-                                "end": {"type": "number"},
-                            },
-                            "required": ["word", "start", "end"],
-                        },
-                    },
-                },
-                "required": ["start", "end", "text"],
-            },
-        },
+        "text": {"type": "string"},
     },
-    "required": ["language", "segments"],
+    "required": ["language", "text"],
 }
 
 
@@ -1088,7 +1068,7 @@ def _call_gemini(audio_path: str, language_mode: str, transcription_config_snaps
 
     text_response = str(text_response or "").strip()
     
-    logger.info("Gemini output preview: %r", text_response[:500])
+    logger.info("Gemini transcription response received character_count=%d", len(text_response))
 
     if not text_response:
         raise TranscriptionProviderError("gemini", "empty_transcript", "empty output_text")
@@ -1100,15 +1080,7 @@ def _call_gemini(audio_path: str, language_mode: str, transcription_config_snaps
     except ValueError as exc:
         raise TranscriptionProviderError("gemini", "structured_output_invalid", str(exc)) from exc
 
-    if "segments" not in transcript_payload or not isinstance(transcript_payload["segments"], list) or not transcript_payload["segments"]:
-        raise TranscriptionProviderError("gemini", "structured_output_invalid", "response schema mismatch: missing segments")
-
-    try:
-        segments, words = _normalize_gemini_segments(transcript_payload)
-    except TranscriptionProviderError as exc:
-        raise exc
-
-    transcript_text = " ".join(str(segment.get("text") or "").strip() for segment in segments).strip()
+    transcript_text = str(transcript_payload.get("text") or "").strip()
     if not transcript_text:
         raise TranscriptionProviderError("gemini", "empty_transcript", "no transcript text exists")
         
@@ -1116,8 +1088,8 @@ def _call_gemini(audio_path: str, language_mode: str, transcription_config_snaps
         "text": transcript_text,
         "language": transcript_payload.get("language"),
         "duration": transcript_payload.get("duration"),
-        "segments": segments,
-        "words": words,
+        "segments": [],
+        "words": [],
         "provider": "gemini",
         "model": model,
         "timestamp_strategy": "local_forced_alignment",

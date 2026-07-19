@@ -38,7 +38,10 @@ import { parseSubtitleFile } from "@/subtitles/parse";
 import { sampleCapinstaTranscriptV1 } from "@/capinsta/sampleTranscript";
 import { ensureAudioForCaptions } from "@/capinsta/audioForCaptions";
 import { resolveCaptionUploadFile } from "@/capinsta/captionMediaAsset";
-import { verifyProjectMediaAsset, uploadProjectMediaAsset } from "@/capinsta/mediaAssetApi";
+import {
+	verifyProjectMediaAsset,
+	uploadProjectMediaAsset,
+} from "@/capinsta/mediaAssetApi";
 import {
 	captionJobButtonLabel,
 	captionJobReducer,
@@ -57,6 +60,7 @@ import { capinstaTranscriptToOpenCutSubtitleImport } from "@/capinsta/opencutCla
 import { buildCapinstaCaptionTimingDiagnostics } from "@/capinsta/adapter";
 import { rememberCapinstaCaptionDocument } from "@/capinsta/captionDocumentRegistry";
 import {
+	CapinstaApiError,
 	cancelCapinstaJob,
 	checkCapinstaHealth,
 	normalizeCapinstaJobToTranscript,
@@ -452,13 +456,21 @@ export function Captions() {
 
 			if (cachedAssetId && cachedFingerprint === localFingerprint) {
 				try {
-					const isVerified = await verifyProjectMediaAsset({ assetId: cachedAssetId });
+					const isVerified = await verifyProjectMediaAsset({
+						assetId: cachedAssetId,
+					});
 					if (isVerified) {
 						mediaAssetIdToUse = cachedAssetId;
-						console.debug("[Capinsta captions] Reusing verified server media asset ID:", mediaAssetIdToUse);
+						console.debug(
+							"[Capinsta captions] Reusing verified server media asset ID:",
+							mediaAssetIdToUse,
+						);
 					}
 				} catch (err) {
-					console.warn("[Capinsta captions] Failed to verify cached media asset:", err);
+					console.warn(
+						"[Capinsta captions] Failed to verify cached media asset:",
+						err,
+					);
 				}
 			}
 
@@ -474,13 +486,16 @@ export function Captions() {
 					signal: abortController.signal,
 				});
 				mediaAssetIdToUse = uploadResult.assetId;
-				
+
 				await editor.project.setCapinstaServerMediaAsset({
 					mediaAssetId: mediaAssetIdToUse,
 					mediaAssetVersion: 1,
 					sourceFingerprint: localFingerprint,
 				});
-				console.debug("[Capinsta captions] Uploaded media asset successfully. New ID:", mediaAssetIdToUse);
+				console.debug(
+					"[Capinsta captions] Uploaded media asset successfully. New ID:",
+					mediaAssetIdToUse,
+				);
 			}
 
 			let startedJob;
@@ -491,15 +506,21 @@ export function Captions() {
 					projectId,
 					languageMode: selectedAudioLanguage,
 					captionOutput: selectedCaptionOutput,
+					timelineOffsetUs: audioForCaptions.timelineOffsetUs,
+					timelineDurationUs: audioForCaptions.timelineDurationUs,
+					audioOrigin: audioForCaptions.audioOrigin,
 					signal: abortController.signal,
 				});
-			} catch (err: any) {
+			} catch (err: unknown) {
 				if (
-					err &&
+					err instanceof CapinstaApiError &&
 					(err.status === 404 || err.status === 410) &&
 					mediaAssetIdToUse === cachedAssetId
 				) {
-					console.warn("[Capinsta captions] Cached server media asset ID was not found or gone (404/410). Clearing cache and re-uploading...", err);
+					console.warn(
+						"[Capinsta captions] Cached server media asset ID was not found or gone (404/410). Clearing cache and re-uploading...",
+						err,
+					);
 					await editor.project.setCapinstaServerMediaAsset({
 						mediaAssetId: null,
 						mediaAssetVersion: 1,
@@ -524,7 +545,10 @@ export function Captions() {
 						mediaAssetVersion: 1,
 						sourceFingerprint: localFingerprint,
 					});
-					console.debug("[Capinsta captions] Re-uploaded media asset successfully. New ID:", mediaAssetIdToUse);
+					console.debug(
+						"[Capinsta captions] Re-uploaded media asset successfully. New ID:",
+						mediaAssetIdToUse,
+					);
 
 					dispatchCaptionJob({
 						type: "progress",
@@ -538,6 +562,9 @@ export function Captions() {
 						projectId,
 						languageMode: selectedAudioLanguage,
 						captionOutput: selectedCaptionOutput,
+						timelineOffsetUs: audioForCaptions.timelineOffsetUs,
+						timelineDurationUs: audioForCaptions.timelineDurationUs,
+						audioOrigin: audioForCaptions.audioOrigin,
 						signal: abortController.signal,
 					});
 				} else {
@@ -848,8 +875,8 @@ export function Captions() {
 	const languageName = (value: string) =>
 		value === "auto"
 			? "Auto detect"
-			: TRANSCRIPTION_LANGUAGES.find((language) => language.code === value)
-					?.name ?? value;
+			: (TRANSCRIPTION_LANGUAGES.find((language) => language.code === value)
+					?.name ?? value);
 	const outputStatus =
 		selectedCaptionOutput === "original"
 			? null
@@ -1025,7 +1052,8 @@ export function Captions() {
 								</SelectContent>
 							</Select>
 							<p className="text-muted-foreground text-xs">
-								Keep the original language, translate it, or convert it to Roman text.
+								Keep the original language, translate it, or convert it to Roman
+								text.
 							</p>
 							{outputStatus ? (
 								<p className="text-muted-foreground text-xs">{outputStatus}</p>

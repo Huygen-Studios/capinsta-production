@@ -4,7 +4,10 @@ import {
 	createCapinstaCaptionTimingIndex,
 	getActiveCapinstaCaptionStateFromIndex,
 } from "./captionTimingIndex";
-import { capinstaTranscriptToCaptionDocument } from "./adapter";
+import {
+	capinstaTranscriptToCaptionDocument,
+	updateCaptionClipTiming,
+} from "./adapter";
 import { sampleCapinstaTranscriptV1 } from "./sampleTranscript";
 import type { CapinstaCaptionDocumentRecord } from "./types";
 
@@ -90,16 +93,15 @@ describe("Capinsta caption timing index", () => {
 
 	test("index updates when clip timings change", () => {
 		const record = buildRecord();
+		const originalClip = record.document.clips[0]!;
 		const shiftedRecord: CapinstaCaptionDocumentRecord = {
 			...record,
-			document: {
-				...record.document,
-				clips: record.document.clips.map((clip, index) =>
-					index === 0
-						? { ...clip, start: clip.start + 10, end: clip.end + 10 }
-						: clip,
-				),
-			},
+			document: updateCaptionClipTiming(
+				record.document,
+				originalClip.id,
+				originalClip.start + 0.1,
+				originalClip.end + 0.1,
+			),
 		};
 		const index = createCapinstaCaptionTimingIndex({
 			records: [shiftedRecord],

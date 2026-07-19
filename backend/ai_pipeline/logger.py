@@ -28,18 +28,22 @@ class PipelineLogger:
             self._write_log()
 
     def log_chunk(self, index: int, lang: str, raw: str, refined: str, final: str, score: float):
-        self.chunks.append({
+        entry = {
             'index': index,
             'lang': lang,
-            'raw': raw,
-            'refined': refined,
-            'final': final,
+            'raw_word_count': len((raw or '').split()),
+            'refined_word_count': len((refined or '').split()),
+            'final_word_count': len((final or '').split()),
+            'accepted': bool(final),
             'score': score
-        })
+        }
+        if os.getenv("CAPTION_LOG_TRANSCRIPT_CONTENT", "false").lower() in {"1", "true", "yes"}:
+            entry.update({'raw': raw, 'refined': refined, 'final': final})
+        self.chunks.append(entry)
 
     def get_summary(self) -> dict:
         scores = [c['score'] for c in self.chunks if c.get('score') is not None]
-        accepted = sum(1 for c in self.chunks if c.get('final'))
+        accepted = sum(1 for c in self.chunks if c.get('accepted'))
         return {
             'total_chunks': len(self.chunks),
             'accepted': accepted,

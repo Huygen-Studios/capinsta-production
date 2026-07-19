@@ -909,9 +909,9 @@ def test_low_coverage_recovery_exports_valid_srt_and_vtt(monkeypatch):
     vtt = generate_vtt(result.segments)
     assert "WEBVTT" in vtt
     assert "00:00:00,000 -->" in srt
-    assert "--> 00:00:10,000" in srt
+    assert "--> 00:00:10,200" in srt
     assert "00:00:00.000 -->" in vtt
-    assert "--> 00:00:10.000" in vtt
+    assert "--> 00:00:10.200" in vtt
 
 
 def test_stable_ts_cache_not_writable_is_specific(monkeypatch, tmp_path):

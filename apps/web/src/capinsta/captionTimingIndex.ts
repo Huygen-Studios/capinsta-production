@@ -5,6 +5,8 @@ import type {
 	NeutralCaptionWord,
 } from "./types";
 import type { ActiveCapinstaCaptionState } from "./captionTimelineSync";
+import { activeCaptionState } from "opencut-wasm";
+import { secondsToMicroseconds } from "./rustCaptionCore";
 
 export interface CapinstaCaptionTimingIndexRecord {
 	record: CapinstaCaptionDocumentRecord;
@@ -20,7 +22,8 @@ export interface CapinstaCaptionTimingIndex {
 
 function sortedClips(document: NeutralCaptionDocument): NeutralCaptionClip[] {
 	return [...document.clips].sort(
-		(left, right) => left.start - right.start || left.id.localeCompare(right.id),
+		(left, right) =>
+			left.start - right.start || left.id.localeCompare(right.id),
 	);
 }
 
@@ -33,7 +36,9 @@ export function createCapinstaCaptionTimingIndex({
 	let wordCount = 0;
 	const indexedRecords = records.map((record) => {
 		const clips = sortedClips(record.document);
-		const wordsById = new Map(record.document.words.map((word) => [word.id, word]));
+		const wordsById = new Map(
+			record.document.words.map((word) => [word.id, word]),
+		);
 		clipCount += clips.length;
 		wordCount += record.document.words.length;
 		return { record, clips, wordsById };
@@ -86,9 +91,9 @@ function getActiveWordIdsForClip({
 		const word = wordsById.get(wordId);
 		return Boolean(
 			word &&
-				!word.disableActiveWordHighlighting &&
-				word.start <= timeSeconds &&
-				timeSeconds < word.end,
+			!word.disableActiveWordHighlighting &&
+			word.start <= timeSeconds &&
+			timeSeconds < word.end,
 		);
 	});
 }
@@ -103,6 +108,32 @@ export function getActiveCapinstaCaptionStateFromIndex({
 	if (!Number.isFinite(timeSeconds)) return null;
 
 	for (const indexedRecord of index.records) {
+		const canonical = indexedRecord.record.document.canonicalTiming;
+		if (canonical) {
+			const active = activeCaptionState({
+				document: canonical,
+				playbackTimeUs: secondsToMicroseconds(timeSeconds),
+			});
+			if (!active) continue;
+			const pageIndex = canonical.pages.findIndex(
+				(page) => page.id === active.pageId,
+			);
+			const clip = indexedRecord.clips[pageIndex];
+			if (!clip) continue;
+			const activeWordIds = clip.disableActiveWordHighlighting
+				? []
+				: active.activeWordIds.filter(
+						(wordId) =>
+							!indexedRecord.wordsById.get(wordId)
+								?.disableActiveWordHighlighting,
+					);
+			return {
+				record: indexedRecord.record,
+				document: indexedRecord.record.document,
+				clip,
+				activeWordIds,
+			};
+		}
 		const clip = findActiveClip({
 			clips: indexedRecord.clips,
 			timeSeconds,

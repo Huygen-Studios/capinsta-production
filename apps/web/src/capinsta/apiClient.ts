@@ -63,15 +63,15 @@ function readFastApiErrorBody(body: Record<string, unknown>): {
 	const detailMessage =
 		typeof detail === "string"
 			? detail
-			: readStringField({ value: detail, field: "message" }) ??
+			: (readStringField({ value: detail, field: "message" }) ??
 				readStringField({ value: detail, field: "error" }) ??
-				readStringField({ value: detail, field: "detail" });
+				readStringField({ value: detail, field: "detail" }));
 	const errorMessage =
 		typeof error === "string"
 			? error
-			: readStringField({ value: error, field: "message" }) ??
+			: (readStringField({ value: error, field: "message" }) ??
 				readStringField({ value: error, field: "detail" }) ??
-				readStringField({ value: error, field: "error" });
+				readStringField({ value: error, field: "error" }));
 	return {
 		message:
 			detailMessage ??
@@ -156,6 +156,9 @@ export async function startCapinstaCaptionJob({
 	projectId,
 	languageMode,
 	captionOutput = "original",
+	timelineOffsetUs = 0,
+	timelineDurationUs,
+	audioOrigin = "source_media",
 	fetchImpl = fetch,
 	signal,
 }: StartCapinstaCaptionJobInput & {
@@ -167,6 +170,14 @@ export async function startCapinstaCaptionJob({
 	formData.append("audioLanguage", languageMode);
 	formData.append("captionOutput", captionOutput);
 	formData.append("project_id", projectId);
+	formData.append("timeline_offset_us", String(Math.round(timelineOffsetUs)));
+	if (timelineDurationUs !== undefined) {
+		formData.append(
+			"timeline_duration_us",
+			String(Math.round(timelineDurationUs)),
+		);
+	}
+	formData.append("audio_origin", audioOrigin);
 	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
 	else if (file instanceof Blob) {
 		if (file.size <= 0) {
@@ -175,8 +186,7 @@ export async function startCapinstaCaptionJob({
 			);
 		}
 		formData.append("file", file, file.name || "caption-video.mp4");
-	}
-	else {
+	} else {
 		throw new CapinstaApiError(
 			"Caption media is unavailable. Re-import the video and try again.",
 		);
@@ -286,12 +296,16 @@ function normalizeLanguageMode(
 		return "telgish";
 	}
 	if (process.env.NODE_ENV === "development" && value) {
-		console.warn(`[Capinsta captions] Unsupported stored language "${value}" normalized to auto.`);
+		console.warn(
+			`[Capinsta captions] Unsupported stored language "${value}" normalized to auto.`,
+		);
 	}
 	return "auto";
 }
 
-function normalizeCaptionOutput(value: string | undefined): CapinstaCaptionOutput {
+function normalizeCaptionOutput(
+	value: string | undefined,
+): CapinstaCaptionOutput {
 	if (
 		value === "original" ||
 		value === "english" ||
@@ -446,7 +460,12 @@ export function normalizeCapinstaJobToTranscript({
 	const validPhraseSegments = segments.filter((segment) => {
 		const start = finiteNumber(segment.start);
 		const end = finiteNumber(segment.end);
-		return Boolean(segment.text?.trim()) && start !== undefined && end !== undefined && end > start;
+		return (
+			Boolean(segment.text?.trim()) &&
+			start !== undefined &&
+			end !== undefined &&
+			end > start
+		);
 	});
 	if (sourceWords.length === 0 && validPhraseSegments.length === 0) {
 		throw new CapinstaApiError(
@@ -461,8 +480,12 @@ export function normalizeCapinstaJobToTranscript({
 					start: segment.start,
 					end: segment.end,
 					text: segment.text,
-					disableActiveWordHighlighting: Boolean(segment.disableActiveWordHighlighting),
-					timingNeedsReview: Boolean(segment.timingNeedsReview || segment.timingReviewRequired),
+					disableActiveWordHighlighting: Boolean(
+						segment.disableActiveWordHighlighting,
+					),
+					timingNeedsReview: Boolean(
+						segment.timingNeedsReview || segment.timingReviewRequired,
+					),
 				}))
 			: [
 					{
@@ -482,7 +505,11 @@ export function normalizeCapinstaJobToTranscript({
 			const end = finiteNumber(word.end);
 			if (!text || start === undefined || end === undefined || end <= start)
 				return null;
-			const clipIndex = segmentIndexForWord({ segments: validPhraseSegments, start, end });
+			const clipIndex = segmentIndexForWord({
+				segments: validPhraseSegments,
+				start,
+				end,
+			});
 			const clipId = clipShells[clipIndex]?.id ?? clipShells[0]!.id;
 			const wordId = `capinsta-aligned-word-${wordIndex + 1}`;
 			clipWordIds[clipIndex]?.push(wordId);
@@ -512,7 +539,9 @@ export function normalizeCapinstaJobToTranscript({
 				),
 				timingRepair: word.timingRepair || word.timing_repair,
 				captionClipId: clipId,
-				disableActiveWordHighlighting: Boolean(word.disableActiveWordHighlighting),
+				disableActiveWordHighlighting: Boolean(
+					word.disableActiveWordHighlighting,
+				),
 			};
 		})
 		.filter((word): word is NonNullable<typeof word> => word !== null);
@@ -523,13 +552,15 @@ export function normalizeCapinstaJobToTranscript({
 			return {
 				...clip,
 				wordIds,
-				timingNeedsReview: wordIds.some(
-					(wordId) => wordById.get(wordId)?.timingNeedsReview,
-				) || Boolean(clip.timingNeedsReview),
+				timingNeedsReview:
+					wordIds.some((wordId) => wordById.get(wordId)?.timingNeedsReview) ||
+					Boolean(clip.timingNeedsReview),
 				disableActiveWordHighlighting:
 					Boolean(clip.disableActiveWordHighlighting) ||
 					wordIds.length === 0 ||
-					wordIds.some((wordId) => Boolean(wordById.get(wordId)?.disableActiveWordHighlighting)),
+					wordIds.some((wordId) =>
+						Boolean(wordById.get(wordId)?.disableActiveWordHighlighting),
+					),
 			};
 		},
 	);
@@ -563,9 +594,13 @@ export function normalizeCapinstaJobToTranscript({
 					fallbackFrom: providerValue?.fallbackFrom,
 				};
 	const maxEnd = Math.max(...clips.map((clip) => clip.end));
+	const timingAudio = job.transcript?.metadata?.audio;
 	const durationSeconds =
+		(timingAudio?.timelineDurationUs
+			? timingAudio.timelineDurationUs / 1_000_000
+			: undefined) ||
 		sourceAsset.durationSeconds ||
-		finiteNumber(job.transcript?.metadata?.audio?.duration) ||
+		finiteNumber(timingAudio?.duration) ||
 		maxEnd;
 	const silenceGaps =
 		job.transcript?.metadata?.timing?.vad?.silenceGaps?.filter(
@@ -626,6 +661,11 @@ export function normalizeCapinstaJobToTranscript({
 			sourceOfTruth: words.length > 0 ? "words" : "clips",
 			generatedAt: job.completed_at || new Date().toISOString(),
 			audioDurationSeconds: durationSeconds,
+			timelineOffsetUs: timingAudio?.timelineOffsetUs,
+			timelineOffsetSeconds: timingAudio?.timelineOffsetUs
+				? timingAudio.timelineOffsetUs / 1_000_000
+				: 0,
+			audioOrigin: timingAudio?.origin,
 			silenceGaps,
 			speechSegments,
 			report: job.transcript?.metadata?.timing?.report,

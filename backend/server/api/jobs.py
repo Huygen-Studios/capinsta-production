@@ -399,6 +399,9 @@ def _job_creation_idempotency_input(
     source_in_ms: int | None = None,
     source_out_ms: int | None = None,
     timeline_offset_ms: int | None = None,
+    timeline_offset_us: int | None = None,
+    timeline_duration_us: int | None = None,
+    audio_origin: str | None = None,
 ) -> dict[str, Any]:
     return {
         "project_id": project_id,
@@ -416,6 +419,9 @@ def _job_creation_idempotency_input(
         "source_in_ms": source_in_ms,
         "source_out_ms": source_out_ms,
         "timeline_offset_ms": timeline_offset_ms,
+        "timeline_offset_us": timeline_offset_us,
+        "timeline_duration_us": timeline_duration_us,
+        "audio_origin": audio_origin,
     }
 
 
@@ -680,6 +686,9 @@ async def create_job(
     source_in_ms: int | None = Form(None),
     source_out_ms: int | None = Form(None),
     timeline_offset_ms: int | None = Form(None),
+    timeline_offset_us: int | None = Form(None),
+    timeline_duration_us: int | None = Form(None),
+    audio_origin: str | None = Form(None),
 ):
     """Uploads a video and starts a background captioning job."""
     # When create_job is called directly (e.g. in tests, not through the HTTP
@@ -688,6 +697,15 @@ async def create_job(
     source_in_ms = int(source_in_ms) if isinstance(source_in_ms, int) else None
     source_out_ms = int(source_out_ms) if isinstance(source_out_ms, int) else None
     timeline_offset_ms = int(timeline_offset_ms) if isinstance(timeline_offset_ms, int) else None
+    timeline_offset_us = int(timeline_offset_us) if isinstance(timeline_offset_us, int) else None
+    timeline_duration_us = int(timeline_duration_us) if isinstance(timeline_duration_us, int) else None
+    audio_origin = audio_origin if isinstance(audio_origin, str) else "source_media"
+    if timeline_offset_us is None:
+        timeline_offset_us = int(timeline_offset_ms or 0) * 1000
+    if timeline_offset_us < 0 or (timeline_duration_us is not None and timeline_duration_us <= 0):
+        raise HTTPException(status_code=400, detail="Invalid timeline timing metadata.")
+    if audio_origin not in {"rendered_timeline", "rendered_selection", "source_media"}:
+        raise HTTPException(status_code=400, detail="Invalid audio_origin.")
 
     job_id = str(uuid.uuid4())
     requested_audio_language = audioLanguage or sourceLanguage or languageMode or target_lang or "auto"
@@ -757,6 +775,12 @@ async def create_job(
     transcription_snapshot_payload["sourceLanguage"] = normalized_mode
     transcription_snapshot_payload["output_language"] = normalized_output_language
     transcription_snapshot_payload["outputLanguage"] = normalized_output_language
+    transcription_snapshot_payload["timeline_offset_us"] = timeline_offset_us
+    transcription_snapshot_payload["timelineOffsetUs"] = timeline_offset_us
+    transcription_snapshot_payload["timeline_duration_us"] = timeline_duration_us
+    transcription_snapshot_payload["timelineDurationUs"] = timeline_duration_us
+    transcription_snapshot_payload["audio_origin"] = audio_origin
+    transcription_snapshot_payload["audioOrigin"] = audio_origin
     if transcription_snapshot.provider == "sarvam":
         sarvam_options = resolve_sarvam_request_options(normalized_mode, normalized_output_language)
         transcription_snapshot_payload["provider_mode"] = sarvam_options["mode"]
@@ -781,6 +805,9 @@ async def create_job(
         source_in_ms=source_in_ms,
         source_out_ms=source_out_ms,
         timeline_offset_ms=timeline_offset_ms,
+        timeline_offset_us=timeline_offset_us,
+        timeline_duration_us=timeline_duration_us,
+        audio_origin=audio_origin,
     )
     if idempotency_key:
         async with aiosqlite.connect(str(DB_PATH)) as replay_db:

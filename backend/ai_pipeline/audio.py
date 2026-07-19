@@ -2,6 +2,7 @@ import os
 import subprocess
 import shutil
 import logging
+import tempfile
 from pydub import AudioSegment
 from dotenv import load_dotenv
 
@@ -45,34 +46,51 @@ def extract_audio(
     start_ms: int | None = None,
     end_ms: int | None = None,
 ) -> str:
-    """Extract mono audio for transcription and alignment."""
+    """Decode to deterministic mono 16 kHz signed PCM without phase cancellation.
+
+    FFmpeg first normalizes container timestamps and compressed-codec delay. The
+    highest-energy decoded channel is then selected instead of averaging stereo,
+    which preserves speech in phase-inverted recordings.
+    """
     if not shutil.which(FFMPEG_BINARY) and not os.path.exists(FFMPEG_BINARY):
         raise RuntimeError("FFmpeg is not available. Install FFmpeg or set FFMPEG_PATH to the ffmpeg executable.")
 
-    ffmpeg_cmd = [
-        FFMPEG_BINARY, "-i", video_path,
-    ]
+    del channels, codec, bitrate_kbps
+    target_rate = 16000 if sample_rate != 16000 else sample_rate
+    temporary = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    temporary_path = temporary.name
+    temporary.close()
+    ffmpeg_cmd = [FFMPEG_BINARY, "-i", video_path]
     if start_ms is not None:
-        ffmpeg_cmd.extend(["-ss", f"{start_ms / 1000.0:.3f}"])
+        ffmpeg_cmd.extend(["-ss", f"{start_ms / 1000.0:.6f}"])
     if end_ms is not None:
-        ffmpeg_cmd.extend(["-to", f"{end_ms / 1000.0:.3f}"])
+        ffmpeg_cmd.extend(["-to", f"{end_ms / 1000.0:.6f}"])
     ffmpeg_cmd.extend([
-        "-vn",
-        "-ac", str(max(1, min(int(channels), 2))),
-        "-ar", str(max(8000, min(int(sample_rate), 48000))),
-        "-c:a", codec or "libmp3lame",
-    ])
-    if bitrate_kbps:
-        ffmpeg_cmd.extend(["-b:a", f"{int(bitrate_kbps)}k"])
-    ffmpeg_cmd.extend([
-        output_path,
-        "-y"
+        "-vn", "-ac", "2", "-ar", str(target_rate),
+        "-af", "aresample=first_pts=0", "-c:a", "pcm_s16le",
+        temporary_path, "-y",
     ])
     try:
         subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        decoded = AudioSegment.from_wav(temporary_path).set_frame_rate(16000).set_sample_width(2)
+        candidates = decoded.split_to_mono()
+        mono = max(candidates, key=lambda candidate: candidate.rms) if candidates else decoded.set_channels(1)
+        mono = mono.set_channels(1)
+        mono.export(output_path, format="wav", codec="pcm_s16le")
+        sample_count = int(round(len(mono) * 16_000 / 1000))
+        logger.info(
+            "caption_audio_normalized sample_rate=16000 channels=1 sample_count=%d duration_ms=%d",
+            sample_count,
+            len(mono),
+        )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
         raise RuntimeError(f"FFmpeg audio extraction failed: {detail[-600:] or exc}") from exc
+    finally:
+        try:
+            os.remove(temporary_path)
+        except FileNotFoundError:
+            pass
     return output_path
 
 def _float_env(name: str, default: float) -> float:

@@ -36,9 +36,9 @@ DEFAULT_CAPTION_RULES: dict[str, Any] = {
     "max_chars": 28,
     "min_duration": 0.8,
     "max_duration": 2.0,
-    "pause_split_threshold": 0.25,
+    "pause_split_threshold": 0.36,
     "merge_gap": 0.12,
-    "phrase_hold": 0.05,
+    "phrase_hold": 0.25,
 }
 
 # Hallucination filter tolerance: words ending more than this many seconds

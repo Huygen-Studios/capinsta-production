@@ -414,7 +414,6 @@ def _log_caption_timing_debug(
             if chunk_start < gap_start and chunk_end > gap_end:
                 crossing_chunks.append(
                     {
-                        "text": chunk.get("text"),
                         "start": chunk_start,
                         "end": chunk_end,
                         "silenceStart": gap_start,
@@ -436,10 +435,9 @@ def _log_caption_timing_debug(
         )
     ]
     logger.info(
-        "caption_timing_debug alignedWordsFirst50=%r",
+        "caption_timing_debug alignedWordTimingsFirst50=%r",
         [
             {
-                "word": word.get("displayedWord") or word.get("word"),
                 "start": word.get("start"),
                 "end": word.get("end"),
                 "timing_source": word.get("timingSourceDetail")
@@ -588,11 +586,21 @@ def run_pipeline(
     output_language = normalize_caption_output(caption_output)
     pipeline_logger = PipelineLogger(os.path.basename(video_path))
     pipeline_logger.start_run()
-    audio_path = f"{os.path.splitext(video_path)[0]}_temp.mp3"
+    audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
     chunks = []
     transcription_providers: set[str] = set()
     transcription_fallback_from: set[str] = set()
     active_snapshot = coerce_snapshot(transcription_config_snapshot)
+    raw_snapshot = transcription_config_snapshot if isinstance(transcription_config_snapshot, dict) else {}
+    try:
+        snapshot_offset_us = int(raw_snapshot.get("timeline_offset_us", raw_snapshot.get("timelineOffsetUs", 0)) or 0)
+    except (TypeError, ValueError):
+        snapshot_offset_us = 0
+    try:
+        timeline_duration_us = int(raw_snapshot.get("timeline_duration_us", raw_snapshot.get("timelineDurationUs", 0)) or 0)
+    except (TypeError, ValueError):
+        timeline_duration_us = 0
+    audio_origin = str(raw_snapshot.get("audio_origin", raw_snapshot.get("audioOrigin", "source_media")))
     pipeline_options_snapshot = active_snapshot.resolved_pipeline_options if active_snapshot else None
     pipeline_config = resolve_pipeline_config(pipeline_options_snapshot)
     pipeline_config_with_sources = resolve_pipeline_config_with_sources(pipeline_options_snapshot)
@@ -624,16 +632,12 @@ def run_pipeline(
         _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
         emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")
         audio_options = pipeline_config.audio
-        ffmpeg_codec = "pcm_s16le" if audio_options.codec == "pcm_s16le" else "libmp3lame"
-        if audio_options.codec == "pcm_s16le":
-            audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
         extract_audio(
             video_path,
             audio_path,
-            sample_rate=audio_options.sampleRate,
-            channels=audio_options.channels,
-            codec=ffmpeg_codec,
-            bitrate_kbps=audio_options.bitrateKbps,
+            sample_rate=16000,
+            channels=1,
+            codec="pcm_s16le",
             start_ms=source_in_ms,
             end_ms=source_out_ms,
         )
@@ -1411,21 +1415,32 @@ def run_pipeline(
         srt_content = generate_srt(clamped_segments, audio_path=audio_path)
         vtt_content = generate_vtt(clamped_segments, audio_path=audio_path)
 
-        offset_seconds = (float(source_in_ms or 0) + float(timeline_offset_ms or 0)) / 1000.0
+        offset_us = int(source_in_ms or 0) * 1000 + (
+            snapshot_offset_us
+            if snapshot_offset_us
+            else int(timeline_offset_ms or 0) * 1000
+        )
+        offset_seconds = offset_us / 1_000_000.0
 
         if offset_seconds != 0.0:
-            logger.info("Applying timeline offset of %.3f seconds to captions", offset_seconds)
+            logger.info("Applying timeline offset offset_us=%d", offset_us)
             for seg in clamped_segments:
                 if "start" in seg:
-                    seg["start"] = round(seg["start"] + offset_seconds, 3)
+                    seg["start"] = round(seg["start"] + offset_seconds, 6)
                 if "end" in seg:
-                    seg["end"] = round(seg["end"] + offset_seconds, 3)
+                    seg["end"] = round(seg["end"] + offset_seconds, 6)
                 if "words" in seg:
                     for w in seg["words"]:
                         if "start" in w:
-                            w["start"] = round(w["start"] + offset_seconds, 3)
+                            w["start"] = round(w["start"] + offset_seconds, 6)
                         if "end" in w:
-                            w["end"] = round(w["end"] + offset_seconds, 3)
+                            w["end"] = round(w["end"] + offset_seconds, 6)
+            for collection in ("speechSegments", "silenceGaps", "hardSpeechGaps"):
+                for region in vad_report.get(collection) or []:
+                    if region.get("start") is not None:
+                        region["start"] = round(float(region["start"]) + offset_seconds, 6)
+                    if region.get("end") is not None:
+                        region["end"] = round(float(region["end"]) + offset_seconds, 6)
             srt_content = generate_srt(clamped_segments)
             vtt_content = generate_vtt(clamped_segments)
 
@@ -1501,11 +1516,14 @@ def run_pipeline(
             },
             "output": transformation_report,
             "audio": {
-                "sampleRate": audio_options.sampleRate,
-                "channels": audio_options.channels,
-                "format": "wav" if audio_options.codec == "pcm_s16le" else "mp3",
+                "sampleRate": 16000,
+                "channels": 1,
+                "format": "wav",
                 "extractedAudioPath": os.path.basename(audio_path),
                 "duration": vad_report.get("audioDuration"),
+                "origin": audio_origin,
+                "timelineOffsetUs": offset_us,
+                "timelineDurationUs": timeline_duration_us or None,
             },
             "timing": {
                 "configurationAppliedExactly": bool(active_snapshot),

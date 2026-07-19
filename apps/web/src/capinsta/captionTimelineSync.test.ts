@@ -14,8 +14,7 @@ mock.module("opencut-wasm", () => ({
 	TICKS_PER_SECOND: () => TICKS_PER_SECOND,
 	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
 		Math.round(seconds * TICKS_PER_SECOND),
-	mediaTimeToSeconds: ({ time }: { time: number }) =>
-		time / TICKS_PER_SECOND,
+	mediaTimeToSeconds: ({ time }: { time: number }) => time / TICKS_PER_SECOND,
 	lastFrameTime: ({ duration }: { duration: number }) => duration,
 	parseTimecode: () => undefined,
 	roundToFrame: ({ time }: { time: number }) => time,
@@ -60,9 +59,7 @@ function buildTextElement({
 		type: "text",
 		name: clip.text,
 		startTime: mediaTimeFromSeconds(start ?? clip.start),
-		duration: mediaTimeFromSeconds(
-			(end ?? clip.end) - (start ?? clip.start),
-		),
+		duration: mediaTimeFromSeconds((end ?? clip.end) - (start ?? clip.start)),
 		trimStart: 0,
 		trimEnd: 0,
 		params: { content: text ?? clip.text },
@@ -84,7 +81,8 @@ function buildTracks({
 		name: "Captions",
 		hidden: false,
 		elements: [
-			firstElement ?? buildTextElement({ document: record.document, clipIndex: 0 }),
+			firstElement ??
+				buildTextElement({ document: record.document, clipIndex: 0 }),
 			buildTextElement({ document: record.document, clipIndex: 1 }),
 		],
 	};
@@ -127,7 +125,7 @@ describe("Capinsta timeline synchronization", () => {
 			firstElement: buildTextElement({
 				document: record.document,
 				clipIndex: 0,
-				text: "Make the clean cut",
+				text: "Make clean captions",
 			}),
 		});
 		const [updated] = syncCapinstaCaptionDocumentsFromTimeline({
@@ -136,18 +134,17 @@ describe("Capinsta timeline synchronization", () => {
 			editedAt: EDITED_AT,
 		});
 
-		expect(updated!.document.clips[0]!.text).toBe("Make the clean cut");
-		expect(updated!.document.words.slice(0, 4).map((word) => word.displayedText)).toEqual([
-			"Make",
-			"the",
-			"clean",
-			"cut",
-		]);
-		expect(updated!.document.words[0]!.start).toBe(record.document.words[0]!.start);
+		expect(updated!.document.clips[0]!.text).toBe("Make clean captions");
+		expect(
+			updated!.document.words.slice(0, 3).map((word) => word.displayedText),
+		).toEqual(["Make", "clean", "captions"]);
+		expect(updated!.document.words[0]!.start).toBe(
+			record.document.words[0]!.start,
+		);
 		expect(updated!.document.clips[0]!.timingNeedsReview).toBe(false);
 	});
 
-	test("keeps best-effort active-word highlighting when edited word count changes", () => {
+	test("disables active-word highlighting when edited word count changes", () => {
 		const record = buildRecord();
 		const afterTracks = buildTracks({
 			record,
@@ -172,7 +169,7 @@ describe("Capinsta timeline synchronization", () => {
 				records: [updated!],
 				timeSeconds: record.document.words[0]!.start,
 			})?.activeWordIds,
-		).toEqual([record.document.words[0]!.id]);
+		).toEqual([]);
 	});
 
 	test("offsets word timings when a caption is moved", () => {
@@ -256,7 +253,9 @@ describe("Capinsta timeline synchronization", () => {
 		});
 
 		expect(updated!.document.clips[0]!.timingNeedsReview).toBe(true);
-		expect(updated!.document.words[0]!.start).toBe(record.document.words[0]!.start);
+		expect(updated!.document.words[0]!.start).toBe(
+			record.document.words[0]!.start,
+		);
 		expect(updated!.document.clips[0]!.manualEdit?.timingReviewReason).toBe(
 			"clip_duration_changed",
 		);
@@ -302,7 +301,10 @@ describe("Capinsta timeline synchronization", () => {
 		const hiddenCaptionTrack = previewTracks.overlay[0];
 		const visibleTextTrack = previewTracks.overlay[1];
 
-		if (hiddenCaptionTrack?.type !== "text" || visibleTextTrack?.type !== "text") {
+		if (
+			hiddenCaptionTrack?.type !== "text" ||
+			visibleTextTrack?.type !== "text"
+		) {
 			throw new Error("Expected text tracks");
 		}
 		expect(hiddenCaptionTrack.elements.every((element) => element.hidden)).toBe(

@@ -57,7 +57,15 @@ export type CaptionStylePresetId =
   | "apple_cinematic"
   | "modern_minimalist_lockup";
 
-export type CaptionTimingSource = "provider" | "whisperx" | "stable_ts" | "vad_adjusted" | "manual" | "estimated";
+export type CaptionTimingSource =
+  | "provider"
+  | "whisperx"
+  | "stable_ts"
+  | "vad_adjusted"
+  | "forced_alignment"
+  | "repaired_provider"
+  | "manual"
+  | "estimated";
 
 export interface MediaFile {
   id: string;

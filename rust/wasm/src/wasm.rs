@@ -1,4 +1,6 @@
 #[cfg(target_arch = "wasm32")]
+mod captions;
+#[cfg(target_arch = "wasm32")]
 mod compositor;
 #[cfg(target_arch = "wasm32")]
 mod effects;
@@ -9,6 +11,8 @@ mod masks;
 #[cfg(target_arch = "wasm32")]
 mod perf;
 
+#[cfg(target_arch = "wasm32")]
+pub use captions::*;
 #[cfg(target_arch = "wasm32")]
 pub use compositor::*;
 #[cfg(target_arch = "wasm32")]

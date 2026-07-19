@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bridge = { version = "0.1.0", path = "../crates/bridge" }
+captions = { version = "0.1.0", path = "../crates/captions" }
 compositor = { version = "0.1.0", path = "../crates/compositor" }
 console_error_panic_hook = "0.1.7"
 effects = { version = "0.1.0", path = "../crates/effects" }

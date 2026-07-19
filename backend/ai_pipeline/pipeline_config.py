@@ -31,9 +31,9 @@ class CaptionChunkingConfig:
     maxCharacters: int = 28
     minDurationSeconds: float = 0.8
     maxDurationSeconds: float = 2.0
-    pauseSplitThresholdSeconds: float = 0.25
+    pauseSplitThresholdSeconds: float = 0.36
     mergeGapSeconds: float = 0.12
-    phraseHoldSeconds: float = 0.05
+    phraseHoldSeconds: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ class AudioChunkingConfig:
 
 @dataclass(frozen=True)
 class VadConfig:
-    pauseThresholdSeconds: float = 0.25
+    pauseThresholdSeconds: float = 0.36
     silenceThresholdDb: float | None = None
     sileroEnabled: bool = True
     sileroSpeechThreshold: float = 0.50

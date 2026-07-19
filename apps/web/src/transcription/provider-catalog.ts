@@ -38,7 +38,14 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		supportedResponseFormats: ["application/json"],
 		maxInputBytes: 2_000_000_000,
 		maxChunkDurationSeconds: 600,
-		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
+		supportedLanguageModes: [
+			"english",
+			"hindi",
+			"hinglish",
+			"telugu",
+			"telgish",
+			"auto_mixed_indian",
+		],
 		supportedProviderModes: ["transcribe"],
 		localAlignmentRequired: true,
 		retryableHttpStatuses: [429, 500, 503, 504],
@@ -54,7 +61,14 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		supportedResponseFormats: ["application/json"],
 		maxInputBytes: 2_000_000_000,
 		maxChunkDurationSeconds: 600,
-		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
+		supportedLanguageModes: [
+			"english",
+			"hindi",
+			"hinglish",
+			"telugu",
+			"telgish",
+			"auto_mixed_indian",
+		],
 		supportedProviderModes: ["transcribe"],
 		localAlignmentRequired: true,
 		retryableHttpStatuses: [429, 500, 503, 504],
@@ -70,7 +84,14 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		supportedResponseFormats: ["verbose_json"],
 		maxInputBytes: 25_000_000,
 		maxChunkDurationSeconds: 600,
-		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
+		supportedLanguageModes: [
+			"english",
+			"hindi",
+			"hinglish",
+			"telugu",
+			"telgish",
+			"auto_mixed_indian",
+		],
 		supportedProviderModes: ["transcribe"],
 		localAlignmentRequired: false,
 		retryableHttpStatuses: [429, 500, 503, 504],
@@ -86,7 +107,14 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		supportedResponseFormats: ["json"],
 		maxInputBytes: 25_000_000,
 		maxChunkDurationSeconds: 600,
-		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
+		supportedLanguageModes: [
+			"english",
+			"hindi",
+			"hinglish",
+			"telugu",
+			"telgish",
+			"auto_mixed_indian",
+		],
 		supportedProviderModes: ["transcribe"],
 		localAlignmentRequired: true,
 		retryableHttpStatuses: [429, 500, 503, 504],
@@ -102,7 +130,14 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		supportedResponseFormats: ["json"],
 		maxInputBytes: 25_000_000,
 		maxChunkDurationSeconds: 600,
-		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
+		supportedLanguageModes: [
+			"english",
+			"hindi",
+			"hinglish",
+			"telugu",
+			"telgish",
+			"auto_mixed_indian",
+		],
 		supportedProviderModes: ["transcribe"],
 		localAlignmentRequired: true,
 		retryableHttpStatuses: [429, 500, 503, 504],
@@ -112,20 +147,30 @@ export const TRANSCRIPTION_PROVIDER_CATALOG = [
 		model: "saaras:v3",
 		displayName: "Sarvam Saaras v3",
 		enabled: true,
-		timestampCapability: "REST /speech-to-text with with_timestamps=true returns native word timestamps; Sarvam Batch is chunk timestamps only",
+		timestampCapability:
+			"REST /speech-to-text with with_timestamps=true returns native word timestamps; Sarvam Batch is chunk timestamps only",
 		timestampStrategy: "provider_word",
 		requiredSecret: "SARVAM_API_KEY",
 		supportedResponseFormats: ["json"],
 		maxInputBytes: 25_000_000,
 		maxChunkDurationSeconds: 25,
-		supportedLanguageModes: ["english", "hindi", "hinglish", "telugu", "telgish", "auto_mixed_indian"],
+		supportedLanguageModes: [
+			"english",
+			"hindi",
+			"hinglish",
+			"telugu",
+			"telgish",
+			"auto_mixed_indian",
+		],
 		supportedProviderModes: ["transcribe", "verbatim", "translit", "codemix"],
 		localAlignmentRequired: false,
 		retryableHttpStatuses: [429, 500, 503],
 	},
 ] as const satisfies readonly TranscriptionCatalogEntry[];
 
-export function isTranscriptionProvider(value: string): value is TranscriptionProvider {
+export function isTranscriptionProvider(
+	value: string,
+): value is TranscriptionProvider {
 	return value === "gemini" || value === "openai" || value === "sarvam";
 }
 
@@ -137,7 +182,8 @@ export function getTranscriptionCatalogEntry({
 	model: string;
 }) {
 	return TRANSCRIPTION_PROVIDER_CATALOG.find(
-		(entry) => entry.provider === provider && entry.model === model && entry.enabled,
+		(entry) =>
+			entry.provider === provider && entry.model === model && entry.enabled,
 	);
 }
 
@@ -161,9 +207,14 @@ export function canonicalizeTranscriptionSelection({
 }: {
 	provider: string;
 	model: string;
-}): { provider: TranscriptionProvider; model: string; aliases: string[] } | null {
+}): {
+	provider: TranscriptionProvider;
+	model: string;
+	aliases: string[];
+} | null {
 	const exact = getTranscriptionCatalogEntry({ provider, model });
-	if (exact) return { provider: exact.provider, model: exact.model, aliases: [] };
+	if (exact)
+		return { provider: exact.provider, model: exact.model, aliases: [] };
 
 	const aliases: string[] = [];
 	let providerKey = PROVIDER_ALIASES[aliasKey(provider)];
@@ -212,7 +263,12 @@ export function defaultProviderOptions(provider: TranscriptionProvider) {
 export const DEFAULT_PIPELINE_OPTIONS = {
 	schemaVersion: 1,
 	timingSourcePolicy: "native_then_forced",
-	audio: { sampleRate: 16000, channels: 1, codec: "pcm_s16le", bitrateKbps: null },
+	audio: {
+		sampleRate: 16000,
+		channels: 1,
+		codec: "pcm_s16le",
+		bitrateKbps: null,
+	},
 	audioChunking: {
 		vadEnabled: true,
 		targetSeconds: 8,
@@ -225,7 +281,7 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 		fadeMs: 0,
 	},
 	vad: {
-		pauseThresholdSeconds: 0.25,
+		pauseThresholdSeconds: 0.36,
 		silenceThresholdDb: null,
 		sileroEnabled: true,
 		sileroMinSpeechDurationMs: 80,
@@ -273,16 +329,20 @@ export const DEFAULT_PIPELINE_OPTIONS = {
 		maxCharacters: 28,
 		minDurationSeconds: 0.8,
 		maxDurationSeconds: 2,
-		pauseSplitThresholdSeconds: 0.25,
+		pauseSplitThresholdSeconds: 0.36,
 		mergeGapSeconds: 0.12,
-		phraseHoldSeconds: 0.05,
+		phraseHoldSeconds: 0.25,
 	},
 	quality: {
 		minimumProviderTimestampCoverage: 0.9,
 		allowSegmentDerivedWords: false,
 		allowEstimatedWords: true,
 	},
-	performance: { providerTimeoutSeconds: 90, sarvamMaxConcurrency: 1, alignmentRetries: 3 },
+	performance: {
+		providerTimeoutSeconds: 90,
+		sarvamMaxConcurrency: 1,
+		alignmentRetries: 3,
+	},
 } as const;
 
 type PlainObject = { readonly [key: string]: unknown };

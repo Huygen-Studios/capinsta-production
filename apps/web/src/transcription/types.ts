@@ -44,4 +44,7 @@ export interface CaptionChunk {
 	text: string;
 	startTime: number;
 	duration: number;
+	timingSource?: "estimated";
+	timingNeedsReview?: true;
+	activeWordEffectsEnabled?: false;
 }

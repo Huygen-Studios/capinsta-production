@@ -4,7 +4,7 @@ from google.genai import errors as genai_errors
 import ai_pipeline.transcriber as transcriber
 from tests.test_transcriber_provider_pipeline import _clear_provider_env, _write_wav, FakeInteraction, FakeGeminiClient
 
-def test_gemini_derives_words_when_missing(monkeypatch, tmp_path):
+def test_gemini_returns_raw_text(monkeypatch, tmp_path):
     _clear_provider_env(monkeypatch)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
 
@@ -14,14 +14,7 @@ def test_gemini_derives_words_when_missing(monkeypatch, tmp_path):
                 json.dumps(
                     {
                         "language": "en",
-                        "segments": [
-                            {
-                                "start": 0,
-                                "end": 1.0,
-                                "text": "hello world",
-                                # Missing words array
-                            }
-                        ],
+                        "text": "hello world",
                     }
                 )
             )
@@ -31,15 +24,13 @@ def test_gemini_derives_words_when_missing(monkeypatch, tmp_path):
     result = transcriber._call_gemini(_write_wav(tmp_path / "a.wav"), "english")
 
     assert result["provider"] == "gemini"
-    assert len(result["segments"]) == 1
-    assert len(result["words"]) == 2
-    assert result["words"][0]["word"] == "hello"
-    assert result["words"][0]["timing_source"] == "provider_segment_derived"
-    assert result["words"][1]["word"] == "world"
-    assert result["words"][1]["timing_source"] == "provider_segment_derived"
+    assert result["text"] == "hello world"
+    assert result["language"] == "en"
+    assert result["segments"] == []
+    assert result["words"] == []
 
 
-def test_gemini_fails_on_missing_segments(monkeypatch, tmp_path):
+def test_gemini_fails_on_missing_text(monkeypatch, tmp_path):
     _clear_provider_env(monkeypatch)
     monkeypatch.setenv("GEMINI_API_KEY", "gemini-secret")
 
@@ -49,7 +40,7 @@ def test_gemini_fails_on_missing_segments(monkeypatch, tmp_path):
                 json.dumps(
                     {
                         "language": "en",
-                        # Missing segments entirely
+                        # Missing text entirely
                     }
                 )
             )
@@ -59,8 +50,7 @@ def test_gemini_fails_on_missing_segments(monkeypatch, tmp_path):
     with pytest.raises(transcriber.TranscriptionProviderError) as exc_info:
         transcriber._call_gemini(_write_wav(tmp_path / "a.wav"), "english")
     
-    assert exc_info.value.category == "structured_output_invalid"
-    assert "missing segments" in str(exc_info.value)
+    assert exc_info.value.category == "empty_transcript"
 
 
 class CandidatePart:
@@ -94,14 +84,7 @@ def test_gemini_extracts_text_from_candidates_if_output_text_missing(monkeypatch
                             json.dumps(
                                 {
                                     "language": "en",
-                                    "segments": [
-                                        {
-                                            "start": 0,
-                                            "end": 0.5,
-                                            "text": "test",
-                                            "words": [{"word": "test", "start": 0, "end": 0.5}],
-                                        }
-                                    ],
+                                    "text": "test",
                                 }
                             )
                         )
@@ -114,5 +97,6 @@ def test_gemini_extracts_text_from_candidates_if_output_text_missing(monkeypatch
     result = transcriber._call_gemini(_write_wav(tmp_path / "a.wav"), "english")
 
     assert result["provider"] == "gemini"
-    assert len(result["segments"]) == 1
-    assert result["segments"][0]["text"] == "test"
+    assert result["text"] == "test"
+    assert result["segments"] == []
+    assert result["words"] == []
