@@ -1,6 +1,7 @@
 import {
 	Input,
 	ALL_FORMATS,
+	AudioBufferSink,
 	BlobSource,
 	VideoSampleSink,
 	type VideoCodec,
@@ -21,6 +22,138 @@ export type VideoFileData = {
 	canDecode: boolean;
 	thumbnailUrl: string | null;
 };
+
+const SPEECH_SAMPLE_RATE = 16_000;
+
+export async function extractSpeechAudioFile({
+	file,
+	sourceName,
+}: {
+	file: File;
+	sourceName: string;
+}): Promise<File> {
+	const input = new Input({
+		source: new BlobSource(file),
+		formats: ALL_FORMATS,
+	});
+
+	try {
+		const audioTrack = await input.getPrimaryAudioTrack();
+		if (!audioTrack) {
+			throw new Error("The selected video does not contain an audio track.");
+		}
+
+		const sink = new AudioBufferSink(audioTrack);
+		const chunks: AudioBuffer[] = [];
+		let totalSamples = 0;
+		for await (const { buffer } of sink.buffers(0)) {
+			chunks.push(buffer);
+			totalSamples += buffer.length;
+		}
+		if (chunks.length === 0 || totalSamples === 0) {
+			throw new Error("The selected video audio could not be decoded.");
+		}
+
+		const sourceSampleRate = chunks[0]!.sampleRate;
+		const monoSamples = new Float32Array(totalSamples);
+		let offset = 0;
+		for (const chunk of chunks) {
+			if (chunk.sampleRate !== sourceSampleRate) {
+				throw new Error("The selected video uses inconsistent audio sample rates.");
+			}
+			for (let sampleIndex = 0; sampleIndex < chunk.length; sampleIndex++) {
+				let sample = 0;
+				for (
+					let channelIndex = 0;
+					channelIndex < chunk.numberOfChannels;
+					channelIndex++
+				) {
+					sample += chunk.getChannelData(channelIndex)[sampleIndex] ?? 0;
+				}
+				monoSamples[offset + sampleIndex] =
+					sample / Math.max(1, chunk.numberOfChannels);
+			}
+			offset += chunk.length;
+		}
+
+		return createSpeechWavFileFromMonoPcm({
+			samples: monoSamples,
+			sourceSampleRate,
+			sourceName,
+			sourceLastModified: file.lastModified,
+		});
+	} finally {
+		input.dispose();
+	}
+}
+
+export function createSpeechWavFileFromMonoPcm({
+	samples,
+	sourceSampleRate,
+	sourceName,
+	sourceLastModified = 0,
+}: {
+	samples: Float32Array;
+	sourceSampleRate: number;
+	sourceName: string;
+	sourceLastModified?: number;
+}): File {
+	const speechSamples = resampleMonoPcm({
+		samples,
+		sourceSampleRate,
+		targetSampleRate: SPEECH_SAMPLE_RATE,
+	});
+	const wav = createWavBlob({
+		samples: speechSamples,
+		sampleRate: SPEECH_SAMPLE_RATE,
+		numChannels: 1,
+	});
+	const baseName =
+		sourceName.trim().replace(/\.[A-Za-z0-9]{1,8}$/u, "") || "caption-audio";
+	return new File([wav], `${baseName}.caption.wav`, {
+		type: "audio/wav",
+		lastModified: sourceLastModified,
+	});
+}
+
+function resampleMonoPcm({
+	samples,
+	sourceSampleRate,
+	targetSampleRate,
+}: {
+	samples: Float32Array;
+	sourceSampleRate: number;
+	targetSampleRate: number;
+}): Float32Array {
+	if (
+		samples.length === 0 ||
+		!Number.isFinite(sourceSampleRate) ||
+		sourceSampleRate <= 0
+	) {
+		return new Float32Array();
+	}
+	if (sourceSampleRate === targetSampleRate) return samples.slice();
+
+	const outputLength = Math.max(
+		1,
+		Math.round(samples.length * (targetSampleRate / sourceSampleRate)),
+	);
+	const output = new Float32Array(outputLength);
+	const sourceStep = sourceSampleRate / targetSampleRate;
+	for (let outputIndex = 0; outputIndex < outputLength; outputIndex++) {
+		const sourcePosition = outputIndex * sourceStep;
+		const lowerIndex = Math.min(
+			samples.length - 1,
+			Math.floor(sourcePosition),
+		);
+		const upperIndex = Math.min(samples.length - 1, lowerIndex + 1);
+		const fraction = sourcePosition - lowerIndex;
+		output[outputIndex] =
+			(samples[lowerIndex] ?? 0) * (1 - fraction) +
+			(samples[upperIndex] ?? 0) * fraction;
+	}
+	return output;
+}
 
 export async function readVideoFile({
 	file,
@@ -151,8 +284,15 @@ function interleaveAudioBuffer({
 	return interleavedSamples;
 }
 
-function createWavBlob({ samples }: { samples: Float32Array }): Blob {
-	const numChannels = NUM_CHANNELS;
+function createWavBlob({
+	samples,
+	sampleRate = SAMPLE_RATE,
+	numChannels = NUM_CHANNELS,
+}: {
+	samples: Float32Array;
+	sampleRate?: number;
+	numChannels?: number;
+}): Blob {
 	const bitsPerSample = 16;
 	const bytesPerSample = bitsPerSample / 8;
 	const numSamples = samples.length / numChannels;
@@ -170,8 +310,8 @@ function createWavBlob({ samples }: { samples: Float32Array }): Blob {
 	view.setUint32(16, 16, true);
 	view.setUint16(20, 1, true);
 	view.setUint16(22, numChannels, true);
-	view.setUint32(24, SAMPLE_RATE, true);
-	view.setUint32(28, SAMPLE_RATE * numChannels * bytesPerSample, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * numChannels * bytesPerSample, true);
 	view.setUint16(32, numChannels * bytesPerSample, true);
 	view.setUint16(34, bitsPerSample, true);
 

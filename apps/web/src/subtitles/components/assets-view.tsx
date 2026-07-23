@@ -402,6 +402,12 @@ export function Captions() {
 				signal: abortController.signal,
 			});
 
+			const projectId = editor.project.getActive().metadata.id;
+			const sourceVideoFile = await resolveCaptionUploadFile({
+				projectId,
+				mediaAsset: selectedMediaAsset,
+				loadMediaAsset: (args) => storageService.loadMediaAsset(args),
+			});
 			dispatchCaptionJob({
 				type: "progress",
 				status: "extracting_audio",
@@ -410,13 +416,23 @@ export function Captions() {
 			console.debug("[Capinsta captions] Ensuring reusable audio source");
 			const audioForCaptions = await ensureAudioForCaptions({
 				videoAssetId: selectedMediaAsset.id,
-				getAssets: () => editor.media.getAssets(),
+				getAssets: () =>
+					editor.media
+						.getAssets()
+						.map((asset) =>
+							asset.id === selectedMediaAsset.id
+								? { ...asset, file: sourceVideoFile }
+								: asset,
+						),
 				cacheAudioMetadata,
 			});
+			const captionUploadFile = audioForCaptions.file;
 			console.debug("[Capinsta captions] Audio source ready", {
 				assetId: audioForCaptions.assetId,
 				sourceAssetId: audioForCaptions.sourceAssetId,
 				wasReused: audioForCaptions.wasReused,
+				sourceBytes: sourceVideoFile.size,
+				captionAudioBytes: captionUploadFile.size,
 			});
 
 			dispatchCaptionJob({
@@ -425,12 +441,6 @@ export function Captions() {
 				message: "Transcribing speech...",
 			});
 			console.debug("[Capinsta captions] Starting transcription request");
-			const projectId = editor.project.getActive().metadata.id;
-			const captionUploadFile = await resolveCaptionUploadFile({
-				projectId,
-				mediaAsset: selectedMediaAsset,
-				loadMediaAsset: (args) => storageService.loadMediaAsset(args),
-			});
 			const activeProject = editor.project.getActive();
 			const cachedAssetId = activeProject.capinstaServerMediaAssetId;
 			const cachedFingerprint = activeProject.capinstaSourceFingerprint;
@@ -462,7 +472,7 @@ export function Captions() {
 				dispatchCaptionJob({
 					type: "progress",
 					status: "preparing",
-					message: "Uploading video to media service...",
+					message: "Uploading extracted audio to media service...",
 				});
 				const uploadResult = await uploadProjectMediaAsset({
 					projectId,
@@ -515,7 +525,7 @@ export function Captions() {
 					dispatchCaptionJob({
 						type: "progress",
 						status: "preparing",
-						message: "Re-uploading video to media service...",
+						message: "Re-uploading extracted audio to media service...",
 					});
 					const uploadResult = await uploadProjectMediaAsset({
 						projectId,

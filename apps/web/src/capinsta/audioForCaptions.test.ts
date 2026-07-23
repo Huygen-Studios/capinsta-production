@@ -62,7 +62,7 @@ describe("ensureAudioForCaptions", () => {
 		expect(audio.wasReused).toBe(true);
 	});
 
-	test("caches the video source when backend extraction is used", async () => {
+	test("extracts compact speech audio once and reuses it in the session", async () => {
 		const assets: MediaAsset[] = [
 			{
 				id: "video-1",
@@ -73,22 +73,39 @@ describe("ensureAudioForCaptions", () => {
 			},
 		];
 		const metadataUpdates: unknown[] = [];
+		let extractionCount = 0;
+		const extractedFile = buildFile({
+			name: "clip.caption.wav",
+			type: "audio/wav",
+		});
 
 		const first = await ensureAudioForCaptions({
 			videoAssetId: "video-1",
 			getAssets: () => assets,
 			cacheAudioMetadata: (metadata) => metadataUpdates.push(metadata),
+			extractAudioFile: async ({ file, sourceName }) => {
+				extractionCount += 1;
+				expect(file).toBe(assets[0]!.file);
+				expect(sourceName).toBe("clip.mp4");
+				return extractedFile;
+			},
 		});
 		const second = await ensureAudioForCaptions({
 			videoAssetId: "video-1",
 			getAssets: () => assets,
 			cacheAudioMetadata: (metadata) => metadataUpdates.push(metadata),
+			extractAudioFile: async () => {
+				throw new Error("cached audio should be reused");
+			},
 		});
 
-		expect(first.assetId).toBe("video-1");
+		expect(first.assetId).toBe("video-1-caption-audio");
+		expect(first.file).toBe(extractedFile);
 		expect(first.wasReused).toBe(false);
-		expect(second.assetId).toBe("video-1");
+		expect(second.assetId).toBe("video-1-caption-audio");
+		expect(second.file).toBe(extractedFile);
 		expect(second.wasReused).toBe(true);
+		expect(extractionCount).toBe(1);
 		expect(metadataUpdates).toHaveLength(1);
 	});
 });

@@ -1,4 +1,5 @@
 import type { MediaAsset } from "@/media/types";
+import { extractSpeechAudioFile } from "@/media/mediabunny";
 
 export interface AudioAssetForCaptions {
 	assetId: string;
@@ -30,6 +31,7 @@ interface EnsureAudioForCaptionsInput {
 		timelineDurationUs: number;
 		selection?: boolean;
 	};
+	extractAudioFile?: typeof extractSpeechAudioFile;
 }
 
 const inSessionAudioByVideoAssetId = new Map<string, AudioAssetForCaptions>();
@@ -43,6 +45,7 @@ export async function ensureAudioForCaptions({
 	getAssets,
 	cacheAudioMetadata,
 	renderedTimelineAudio,
+	extractAudioFile = extractSpeechAudioFile,
 }: EnsureAudioForCaptionsInput): Promise<AudioAssetForCaptions> {
 	if (renderedTimelineAudio) {
 		return {
@@ -94,14 +97,15 @@ export async function ensureAudioForCaptions({
 		return audioAsset;
 	}
 
-	// The current Capinsta backend accepts video uploads and performs audio
-	// extraction server-side. Cache the source video as the caption audio source
-	// so the browser never repeats expensive in-tab extraction work.
-	const sourceAudio: AudioAssetForCaptions = {
-		assetId: videoAsset.id,
-		sourceAssetId: videoAsset.id,
+	const speechAudioFile = await extractAudioFile({
 		file: videoAsset.file,
-		name: videoAsset.name,
+		sourceName: videoAsset.name,
+	});
+	const sourceAudio: AudioAssetForCaptions = {
+		assetId: `${videoAsset.id}-caption-audio`,
+		sourceAssetId: videoAsset.id,
+		file: speechAudioFile,
+		name: speechAudioFile.name,
 		duration: videoAsset.duration,
 		wasReused: false,
 		audioOrigin: "source_media",
@@ -113,7 +117,7 @@ export async function ensureAudioForCaptions({
 	inSessionAudioByVideoAssetId.set(videoAssetId, sourceAudio);
 	cacheAudioMetadata?.({
 		videoAssetId: videoAsset.id,
-		extractedAudioAssetId: videoAsset.id,
+		extractedAudioAssetId: sourceAudio.assetId,
 		audioExtractionStatus: "ready",
 		duration: videoAsset.duration,
 	});

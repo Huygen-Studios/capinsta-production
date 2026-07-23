@@ -1,18 +1,15 @@
 # Docker
 
-`backend/Dockerfile` builds and runs the production backend/exporter as a
-single container. Its build context is the repository root because it packages
-the editor's Next.js render page for headless exports.
+`backend/Dockerfile` builds and runs the production backend/exporter. The
+Next.js web service is deployed separately and exposes the authenticated
+`/render` route used by the worker.
 
 ## What The Dockerfile Does
 
-1. Uses Bun and Node to install the web workspace dependencies.
-2. Builds the Next.js application and packages the verified `/render.html` artifact.
-3. Uses Python 3.11 slim for the runtime image.
-4. Installs FFmpeg, FFprobe, Chromium dependencies, and Python requirements.
-5. Installs Playwright Chromium.
-6. Copies the built frontend into `frontend/out`.
-7. Starts FastAPI on `0.0.0.0:$PORT`.
+1. Uses Python 3.11 slim for the runtime image.
+2. Installs FFmpeg, FFprobe, Chromium dependencies, and Python requirements.
+3. Installs the Playwright Chromium headless shell.
+4. Starts FastAPI on `0.0.0.0:$PORT`.
 
 No dev servers are used in production.
 
@@ -60,6 +57,13 @@ Required for real caption generation:
 - `STT_PROVIDER`
 - one of `SARVAM_API_KEY`, `OPENAI_API_KEY`, or `GROQ_API_KEY`
 
+Required for export:
+
+- `CAPINSTA_RENDER_BASE_URL` or `RENDER_PAGE_URL` pointing to the web service,
+- the same strong `CAPINSTA_RENDER_TOKEN_SECRET` in web and backend,
+- writable `TEMP_DIR` and `EXPORT_DIR`,
+- optional explicit `FFMPEG_PATH` and `FFPROBE_PATH`.
+
 ## Troubleshooting
 
 If `/health` fails:
@@ -73,6 +77,8 @@ If `/health/export` is degraded:
 - Confirm FFmpeg and FFprobe are installed.
 - Confirm Playwright Chromium installed and can launch.
 - Confirm `/tmp/huygen-caps` is writable.
+- Confirm `render_page_reachable` and `render_contract_ready` are true.
+- Confirm the web and backend services share `CAPINSTA_RENDER_TOKEN_SECRET`.
 
 If MP4 export is slow:
 

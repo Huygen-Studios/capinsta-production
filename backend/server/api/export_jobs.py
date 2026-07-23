@@ -561,6 +561,23 @@ def _validate_export_output_settings(width: int, height: int, fps: int) -> None:
         )
 
 
+def _normalize_render_mode(render_mode: str | None) -> str:
+    normalized = (render_mode or "headless").strip().lower()
+    if normalized != "headless":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "success": False,
+                "stage": "validate_request",
+                "error": (
+                    f"Unsupported render mode: {render_mode}. "
+                    "CapInsta MP4 exports require the headless Playwright renderer."
+                ),
+            },
+        )
+    return normalized
+
+
 async def _run_export_job(export_job_id: str, request: ExportRequest) -> None:
     queue_started = time.perf_counter()
     queued_job = await _set_job(
@@ -821,6 +838,7 @@ async def start_export_job(
     if duration_source is None and duration_mode is not None:
         duration_source = duration_mode
     export_fps = int(export_fps or 30)
+    render_mode = _normalize_render_mode(render_mode)
     export_mode = "captions_only" if captions_only else export_mode
     if export_mode not in {
         "full_video",

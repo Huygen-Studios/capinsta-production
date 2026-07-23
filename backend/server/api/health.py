@@ -379,7 +379,12 @@ async def export_health_payload_async() -> dict[str, object]:
     payload = await check_export_runtime_async()
     temp_writable, temp_error = _dir_writable(TEMP_DIR)
     export_writable, export_error = _dir_writable(EXPORT_DIR)
-    renderer_available = bool(payload.get("playwright_package") and payload.get("chromium_launch"))
+    renderer_available = bool(
+        payload.get("playwright_package")
+        and payload.get("chromium_launch")
+        and payload.get("render_page_reachable")
+        and payload.get("render_contract_ready")
+    )
 
     payload.update({
         "ffmpegAvailable": bool(payload.get("ffmpeg")),

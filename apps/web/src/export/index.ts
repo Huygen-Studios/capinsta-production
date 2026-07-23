@@ -90,6 +90,33 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function exportRecoveryHint(stage: string): string {
+	const normalized = stage.trim().toLowerCase();
+	if (
+		normalized.includes("media") ||
+		normalized.includes("project") ||
+		normalized.includes("input")
+	) {
+		return "Confirm the source video is still available, then regenerate captions and retry.";
+	}
+	if (
+		normalized.includes("renderer") ||
+		normalized.includes("playwright") ||
+		normalized.includes("composition") ||
+		normalized.includes("font")
+	) {
+		return "The render worker could not prepare the caption page. Retry once; if it fails again, share the job and correlation IDs with support.";
+	}
+	if (
+		normalized.includes("ffmpeg") ||
+		normalized.includes("encode") ||
+		normalized.includes("output")
+	) {
+		return "The video encoder did not produce a valid MP4. Retry once; if it fails again, share the diagnostic IDs with support.";
+	}
+	return "Retry the export. If it fails again, share the diagnostic IDs with support.";
+}
+
 export function formatExportApiError({
 	endpoint,
 	status,
@@ -113,6 +140,8 @@ export function formatExportApiError({
 			"Unknown export error",
 	);
 	const details = [
+		`Export failed during ${stage}: ${backendError}`,
+		exportRecoveryHint(stage),
 		`Endpoint: ${endpoint}`,
 		status !== undefined
 			? `HTTP status: ${status}`

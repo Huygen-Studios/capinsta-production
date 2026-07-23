@@ -14,12 +14,9 @@ import { buildCapinstaPreviewTracks } from "@/capinsta/captionTimelineSync";
 import { buildCapinstaApiUrl } from "@/capinsta/api-url";
 import { getCapinstaApiBaseUrl } from "@/capinsta/featureFlags";
 import { readJsonApiResponse } from "@/capinsta/api-response";
-import { mountCapinstaExportOverlayHost } from "@/capinsta/export/CapinstaExportOverlayHost";
-import type { CapinstaExportOverlayHost } from "@/capinsta/export/capinsta-overlay-capture";
 import {
 	validateCapinstaPreExport,
 	validatePreviewExportStyleParity,
-	validateSingleOverlayRenderer,
 	validateCapinstaHeadlessExport,
 } from "@/capinsta/export/capinsta-export-validation";
 import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
@@ -31,10 +28,13 @@ import {
 import {
 	applyExportLayerPolicy,
 	exportLayerPolicyForMode,
-	hasIndependentVisualLayers,
 } from "@/export/layer-policy";
 import { createExportRequestFormData } from "@/export/request";
 import { validateExportOutput } from "@/export/output-limits";
+import {
+	resolveCapinstaExportRoute,
+	resolveCapinstaExportStrategy,
+} from "@/export/strategy";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -226,9 +226,8 @@ export class RendererManager {
 				projectBackground: activeProject.settings.background,
 			});
 
-			// CapInsta captions are now rendered by a SINGLE visual renderer:
-			// the React DOM overlay (CapinstaActiveCaptionOverlay for preview,
-			// CapinstaExportOverlayHost for export — same React component).
+			// CapInsta captions use one authoritative export renderer: the
+			// authenticated /render page controlled by the Playwright worker.
 			// The canvas/WASM/TextNode/CapinstaCaptionNode pipeline renders ZERO
 			// caption pixels. We still run tracks through buildCapinstaPreviewTracks
 			// so the capinsta carrier TextElements get hidden:true before scene
@@ -250,10 +249,17 @@ export class RendererManager {
 				tracks: captionPreparedTracks,
 				policy: layerPolicy,
 			});
-			const useSparseCaptionBackend =
-				exportMode === "captions_solid_background" &&
-				capinstaRecords.length > 0 &&
-				!hasIndependentVisualLayers({ tracks });
+			const exportStrategy = resolveCapinstaExportStrategy({
+				configured: process.env.NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY,
+				legacyForeignObjectFallback:
+					process.env.NEXT_PUBLIC_CAPINSTA_EXPORT_FALLBACK_FOREIGNOBJECT,
+			});
+			const exportRoute = resolveCapinstaExportRoute({
+				exportMode,
+				captionRecordCount: capinstaRecords.length,
+				strategy: exportStrategy,
+			});
+			const useHeadlessCaptionBackend = exportRoute === "headless-worker";
 
 			console.info("[export] composition request", {
 				exportMode,
@@ -268,8 +274,8 @@ export class RendererManager {
 				height: canvasSize.height,
 				requestedFps: fps ?? null,
 				effectiveFps: exportFps,
-				renderPath: useSparseCaptionBackend
-					? "sparse-caption-backend"
+				renderPath: useHeadlessCaptionBackend
+					? "headless-playwright-backend"
 					: "shared-scene-exporter",
 			});
 
@@ -277,8 +283,7 @@ export class RendererManager {
 
 			// Pre-export validation: single-renderer invariant, no duplicates,
 			// no empty/stale captions, preview/export style hash parity.
-			let overlayHost: CapinstaExportOverlayHost | undefined;
-			if (useSparseCaptionBackend) {
+			if (useHeadlessCaptionBackend) {
 				// 1. Pre-export validation
 				const preCheck = validateCapinstaPreExport({
 					records: capinstaRecords,
@@ -340,7 +345,7 @@ export class RendererManager {
 					return {
 						success: false,
 						error:
-							"Failed to resolve transcription job ID for background export.",
+							"Failed to resolve the source caption job for export. Regenerate captions for this project, then retry.",
 					};
 				}
 
@@ -596,62 +601,6 @@ export class RendererManager {
 					success: true,
 					buffer,
 				};
-			} else if (capinstaRecords.length > 0) {
-				// Pre-export validation for fallback path
-				const preCheck = validateCapinstaPreExport({
-					records: capinstaRecords,
-					canvasWidth: canvasSize.width,
-					canvasHeight: canvasSize.height,
-				});
-				if (isDebug) {
-					console.debug("[capinsta-export] pre-export validation (fallback)", {
-						severity: preCheck.severity,
-						checks: preCheck.checks,
-						exportFps,
-						canvasSize: `${canvasSize.width}x${canvasSize.height}`,
-						rendererPath: "react_overlay_only (CapinstaExportOverlayHost)",
-					});
-				}
-				if (preCheck.severity === "error") {
-					const failed = preCheck.checks
-						.filter((c) => !c.passed)
-						.map((c) => c.name)
-						.join(", ");
-					return {
-						success: false,
-						error: `CapInsta export validation failed: ${failed}`,
-					};
-				}
-
-				const parity = validatePreviewExportStyleParity({
-					records: capinstaRecords,
-					canvasWidth: canvasSize.width,
-					canvasHeight: canvasSize.height,
-				});
-				if (isDebug) {
-					console.debug(
-						"[capinsta-export] preview/export style parity (fallback)",
-						{
-							severity: parity.severity,
-							checks: parity.checks,
-						},
-					);
-				}
-				if (parity.severity === "error") {
-					return {
-						success: false,
-						error:
-							"CapInsta preview/export style hash mismatch — " +
-							"preview and export would render captions differently.",
-					};
-				}
-
-				const mounted = await mountCapinstaExportOverlayHost({
-					records: capinstaRecords,
-					canvasWidth: canvasSize.width,
-					canvasHeight: canvasSize.height,
-				});
-				overlayHost = mounted.host;
 			}
 
 			let audioBuffer: AudioBuffer | null = null;
@@ -674,22 +623,6 @@ export class RendererManager {
 				capinstaCaptionDocuments: capinstaRecords,
 			});
 
-			const editorPlayback = this.editor.playback;
-
-			// Seek helper: convert seconds → ticks (MediaTime) for the playback API.
-			// MediaTime is a branded opaque type; the only safe way to create one
-			// from a number is via the playback.seek() itself. However, seek() only
-			// accepts MediaTime, so we cast here. The relationship between seconds
-			// and ticks is deterministic (ticks = seconds * TICKS_PER_SECOND), and
-			// the seek function internally uses the same ticks, so this is safe.
-			const seekToExportTime = (timeSeconds: number) => {
-				const timeTicks = Math.round(timeSeconds * TICKS_PER_SECOND);
-				editorPlayback.seek({
-					// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- MediaTime is an opaque wasm brand; ticks are created immediately above.
-					time: timeTicks as unknown as import("@/wasm").MediaTime,
-				});
-			};
-
 			const exporter = new SceneExporter({
 				width: canvasSize.width,
 				height: canvasSize.height,
@@ -698,13 +631,6 @@ export class RendererManager {
 				quality,
 				shouldIncludeAudio: !!includeAudio,
 				audioBuffer: audioBuffer || undefined,
-				overlayHost,
-				// FIX O: During export, advance the editor preview playback to each
-				// frame's time so the live preview overlay stays in sync with the
-				// export frame time instead of showing a stuck first caption.
-				onOverlayFrame({ frameTimeSeconds }) {
-					seekToExportTime(frameTimeSeconds);
-				},
 			});
 
 			exporter.on("progress", (progress) => {
@@ -736,17 +662,12 @@ export class RendererManager {
 					return { success: false, error: "Export failed to produce buffer" };
 				}
 
-				// Post-export single-renderer assertion + completion log.
-				const rendererCheck = validateSingleOverlayRenderer({
-					overlayHostsMounted: overlayHost ? 1 : 0,
-				});
 				if (isDebug) {
 					console.debug("[capinsta-export] export complete", {
 						bufferBytes: buffer.byteLength,
 						format,
 						duration,
 						fps: exportFps,
-						rendererChecks: rendererCheck.checks,
 						overlayReport: exporter.lastOverlayReport,
 					});
 				}
@@ -757,17 +678,6 @@ export class RendererManager {
 				};
 			} finally {
 				clearInterval(cancelInterval);
-				// Always dispose the overlay host to unmount React + free DOM.
-				if (overlayHost) {
-					try {
-						await overlayHost.dispose();
-					} catch (disposeErr) {
-						console.warn(
-							"[capinsta-export] overlay host dispose failed",
-							disposeErr,
-						);
-					}
-				}
 			}
 		} catch (error) {
 			console.error("Export failed:", error);

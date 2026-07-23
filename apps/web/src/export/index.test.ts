@@ -19,6 +19,7 @@ describe("formatExportApiError", () => {
 		expect(message).toContain("Backend error: Browser process exited.");
 		expect(message).toContain("Export job ID: export-1");
 		expect(message).toContain("Correlation ID: corr-1");
+		expect(message).toContain("Retry once");
 	});
 
 	test("does not collapse a proxy connection failure to Failed to fetch", () => {

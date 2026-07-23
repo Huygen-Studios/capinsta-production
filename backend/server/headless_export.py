@@ -70,6 +70,17 @@ RENDER_TOKEN_AUDIENCE = "capinsta.render"
 RENDER_TOKEN_TTL_SECONDS = 5 * 60
 
 
+def resolve_media_binary(name: str) -> str | None:
+    env_name = f"{name.upper()}_PATH"
+    configured = os.getenv(env_name, "").strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if configured_path.is_file():
+            return str(configured_path)
+        return shutil.which(configured)
+    return shutil.which(name)
+
+
 @asynccontextmanager
 async def _playwright_session(async_playwright_factory):
     """Own Playwright without letting a dead driver transport escape cleanup."""
@@ -264,7 +275,7 @@ def resolve_ffmpeg_threads(raw_value: str | None = None, cpu_count: int | None =
 
 @lru_cache(maxsize=1)
 def h264_nvenc_capability_available() -> bool:
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = resolve_media_binary("ffmpeg")
     if not ffmpeg:
         return False
     try:
@@ -708,9 +719,9 @@ def check_export_runtime() -> dict[str, object]:
         playwright_package = False
 
     return {
-        "status": "ok" if shutil.which("ffmpeg") and shutil.which("ffprobe") and export_writable and playwright_package else "degraded",
-        "ffmpeg": bool(shutil.which("ffmpeg")),
-        "ffprobe": bool(shutil.which("ffprobe")),
+        "status": "ok" if resolve_media_binary("ffmpeg") and resolve_media_binary("ffprobe") and export_writable and playwright_package else "degraded",
+        "ffmpeg": bool(resolve_media_binary("ffmpeg")),
+        "ffprobe": bool(resolve_media_binary("ffprobe")),
         "playwright_package": playwright_package,
         "exports_writable": export_writable,
         "exports_write_error": type(export_write_error).__name__ if export_write_error else None,
@@ -742,8 +753,13 @@ async def check_export_runtime_async() -> dict[str, object]:
     payload = check_export_runtime()
     chromium_launch = False
     chromium_launch_error = None
+    render_page_reachable = False
+    render_contract_ready = False
+    render_page_status = None
+    render_page_error = None
 
     async def probe_chromium() -> None:
+        nonlocal render_page_reachable, render_contract_ready, render_page_status
         from playwright.async_api import async_playwright
 
         async with async_playwright() as p:
@@ -751,7 +767,20 @@ async def check_export_runtime_async() -> dict[str, object]:
                 headless=True,
                 args=["--disable-gpu", "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
             )
-            await browser.close()
+            try:
+                page = await browser.new_page()
+                render_url = authorize_render_url(default_render_page_url(), "health-probe")
+                response = await page.goto(render_url, wait_until="domcontentloaded")
+                render_page_status = response.status if response else None
+                render_page_reachable = bool(response and response.status < 400)
+                if render_page_reachable:
+                    await page.wait_for_function(
+                        "() => window.__CAPINSTA_RENDER_STATE__ && window.__CAPINSTA_RENDER_STATE__.version === 1",
+                        timeout=5000,
+                    )
+                    render_contract_ready = True
+            finally:
+                await browser.close()
 
     try:
         timeout_seconds = float(os.getenv("EXPORT_HEALTH_CHROMIUM_TIMEOUT_SECONDS", "8"))
@@ -761,22 +790,28 @@ async def check_export_runtime_async() -> dict[str, object]:
         chromium_launch_error = "Chromium launch probe timed out."
     except Exception as exc:
         chromium_launch_error = f"{type(exc).__name__}: {exc}"
+        render_page_error = chromium_launch_error
 
     payload["chromium_launch"] = chromium_launch
     payload["chromium_launch_error"] = chromium_launch_error
-    if not chromium_launch:
+    payload["render_page_reachable"] = render_page_reachable
+    payload["render_page_status"] = render_page_status
+    payload["render_contract_ready"] = render_contract_ready
+    payload["render_page_error"] = render_page_error
+    if not (chromium_launch and render_page_reachable and render_contract_ready):
         payload["status"] = "degraded"
     return payload
 
 
 async def get_video_duration(video_path: str) -> float:
     """Get video duration in seconds via ffprobe."""
-    if not shutil.which("ffprobe"):
+    ffprobe = resolve_media_binary("ffprobe")
+    if not ffprobe:
         logger.error("ffprobe not found on PATH")
         return 0.0
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error",
+            ffprobe, "-v", "error",
             "-show_entries", "format=duration",
             "-of", "csv=p=0",
             video_path,
@@ -795,12 +830,13 @@ async def get_video_duration(video_path: str) -> float:
 
 async def get_video_dimensions(video_path: str) -> tuple[int, int] | None:
     """Get source video width/height via ffprobe."""
-    if not shutil.which("ffprobe"):
+    ffprobe = resolve_media_binary("ffprobe")
+    if not ffprobe:
         return None
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error",
+            ffprobe, "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
             "-of", "json",
@@ -822,6 +858,82 @@ async def get_video_dimensions(video_path: str) -> tuple[int, int] | None:
         return width, height
     except Exception:
         return None
+
+
+async def validate_export_artifact(
+    output_path: str,
+    *,
+    expected_width: int,
+    expected_height: int,
+) -> dict[str, object]:
+    ffprobe = resolve_media_binary("ffprobe")
+    if not ffprobe:
+        raise ExportStageError(
+            "output_validation",
+            "FFprobe is required to validate the completed MP4 but was not found. Install FFprobe or set FFPROBE_PATH.",
+        )
+
+    proc = await asyncio.create_subprocess_exec(
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=codec_name,width,height,avg_frame_rate:format=duration,format_name",
+        "-of",
+        "json",
+        output_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        detail = _tail(stderr.decode("utf-8", errors="replace"), 1200)
+        raise ExportStageError(
+            "output_validation",
+            f"FFprobe could not read the completed MP4. {detail}".strip(),
+        )
+
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="replace") or "{}")
+        streams = payload.get("streams") or []
+        stream = streams[0] if streams else {}
+        format_info = payload.get("format") or {}
+        width = int(stream.get("width") or 0)
+        height = int(stream.get("height") or 0)
+        duration = float(format_info.get("duration") or 0)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ExportStageError(
+            "output_validation",
+            "FFprobe returned invalid metadata for the completed MP4.",
+            exc,
+        ) from exc
+
+    if not stream or width <= 0 or height <= 0:
+        raise ExportStageError(
+            "output_validation",
+            "The completed MP4 does not contain a readable video stream.",
+        )
+    if (width, height) != (expected_width, expected_height):
+        raise ExportStageError(
+            "output_validation",
+            f"The completed MP4 is {width}x{height}; expected {expected_width}x{expected_height}.",
+        )
+    if not math.isfinite(duration) or duration <= 0:
+        raise ExportStageError(
+            "output_validation",
+            "The completed MP4 has no positive playable duration.",
+        )
+
+    return {
+        "codec": stream.get("codec_name"),
+        "width": width,
+        "height": height,
+        "duration": duration,
+        "frameRate": stream.get("avg_frame_rate"),
+        "format": format_info.get("format_name"),
+    }
 
 
 def _even(value: float) -> int:
@@ -977,8 +1089,12 @@ async def export_headless(
             "media_resolution",
             "Source media file was not found for export.",
         )
-    if not shutil.which("ffmpeg"):
-        raise ExportStageError("runtime_check", "FFmpeg was not found on PATH. Install FFmpeg or set FFMPEG_PATH.")
+    ffmpeg_binary = resolve_media_binary("ffmpeg")
+    ffprobe_binary = resolve_media_binary("ffprobe")
+    if not ffmpeg_binary:
+        raise ExportStageError("runtime_check", "FFmpeg was not found. Install FFmpeg or set FFMPEG_PATH.")
+    if not ffprobe_binary:
+        raise ExportStageError("runtime_check", "FFprobe was not found. Install FFprobe or set FFPROBE_PATH.")
 
     source_dimensions = await get_video_dimensions(video_path) if media_exists else None
     if export_width and export_height and export_width > 0 and export_height > 0:
@@ -1064,7 +1180,7 @@ async def export_headless(
         elif is_captions_only:
             raise ExportStageError("duration_detection", "Cannot determine captions-only export duration.")
     if duration <= 0:
-        if not shutil.which("ffprobe"):
+        if not ffprobe_binary:
             raise ExportStageError(
                 "duration_detection",
                 "Export duration was not provided and FFprobe is not available to inspect the source video.",
@@ -1098,6 +1214,26 @@ async def export_headless(
         if performance_callback:
             await performance_callback(summary)
         return summary
+
+    async def validate_completed_output() -> dict[str, object]:
+        try:
+            metadata = await validate_export_artifact(
+                output_path,
+                expected_width=width,
+                expected_height=height,
+            )
+        except Exception:
+            try:
+                Path(output_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        logger.info(
+            "export_output_validated export_job_id=%s metadata=%s",
+            export_job_id,
+            json.dumps(metadata, default=str, sort_keys=True),
+        )
+        return metadata
 
     source_duration = await get_video_duration(video_path) if media_exists else 0.0
     safe_bg = _ffmpeg_color(background_color, fallback="#00ff00" if is_captions_only else "#101010")
@@ -2171,7 +2307,7 @@ async def export_headless(
                 await shutdown_renderer()
                 await progress_callback("encoding", 82, "Encoding video...")
                 encoder = "h264_nvenc" if hardware_acceleration else "libx264"
-                global_args = ["ffmpeg", "-y"]
+                global_args = [ffmpeg_binary, "-y"]
                 input_args: list[str] = []
                 filter_and_map_args: list[str] = []
                 output_codec_args = [
@@ -2360,6 +2496,7 @@ async def export_headless(
                         "output_validation",
                         "FFmpeg did not create a non-empty MP4.",
                     )
+                await validate_completed_output()
                 await progress_callback("finalizing", 98, "Finalizing export...")
                 await progress_callback("export_complete", 100, "Done!")
                 await emit_performance_summary()
@@ -2504,7 +2641,7 @@ async def export_headless(
                 )
 
                 encoder = "h264_nvenc" if hardware_acceleration else "libx264"
-                sparse_cmd = ["ffmpeg", "-y"]
+                sparse_cmd = [ffmpeg_binary, "-y"]
                 if is_captions_only:
                     sparse_cmd.extend(["-f", "concat", "-safe", "0", "-i", str(manifest_path)])
                     if include_audio and media_exists:
@@ -2572,6 +2709,7 @@ async def export_headless(
                     )
                 if not Path(output_path).is_file() or Path(output_path).stat().st_size <= 0:
                     raise ExportStageError("output_validation", "Sparse FFmpeg did not create a non-empty MP4.")
+                await validate_completed_output()
                 await progress_callback("finalizing", 98, "Finalizing export...")
                 await shutdown_renderer()
                 await progress_callback("export_complete", 100, "Done!")
@@ -2712,7 +2850,7 @@ async def export_headless(
 
                 encoder = "h264_nvenc" if hardware_acceleration else "libx264"
                 ffmpeg_cmd = [
-                    "ffmpeg", "-y",
+                    ffmpeg_binary, "-y",
                     "-f", "lavfi", "-r", str(export_fps), "-i", f"color=c={safe_bg}:s={width}x{height}:d={duration:.6f}",
                     "-framerate", str(export_fps), "-start_number", "0", "-i", str(frame_dir / "frame_%06d.png"),
                 ]
@@ -2771,6 +2909,7 @@ async def export_headless(
                 output_size = os.path.getsize(output_path)
                 if output_size <= 0:
                     raise ExportStageError("output_validation", "FFmpeg created an empty output file.")
+                await validate_completed_output()
 
                 await progress_callback("finalizing", 98, "Finalizing export...")
                 await shutdown_renderer()
@@ -2792,7 +2931,7 @@ async def export_headless(
                     pass
 
         encoder = "h264_nvenc" if hardware_acceleration else "libx264"
-        ffmpeg_cmd = ["ffmpeg", "-y"]
+        ffmpeg_cmd = [ffmpeg_binary, "-y"]
         safe_bg = _ffmpeg_color(background_color, fallback="#00ff00" if is_captions_only else "#101010")
         if is_captions_only:
             # Input 0: full-duration solid canvas. Input 1: piped transparent caption frames.
@@ -3143,6 +3282,11 @@ async def export_headless(
         if output_size <= 0:
             await shutdown_renderer()
             raise ExportStageError("output_validation", "FFmpeg created an empty output file.")
+        try:
+            await validate_completed_output()
+        except Exception:
+            await shutdown_renderer()
+            raise
 
         await shutdown_renderer()
         await progress_callback("export_complete", 100, "Done!")

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import shutil
@@ -9,11 +10,16 @@ from fastapi import HTTPException
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from server.api.export_jobs import _validate_export_output_settings
+from server.api.export_jobs import (
+    _normalize_render_mode,
+    _validate_export_output_settings,
+)
 from server.headless_export import (
     _ffmpeg_color,
     _normalize_hex_color,
     h264_nvenc_capability_available,
+    resolve_media_binary,
+    validate_export_artifact,
 )
 
 
@@ -33,6 +39,15 @@ def test_rejects_frame_rates_above_60() -> None:
     with pytest.raises(HTTPException) as error:
         _validate_export_output_settings(1920, 1080, 61)
     assert error.value.status_code == 400
+
+
+def test_headless_is_the_only_accepted_render_mode() -> None:
+    assert _normalize_render_mode(None) == "headless"
+    assert _normalize_render_mode(" HEADLESS ") == "headless"
+    with pytest.raises(HTTPException) as error:
+        _normalize_render_mode("foreign-object")
+    assert error.value.status_code == 400
+    assert "headless Playwright" in error.value.detail["error"]
 
 
 @pytest.mark.parametrize(
@@ -128,6 +143,25 @@ def test_encoded_green_background_and_60_fps(tmp_path) -> None:
     assert stream["width"] == 64
     assert stream["height"] == 64
     assert 59 <= int(stream["nb_frames"]) <= 61
+
+    validated = asyncio.run(
+        validate_export_artifact(
+            str(output),
+            expected_width=64,
+            expected_height=64,
+        )
+    )
+    assert validated["width"] == 64
+    assert validated["height"] == 64
+    assert float(validated["duration"]) > 0
+
+
+def test_configured_ffmpeg_path_is_respected(tmp_path, monkeypatch) -> None:
+    configured = tmp_path / "custom-ffmpeg"
+    configured.write_bytes(b"binary")
+    monkeypatch.setenv("FFMPEG_PATH", str(configured))
+
+    assert resolve_media_binary("ffmpeg") == str(configured)
 
 
 def test_hardware_encoder_probe_returns_a_capability_result() -> None:

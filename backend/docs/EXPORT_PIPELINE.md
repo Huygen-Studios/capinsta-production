@@ -2,9 +2,20 @@
 
 Huygen Caps supports full-video MP4 export and captions-only MP4 export.
 
+## Authoritative Strategy
+
+All projects with CapInsta caption documents use the background headless
+Playwright worker for both `full_video` and `captions_solid_background`.
+`NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY` defaults to `headless`; any other value,
+including the retired ForeignObject fallback flag, is rejected instead of
+silently selecting another renderer.
+
+Caption-free projects may continue to use the browser scene exporter.
+
 ## Frontend Flow
 
-The Export modal starts a background MP4 export job through `startHeadlessExportJob` in `frontend/src/lib/api.ts`.
+The Export modal starts a background MP4 export job from
+`apps/web/src/core/managers/renderer-manager.ts`.
 
 The start request sends:
 
@@ -112,6 +123,8 @@ FFmpeg inputs:
 2. PNG caption frames piped from Playwright screenshots.
 
 The source video is scaled/padded to the target dimensions, then caption frames are overlaid.
+Before completion, FFprobe must confirm a readable video stream, exact output
+dimensions, and a positive duration.
 
 ## Captions-Only Export
 
@@ -182,5 +195,10 @@ Look for:
 - `exportDirWritable`
 - `rendererAvailable`
 - `chromium_launch`
+- `render_page_reachable`
+- `render_contract_ready`
+- `render_page_status`
 
-If the frontend shows an HTML/404 error, it is calling the frontend server instead of FastAPI. Check `NEXT_PUBLIC_API_URL` and `/health`.
+If the frontend shows an HTML/404 error, it is calling the frontend server
+instead of FastAPI. Check the same-origin `/api/capinsta` proxy and
+`BACKEND_INTERNAL_URL`.

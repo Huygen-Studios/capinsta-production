@@ -36,6 +36,11 @@ Upload byte size, the technical `MAX_MEDIA_DURATION_SECONDS` safety limit, and
 the regular-user `CAPTION_DURATION_LIMIT_SECONDS=180` caption policy are
 independent checks.
 
+Caption generation decodes the selected video's audio in the browser and
+uploads a 16 kHz mono PCM WAV. It does not upload the full high-bitrate video
+solely for transcription. At three minutes, the generated WAV is approximately
+5.8 MB.
+
 ## Storage Rules
 
 - Runtime media is stored outside the frontend public root.
