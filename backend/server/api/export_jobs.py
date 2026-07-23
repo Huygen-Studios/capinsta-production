@@ -24,7 +24,14 @@ from ..headless_export import (
     redact_render_url,
 )
 from ..progress import manager
-from ..project_cleanup import EXPIRED_MESSAGE, ensure_project_available, is_deleted_row
+from ..project_cleanup import (
+    EXPIRED_MESSAGE,
+    ensure_project_available,
+    is_deleted_row,
+    iso_utc,
+    project_expiry,
+    utc_now,
+)
 from ..settings import (
     EXPORT_DIR,
     DB_PATH,
@@ -33,6 +40,7 @@ from ..settings import (
     ensure_runtime_dirs,
 )
 from .jobs import _public_export_stage, _resolve_export_dimensions, resolve_job_video_path
+from .media_assets import get_owned_media_asset, resolve_owned_media_asset_file
 from ..auth import current_user, get_owned_job
 from ..operational_mirror import mirror_export_job
 from ..pagination import pagination_payload, parse_cursor_page, should_return_paginated_response
@@ -49,6 +57,91 @@ MAX_EXPORT_PIXEL_COUNT = 2_073_600
 MAX_EXPORT_FPS = 60
 
 ensure_runtime_dirs()
+
+
+async def _resolve_export_source_job(
+    db: aiosqlite.Connection,
+    *,
+    source_job_id: str | None,
+    media_asset_id: str | None,
+    project_id: str | None,
+) -> tuple[str, aiosqlite.Row]:
+    """Resolve a normal caption job or create a reusable media-backed source.
+
+    Imported subtitle files have no transcription job. A lightweight completed
+    job preserves the existing export retention/download ownership model while
+    binding the export to the user's validated source media.
+    """
+    if source_job_id:
+        row = await get_owned_job(db, source_job_id)
+        return source_job_id, row
+    if not media_asset_id or not project_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide source_job_id or both media_asset_id and project_id.",
+        )
+
+    media_row = await get_owned_media_asset(db, media_asset_id)
+    if str(media_row["project_id"]) != project_id:
+        raise HTTPException(status_code=404, detail="Media asset was not found.")
+    resolve_owned_media_asset_file(media_row)
+
+    cursor = await db.execute(
+        """
+        SELECT * FROM jobs
+        WHERE user_id = ? AND project_id = ? AND media_asset_id = ?
+          AND transcription_provider = 'subtitle_import'
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (current_user().id, project_id, media_asset_id),
+    )
+    row = await cursor.fetchone()
+    now = utc_now()
+    now_text = iso_utc(now)
+    expires_text = iso_utc(project_expiry(now, now_text))
+    if row:
+        await db.execute(
+            """
+            UPDATE jobs
+            SET last_seen_at = ?, expires_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (now_text, expires_text, now_text, row["id"]),
+        )
+        await db.commit()
+        cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],))
+        return str(row["id"]), await cursor.fetchone()
+
+    synthetic_job_id = str(uuid.uuid4())
+    await db.execute(
+        """
+        INSERT INTO jobs (
+            id, status, progress, filename, target_lang, created_at,
+            completed_at, last_seen_at, expires_at, user_id, project_id,
+            media_asset_id, message, heartbeat_at, updated_at,
+            transcription_provider
+        ) VALUES (?, 'completed', 100, ?, 'imported_subtitles', ?, ?, ?, ?, ?,
+                  ?, ?, 'Imported subtitle export source.', ?, ?,
+                  'subtitle_import')
+        """,
+        (
+            synthetic_job_id,
+            str(media_row["original_name"]),
+            now_text,
+            now_text,
+            now_text,
+            expires_text,
+            current_user().id,
+            project_id,
+            media_asset_id,
+            now_text,
+            now_text,
+        ),
+    )
+    await db.commit()
+    cursor = await db.execute("SELECT * FROM jobs WHERE id = ?", (synthetic_job_id,))
+    return synthetic_job_id, await cursor.fetchone()
 
 ExportStatus = Literal["queued", "running", "completed", "failed", "cancelled", "expired"]
 _export_semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXPORTS)
@@ -806,7 +899,9 @@ def export_job_metrics() -> dict[str, int]:
 async def start_export_job(
     request_context: Request,
     db: aiosqlite.Connection = Depends(get_db),
-    source_job_id: str = Form(...),
+    source_job_id: str | None = Form(None),
+    media_asset_id: str | None = Form(None),
+    project_id: str | None = Form(None),
     captions_json: str = Form("[]"),
     theme: str = Form("word_highlight_box"),
     style_config_json: str | None = Form(None),
@@ -883,7 +978,7 @@ async def start_export_job(
         export_fps,
     )
     requested_idempotency_input = _normalized_export_idempotency_input(
-        source_job_id=source_job_id,
+        source_job_id=source_job_id or f"media:{media_asset_id or ''}",
         captions_json=captions_json,
         theme=theme,
         style_config_json=style_config_json,
@@ -936,11 +1031,20 @@ async def start_export_job(
     await enforce_export_quota(current_user().id, float(duration_override or 0))
 
     try:
-        row = await get_owned_job(db, source_job_id)
-    except HTTPException:
+        source_job_id, row = await _resolve_export_source_job(
+            db,
+            source_job_id=source_job_id,
+            media_asset_id=media_asset_id,
+            project_id=project_id,
+        )
+    except HTTPException as exc:
         return JSONResponse(
-            {"success": False, "stage": "validate_project", "error": "Source caption job was not found."},
-            status_code=404,
+            {
+                "success": False,
+                "stage": "validate_project",
+                "error": exc.detail,
+            },
+            status_code=exc.status_code,
         )
     await ensure_project_available(row, db)
 

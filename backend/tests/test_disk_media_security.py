@@ -304,6 +304,64 @@ def test_export_start_returns_json_for_incomplete_media_row(monkeypatch):
     asyncio.run(run())
 
 
+def test_imported_subtitle_export_creates_and_reuses_media_backed_source(monkeypatch):
+    async def run():
+        async with aiosqlite.connect(":memory:") as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute(
+                """
+                CREATE TABLE media_assets (
+                    id TEXT, project_id TEXT, user_id TEXT, original_name TEXT,
+                    deleted_at TEXT
+                )
+                """
+            )
+            await db.execute(
+                """
+                CREATE TABLE jobs (
+                    id TEXT, status TEXT, progress INTEGER, filename TEXT,
+                    target_lang TEXT, created_at TEXT, completed_at TEXT,
+                    last_seen_at TEXT, expires_at TEXT, user_id TEXT,
+                    project_id TEXT, media_asset_id TEXT, message TEXT,
+                    heartbeat_at TEXT, updated_at TEXT,
+                    transcription_provider TEXT, deleted_at TEXT
+                )
+                """
+            )
+            await db.execute(
+                "INSERT INTO media_assets VALUES (?, ?, ?, ?, NULL)",
+                ("asset_a", "project_a", "user_a", "video.mp4"),
+            )
+            await db.commit()
+            monkeypatch.setattr(
+                export_jobs, "resolve_owned_media_asset_file", lambda row: Path("video.mp4")
+            )
+
+            context = set_current_user(AuthenticatedUser(id="user_a"))
+            try:
+                first_id, first_row = await export_jobs._resolve_export_source_job(
+                    db,
+                    source_job_id=None,
+                    media_asset_id="asset_a",
+                    project_id="project_a",
+                )
+                second_id, second_row = await export_jobs._resolve_export_source_job(
+                    db,
+                    source_job_id=None,
+                    media_asset_id="asset_a",
+                    project_id="project_a",
+                )
+            finally:
+                reset_current_user(context)
+
+        assert first_id == second_id
+        assert first_row["transcription_provider"] == "subtitle_import"
+        assert second_row["media_asset_id"] == "asset_a"
+        assert second_row["status"] == "completed"
+
+    asyncio.run(run())
+
+
 def test_public_download_name_strips_path_and_control_characters():
     name = public_download_name("../private/\x00bad:name.mp4", fallback="media.mp4")
 

@@ -45,4 +45,26 @@ describe("export request serialization", () => {
 		expect(request.get("include_audio")).toBe("true");
 		expect(request.get("duration_override")).toBe("12.5");
 	});
+
+	test("serializes imported-caption exports against their source media", () => {
+		const request = createExportRequestFormData({
+			sourceMediaAssetId: "media-asset-123",
+			projectId: "project-123",
+			captionsJson: "[]",
+			theme: "word_highlight_box",
+			styleConfigJson: "{}",
+			width: 1080,
+			height: 1920,
+			fps: 30,
+			includeAudio: true,
+			quality: "balanced",
+			exportMode: "full_video",
+			backgroundColor: null,
+			durationSeconds: 12.5,
+		});
+
+		expect(request.get("source_job_id")).toBeNull();
+		expect(request.get("media_asset_id")).toBe("media-asset-123");
+		expect(request.get("project_id")).toBe("project-123");
+	});
 });

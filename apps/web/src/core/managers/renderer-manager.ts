@@ -35,6 +35,9 @@ import {
 	resolveCapinstaExportRoute,
 	resolveCapinstaExportStrategy,
 } from "@/export/strategy";
+import { ensureServerMediaAssetForCaptions } from "@/capinsta/captionMediaAsset";
+import { verifyProjectMediaAsset } from "@/capinsta/mediaAssetApi";
+import { storageService } from "@/services/storage/service";
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -330,7 +333,7 @@ export class RendererManager {
 					};
 				}
 
-				// 2. Resolve sourceJobId from notes
+				// 2. Resolve an AI job or, for imported subtitles, the source video.
 				const capinstaDoc = capinstaRecords[0]?.document;
 				let sourceJobId = "";
 				if (capinstaDoc) {
@@ -340,12 +343,77 @@ export class RendererManager {
 						sourceJobId = match[1];
 					}
 				}
+				const isImportedSubtitle =
+					capinstaDoc?.sourceTranscriptRef.provider === "subtitle_import";
+				if (!isImportedSubtitle) {
+					sourceJobId ||= activeProject.capinstaServerJobId ?? "";
+				}
 
-				if (!sourceJobId) {
+				let sourceMediaAssetId = "";
+				if (!sourceJobId && isImportedSubtitle) {
+					const videoElements = [
+						...rawTracks.main.elements,
+						...rawTracks.overlay
+							.filter((track) => track.type === "video")
+							.flatMap((track) => track.elements),
+					].filter((element) => element.type === "video");
+					const sourceVideo = videoElements
+						.map((element) =>
+							mediaAssets.find((asset) => asset.id === element.mediaId),
+						)
+						.find((asset) => asset?.type === "video");
+					if (!sourceVideo) {
+						return {
+							success: false,
+							error:
+								"The source video for these imported captions is unavailable. Re-import the video, then retry export.",
+						};
+					}
+
+					const cachedServerAssetId = sourceVideo.serverAssetId ?? "";
+					let cachedAssetAvailable = false;
+					if (cachedServerAssetId) {
+						try {
+							cachedAssetAvailable = await verifyProjectMediaAsset({
+								assetId: cachedServerAssetId,
+							});
+						} catch {
+							cachedAssetAvailable = false;
+						}
+					}
+					if (cachedAssetAvailable) {
+						sourceMediaAssetId = cachedServerAssetId;
+					} else {
+						const uploaded = await ensureServerMediaAssetForCaptions({
+							projectId: activeProject.metadata.id,
+							mediaAsset: sourceVideo,
+							loadMediaAsset: (args) => storageService.loadMediaAsset(args),
+						});
+						sourceMediaAssetId = uploaded.serverAssetId;
+						this.editor.media.setAssets({
+							assets: mediaAssets.map((asset) =>
+								asset.id === uploaded.mediaAsset.id
+									? uploaded.mediaAsset
+									: asset,
+							),
+						});
+						await storageService.saveMediaAsset({
+							projectId: activeProject.metadata.id,
+							mediaAsset: uploaded.mediaAsset,
+						});
+						await this.editor.project.setCapinstaServerMediaAsset({
+							mediaAssetId: uploaded.serverAssetId,
+							mediaAssetVersion: 1,
+							sourceFingerprint: null,
+						});
+					}
+				}
+
+				if (!sourceJobId && !sourceMediaAssetId) {
 					return {
 						success: false,
 						error:
-							"Failed to resolve the source caption job for export. Regenerate captions for this project, then retry.",
+							"Failed to resolve the caption source for export. Regenerate captions or re-import the source video, then retry.",
 					};
 				}
 
@@ -355,6 +423,7 @@ export class RendererManager {
 					canvasWidth: canvasSize.width,
 					canvasHeight: canvasSize.height,
 					sourceJobId,
+					sourceMediaAssetId,
 				});
 				if (isDebug) {
 					console.debug("[capinsta-export] headless validation", {
@@ -398,6 +467,8 @@ export class RendererManager {
 				const durationSeconds = duration / TICKS_PER_SECOND;
 				const formData = createExportRequestFormData({
 					sourceJobId,
+					sourceMediaAssetId: sourceMediaAssetId || undefined,
+					projectId: activeProject.metadata.id,
 					captionsJson,
 					theme: capinstaDoc.stylePresetId || "word_highlight_box",
 					styleConfigJson: JSON.stringify(

@@ -3,6 +3,8 @@ import { resolveSolidExportBackground } from "./color";
 
 export function createExportRequestFormData({
 	sourceJobId,
+	sourceMediaAssetId,
+	projectId,
 	captionsJson,
 	theme,
 	styleConfigJson,
@@ -15,7 +17,9 @@ export function createExportRequestFormData({
 	backgroundColor,
 	durationSeconds,
 }: {
-	sourceJobId: string;
+	sourceJobId?: string;
+	sourceMediaAssetId?: string;
+	projectId?: string;
 	captionsJson: string;
 	theme: string;
 	styleConfigJson: string;
@@ -29,7 +33,11 @@ export function createExportRequestFormData({
 	durationSeconds: number;
 }): FormData {
 	const formData = new FormData();
-	formData.append("source_job_id", sourceJobId);
+	if (sourceJobId) formData.append("source_job_id", sourceJobId);
+	if (sourceMediaAssetId) {
+		formData.append("media_asset_id", sourceMediaAssetId);
+	}
+	if (projectId) formData.append("project_id", projectId);
 	formData.append("captions_json", captionsJson);
 	formData.append("theme", theme);
 	formData.append("style_config_json", styleConfigJson);
