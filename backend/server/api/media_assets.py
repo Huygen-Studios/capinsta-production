@@ -257,12 +257,26 @@ async def validate_media_file_contents(
             duration = float((payload.get("format") or {}).get("duration") or 0)
         except (TypeError, ValueError):
             duration = 0
-        if duration <= 0 or duration > _MAX_MEDIA_DURATION_SECONDS:
+        if duration <= 0:
             raise HTTPException(
-                status_code=413,
+                status_code=422,
                 detail={
-                    "code": "media_duration_limit",
-                    "message": f"Media duration must be between 0 and {_MAX_MEDIA_DURATION_SECONDS} seconds.",
+                    "code": "invalid_media_metadata",
+                    "message": "The media duration could not be determined.",
+                    "actualDurationSeconds": duration,
+                },
+            )
+        if duration > _MAX_MEDIA_DURATION_SECONDS + 0.05:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "media_duration_exceeded",
+                    "message": (
+                        f"This media is {duration:.1f} seconds and exceeds the "
+                        f"technical safety limit of {_MAX_MEDIA_DURATION_SECONDS} seconds."
+                    ),
+                    "actualDurationSeconds": duration,
+                    "allowedDurationSeconds": _MAX_MEDIA_DURATION_SECONDS,
                 },
             )
         video_streams = [
@@ -374,7 +388,13 @@ async def upload_media_asset(
                         status_code=413,
                         detail={
                             "code": "upload_too_large",
+                            "message": (
+                                f"This file is larger than the current "
+                                f"{MAX_UPLOAD_SIZE_MB} MB upload limit."
+                            ),
+                            "actualBytes": written,
                             "maxBytes": max_bytes,
+                            "allowedBytes": max_bytes,
                         },
                     )
                 require_disk_capacity(

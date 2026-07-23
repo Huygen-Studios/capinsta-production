@@ -42,6 +42,7 @@ SUPPORTED_CAPTION_OUTPUTS: tuple[CaptionOutputLanguage, ...] = (
 )
 
 CODE_MIXED_LANGUAGE_MODES = {"hinglish", "telgish", "auto", "auto_mixed_indian"}
+ROMAN_OUTPUT_LANGUAGE_MODES = {"hinglish", "telgish"}
 
 _LANGUAGE_ALIASES = {
     "": "auto",
@@ -78,9 +79,9 @@ DEVANAGARI_RE = re.compile(r"[\u0900-\u097F]")
 TAMIL_RE = re.compile(r"[\u0B80-\u0BFF]")
 NATIVE_INDIAN_RE = re.compile(r"[\u0900-\u097F\u0C00-\u0C7F]")
 ASCII_WORD_RE = re.compile(r"[A-Za-z]")
-LIGHT_PUNCT_RE = re.compile(r"[^\w\s\u0900-\u097F\u0C00-\u0C7F'-]")
 SPACE_RE = re.compile(r"\s+")
 TOKEN_RE = re.compile(r"\s+|[^\s]+")
+LATIN_WORD_RE = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*")
 
 
 class NormalizedWordToken(TypedDict, total=False):
@@ -220,7 +221,13 @@ def _fallback_romanize(text: str) -> str:
 
 
 def _simplify_itrans(text: str) -> str:
-    text = re.sub(r"M(?=[dDtT])", "n", text)
+    # ITRANS uses M for anusvara/chandrabindu. Resolve it from the following
+    # consonant class instead of globally turning every nasal into m or n.
+    text = re.sub(r"M(?=[kKgG])", "ng", text)
+    text = re.sub(r"M(?=[cCjJ])", "ny", text)
+    text = re.sub(r"M(?=[TtDd])", "n", text)
+    text = re.sub(r"M(?=[pPbB])", "m", text)
+    text = re.sub(r"M(?=$|[^A-Za-z])", "n", text)
     replacements = (
         ("RRi", "ri"),
         ("RRI", "ree"),
@@ -233,7 +240,7 @@ def _simplify_itrans(text: str) -> str:
         ("A", "aa"),
         ("I", "ee"),
         ("U", "oo"),
-        ("M", "m"),
+        ("M", "n"),
         ("H", "h"),
         ("N", "n"),
         ("T", "t"),
@@ -275,7 +282,21 @@ def romanizeHindiText(text: str) -> str:
     if not containsDevanagariScript(text):
         return text
     source = sanscript.DEVANAGARI if sanscript else ""
-    return _romanize_with_indic(text, source)
+    parts: list[str] = []
+    devanagari_consonant = re.compile(r"[\u0915-\u0939\u0958-\u095F]$")
+    for match in TOKEN_RE.finditer(text):
+        token = match.group(0)
+        if token.isspace() or not containsDevanagariScript(token):
+            parts.append(token)
+            continue
+        romanized = _romanize_with_indic(token, source)
+        # A final inherent schwa is normally silent when the source token ends
+        # in a consonant. Do not touch explicit vowel signs or independent
+        # vowels, and never remove long "aa".
+        if devanagari_consonant.search(token) and romanized.endswith("a") and not romanized.endswith("aa"):
+            romanized = romanized[:-1]
+        parts.append(romanized)
+    return "".join(parts)
 
 
 def _token_language_hint(token: str) -> LanguageHint:
@@ -340,19 +361,22 @@ def romanizeMixedIndianText(text: str) -> str:
 
 
 def romanize_if_needed(text: str, language_mode: str) -> str:
-    if language_mode in CODE_MIXED_LANGUAGE_MODES:
+    if language_mode in ROMAN_OUTPUT_LANGUAGE_MODES:
         return romanizeMixedIndianText(text)
     return text
 
 
 def _canonicalize_word(word: str, language_mode: str) -> str:
-    lookup = word.lower()
+    lookup = word.casefold()
     if language_mode in {"telgish", "auto_mixed_indian"}:
-        lookup = TELGISH_CANONICAL.get(lookup, lookup)
+        replacement = TELGISH_CANONICAL.get(lookup)
+        if replacement:
+            return replacement
     if language_mode in {"hinglish", "auto_mixed_indian"}:
-        lookup = HINGLISH_CANONICAL.get(lookup, lookup)
-    lookup = COMMON_CANONICAL.get(lookup, lookup)
-    return lookup
+        replacement = HINGLISH_CANONICAL.get(lookup)
+        if replacement:
+            return replacement
+    return COMMON_CANONICAL.get(lookup, word)
 
 
 def normalizeCodeMixedText(text: str, language_mode: str) -> str:
@@ -364,12 +388,13 @@ def normalize_caption_text(text: str, language_mode: str) -> str:
         return ""
 
     mode = normalize_language_mode(language_mode)
-    normalized = romanize_if_needed(text, mode)
-    normalized = LIGHT_PUNCT_RE.sub(" ", normalized)
+    normalized = unicodedata.normalize("NFC", romanize_if_needed(text, mode))
     normalized = SPACE_RE.sub(" ", normalized).strip()
     if mode in CODE_MIXED_LANGUAGE_MODES:
-        normalized = " ".join(_canonicalize_word(word, mode) for word in normalized.split())
-        normalized = normalized.lower()
+        normalized = LATIN_WORD_RE.sub(
+            lambda match: _canonicalize_word(match.group(0), mode),
+            normalized,
+        )
     return normalized
 
 
@@ -407,7 +432,7 @@ def normalize_word_token(word: str, language_mode: str) -> str:
 
 
 def final_text_requires_romanization(language_mode: str) -> bool:
-    return normalize_language_mode(language_mode) in CODE_MIXED_LANGUAGE_MODES
+    return normalize_language_mode(language_mode) in ROMAN_OUTPUT_LANGUAGE_MODES
 
 
 def validate_roman_output(text: str, language_mode: str) -> None:

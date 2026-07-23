@@ -406,7 +406,7 @@ def test_sarvam_parser_rejects_non_monotonic_and_out_of_bounds_timestamps():
     assert exc.value.category == "sarvam_timestamp_values_invalid"
 
 
-def test_sarvam_verbatim_retry_recovers_native_word_timing(monkeypatch, tmp_path):
+def test_sarvam_same_mode_retry_recovers_native_word_timing(monkeypatch, tmp_path):
     _clear_provider_env(monkeypatch)
     monkeypatch.setenv("SARVAM_API_KEY", "sarvam-secret")
     calls = []
@@ -440,9 +440,9 @@ def test_sarvam_verbatim_retry_recovers_native_word_timing(monkeypatch, tmp_path
     monkeypatch.setattr(transcriber.requests, "post", fake_post)
     result = transcriber._call_sarvam(_write_wav(tmp_path / "chunk.wav"), "english")
 
-    assert [call["mode"] for call in calls] == ["transcribe", "verbatim"]
+    assert [call["mode"] for call in calls] == ["transcribe", "transcribe"]
     assert [call["with_timestamps"] for call in calls] == ["true", "true"]
-    assert result["timing_mode"] == "verbatim"
+    assert result["timing_mode"] == "transcribe"
     assert result["nativeWordCount"] == 2
     assert [word["timing_source"] for word in result["words"]] == ["provider_native", "provider_native"]
     assert result["provider_request_ids"] == ["phrase-1", "native-2"]
@@ -488,9 +488,14 @@ def test_sarvam_smaller_chunk_retry_merges_chunk_local_offsets(monkeypatch, tmp_
 
     result = transcriber._call_sarvam(source, "english")
 
-    assert [call["mode"] for call in calls] == ["transcribe", "verbatim", "verbatim", "verbatim"]
+    assert [call["mode"] for call in calls] == [
+        "transcribe",
+        "transcribe",
+        "transcribe",
+        "transcribe",
+    ]
     assert [call["with_timestamps"] for call in calls] == ["true", "true", "true", "true"]
-    assert result["timing_mode"] == "verbatim_small_chunks"
+    assert result["timing_mode"] == "transcribe_small_chunks"
     assert [word["start"] for word in result["words"]] == [0.1, 8.1]
     assert result["nativeWordCount"] == 2
 

@@ -1,23 +1,29 @@
 import type { EditorCore } from "@/core";
 import {
+	AddCapinstaCaptionDocumentCommand,
 	AddTrackCommand,
 	BatchCommand,
 	InsertElementCommand,
 } from "@/commands";
 import { buildSubtitleTextElement } from "./build-subtitle-text-element";
 import type { SubtitleCue } from "./types";
-import type { NeutralCaptionDocument } from "@/capinsta/types";
+import type {
+	CapinstaCaptionDocumentRecord,
+	NeutralCaptionDocument,
+} from "@/capinsta/types";
 
-export function insertCaptionChunksAsTextTrack({
+export function insertCaptionDocumentAsTextTrack({
 	editor,
 	captions,
-	capinstaDocument,
+	document,
+	importedAt = new Date().toISOString(),
 }: {
 	editor: EditorCore;
 	captions: SubtitleCue[];
-	capinstaDocument?: NeutralCaptionDocument;
-}): string | null {
-	if (captions.length === 0) {
+	document: NeutralCaptionDocument;
+	importedAt?: string;
+}): CapinstaCaptionDocumentRecord | null {
+	if (captions.length === 0 || captions.length !== document.clips.length) {
 		return null;
 	}
 
@@ -32,18 +38,28 @@ export function insertCaptionChunksAsTextTrack({
 					index,
 					caption,
 					canvasSize,
-					capinsta: capinstaDocument?.clips[index]
-						? {
-								documentId: capinstaDocument.id,
-								clipId: capinstaDocument.clips[index].id,
-							}
-						: undefined,
+					capinsta: {
+						documentId: document.id,
+						clipId: document.clips[index]!.id,
+					},
 				}),
 			}),
 	);
+	const record: CapinstaCaptionDocumentRecord = {
+		document,
+		openCutTrackId: trackId,
+		importedAt,
+	};
+	const selection = insertCommands.map((command) => ({
+		trackId,
+		elementId: command.getElementId(),
+	}));
 	editor.command.execute({
-		command: new BatchCommand([addTrackCommand, ...insertCommands]),
+		command: new BatchCommand([
+			addTrackCommand,
+			...insertCommands,
+			new AddCapinstaCaptionDocumentCommand({ record, selection }),
+		]),
 	});
-
-	return trackId;
+	return record;
 }

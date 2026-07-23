@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from .auth import AuthenticatedUser
 from .api_versioning import canonical_api_path
 from .settings import DB_PATH
+from .settings import CAPTION_DURATION_LIMIT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ except ImportError:  # pragma: no cover
 class UserLimits:
     daily_caption_minutes: int = 60
     daily_export_minutes: int = 60
-    max_upload_duration_seconds: int = 1800
+    max_upload_duration_seconds: int = 180
     max_concurrent_caption_jobs: int = 2
     max_concurrent_export_jobs: int = 1
 
@@ -397,6 +398,15 @@ async def is_super_admin(user_id: str) -> bool:
 
 
 async def require_backend_capability(user: AuthenticatedUser, request_path: str) -> None:
+    super_admin = await is_super_admin(user.id)
+    if super_admin:
+        logger.info(
+            "auth_allow user_id=%s path=%s admin=super_admin reason=plan_bypass",
+            user.id,
+            request_path,
+        )
+        return
+
     if _rest_control_plane_enabled():
         profile = await _rest_profile(
             user.id,
@@ -439,17 +449,6 @@ async def require_backend_capability(user: AuthenticatedUser, request_path: str)
         mode = "public" if policy is None else str(policy[0])
     permission = _permission_for_path(request_path)
     permissions = await effective_app_permissions(user.id)
-    super_admin = await is_super_admin(user.id)
-
-    if super_admin:
-        logger.info(
-            "auth_allow user_id=%s path=%s permission=%s product_status=%s admin=super_admin",
-            user.id,
-            request_path,
-            permission,
-            product_status,
-        )
-        return
     if mode == "maintenance":
         if "maintenance.bypass" in permissions:
             logger.info(
@@ -612,7 +611,7 @@ async def user_limits(user_id: str) -> UserLimits:
                 daily_caption_minutes=int(row.get("daily_caption_minutes") or 60),
                 daily_export_minutes=int(row.get("daily_export_minutes") or 60),
                 max_upload_duration_seconds=int(
-                    row.get("max_upload_duration_seconds") or 1800
+                    row.get("max_upload_duration_seconds") or 180
                 ),
                 max_concurrent_caption_jobs=int(
                     row.get("max_concurrent_caption_jobs") or 2
@@ -624,7 +623,7 @@ async def user_limits(user_id: str) -> UserLimits:
         defaults = await asyncio.gather(
             system_int("daily_caption_minutes", 60, 0, 100000),
             system_int("daily_export_minutes", 60, 0, 100000),
-            system_int("maximum_upload_duration_seconds", 1800, 1, 86400),
+            system_int("maximum_upload_duration_seconds", 180, 1, 86400),
             system_int("maximum_concurrent_caption_jobs", 2, 1, 100),
             system_int("maximum_concurrent_export_jobs", 1, 1, 100),
         )
@@ -644,7 +643,7 @@ async def user_limits(user_id: str) -> UserLimits:
     defaults = await asyncio.gather(
         system_int("daily_caption_minutes", 60, 0, 100000),
         system_int("daily_export_minutes", 60, 0, 100000),
-        system_int("maximum_upload_duration_seconds", 1800, 1, 86400),
+        system_int("maximum_upload_duration_seconds", 180, 1, 86400),
         system_int("maximum_concurrent_caption_jobs", 2, 1, 100),
         system_int("maximum_concurrent_export_jobs", 1, 1, 100),
     )
@@ -671,12 +670,41 @@ async def _daily_usage(user_id: str, metric: str) -> float:
 
 async def enforce_caption_quota(user_id: str, requested_seconds: float | None = None) -> UserLimits:
     limits = await user_limits(user_id)
-    if requested_seconds and requested_seconds > limits.max_upload_duration_seconds:
-        raise HTTPException(status_code=413, detail="Media duration exceeds your current limit.")
+    if await is_super_admin(user_id):
+        return limits
+    allowed_duration = min(
+        CAPTION_DURATION_LIMIT_SECONDS,
+        limits.max_upload_duration_seconds,
+    )
+    if (
+        requested_seconds is not None
+        and requested_seconds > allowed_duration + 0.05
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "caption_duration_limit_exceeded",
+                "message": (
+                    f"This video is {requested_seconds:.1f} seconds. "
+                    f"Your current caption limit is {allowed_duration} seconds."
+                ),
+                "actualDurationSeconds": requested_seconds,
+                "allowedDurationSeconds": allowed_duration,
+            },
+        )
     used = await _daily_usage(user_id, "caption_minutes")
     requested_minutes = max(0.0, float(requested_seconds or 0) / 60)
     if used + requested_minutes > limits.daily_caption_minutes:
-        raise HTTPException(status_code=429, detail="Daily caption quota reached.")
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "daily_caption_quota_exceeded",
+                "message": "Your daily caption quota has been reached.",
+                "usedMinutes": used,
+                "requestedMinutes": requested_minutes,
+                "allowedMinutes": limits.daily_caption_minutes,
+            },
+        )
     async with aiosqlite.connect(str(DB_PATH)) as db:
         cursor = await db.execute(
             "SELECT count(*) FROM jobs WHERE user_id = ? AND status NOT IN ('completed','failed','cancelled','expired','closed')",
@@ -684,7 +712,15 @@ async def enforce_caption_quota(user_id: str, requested_seconds: float | None = 
         )
         active = int((await cursor.fetchone())[0])
     if active >= limits.max_concurrent_caption_jobs:
-        raise HTTPException(status_code=429, detail="Concurrent caption-job limit reached.")
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "concurrent_caption_job_limit_exceeded",
+                "message": "Too many caption jobs are already active.",
+                "activeJobs": active,
+                "allowedJobs": limits.max_concurrent_caption_jobs,
+            },
+        )
     return limits
 
 

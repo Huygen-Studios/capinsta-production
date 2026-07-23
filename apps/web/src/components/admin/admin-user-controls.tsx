@@ -55,7 +55,7 @@ export function AdminUserControls({
   const [quotas, setQuotas] = useState({
     dailyCaptionMinutes: 60,
     dailyExportMinutes: 60,
-    maxUploadDurationSeconds: 1800,
+    maxUploadDurationSeconds: 180,
     maxConcurrentCaptionJobs: 2,
     maxConcurrentExportJobs: 1,
   });

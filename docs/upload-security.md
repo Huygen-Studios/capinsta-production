@@ -25,6 +25,17 @@ SVG, HTML, XML, JavaScript, PHP, shell scripts, archives, executables, documents
 9. FFprobe validation for audio/video duration, stream count, and dimensions.
 10. Server-generated object keys under user/project scoped storage.
 
+## Proxy Body Size
+
+The backend default upload limit is `MAX_UPLOAD_SIZE_MB=500`. Configure the
+reverse proxy/CDN request-body limit to at least that value plus 2 MB for
+multipart framing. A proxy limit below the backend limit can emit its own 413
+before CapInsta can return the structured `upload_too_large` response.
+
+Upload byte size, the technical `MAX_MEDIA_DURATION_SECONDS` safety limit, and
+the regular-user `CAPTION_DURATION_LIMIT_SECONDS=180` caption policy are
+independent checks.
+
 ## Storage Rules
 
 - Runtime media is stored outside the frontend public root.
@@ -32,4 +43,3 @@ SVG, HTML, XML, JavaScript, PHP, shell scripts, archives, executables, documents
 - Production mounts should be non-executable and non-browsable.
 - Do not extract archives in production.
 - Serve downloads with `Content-Disposition`, private cache headers, and `X-Content-Type-Options: nosniff`.
-

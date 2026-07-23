@@ -170,6 +170,7 @@ def transform_segments_for_output(
     *,
     source_language: str,
     output_language: str,
+    provider_mode: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     source = normalize_audio_language(source_language)
     output = normalize_caption_output(output_language)
@@ -179,6 +180,13 @@ def transform_segments_for_output(
             "sourceLanguage": source,
             "outputLanguage": output,
             "transformation": "none",
+        }
+    if kind == "transliteration" and provider_mode == "translit":
+        return _copy_segments(segments), {
+            "sourceLanguage": source,
+            "outputLanguage": output,
+            "transformation": "transliteration",
+            "transformationEngine": "provider",
         }
 
     transformed_segments: list[dict[str, Any]] = []

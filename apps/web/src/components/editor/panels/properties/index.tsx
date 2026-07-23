@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEditor } from "@/editor/use-editor";
 import { useElementSelection } from "@/timeline/hooks/element/use-element-selection";
@@ -59,8 +59,17 @@ export function PropertiesPanel() {
 	useEditor((e) => e.scenes.getActiveSceneOrNull());
 	useEditor((e) => e.media.getAssets());
 	useEditor((e) => e.project.getActive()?.capinstaCaptionDocuments);
-	const { selectedElements } = useElementSelection();
+	const { selectedElements, elementSelectionMode } = useElementSelection();
 	const [captionTab, setCaptionTab] = useState<CaptionPanelTab>("effects");
+
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => {
+			setCaptionTab(
+				elementSelectionMode === "individual" ? "editor" : "effects",
+			);
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [elementSelectionMode]);
 
 	if (selectedElements.length === 0) {
 		return <EffectControlsEmptyState />;
@@ -81,7 +90,10 @@ export function PropertiesPanel() {
 			const editorRecord = selectedCapinstaClipRefs[0]?.record ?? null;
 			return (
 				<EffectControlsShell>
-					<CaptionInspectorTabs activeTab={captionTab} onChange={setCaptionTab} />
+					<CaptionInspectorTabs
+						activeTab={captionTab}
+						onChange={setCaptionTab}
+					/>
 					{captionTab === "effects" ? (
 						<ScrollArea className="min-h-0 flex-1 scrollbar-hidden">
 							<CapinstaCaptionStylePanel
@@ -101,9 +113,9 @@ export function PropertiesPanel() {
 		return (
 			<EffectControlsShell>
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
-				<p className="text-muted-foreground text-sm">
-					{selectedElements.length} elements selected
-				</p>
+					<p className="text-muted-foreground text-sm">
+						{selectedElements.length} elements selected
+					</p>
 				</div>
 			</EffectControlsShell>
 		);
@@ -129,19 +141,16 @@ export function PropertiesPanel() {
 	if (visibleTabs.length === 0) return <EffectControlsEmptyState />;
 
 	const captionStatus = capinstaBinding ? (
-					<div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 text-xs">
-						<span className="font-medium">Capinsta caption</span>
-						{capinstaBinding.clip.timingNeedsReview ? (
-							<span
-								className="text-amber-500"
-								title="Rebuild caption timing later"
-							>
-								Timing needs review
-							</span>
-						) : (
-							<span className="text-muted-foreground">Word timing linked</span>
-						)}
-					</div>
+		<div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 text-xs">
+			<span className="font-medium">Capinsta caption</span>
+			{capinstaBinding.clip.timingNeedsReview ? (
+				<span className="text-amber-500" title="Rebuild caption timing later">
+					Timing needs review
+				</span>
+			) : (
+				<span className="text-muted-foreground">Word timing linked</span>
+			)}
+		</div>
 	) : undefined;
 
 	if (capinstaBinding) {

@@ -38,9 +38,11 @@ def test_oversized_json_request_rejected_before_route_parsing():
     assert response.status_code == 413
     assert response.json() == {
         "error": {
-            "code": "payload_too_large",
-            "message": "The request is too large.",
+            "code": "upload_too_large",
+            "message": "The request exceeds the configured upload limit.",
             "requestId": "req-large-json",
+            "actualBytes": 1048591,
+            "allowedBytes": 1048576,
         }
     }
 

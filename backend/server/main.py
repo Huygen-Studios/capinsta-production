@@ -94,7 +94,7 @@ def _public_error_message(status_code: int, detail) -> tuple[str, str]:
     if status_code == 409:
         return "conflict", "The request conflicts with the current resource state."
     if status_code == 413:
-        return "payload_too_large", "The request is too large."
+        return "upload_too_large", "The request exceeds the configured upload limit."
     if status_code == 415:
         return "unsupported_media_type", "This file type is not supported."
     if status_code == 422:
@@ -113,8 +113,32 @@ def _request_id(request: Request) -> str:
 def _error_response(request: Request, status_code: int, detail, headers: dict[str, str] | None = None) -> JSONResponse:
     code, message = _public_error_message(status_code, detail)
     request_id = _request_id(request)
+    public_context = {}
+    if isinstance(detail, dict):
+        for field in (
+            "actualDurationSeconds",
+            "allowedDurationSeconds",
+            "actualBytes",
+            "allowedBytes",
+            "maxBytes",
+            "usedMinutes",
+            "requestedMinutes",
+            "allowedMinutes",
+            "activeJobs",
+            "allowedJobs",
+        ):
+            value = detail.get(field)
+            if isinstance(value, (int, float)):
+                public_context[field] = value
     response = JSONResponse(
-        {"error": {"code": code, "message": message, "requestId": request_id}},
+        {
+            "error": {
+                "code": code,
+                "message": message,
+                "requestId": request_id,
+                **public_context,
+            }
+        },
         status_code=status_code,
         headers={**(headers or {}), "X-Request-ID": request_id},
     )
@@ -322,7 +346,12 @@ async def enforce_request_body_limits(request: Request, call_next):
         return _error_response(
             request,
             413,
-            {"code": "payload_too_large", "message": "The request is too large."},
+            {
+                "code": "upload_too_large",
+                "message": "The request exceeds the configured upload limit.",
+                "actualBytes": decision.received,
+                "allowedBytes": decision.limit,
+            },
         )
     return await call_next(request)
 

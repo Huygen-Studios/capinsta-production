@@ -48,7 +48,10 @@ import {
 	mediaTimeToSeconds,
 	type MediaTime,
 } from "@/wasm";
-import { resolveCapinstaElementForClip } from "@/capinsta/captionTimelineSync";
+import {
+	findCapinstaBindingForElement,
+	resolveCapinstaElementForClip,
+} from "@/capinsta/captionTimelineSync";
 import { cn } from "@/utils/ui";
 
 function clipWords({
@@ -512,6 +515,12 @@ export function CaptionEditorPanel({
 	const [resultIndex, setResultIndex] = useState(0);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const project = useEditor((core) => core.project.getActive());
+	const primarySelection = useEditor((core) =>
+		core.selection.getPrimarySelectedElement(),
+	);
+	const selectionMode = useEditor((core) =>
+		core.selection.getElementSelectionMode(),
+	);
 	const currentRecord =
 		project.capinstaCaptionDocuments?.find(
 			(item) => item.document.id === record?.document.id,
@@ -526,8 +535,7 @@ export function CaptionEditorPanel({
 	const reviewWarnings = useMemo(
 		() =>
 			clips.filter(
-				(clip) =>
-					clip.timingNeedsReview || clip.manualEdit?.timingReviewReason,
+				(clip) => clip.timingNeedsReview || clip.manualEdit?.timingReviewReason,
 			),
 		[clips],
 	);
@@ -601,6 +609,34 @@ export function CaptionEditorPanel({
 			?.querySelector(`[data-caption-row="${activeId}"]`)
 			?.scrollIntoView({ block: "nearest", behavior: "smooth" });
 	}, [activeId, editing]);
+	useEffect(() => {
+		if (!currentRecord || !primarySelection || selectionMode !== "individual") {
+			return;
+		}
+		const selectedElement = editor.timeline.getElementsWithTracks({
+			elements: [primarySelection],
+		})[0]?.element;
+		if (!selectedElement) return;
+		const binding = findCapinstaBindingForElement({
+			records: [currentRecord],
+			tracks: editor.scenes.getActiveScene().tracks,
+			element: selectedElement,
+		});
+		if (!binding) return;
+		const frame = requestAnimationFrame(() => {
+			setSelectedId(binding.clip.id);
+			const row = scrollRef.current?.querySelector<HTMLElement>(
+				`[data-caption-row="${binding.clip.id}"]`,
+			);
+			row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+			row
+				?.querySelector<HTMLTextAreaElement>(
+					`#caption-${binding.clip.id}`,
+				)
+				?.focus();
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [currentRecord, editor, primarySelection, selectionMode]);
 	if (!document || !currentRecord) return null;
 	return (
 		<div className="flex h-full min-h-0 flex-col">

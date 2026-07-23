@@ -1,23 +1,11 @@
-import type {
-  CapinstaCaptionDocumentRecord,
-  NeutralCaptionDocument,
-} from "./types"
+import type { CapinstaCaptionDocumentRecord } from "./types"
 
 const documentsById = new Map<string, CapinstaCaptionDocumentRecord>()
 
-export function rememberCapinstaCaptionDocument({
-  document,
-  openCutTrackId,
-}: {
-  document: NeutralCaptionDocument
-  openCutTrackId: string
-}): CapinstaCaptionDocumentRecord {
-  const record = {
-    document,
-    openCutTrackId,
-    importedAt: new Date().toISOString(),
-  }
-  documentsById.set(document.id, record)
+export function rememberCapinstaCaptionDocumentRecord(
+  record: CapinstaCaptionDocumentRecord,
+): CapinstaCaptionDocumentRecord {
+  documentsById.set(record.document.id, record)
   return record
 }
 
@@ -31,4 +19,12 @@ export function getCapinstaCaptionDocument({
 
 export function listCapinstaCaptionDocuments(): CapinstaCaptionDocumentRecord[] {
   return Array.from(documentsById.values())
+}
+
+export function forgetCapinstaCaptionDocument({
+  documentId,
+}: {
+  documentId: string
+}): void {
+  documentsById.delete(documentId)
 }

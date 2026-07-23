@@ -868,7 +868,15 @@ async def create_job(
                     if bytes_written > max_bytes:
                         raise HTTPException(
                             status_code=413,
-                            detail=f"File is too large. Maximum upload size is {MAX_UPLOAD_SIZE_MB} MB.",
+                            detail={
+                                "code": "upload_too_large",
+                                "message": (
+                                    f"This file is larger than the current "
+                                    f"{MAX_UPLOAD_SIZE_MB} MB upload limit."
+                                ),
+                                "actualBytes": bytes_written,
+                                "allowedBytes": max_bytes,
+                            },
                         )
                     await out_file.write(chunk)
             timing.mark("file write", mode="direct_upload", bytes=bytes_written)
@@ -914,15 +922,9 @@ async def create_job(
         if source_in_ms is not None and source_out_ms is not None:
             target_duration = float(source_out_ms - source_in_ms) / 1000.0
         
-        if target_duration > 300.0:
-            raise HTTPException(
-                status_code=400,
-                detail="The requested media/range exceeds 5 minutes. Please select a shorter range (up to 5 minutes) to generate captions.",
-            )
-
         await enforce_caption_quota(
             current_user().id,
-            media_duration if media_duration > 0 else None,
+            target_duration if target_duration > 0 else None,
         )
     except HTTPException:
         if media_access_mode != "direct_media_path" and os.path.exists(file_path):

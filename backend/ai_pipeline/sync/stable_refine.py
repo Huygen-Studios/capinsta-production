@@ -67,6 +67,7 @@ def _token_forms(value: Any) -> set[str]:
     forms = {_normalize_token(raw)}
     romanized = romanizeMixedIndianText(raw)
     forms.add(_normalize_token(romanized))
+    forms.add(_normalize_token(normalize_caption_text(romanized, "auto_mixed_indian")))
     forms.add(_normalize_token(normalize_caption_text(raw, "auto_mixed_indian")))
     number = _number_token_form(raw)
     if number:

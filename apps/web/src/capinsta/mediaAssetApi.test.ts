@@ -16,7 +16,8 @@ mock.module("@/lib/supabase/authenticated-fetch", () => ({
 	authenticatedFetch: authenticatedFetchMock,
 }));
 
-const { uploadProjectMediaAsset } = await import("./mediaAssetApi");
+const { messageForMediaFailure, uploadProjectMediaAsset } =
+	await import("./mediaAssetApi");
 
 describe("media asset API", () => {
 	beforeEach(() => {
@@ -116,6 +117,36 @@ describe("media asset API", () => {
 		});
 	});
 
+	test("parses the backend error envelope without mislabeling duration as size", async () => {
+		authenticatedFetchMock.mockImplementationOnce(async () =>
+			Response.json(
+				{
+					error: {
+						code: "media_duration_exceeded",
+						message: "Media duration exceeds the technical limit.",
+						requestId: "corr-envelope-1",
+						actual: 601,
+						allowed: 600,
+					},
+				},
+				{ status: 422 },
+			),
+		);
+
+		await expect(
+			uploadProjectMediaAsset({
+				projectId: "project-1",
+				file: new File(["hello"], "sample.webm", { type: "video/webm" }),
+			}),
+		).rejects.toMatchObject({
+			name: "MediaUploadError",
+			message: "Media duration exceeds the technical limit.",
+			status: 422,
+			code: "media_duration_exceeded",
+			correlationId: "corr-envelope-1",
+		});
+	});
+
 	test("rejects successful uploads that do not return a media asset id", async () => {
 		authenticatedFetchMock.mockImplementationOnce(async () =>
 			Response.json({ downloadUrl: "/missing-id", sizeBytes: 12 }),
@@ -130,5 +161,42 @@ describe("media asset API", () => {
 			name: "MediaUploadError",
 			code: "media_asset_id_missing",
 		});
+	});
+
+	test("distinguishes upload bytes from duration and metadata failures", () => {
+		expect(
+			messageForMediaFailure({
+				status: 413,
+				code: "upload_too_large",
+				fallback: "",
+			}),
+		).toBe("This file exceeds the current upload-size limit.");
+		expect(
+			messageForMediaFailure({
+				status: 422,
+				code: "media_duration_exceeded",
+				fallback: "",
+			}),
+		).toBe("This media exceeds the technical duration limit.");
+		expect(
+			messageForMediaFailure({
+				status: 422,
+				code: "invalid_media_metadata",
+				fallback: "",
+			}),
+		).toBe("The media duration could not be determined.");
+	});
+
+	test("preserves the backend's actionable duration message", () => {
+		expect(
+			messageForMediaFailure({
+				status: 422,
+				code: "caption_duration_limit_exceeded",
+				fallback:
+					"This video is 197 seconds. Your current caption limit is 180 seconds.",
+			}),
+		).toBe(
+			"This video is 197 seconds. Your current caption limit is 180 seconds.",
+		);
 	});
 });

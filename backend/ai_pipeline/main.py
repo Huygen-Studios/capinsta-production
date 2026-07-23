@@ -78,6 +78,13 @@ from .transcript_normalizer import (
 import math
 
 
+def _text_difference_count(left: str, right: str) -> int:
+    shared = min(len(left), len(right))
+    return sum(1 for index in range(shared) if left[index] != right[index]) + abs(
+        len(left) - len(right)
+    )
+
+
 def should_run_stable_refinement(
     *,
     alignment_was_forced: bool,
@@ -802,12 +809,17 @@ def run_pipeline(
                     transcription_fallback_from.add(str(fallback_from))
             raw_text = transcription_result.get("text", "")
             clean_text = normalize_caption_text(raw_text, language_mode)
+            normalization_difference_count = _text_difference_count(
+                str(raw_text or ""),
+                clean_text,
+            )
             chunk.raw_text = clean_text
             chunk.asr_metadata = {
                 **transcription_result,
                 "providerRawText": transcription_result.get("providerRawText") or raw_text,
                 "normalizedText": clean_text,
                 "displayText": clean_text,
+                "normalizationDifferenceCount": normalization_difference_count,
                 "sourceLanguage": language_mode,
                 "outputLanguage": output_language,
             }
@@ -823,6 +835,7 @@ def run_pipeline(
                     native_word_count=transcription_result.get("nativeWordCount"),
                     phrase_entry_count=transcription_result.get("phraseEntryCount"),
                     request_id=transcription_result.get("provider_request_id") or transcription_result.get("request_id"),
+                    normalization_difference_count=normalization_difference_count,
                 )
                 if not native_available:
                     _stage_log(
@@ -1372,11 +1385,21 @@ def run_pipeline(
 
         original_segments = [dict(segment, words=[dict(word) for word in segment.get("words") or []]) for segment in clamped_segments]
         emit_progress("normalizing", 91, "Applying caption output settings.")
+        provider_modes = {
+            str(chunk.asr_metadata.get("provider_mode") or "")
+            for chunk in processed_chunks
+            if str(chunk.asr_metadata.get("provider") or "").lower() == "sarvam"
+            and chunk.asr_metadata.get("provider_mode")
+        }
+        provider_output_mode = (
+            next(iter(provider_modes)) if len(provider_modes) == 1 else None
+        )
         try:
             clamped_segments, transformation_report = transform_segments_for_output(
                 clamped_segments,
                 source_language=language_mode,
                 output_language=output_language,
+                provider_mode=provider_output_mode,
             )
         except Exception as exc:
             logger.exception("Caption output transformation failed.")

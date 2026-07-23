@@ -32,8 +32,7 @@ import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
 import type { TranscriptionLanguage } from "@/transcription/types";
 import type { CapinstaCaptionOutput } from "@/capinsta/types";
-import type { SubtitleCue } from "@/subtitles/types";
-import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
+import { insertCaptionDocumentAsTextTrack } from "@/subtitles/insert";
 import { parseSubtitleFile } from "@/subtitles/parse";
 import { sampleCapinstaTranscriptV1 } from "@/capinsta/sampleTranscript";
 import { ensureAudioForCaptions } from "@/capinsta/audioForCaptions";
@@ -58,7 +57,7 @@ import {
 import { usePublicRuntimeFlag } from "@/admin/use-public-runtime-flag";
 import { capinstaTranscriptToOpenCutSubtitleImport } from "@/capinsta/opencutClassicAdapter";
 import { buildCapinstaCaptionTimingDiagnostics } from "@/capinsta/adapter";
-import { rememberCapinstaCaptionDocument } from "@/capinsta/captionDocumentRegistry";
+import { importedSubtitleCuesToCaptionDocument } from "@/capinsta/importedCaptionDocument";
 import {
 	CapinstaApiError,
 	cancelCapinstaJob,
@@ -288,15 +287,6 @@ export function Captions() {
 		});
 	}, [selectedMediaValue]);
 
-	const insertCaptions = ({
-		captions,
-	}: {
-		captions: SubtitleCue[];
-	}): boolean => {
-		const trackId = insertCaptionChunksAsTextTrack({ editor, captions });
-		return trackId !== null;
-	};
-
 	const handleImportSampleCaptions = (event: React.MouseEvent) => {
 		event.preventDefault();
 		event.stopPropagation();
@@ -309,25 +299,19 @@ export function Captions() {
 			const result = capinstaTranscriptToOpenCutSubtitleImport(
 				sampleCapinstaTranscriptV1,
 			);
-			const trackId = insertCaptionChunksAsTextTrack({
+			const record = insertCaptionDocumentAsTextTrack({
 				editor,
 				captions: result.captions,
-				capinstaDocument: result.document,
+				document: result.document,
 			});
 
-			if (trackId === null) {
+			if (record === null) {
 				dispatchImportProcessing({
 					type: "fail",
 					error: "No sample captions were generated",
 				});
 				return;
 			}
-
-			const record = rememberCapinstaCaptionDocument({
-				document: result.document,
-				openCutTrackId: trackId,
-			});
-			editor.project.addCapinstaCaptionDocument({ record });
 
 			dispatchImportProcessing({
 				type: "succeed",
@@ -659,13 +643,13 @@ export function Captions() {
 				message: "Importing captions into timeline...",
 				progressPercent: 95,
 			});
-			const trackId = insertCaptionChunksAsTextTrack({
+			const record = insertCaptionDocumentAsTextTrack({
 				editor,
 				captions: result.captions,
-				capinstaDocument: result.document,
+				document: result.document,
 			});
 
-			if (trackId === null) {
+			if (record === null) {
 				dispatchCaptionJob({
 					type: "error",
 					message: "No captions were generated",
@@ -673,13 +657,8 @@ export function Captions() {
 				return;
 			}
 
-			const record = rememberCapinstaCaptionDocument({
-				document: result.document,
-				openCutTrackId: trackId,
-			});
-			editor.project.addCapinstaCaptionDocument({ record });
 			console.debug("[Capinsta captions] Captions imported", {
-				trackId,
+				trackId: record.openCutTrackId,
 				captionCount: result.captions.length,
 			});
 
@@ -770,7 +749,20 @@ export function Captions() {
 				step: "Importing subtitles...",
 			});
 
-			if (!insertCaptions({ captions: result.captions })) {
+			const importedAt = new Date().toISOString();
+			const document = importedSubtitleCuesToCaptionDocument({
+				captions: result.captions,
+				sourceName: file.name,
+				importedAt,
+			});
+			if (
+				!insertCaptionDocumentAsTextTrack({
+					editor,
+					captions: result.captions,
+					document,
+					importedAt,
+				})
+			) {
 				dispatchImportProcessing({
 					type: "fail",
 					error: "No captions were generated",

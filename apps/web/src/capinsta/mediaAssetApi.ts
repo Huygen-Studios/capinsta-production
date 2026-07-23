@@ -48,7 +48,7 @@ export class MediaUploadError extends Error {
 	}
 }
 
-function messageForMediaFailure({
+export function messageForMediaFailure({
 	status,
 	code,
 	fallback,
@@ -57,13 +57,33 @@ function messageForMediaFailure({
 	code?: string;
 	fallback: string;
 }) {
+	if (code === "caption_duration_limit_exceeded") {
+		return (
+			fallback || "This video exceeds your current caption duration limit."
+		);
+	}
+	if (code === "media_duration_exceeded") {
+		return fallback || "This media exceeds the technical duration limit.";
+	}
+	if (code === "invalid_media_metadata") {
+		return fallback || "The media duration could not be determined.";
+	}
+	if (code === "media_dimensions_limit") {
+		return fallback || "This media exceeds the supported dimensions.";
+	}
+	if (code === "upload_too_large") {
+		return fallback || "This file exceeds the current upload-size limit.";
+	}
 	if (fallback && fallback !== "Media upload failed.") return fallback;
 	if (status === 400) return "The project or file upload request is invalid.";
 	if (status === 401) return "Your session expired. Please sign in again.";
-	if (status === 403) return "Your account does not currently have editor access.";
-	if (status === 413) return "This file exceeds the upload limit.";
+	if (status === 403)
+		return "Your account does not currently have editor access.";
+	if (status === 413)
+		return "This request exceeds the configured upload limit.";
 	if (status === 415) return "Upload a supported video file.";
-	if (status === 422) return "The media upload request is missing required fields.";
+	if (status === 422)
+		return "The media upload request is missing required fields.";
 	if (status === 429) return "Too many uploads. Please try again shortly.";
 	if (status === 503 || code === "backend_unreachable") {
 		return "The media service is temporarily unavailable.";
@@ -90,11 +110,7 @@ async function readError({
 	let code: string | undefined;
 	let correlationId: string | null | undefined;
 	let fallback = response.statusText || "Media upload failed.";
-	if (
-		typeof body === "object" &&
-		body !== null &&
-		"detail" in body
-	) {
+	if (typeof body === "object" && body !== null && "detail" in body) {
 		const detail = body.detail;
 		if (typeof detail === "string") fallback = detail;
 		const detailMessage =
@@ -109,11 +125,19 @@ async function readError({
 			correlationId;
 	}
 	if (typeof body === "object" && body !== null) {
+		const envelope = Reflect.get(body, "error");
+		const envelopeMessage = readStringField({
+			value: envelope,
+			field: "message",
+		});
+		if (envelopeMessage) fallback = envelopeMessage;
+		code = readStringField({ value: envelope, field: "code" }) ?? code;
+		correlationId =
+			readStringField({ value: envelope, field: "requestId" }) ??
+			readStringField({ value: envelope, field: "correlationId" }) ??
+			correlationId;
 		if ("code" in body && typeof body.code === "string") code = body.code;
-		if (
-			"correlationId" in body &&
-			typeof body.correlationId === "string"
-		) {
+		if ("correlationId" in body && typeof body.correlationId === "string") {
 			correlationId = body.correlationId;
 		}
 	}
@@ -204,8 +228,7 @@ export async function uploadProjectMediaAsset({
 			: undefined;
 	return {
 		assetId,
-		downloadUrl:
-			readStringField({ value: body, field: "downloadUrl" }) ?? "",
+		downloadUrl: readStringField({ value: body, field: "downloadUrl" }) ?? "",
 		sizeBytes: typeof sizeBytesValue === "number" ? sizeBytesValue : 0,
 	};
 }

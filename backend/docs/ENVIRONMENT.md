@@ -15,6 +15,7 @@ Do not commit real `.env` files or API keys.
 | `OPENAI_API_KEY` | One provider key required | backend | blank | secret | OpenAI Whisper key. |
 | `GROQ_API_KEY` | One provider key required | backend | blank | secret | Groq Whisper key. |
 | `MAX_UPLOAD_SIZE_MB` | No | backend | `500` | `500` | Upload size limit. |
+| `CAPTION_DURATION_LIMIT_SECONDS` | No | backend | `180` | `180` | Regular-user caption-generation duration limit. Super admins bypass this application policy; technical media limits still apply. |
 | `MAX_CONCURRENT_EXPORTS` | No | backend | `1` | `1` | Maximum background MP4 exports running at the same time. Keep `1` on small Render instances. |
 | `MAX_EXPORT_DURATION_SECONDS` | No | backend | `300` | `300` | Rejects unexpectedly long exports before Chromium/FFmpeg work starts. |
 | `TEMP_DIR` | No | backend | `/tmp/huygen-caps` on Linux, system temp on Windows | `/tmp/huygen-caps` | Runtime temp root. |
@@ -46,6 +47,7 @@ EXPORT_DIR=/app/storage/exports
 CACHE_DIR=/app/storage/cache
 DB_PATH=/app/storage/database.sqlite
 MAX_UPLOAD_SIZE_MB=500
+CAPTION_DURATION_LIMIT_SECONDS=180
 MAX_CONCURRENT_EXPORTS=1
 ABANDONED_UPLOAD_RETENTION_HOURS=24
 FAILED_EXPORT_RETENTION_HOURS=6

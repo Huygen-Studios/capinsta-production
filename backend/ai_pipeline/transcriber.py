@@ -1380,6 +1380,10 @@ def resolve_sarvam_request_options(source_language: str | None, output_language:
 
     if output == "english" and source != "english":
         mode = "translate"
+    elif output in {"hinglish", "telgish"}:
+        mode = "translit"
+    elif output in {"hindi", "telugu"}:
+        mode = "transcribe"
     elif source in {"hinglish", "telgish"}:
         mode = "translit"
     elif source in {"auto", "auto_mixed_indian"}:
@@ -1851,16 +1855,16 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             retry_attempts=retry_attempts,
         )
 
-    verbatim_payload, verbatim_result = attempt(audio_path, "verbatim", "verbatim_retry")
-    if verbatim_result.granularity == "native_word":
+    retry_payload, retry_result = attempt(audio_path, mode, "same_mode_timestamp_retry")
+    if retry_result.granularity == "native_word":
         return _sarvam_result_payload(
             payload=first_payload,
-            words=verbatim_result.words,
+            words=retry_result.words,
             model=model,
             requested_mode=mode,
-            timing_mode="verbatim",
+            timing_mode=mode,
             language_code=language_code,
-            timestamp_result=verbatim_result,
+            timestamp_result=retry_result,
             retry_attempts=retry_attempts,
         )
 
@@ -1873,8 +1877,8 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             temp_paths.append(chunk_path)
             _payload, small_result = attempt(
                 chunk_path,
-                "verbatim",
-                "smaller_chunk_verbatim_retry",
+                mode,
+                "smaller_chunk_same_mode_retry",
                 offset=offset,
                 chunk_index=chunk_index,
                 chunk_end=chunk_end,
@@ -1899,7 +1903,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             native_word_count=len(merged_words),
             phrase_entry_count=0,
             coverage=1.0,
-            source_path="sarvam.verbatim.small_chunks",
+            source_path="sarvam.same_mode.small_chunks",
             diagnostics={"inferredTimingGranularity": "native_word", "retryPerformed": True},
         )
         return _sarvam_result_payload(
@@ -1907,7 +1911,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
             words=merged_words,
             model=model,
             requested_mode=mode,
-            timing_mode="verbatim_small_chunks",
+            timing_mode=f"{mode}_small_chunks",
             language_code=language_code,
             timestamp_result=merged_result,
             retry_attempts=retry_attempts,
@@ -1915,15 +1919,15 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
 
     phrase_candidates = [
         candidate
-        for candidate in (first_result, verbatim_result, small_retry_failed_result)
+        for candidate in (first_result, retry_result, small_retry_failed_result)
         if candidate is not None and candidate.words
     ]
     best_non_native_result = phrase_candidates[0] if phrase_candidates else first_result
     category = (
         "sarvam_phrase_timestamps"
-        if any(candidate.granularity == "phrase" for candidate in (first_result, verbatim_result, small_retry_failed_result) if candidate is not None)
+        if any(candidate.granularity == "phrase" for candidate in (first_result, retry_result, small_retry_failed_result) if candidate is not None)
         else "sarvam_timestamps_empty"
-        if any("timestamp arrays empty" in candidate.warnings for candidate in (first_result, verbatim_result, small_retry_failed_result) if candidate is not None)
+        if any("timestamp arrays empty" in candidate.warnings for candidate in (first_result, retry_result, small_retry_failed_result) if candidate is not None)
         else "sarvam_native_timestamps_unavailable_after_retry"
     )
     message = (
@@ -1937,7 +1941,7 @@ def _call_sarvam(audio_path: str, language_mode: str, transcription_config_snaps
         "sarvam_transcript_succeeded nativeWordsAvailable=false category=%s retryAttempts=%s requestId=%s",
         category,
         len(retry_attempts),
-        first_payload.get("request_id") or verbatim_payload.get("request_id"),
+        first_payload.get("request_id") or retry_payload.get("request_id"),
     )
     return _sarvam_result_payload(
         payload=first_payload,

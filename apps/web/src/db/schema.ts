@@ -905,7 +905,7 @@ export const userQuotas = pgTable("user_quotas", {
 		.notNull(),
 	dailyExportMinutes: integer("daily_export_minutes").default(60).notNull(),
 	maxUploadDurationSeconds: integer("max_upload_duration_seconds")
-		.default(1800)
+		.default(180)
 		.notNull(),
 	maxConcurrentCaptionJobs: integer("max_concurrent_caption_jobs")
 		.default(2)
