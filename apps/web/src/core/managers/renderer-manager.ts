@@ -345,18 +345,26 @@ export class RendererManager {
 				}
 				const isImportedSubtitle =
 					capinstaDoc?.sourceTranscriptRef.provider === "subtitle_import";
+				const videoElements = [
+					...rawTracks.main.elements,
+					...rawTracks.overlay
+						.filter((track) => track.type === "video")
+						.flatMap((track) => track.elements),
+				].filter((element) => element.type === "video");
+				const hasTimelineVideo = videoElements.length > 0;
+				if (!hasTimelineVideo) {
+					// Captions are independently renderable. A removed/absent source
+					// video must never prevent a solid-background caption export.
+					sourceJobId = "";
+				}
 				if (!isImportedSubtitle) {
-					sourceJobId ||= activeProject.capinstaServerJobId ?? "";
+					sourceJobId ||= hasTimelineVideo
+						? (activeProject.capinstaServerJobId ?? "")
+						: "";
 				}
 
 				let sourceMediaAssetId = "";
-				if (!sourceJobId && isImportedSubtitle) {
-					const videoElements = [
-						...rawTracks.main.elements,
-						...rawTracks.overlay
-							.filter((track) => track.type === "video")
-							.flatMap((track) => track.elements),
-					].filter((element) => element.type === "video");
+				if (!sourceJobId && isImportedSubtitle && hasTimelineVideo) {
 					const sourceVideo = videoElements
 						.map((element) =>
 							mediaAssets.find((asset) => asset.id === element.mediaId),
@@ -409,7 +417,7 @@ export class RendererManager {
 					}
 				}
 
-				if (!sourceJobId && !sourceMediaAssetId) {
+				if (!sourceJobId && !sourceMediaAssetId && hasTimelineVideo) {
 					return {
 						success: false,
 						error:
@@ -424,6 +432,7 @@ export class RendererManager {
 					canvasHeight: canvasSize.height,
 					sourceJobId,
 					sourceMediaAssetId,
+					allowSourceLess: !hasTimelineVideo,
 				});
 				if (isDebug) {
 					console.debug("[capinsta-export] headless validation", {
@@ -465,6 +474,16 @@ export class RendererManager {
 				// interprets duration_override as SECONDS. Convert here. Sending ticks
 				// raw caused "duration 4351080.00s exceeds MAX_EXPORT_DURATION_SECONDS".
 				const durationSeconds = duration / TICKS_PER_SECOND;
+				const headlessExportMode = hasTimelineVideo
+					? exportMode
+					: "captions_solid_background";
+				const headlessBackgroundColor = hasTimelineVideo
+					? normalizedBackgroundColor
+					: exportMode === "captions_solid_background"
+						? normalizedBackgroundColor
+						: activeProject.settings.background.type === "color"
+							? activeProject.settings.background.color
+							: "#101010";
 				const formData = createExportRequestFormData({
 					sourceJobId,
 					sourceMediaAssetId: sourceMediaAssetId || undefined,
@@ -480,10 +499,10 @@ export class RendererManager {
 					width: canvasSize.width,
 					height: canvasSize.height,
 					fps: fpsValue,
-					includeAudio: Boolean(includeAudio),
+					includeAudio: hasTimelineVideo && Boolean(includeAudio),
 					quality,
-					exportMode,
-					backgroundColor: normalizedBackgroundColor,
+					exportMode: headlessExportMode,
+					backgroundColor: headlessBackgroundColor,
 					durationSeconds,
 				});
 

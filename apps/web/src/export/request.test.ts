@@ -67,4 +67,27 @@ describe("export request serialization", () => {
 		expect(request.get("media_asset_id")).toBe("media-asset-123");
 		expect(request.get("project_id")).toBe("project-123");
 	});
+
+	test("serializes caption-only projects without a source job or media", () => {
+		const request = createExportRequestFormData({
+			projectId: "project-123",
+			captionsJson: "[]",
+			theme: "word_highlight_box",
+			styleConfigJson: "{}",
+			width: 1080,
+			height: 1920,
+			fps: 30,
+			includeAudio: false,
+			quality: "balanced",
+			exportMode: "captions_solid_background",
+			backgroundColor: "#101010",
+			durationSeconds: 12.5,
+		});
+
+		expect(request.get("source_job_id")).toBeNull();
+		expect(request.get("media_asset_id")).toBeNull();
+		expect(request.get("project_id")).toBe("project-123");
+		expect(request.get("export_mode")).toBe("captions_solid_background");
+		expect(request.get("include_audio")).toBe("false");
+	});
 });

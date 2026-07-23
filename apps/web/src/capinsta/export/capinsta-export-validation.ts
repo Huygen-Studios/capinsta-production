@@ -22,6 +22,7 @@ interface ValidationBaseInput {
 interface HeadlessValidationInput extends ValidationBaseInput {
 	sourceJobId: string;
 	sourceMediaAssetId?: string;
+	allowSourceLess?: boolean;
 }
 
 interface SingleOverlayRendererInput {
@@ -194,6 +195,7 @@ export function validateCapinstaHeadlessExport(
 		{
 			name: "capinsta-export-source-present",
 			passed:
+				input.allowSourceLess === true ||
 				/^[a-z0-9_-]{8,}$/i.test(input.sourceJobId) ||
 				/^[a-z0-9_-]{8,}$/i.test(input.sourceMediaAssetId ?? ""),
 			message:

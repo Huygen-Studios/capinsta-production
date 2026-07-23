@@ -351,6 +351,14 @@ def test_imported_subtitle_export_creates_and_reuses_media_backed_source(monkeyp
                     media_asset_id="asset_a",
                     project_id="project_a",
                 )
+                no_media_id, no_media_row = (
+                    await export_jobs._resolve_export_source_job(
+                        db,
+                        source_job_id=None,
+                        media_asset_id=None,
+                        project_id="project_a",
+                    )
+                )
             finally:
                 reset_current_user(context)
 
@@ -358,6 +366,9 @@ def test_imported_subtitle_export_creates_and_reuses_media_backed_source(monkeyp
         assert first_row["transcription_provider"] == "subtitle_import"
         assert second_row["media_asset_id"] == "asset_a"
         assert second_row["status"] == "completed"
+        assert no_media_id != first_id
+        assert no_media_row["media_asset_id"] is None
+        assert no_media_row["transcription_provider"] == "subtitle_import_no_media"
 
     asyncio.run(run())
 

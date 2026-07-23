@@ -75,26 +75,32 @@ async def _resolve_export_source_job(
     if source_job_id:
         row = await get_owned_job(db, source_job_id)
         return source_job_id, row
-    if not media_asset_id or not project_id:
+    if not project_id:
         raise HTTPException(
             status_code=422,
-            detail="Provide source_job_id or both media_asset_id and project_id.",
+            detail="Provide source_job_id or project_id.",
         )
 
-    media_row = await get_owned_media_asset(db, media_asset_id)
-    if str(media_row["project_id"]) != project_id:
-        raise HTTPException(status_code=404, detail="Media asset was not found.")
-    resolve_owned_media_asset_file(media_row)
+    media_row = None
+    provider = "subtitle_import_no_media"
+    filename = "imported-captions.srt"
+    if media_asset_id:
+        media_row = await get_owned_media_asset(db, media_asset_id)
+        if str(media_row["project_id"]) != project_id:
+            raise HTTPException(status_code=404, detail="Media asset was not found.")
+        resolve_owned_media_asset_file(media_row)
+        provider = "subtitle_import"
+        filename = str(media_row["original_name"])
 
     cursor = await db.execute(
         """
         SELECT * FROM jobs
-        WHERE user_id = ? AND project_id = ? AND media_asset_id = ?
-          AND transcription_provider = 'subtitle_import'
+        WHERE user_id = ? AND project_id = ? AND media_asset_id IS ?
+          AND transcription_provider = ?
           AND deleted_at IS NULL
         ORDER BY created_at DESC LIMIT 1
         """,
-        (current_user().id, project_id, media_asset_id),
+        (current_user().id, project_id, media_asset_id, provider),
     )
     row = await cursor.fetchone()
     now = utc_now()
@@ -123,11 +129,11 @@ async def _resolve_export_source_job(
             transcription_provider
         ) VALUES (?, 'completed', 100, ?, 'imported_subtitles', ?, ?, ?, ?, ?,
                   ?, ?, 'Imported subtitle export source.', ?, ?,
-                  'subtitle_import')
+                  ?)
         """,
         (
             synthetic_job_id,
-            str(media_row["original_name"]),
+            filename,
             now_text,
             now_text,
             now_text,
@@ -137,6 +143,7 @@ async def _resolve_export_source_job(
             media_asset_id,
             now_text,
             now_text,
+            provider,
         ),
     )
     await db.commit()
@@ -1048,22 +1055,31 @@ async def start_export_job(
         )
     await ensure_project_available(row, db)
 
-    try:
-        original_video_path, media_access_mode = await resolve_job_video_path(
-            db, source_job_id, row
-        )
-    except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, dict) else {
-            "code": "source_media_unavailable",
-            "message": str(exc.detail or "Source media is unavailable."),
-        }
-        logger.warning(
-            "export_source_media_resolution_failed source_job_id=%s status=%s code=%s",
-            source_job_id,
-            exc.status_code,
-            detail.get("code"),
-        )
-        return JSONResponse({"error": detail}, status_code=exc.status_code)
+    source_has_no_media = (
+        "transcription_provider" in row.keys()
+        and row["transcription_provider"] == "subtitle_import_no_media"
+    )
+    if source_has_no_media:
+        original_video_path = ""
+        media_access_mode = "caption_only_no_media"
+        include_audio = False
+    else:
+        try:
+            original_video_path, media_access_mode = await resolve_job_video_path(
+                db, source_job_id, row
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {
+                "code": "source_media_unavailable",
+                "message": str(exc.detail or "Source media is unavailable."),
+            }
+            logger.warning(
+                "export_source_media_resolution_failed source_job_id=%s status=%s code=%s",
+                source_job_id,
+                exc.status_code,
+                detail.get("code"),
+            )
+            return JSONResponse({"error": detail}, status_code=exc.status_code)
     if not os.path.exists(original_video_path) and not is_captions_only:
         return JSONResponse(
             {
