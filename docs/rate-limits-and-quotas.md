@@ -19,6 +19,7 @@
 - JSON bodies: `MAX_JSON_BODY_BYTES`, default `1048576`, rejected before route parsing with `413`.
 - URL-encoded form bodies: `MAX_FORM_BODY_BYTES`, default `8388608`, rejected before route parsing with `413`.
 - Multipart upload bodies: governed by `MAX_UPLOAD_SIZE_MB` plus small multipart overhead, then validated by upload-specific media checks.
+- Chunked media parts: maximum 5 MB each (6 MB request allowance); the assembled file remains subject to `MAX_UPLOAD_SIZE_MB`.
 - Regular caption generation: `CAPTION_DURATION_LIMIT_SECONDS`, default `180`. Media metadata is compared with a 50 ms tolerance.
 - Super admins are resolved from authenticated server-side RBAC and bypass application caption duration, daily usage, and per-user concurrent caption-job limits. Technical upload, media-validation, storage, and provider limits still apply.
 

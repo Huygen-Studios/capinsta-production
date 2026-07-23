@@ -362,6 +362,58 @@ def test_imported_subtitle_export_creates_and_reuses_media_backed_source(monkeyp
     asyncio.run(run())
 
 
+def test_chunked_media_upload_persists_a_bounded_part(tmp_path, monkeypatch):
+    async def run():
+        monkeypatch.setattr(media_assets, "MEDIA_DIR", tmp_path)
+        monkeypatch.setattr(
+            media_assets, "require_disk_capacity", lambda **kwargs: None
+        )
+        context = set_current_user(AuthenticatedUser(id="user_a"))
+        try:
+            started = await media_assets.start_chunked_media_upload(
+                project_id="project_a",
+                file_name="video.mp4",
+                mime_type="video/mp4",
+                size_bytes=5,
+            )
+            consumed = False
+
+            async def receive():
+                nonlocal consumed
+                if consumed:
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                consumed = True
+                return {
+                    "type": "http.request",
+                    "body": b"video",
+                    "more_body": False,
+                }
+
+            request = Request(
+                {
+                    "type": "http",
+                    "method": "PUT",
+                    "path": f"/api/media/assets/chunked/{started['uploadId']}",
+                    "headers": [
+                        (b"x-upload-offset", b"0"),
+                        (b"content-type", b"application/octet-stream"),
+                    ],
+                },
+                receive,
+            )
+            appended = await media_assets.append_chunked_media_upload(
+                started["uploadId"], request
+            )
+        finally:
+            reset_current_user(context)
+
+        assert appended["offset"] == 5
+        part = next(tmp_path.rglob("*.part"))
+        assert part.read_bytes() == b"video"
+
+    asyncio.run(run())
+
+
 def test_public_download_name_strips_path_and_control_characters():
     name = public_download_name("../private/\x00bad:name.mp4", fallback="media.mp4")
 

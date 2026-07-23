@@ -32,6 +32,12 @@ reverse proxy/CDN request-body limit to at least that value plus 2 MB for
 multipart framing. A proxy limit below the backend limit can emit its own 413
 before CapInsta can return the structured `upload_too_large` response.
 
+The editor sends media larger than 5 MB through authenticated, offset-checked
+5 MB chunks. This keeps each proxied request below common route-handler and CDN
+body limits. The backend still enforces `MAX_UPLOAD_SIZE_MB` against the
+declared complete file size and validates the assembled media before publishing
+the asset.
+
 Upload byte size, the technical `MAX_MEDIA_DURATION_SECONDS` safety limit, and
 the regular-user `CAPTION_DURATION_LIMIT_SECONDS=180` caption policy are
 independent checks.

@@ -58,3 +58,17 @@ def test_multipart_uploads_use_upload_body_limit_not_json_limit():
 
     assert decision.allowed is True
     assert decision.limit and decision.limit > 2 * 1024 * 1024
+
+
+def test_chunked_media_uploads_allow_bounded_binary_parts():
+    request = TestClient(app).build_request(
+        "PUT",
+        "/api/media/assets/chunked/upload-1",
+        content=b"x" * (5 * 1024 * 1024),
+        headers={"Content-Type": "application/octet-stream"},
+    )
+
+    decision = evaluate_request_body_limit(request)
+
+    assert decision.allowed is True
+    assert decision.limit == 6 * 1024 * 1024

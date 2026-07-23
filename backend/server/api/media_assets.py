@@ -9,7 +9,7 @@ from pathlib import Path
 
 import aiofiles
 import aiosqlite
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from ..auth import current_user
@@ -32,6 +32,7 @@ _ALLOWED_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | SAFE_IMAGE_EXT
 _VIDEO_EXTENSIONS = VIDEO_EXTENSIONS
 _MAX_MEDIA_DURATION_SECONDS = int(os.getenv("MAX_MEDIA_DURATION_SECONDS", "600"))
 _MAX_MEDIA_LONG_EDGE = int(os.getenv("MAX_MEDIA_LONG_EDGE", "4096"))
+_MEDIA_CHUNK_BYTES = 5 * 1024 * 1024
 
 
 def _now() -> str:
@@ -43,6 +44,24 @@ def _asset_path(user_id: str, project_id: str, asset_id: str) -> Path:
     safe_identifier(project_id, label="project id")
     safe_identifier(asset_id, label="asset id")
     return path_inside(MEDIA_DIR, user_id, project_id, asset_id)
+
+
+def _chunk_upload_paths(user_id: str, upload_id: str) -> tuple[Path, Path]:
+    safe_identifier(user_id, label="user id")
+    safe_identifier(upload_id, label="upload id")
+    root = path_inside(MEDIA_DIR, ".chunked", user_id)
+    return root / f"{upload_id}.json", root / f"{upload_id}.part"
+
+
+def _read_chunk_upload(upload_id: str) -> tuple[dict, Path, Path]:
+    metadata_path, temporary_path = _chunk_upload_paths(current_user().id, upload_id)
+    try:
+        metadata = json.loads(metadata_path.read_text("utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=404, detail="Upload session was not found.") from exc
+    if metadata.get("userId") != current_user().id:
+        raise HTTPException(status_code=404, detail="Upload session was not found.")
+    return metadata, metadata_path, temporary_path
 
 
 def _row_keys(row: aiosqlite.Row) -> set[str]:
@@ -485,6 +504,155 @@ async def upload_media_asset(
         "projectId": project_id,
         "sizeBytes": written,
         "mimeType": file.content_type,
+        "downloadUrl": f"/api/media/assets/{asset_id}/content",
+    }
+
+
+@router.post("/chunked")
+async def start_chunked_media_upload(
+    project_id: str = Form(...),
+    file_name: str = Form(...),
+    mime_type: str = Form("application/octet-stream"),
+    size_bytes: int = Form(...),
+):
+    try:
+        safe_identifier(project_id, label="project id")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    original_name = public_download_name(file_name, fallback="media")
+    extension = Path(original_name).suffix.lower()
+    if extension not in _ALLOWED_MEDIA_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="Upload a supported media file.")
+    max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if size_bytes <= 0 or size_bytes > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "upload_too_large",
+                "message": f"This file is larger than the current {MAX_UPLOAD_SIZE_MB} MB upload limit.",
+                "actualBytes": size_bytes,
+                "allowedBytes": max_bytes,
+            },
+        )
+    require_disk_capacity(operation="upload", required_bytes=size_bytes)
+    upload_id = str(uuid.uuid4())
+    metadata_path, temporary_path = _chunk_upload_paths(current_user().id, upload_id)
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "uploadId": upload_id,
+                "userId": current_user().id,
+                "projectId": project_id,
+                "fileName": original_name,
+                "mimeType": mime_type,
+                "sizeBytes": size_bytes,
+                "createdAt": _now(),
+            }
+        ),
+        "utf-8",
+    )
+    temporary_path.touch(exist_ok=False)
+    return {"uploadId": upload_id, "chunkSize": _MEDIA_CHUNK_BYTES}
+
+
+@router.put("/chunked/{upload_id}")
+async def append_chunked_media_upload(upload_id: str, request: Request):
+    metadata, _, temporary_path = _read_chunk_upload(upload_id)
+    try:
+        expected_offset = int(request.headers.get("x-upload-offset", "-1"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid upload offset.") from exc
+    actual_offset = temporary_path.stat().st_size
+    if expected_offset != actual_offset:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "upload_offset_mismatch", "expectedOffset": actual_offset},
+        )
+
+    received = 0
+    declared_size = int(metadata["sizeBytes"])
+    async with aiofiles.open(temporary_path, "ab") as output:
+        async for chunk in request.stream():
+            received += len(chunk)
+            if received > _MEDIA_CHUNK_BYTES:
+                raise HTTPException(status_code=413, detail="Upload chunk is too large.")
+            if actual_offset + received > declared_size:
+                raise HTTPException(status_code=400, detail="Upload exceeds declared file size.")
+            await output.write(chunk)
+    if received <= 0:
+        raise HTTPException(status_code=400, detail="Upload chunk is empty.")
+    return {"uploadId": upload_id, "offset": actual_offset + received}
+
+
+@router.post("/chunked/{upload_id}/complete")
+async def complete_chunked_media_upload(
+    upload_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    metadata, metadata_path, temporary_path = _read_chunk_upload(upload_id)
+    expected_size = int(metadata["sizeBytes"])
+    written = temporary_path.stat().st_size
+    if written != expected_size:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_incomplete",
+                "expectedBytes": expected_size,
+                "receivedBytes": written,
+            },
+        )
+    require_disk_capacity(operation="upload")
+    validation_metadata = await validate_media_file_contents(
+        temporary_path,
+        original_name=str(metadata["fileName"]),
+        require_video=False,
+        mime_type=str(metadata["mimeType"]),
+    )
+    asset_id = str(uuid.uuid4())
+    destination = _asset_path(
+        current_user().id, str(metadata["projectId"]), asset_id
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(temporary_path, destination)
+    now = _now()
+    try:
+        await db.execute(
+            """
+            INSERT INTO media_assets (
+                id, project_id, user_id, original_name, mime_type, size_bytes,
+                storage_path, status, created_at, last_accessed_at,
+                validation_status, validation_metadata_json, validation_checked_at,
+                media_duration_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                asset_id,
+                metadata["projectId"],
+                current_user().id,
+                metadata["fileName"],
+                metadata["mimeType"],
+                written,
+                str(destination),
+                now,
+                now,
+                "validated",
+                json.dumps(validation_metadata, ensure_ascii=False),
+                validation_metadata.get("validatedAt") or now,
+                validation_metadata.get("durationSeconds"),
+            ),
+        )
+        await db.commit()
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        metadata_path.unlink(missing_ok=True)
+    return {
+        "assetId": asset_id,
+        "projectId": metadata["projectId"],
+        "sizeBytes": written,
+        "mimeType": metadata["mimeType"],
         "downloadUrl": f"/api/media/assets/{asset_id}/content",
     }
 

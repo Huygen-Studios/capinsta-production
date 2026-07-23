@@ -6,6 +6,8 @@ function endpoint(path: string): string {
 	return buildCapinstaApiUrl({ baseUrl: getCapinstaApiBaseUrl(), path });
 }
 
+const MEDIA_UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024;
+
 function readStringField({
 	value,
 	field,
@@ -176,6 +178,9 @@ export async function uploadProjectMediaAsset({
 	downloadUrl: string;
 	sizeBytes: number;
 }> {
+	if (file.size > MEDIA_UPLOAD_CHUNK_BYTES) {
+		return uploadProjectMediaAssetInChunks({ projectId, file, signal });
+	}
 	const formData = new FormData();
 	formData.append("project_id", projectId);
 	formData.append("file", file);
@@ -230,6 +235,118 @@ export async function uploadProjectMediaAsset({
 		assetId,
 		downloadUrl: readStringField({ value: body, field: "downloadUrl" }) ?? "",
 		sizeBytes: typeof sizeBytesValue === "number" ? sizeBytesValue : 0,
+	};
+}
+
+async function uploadProjectMediaAssetInChunks({
+	projectId,
+	file,
+	signal,
+}: {
+	projectId: string;
+	file: File;
+	signal?: AbortSignal;
+}): Promise<{
+	assetId: string;
+	downloadUrl: string;
+	sizeBytes: number;
+}> {
+	const initForm = new FormData();
+	initForm.append("project_id", projectId);
+	initForm.append("file_name", file.name);
+	initForm.append("mime_type", file.type || "application/octet-stream");
+	initForm.append("size_bytes", file.size.toString());
+	const initEndpoint = endpoint("/media/assets/chunked");
+	const initResponse = await authenticatedFetch(initEndpoint, {
+		method: "POST",
+		body: initForm,
+		signal,
+	});
+	if (!initResponse.ok) {
+		throw await readError({
+			response: initResponse,
+			context: {
+				endpoint: initEndpoint,
+				projectId,
+				fileAttached: false,
+				filename: file.name,
+				mimeType: file.type,
+				size: file.size,
+			},
+		});
+	}
+	const initBody: unknown = await initResponse.json();
+	const uploadId = readStringField({ value: initBody, field: "uploadId" });
+	if (!uploadId) {
+		throw new MediaUploadError({
+			message: "The media service did not start the upload. Please retry.",
+			status: 502,
+			code: "media_upload_session_missing",
+		});
+	}
+
+	let offset = 0;
+	while (offset < file.size) {
+		const chunk = file.slice(
+			offset,
+			Math.min(offset + MEDIA_UPLOAD_CHUNK_BYTES, file.size),
+		);
+		const chunkEndpoint = endpoint(
+			`/media/assets/chunked/${encodeURIComponent(uploadId)}`,
+		);
+		const chunkResponse = await authenticatedFetch(chunkEndpoint, {
+			method: "PUT",
+			body: chunk,
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"X-Upload-Offset": offset.toString(),
+			},
+			signal,
+		});
+		if (!chunkResponse.ok) {
+			throw await readError({
+				response: chunkResponse,
+				context: {
+					endpoint: chunkEndpoint,
+					projectId,
+					fileAttached: true,
+					filename: file.name,
+					mimeType: file.type,
+					size: chunk.size,
+				},
+			});
+		}
+		offset += chunk.size;
+	}
+
+	const completeEndpoint = endpoint(
+		`/media/assets/chunked/${encodeURIComponent(uploadId)}/complete`,
+	);
+	const completeResponse = await authenticatedFetch(completeEndpoint, {
+		method: "POST",
+		signal,
+	});
+	if (!completeResponse.ok) {
+		throw await readError({ response: completeResponse });
+	}
+	const body: unknown = await completeResponse.json();
+	const assetId = readStringField({ value: body, field: "assetId" });
+	if (!assetId) {
+		throw new MediaUploadError({
+			message:
+				"The media service did not return a valid media asset ID. Please retry.",
+			status: 502,
+			code: "media_asset_id_missing",
+		});
+	}
+	const sizeBytesValue =
+		typeof body === "object" && body !== null
+			? Reflect.get(body, "sizeBytes")
+			: undefined;
+	return {
+		assetId,
+		downloadUrl: readStringField({ value: body, field: "downloadUrl" }) ?? "",
+		sizeBytes: typeof sizeBytesValue === "number" ? sizeBytesValue : file.size,
 	};
 }
 

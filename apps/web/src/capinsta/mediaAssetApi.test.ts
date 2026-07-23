@@ -61,6 +61,49 @@ describe("media asset API", () => {
 		expect(new Headers(init?.headers).has("content-type")).toBe(false);
 	});
 
+	test("uploads large media through bounded chunks", async () => {
+		authenticatedFetchMock
+			.mockImplementationOnce(async () =>
+				Response.json({ uploadId: "upload-1", chunkSize: 5 * 1024 * 1024 }),
+			)
+			.mockImplementationOnce(async () =>
+				Response.json({ uploadId: "upload-1", offset: 5 * 1024 * 1024 }),
+			)
+			.mockImplementationOnce(async () =>
+				Response.json({ uploadId: "upload-1", offset: 5 * 1024 * 1024 + 1 }),
+			)
+			.mockImplementationOnce(async () =>
+				Response.json({
+					assetId: "asset-large",
+					downloadUrl: "/api/media/assets/asset-large/content",
+					sizeBytes: 5 * 1024 * 1024 + 1,
+				}),
+			);
+		const file = new File(
+			[new Uint8Array(5 * 1024 * 1024 + 1)],
+			"large-video.mp4",
+			{ type: "video/mp4" },
+		);
+
+		const result = await uploadProjectMediaAsset({
+			projectId: "project-1",
+			file,
+		});
+
+		expect(result.assetId).toBe("asset-large");
+		expect(authenticatedFetchMock).toHaveBeenCalledTimes(4);
+		const [, firstChunkInit] = authenticatedFetchMock.mock.calls[1] ?? [];
+		expect(firstChunkInit?.method).toBe("PUT");
+		expect(firstChunkInit?.body).toBeInstanceOf(Blob);
+		expect(new Headers(firstChunkInit?.headers).get("x-upload-offset")).toBe(
+			"0",
+		);
+		const [, secondChunkInit] = authenticatedFetchMock.mock.calls[2] ?? [];
+		expect(new Headers(secondChunkInit?.headers).get("x-upload-offset")).toBe(
+			(5 * 1024 * 1024).toString(),
+		);
+	});
+
 	test("maps proxy failures to actionable media upload errors", async () => {
 		authenticatedFetchMock.mockImplementationOnce(async () =>
 			Response.json(

@@ -8,6 +8,7 @@ from .settings import MAX_FORM_BODY_BYTES, MAX_JSON_BODY_BYTES, MAX_UPLOAD_SIZE_
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 UPLOAD_BODY_OVERHEAD_BYTES = 2 * 1024 * 1024
+MEDIA_CHUNK_BODY_BYTES = 6 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,13 @@ def _content_length(request: Request) -> int | None:
     return value if value >= 0 else None
 
 
-def _body_limit_for_content_type(content_type: str) -> int | None:
+def _body_limit_for_request(request: Request) -> int | None:
+    if (
+        request.url.path.startswith(("/api/media/assets/chunked/", "/api/v1/media/assets/chunked/"))
+        and request.method.upper() == "PUT"
+    ):
+        return MEDIA_CHUNK_BODY_BYTES
+    content_type = request.headers.get("content-type", "")
     lower = content_type.split(";", 1)[0].strip().lower()
     if not lower:
         return MAX_JSON_BODY_BYTES
@@ -50,7 +57,7 @@ def evaluate_request_body_limit(request: Request) -> BodyLimitDecision:
     if received is None:
         return BodyLimitDecision(allowed=True)
 
-    limit = _body_limit_for_content_type(request.headers.get("content-type", ""))
+    limit = _body_limit_for_request(request)
     if limit is None or received <= limit:
         return BodyLimitDecision(allowed=True, limit=limit, received=received)
 
