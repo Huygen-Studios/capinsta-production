@@ -18,6 +18,7 @@ export type FrameItemDescriptor =
 			opacity: number;
 			blendMode: BlendMode;
 			effectPassGroups: EffectPass[][];
+			sourceEffectPassGroups?: EffectPass[][];
 			mask: LayerMaskDescriptor | null;
 	  }
 	| {

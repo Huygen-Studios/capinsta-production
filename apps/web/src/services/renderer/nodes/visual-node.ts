@@ -4,6 +4,7 @@ import type { Mask } from "@/masks/types";
 import type { BlendMode, Transform } from "@/rendering";
 import type { RetimeConfig, VisualElement } from "@/timeline";
 import type { EvaluatedLayer3D, Layer3DEffect } from "@/layer-3d";
+import type { PaperFoldRuntimeState } from "@/effects/paper-fold/types";
 
 export interface VisualNodeParams {
 	duration: number;
@@ -25,6 +26,7 @@ export interface ResolvedVisualNodeState {
 	transform: Transform;
 	opacity: number;
 	effectPasses: EffectPass[][];
+	paperFold: PaperFoldRuntimeState | null;
 	layer3D: EvaluatedLayer3D | null;
 }
 

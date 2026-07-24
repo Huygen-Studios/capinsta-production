@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Box, Plus } from "lucide-react";
+import { Box, Plus, FoldHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PanelView } from "@/components/editor/panels/assets/views/base-panel";
 import { useEditor } from "@/editor/use-editor";
@@ -20,6 +20,9 @@ export function Layer3DEffectsView() {
 	const target = editor.timeline
 		.getElementsWithTracks({ elements: selected })
 		.find(({ element }) => isCompatible({ element }));
+	const paperFoldTarget = editor.timeline
+		.getElementsWithTracks({ elements: selected })
+		.find(({ element }) => isPaperFoldCompatible({ element }));
 
 	const apply = ({ presetId }: { presetId: Layer3DPresetDefinition["id"] }) => {
 		if (!target || !isCompatible({ element: target.element })) return;
@@ -36,6 +39,59 @@ export function Layer3DEffectsView() {
 
 	return (
 		<PanelView title="Effects" contentClassName="pb-4">
+			<section
+				aria-labelledby="paper-fold-effects-heading"
+				className="mb-5 space-y-2"
+			>
+				<div className="flex items-center gap-2 px-1 py-1">
+					<FoldHorizontal className="size-4 text-primary" />
+					<h2
+						id="paper-fold-effects-heading"
+						className="text-xs font-semibold uppercase text-muted-foreground"
+					>
+						Animation &amp; Stylize
+					</h2>
+				</div>
+				{!paperFoldTarget ? (
+					<p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+						Select a video, image, text, sticker, or graphic layer to apply
+						Paper Fold.
+					</p>
+				) : null}
+				<article className="rounded-md border bg-background p-2">
+					<div
+						className="relative h-24 overflow-hidden rounded-sm border bg-[#171717]"
+						aria-label="Paper Fold preview"
+					>
+						<div className="absolute inset-4 origin-center rotate-[-4deg] rounded-sm bg-gradient-to-br from-[#fff8e8] via-[#cfc1a6] to-[#f4e6c8] shadow-xl [clip-path:polygon(0_0,100%_10%,88%_100%,8%_88%)]" />
+						<div className="absolute left-1/2 top-4 h-16 w-px bg-black/25" />
+					</div>
+					<div className="mt-2 flex items-start justify-between gap-2">
+						<div className="min-w-0">
+							<h3 className="text-sm font-medium">Paper Fold</h3>
+							<p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+								Fold media into or unfold it from animated paper.
+							</p>
+						</div>
+						<Button
+							size="sm"
+							disabled={!paperFoldTarget}
+							onClick={() => {
+								if (!paperFoldTarget) return;
+								editor.timeline.addClipEffect({
+									trackId: paperFoldTarget.track.id,
+									elementId: paperFoldTarget.element.id,
+									effectType: "paper-fold",
+								});
+							}}
+							aria-label="Apply Paper Fold"
+						>
+							<Plus className="size-3.5" />
+							Apply
+						</Button>
+					</div>
+				</article>
+			</section>
 			<section aria-labelledby="layer-3d-effects-heading" className="space-y-2">
 				<div className="flex items-center gap-2 px-1 py-1">
 					<Box className="size-4 text-primary" />
@@ -64,6 +120,18 @@ export function Layer3DEffectsView() {
 				</div>
 			</section>
 		</PanelView>
+	);
+}
+
+function isPaperFoldCompatible({ element }: { element: unknown }): boolean {
+	if (!element || typeof element !== "object" || !("type" in element))
+		return false;
+	return (
+		element.type === "image" ||
+		element.type === "video" ||
+		element.type === "text" ||
+		element.type === "sticker" ||
+		element.type === "graphic"
 	);
 }
 

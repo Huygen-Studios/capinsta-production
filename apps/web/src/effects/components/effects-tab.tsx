@@ -289,19 +289,29 @@ function EffectSection({
 				className={cn("p-0", onToggle && !effect.enabled && "opacity-50")}
 			>
 				<SectionFields>
-					{definition.params.map((param) => (
-						<div key={param.key} className="flex flex-col gap-3.5">
-							<div className="px-4">
-								<PropertyParamField
-									param={param}
-									value={renderParams[param.key] ?? param.default}
-									onPreview={previewParam(param.key)}
-									onCommit={onCommit}
-								/>
+					{definition.params
+						.filter((param) =>
+							(param.dependencies ?? []).every(
+								(dependency) =>
+									(renderParams[dependency.param] ??
+										definition.params.find(
+											(candidate) => candidate.key === dependency.param,
+										)?.default) === dependency.equals,
+							),
+						)
+						.map((param) => (
+							<div key={param.key} className="flex flex-col gap-3.5">
+								<div className="px-4">
+									<PropertyParamField
+										param={param}
+										value={renderParams[param.key] ?? param.default}
+										onPreview={previewParam(param.key)}
+										onCommit={onCommit}
+									/>
+								</div>
+								<Separator />
 							</div>
-							<Separator />
-						</div>
-					))}
+						))}
 				</SectionFields>
 			</SectionContent>
 		</Section>

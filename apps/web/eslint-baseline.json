@@ -1,8 +1,8 @@
 {
 	"version": 1,
-	"errors": 156,
+	"errors": 153,
 	"warnings": 17,
-	"files": 99,
+	"files": 97,
 	"rows": [
 		{
 			"file": "src/actions/registry.ts",
@@ -1031,25 +1031,6 @@
 			]
 		},
 		{
-			"file": "src/preview/components/capinsta-active-caption-overlay.tsx",
-			"errors": 2,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 293,
-					"column": 15
-				},
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 293,
-					"column": 25
-				}
-			]
-		},
-		{
 			"file": "src/preview/components/overlay-layer.tsx",
 			"errors": 1,
 			"warnings": 0,
@@ -1394,19 +1375,6 @@
 			]
 		},
 		{
-			"file": "src/subtitles/components/assets-view.tsx",
-			"errors": 1,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 496,
-					"column": 18
-				}
-			]
-		},
-		{
 			"file": "src/subtitles/components/caption-editor-panel.tsx",
 			"errors": 6,
 			"warnings": 0,
@@ -1414,37 +1382,37 @@
 				{
 					"ruleId": "react-hooks/set-state-in-effect",
 					"severity": 2,
-					"line": 99,
+					"line": 102,
 					"column": 18
 				},
 				{
 					"ruleId": "jsx-a11y/no-autofocus",
 					"severity": 2,
-					"line": 129,
+					"line": 132,
 					"column": 5
 				},
 				{
 					"ruleId": "react-hooks/set-state-in-effect",
 					"severity": 2,
-					"line": 203,
+					"line": 206,
 					"column": 18
 				},
 				{
 					"ruleId": "jsx-a11y/click-events-have-key-events",
 					"severity": 2,
-					"line": 222,
+					"line": 225,
 					"column": 3
 				},
 				{
 					"ruleId": "jsx-a11y/no-noninteractive-element-interactions",
 					"severity": 2,
-					"line": 222,
+					"line": 225,
 					"column": 3
 				},
 				{
 					"ruleId": "jsx-a11y/label-has-associated-control",
 					"severity": 2,
-					"line": 413,
+					"line": 416,
 					"column": 9
 				}
 			]

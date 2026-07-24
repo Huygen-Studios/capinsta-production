@@ -160,6 +160,8 @@ export function renderFrame(options: any): void;
 
 export function resizeCompositor(width: number, height: number): void;
 
+export function resolvePaperFoldFrameState(value: any): any;
+
 export function roundToFrame(arg0: RoundToFrameOptions): MediaTime | undefined;
 
 export function snappedSeekTime(arg0: SnappedSeekTimeOptions): MediaTime | undefined;
@@ -167,3 +169,5 @@ export function snappedSeekTime(arg0: SnappedSeekTimeOptions): MediaTime | undef
 export function uploadTexture(options: any): void;
 
 export function validateCaptionDocument(options: any): any;
+
+export function validatePaperFoldManifest(value: any, max_texture_size: number): any;

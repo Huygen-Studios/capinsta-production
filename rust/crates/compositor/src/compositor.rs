@@ -416,6 +416,17 @@ impl Compositor {
                 texture_id: layer.texture_id.clone(),
             }
         })?;
+        let mut source_texture = source.texture().clone();
+        if !layer.source_effect_pass_groups.is_empty() {
+            source_texture = self.apply_effect_groups(
+                context,
+                encoder,
+                &source_texture,
+                source_texture.width(),
+                source_texture.height(),
+                &layer.source_effect_pass_groups,
+            )?;
+        }
 
         let mut current =
             self.texture_pool
@@ -423,7 +434,7 @@ impl Compositor {
         self.render_source_to_texture(
             context,
             encoder,
-            source.texture(),
+            &source_texture,
             &current,
             frame.width,
             frame.height,
@@ -494,6 +505,15 @@ impl Compositor {
         let mut current = self.copy_texture(context, encoder, source, width, height);
         for group in effect_pass_groups {
             let passes = map_effect_passes(group);
+            let auxiliary_textures: std::collections::HashMap<String, wgpu::Texture> = group
+                .iter()
+                .flat_map(|pass| pass.textures.values())
+                .filter_map(|texture_id| {
+                    self.textures
+                        .get(texture_id)
+                        .map(|stored| (texture_id.clone(), stored.texture().clone()))
+                })
+                .collect();
             current = self.effects.apply_with_encoder(
                 context,
                 encoder,
@@ -502,6 +522,7 @@ impl Compositor {
                     width,
                     height,
                     passes: &passes,
+                    auxiliary_textures: &auxiliary_textures,
                 },
             )?;
         }
@@ -865,6 +886,7 @@ fn map_effect_passes(passes: &[EffectPassDescriptor]) -> Vec<EffectPass> {
                     (name.clone(), uniform_value)
                 })
                 .collect(),
+            textures: pass.textures.clone(),
         })
         .collect()
 }

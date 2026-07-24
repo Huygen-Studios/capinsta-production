@@ -348,6 +348,18 @@ export function resizeCompositor(width, height) {
 }
 
 /**
+ * @param {any} value
+ * @returns {any}
+ */
+export function resolvePaperFoldFrameState(value) {
+    const ret = wasm.resolvePaperFoldFrameState(value);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {RoundToFrameOptions} arg0
  * @returns {MediaTime | undefined}
  */
@@ -381,6 +393,19 @@ export function uploadTexture(options) {
  */
 export function validateCaptionDocument(options) {
     const ret = wasm.validateCaptionDocument(options);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {any} value
+ * @param {number} max_texture_size
+ * @returns {any}
+ */
+export function validatePaperFoldManifest(value, max_texture_size) {
+    const ret = wasm.validatePaperFoldManifest(value, max_texture_size);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -2495,12 +2520,12 @@ export function __wbg_writeTexture_d42ce6ec94b2c6ca() { return handleError(funct
     arg0.writeTexture(arg1, getArrayU8FromWasm0(arg2, arg3), arg4, arg5);
 }, arguments); }
 export function __wbindgen_cast_0000000000000001(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2523, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2531, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm_bindgen_3a360b6f32878bad___convert__closures_____invoke___wasm_bindgen_3a360b6f32878bad___JsValue__core_9b3796e30d99ddb7___result__Result_____wasm_bindgen_3a360b6f32878bad___JsError___true_);
     return ret;
 }
 export function __wbindgen_cast_0000000000000002(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 443, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 451, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm_bindgen_3a360b6f32878bad___convert__closures_____invoke___wasm_bindgen_3a360b6f32878bad___JsValue______true_);
     return ret;
 }

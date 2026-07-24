@@ -37,6 +37,8 @@ pub struct LayerDescriptor {
     pub blend_mode: BlendMode,
     #[serde(default)]
     pub effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
+    #[serde(default)]
+    pub source_effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
     pub mask: Option<LayerMaskDescriptor>,
 }
 
@@ -65,6 +67,8 @@ pub struct LayerMaskDescriptor {
 pub struct EffectPassDescriptor {
     pub shader: String,
     pub uniforms: HashMap<String, EffectUniformValueDescriptor>,
+    #[serde(default)]
+    pub textures: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

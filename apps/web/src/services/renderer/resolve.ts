@@ -57,6 +57,7 @@ import type {
 	ResolvedVisualSourceNodeState,
 	VisualNodeParams,
 } from "./nodes/visual-node";
+import { resolvePaperFoldRuntime } from "@/effects/paper-fold/runtime";
 
 type ResolveContext = {
 	renderer: CanvasRenderer;
@@ -147,7 +148,8 @@ function resolveEffectPassGroups({
 				width,
 				height,
 			});
-		});
+		})
+		.filter((passes) => passes.length > 0);
 }
 
 function resolveVisualState({
@@ -218,6 +220,13 @@ function resolveVisualState({
 			localTime,
 			width: effectWidth,
 			height: effectHeight,
+		}),
+		paperFold: resolvePaperFoldRuntime({
+			effects: params.effects,
+			animations: params.animations,
+			localTime,
+			duration: params.duration,
+			fps: context.renderer.fps,
 		}),
 	};
 }
@@ -484,6 +493,14 @@ function resolveTextNode({
 			width: context.renderer.width,
 			height: context.renderer.height,
 		}),
+		paperFold: resolvePaperFoldRuntime({
+			effects: node.params.effects,
+			animations: node.params.animations,
+			localTime,
+			duration: node.params.duration,
+			fps: context.renderer.fps,
+		}),
+		localTime,
 		measuredText: measureTextElement({
 			element: node.params,
 			canvasHeight: node.params.canvasHeight,

@@ -19,6 +19,7 @@ effects = { version = "0.1.0", path = "../crates/effects" }
 gpu = { version = "0.1.0", path = "../crates/gpu", features = ["wasm"] }
 js-sys = "0.3.93"
 masks = { version = "0.1.0", path = "../crates/masks" }
+paper-fold = { version = "0.1.0", path = "../crates/paper-fold" }
 num-traits = "0.2.19"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"

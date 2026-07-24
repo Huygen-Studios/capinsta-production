@@ -32,6 +32,10 @@ import type {
 } from "./types";
 import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
 import type { EvaluatedLayer3D, Point2D } from "@/layer-3d";
+import { renderPaperFoldToContext } from "@/effects/paper-fold/render-canvas2d";
+import { getGeneratedFoldAtlas } from "@/effects/paper-fold/assets";
+import { buildPaperFoldGpuPass } from "@/effects/paper-fold/gpu";
+import type { EffectPass } from "@/effects/types";
 
 export async function buildFrameDescriptor({
 	node,
@@ -278,13 +282,48 @@ async function collectVisualSourceNode({
 			: (node.resolved as ResolvedVisualSourceNodeState).sourceHeight;
 
 	const textureId = `${path}:source`;
-	textures.set(textureId, {
-		kind: "external",
-		id: textureId,
-		source,
-		width: sourceWidth,
-		height: sourceHeight,
-	});
+	const gpuPaperFold = node.resolved.paperFold
+		? preparePaperFoldGpu({
+				runtime: node.resolved.paperFold,
+				width: sourceWidth,
+				height: sourceHeight,
+				textures,
+			})
+		: null;
+	if (node.resolved.paperFold && !gpuPaperFold) {
+		const runtime = node.resolved.paperFold;
+		textures.set(textureId, {
+			kind: "rendered",
+			id: textureId,
+			contentHash: `paper-fold:${identityKey(source)}:${sourceWidth}x${sourceHeight}:${JSON.stringify(runtime)}`,
+			width: sourceWidth,
+			height: sourceHeight,
+			draw: (ctx) => {
+				try {
+					renderPaperFoldToContext({
+						destination: ctx,
+						source,
+						sourceWidth,
+						sourceHeight,
+						outputWidth: sourceWidth,
+						outputHeight: sourceHeight,
+						runtime,
+					});
+				} catch (error) {
+					warnPaperFoldOnce({ effectId: runtime.effectId, error });
+					ctx.drawImage(source, 0, 0, sourceWidth, sourceHeight);
+				}
+			},
+		});
+	} else {
+		textures.set(textureId, {
+			kind: "external",
+			id: textureId,
+			source,
+			width: sourceWidth,
+			height: sourceHeight,
+		});
+	}
 
 	const transform = computeVisualTransform({
 		renderer,
@@ -341,6 +380,7 @@ async function collectVisualSourceNode({
 		opacity: node.resolved.opacity,
 		blendMode: node.params.blendMode ?? "normal",
 		effectPassGroups: node.resolved.effectPasses,
+		sourceEffectPassGroups: gpuPaperFold ? [[gpuPaperFold]] : [],
 		mask,
 	});
 	if (strokeLayer) {
@@ -641,6 +681,14 @@ function collectTextNode({
 		params: node.params,
 		resolved: node.resolved,
 	})}`;
+	const gpuPaperFold = node.resolved.paperFold
+		? preparePaperFoldGpu({
+				runtime: node.resolved.paperFold,
+				width,
+				height,
+				textures,
+			})
+		: null;
 	textures.set(textureId, {
 		kind: "rendered",
 		id: textureId,
@@ -652,6 +700,24 @@ function collectTextNode({
 			ctx.scale(renderer.renderScale, renderer.renderScale);
 			renderTextToContext({ node, ctx });
 			ctx.restore();
+			if (node.resolved?.paperFold && !gpuPaperFold) {
+				try {
+					renderPaperFoldToContext({
+						destination: ctx,
+						source: ctx.canvas,
+						sourceWidth: width,
+						sourceHeight: height,
+						outputWidth: width,
+						outputHeight: height,
+						runtime: node.resolved.paperFold,
+					});
+				} catch (error) {
+					warnPaperFoldOnce({
+						effectId: node.resolved.paperFold.effectId,
+						error,
+					});
+				}
+			}
 		},
 	});
 	items.push({
@@ -661,7 +727,64 @@ function collectTextNode({
 		opacity: node.resolved.opacity,
 		blendMode: node.params.blendMode ?? "normal",
 		effectPassGroups: node.resolved.effectPasses,
+		sourceEffectPassGroups: gpuPaperFold ? [[gpuPaperFold]] : [],
 		mask: null,
+	});
+}
+
+function preparePaperFoldGpu({
+	runtime,
+	width,
+	height,
+	textures,
+}: {
+	runtime: NonNullable<ResolvedVisualSourceNodeState["paperFold"]>;
+	width: number;
+	height: number;
+	textures: Map<string, TextureUploadDescriptor>;
+}): EffectPass | null {
+	try {
+		const atlas = getGeneratedFoldAtlas({
+			styleId: runtime.params.foldStyle,
+			direction: runtime.params.foldDirection,
+			origin: runtime.params.foldOrigin,
+		});
+		const atlasTextureId = `paper-fold-atlas:${runtime.params.foldStyle}:${runtime.params.foldDirection}:${runtime.params.foldOrigin}`;
+		textures.set(atlasTextureId, {
+			kind: "external",
+			id: atlasTextureId,
+			source: atlas.canvas,
+			width: atlas.width,
+			height: atlas.height,
+		});
+		return buildPaperFoldGpuPass({
+			runtime,
+			atlasTextureId,
+			columns: atlas.columns,
+			rows: atlas.rows,
+			width,
+			height,
+		});
+	} catch (error) {
+		warnPaperFoldOnce({ effectId: runtime.effectId, error });
+		return null;
+	}
+}
+
+const paperFoldWarnings = new Set<string>();
+
+function warnPaperFoldOnce({
+	effectId,
+	error,
+}: {
+	effectId: string;
+	error: unknown;
+}) {
+	if (paperFoldWarnings.has(effectId)) return;
+	paperFoldWarnings.add(effectId);
+	console.warn("[paper-fold] Rendering fell back to the original source", {
+		effectId,
+		error: error instanceof Error ? error.message : String(error),
 	});
 }
 

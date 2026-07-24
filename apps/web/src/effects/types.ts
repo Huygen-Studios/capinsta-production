@@ -12,6 +12,7 @@ export type EffectUniformValue = number | number[];
 export interface EffectPass {
 	shader: string;
 	uniforms: Record<string, EffectUniformValue>;
+	textures?: Record<string, string>;
 }
 
 export interface EffectPassTemplate {

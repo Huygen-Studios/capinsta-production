@@ -1463,6 +1463,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "gpu",
+ "naga 29.0.1",
  "thiserror 2.0.18",
  "wgpu",
 ]
@@ -3840,6 +3841,7 @@ dependencies = [
  "js-sys",
  "masks",
  "num-traits",
+ "paper-fold",
  "serde",
  "serde-wasm-bindgen",
  "time",
@@ -3877,6 +3879,13 @@ checksum = "9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+]
+
+[[package]]
+name = "paper-fold"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

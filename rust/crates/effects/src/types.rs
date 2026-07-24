@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub struct EffectPass {
     pub shader: String,
     pub uniforms: HashMap<String, UniformValue>,
+    pub textures: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug)]

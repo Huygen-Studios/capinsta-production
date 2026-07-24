@@ -5,6 +5,7 @@ import type { BlendMode, Transform } from "@/rendering";
 import { drawMeasuredTextLayout } from "@/text/primitives";
 import type { MeasuredTextElement } from "@/text/measure-element";
 import type { CapinstaTextRenderData } from "@/capinsta/exportRender";
+import type { PaperFoldRuntimeState } from "@/effects/paper-fold/types";
 
 export type TextNodeParams = TextElement & {
 	transform: Transform;
@@ -22,6 +23,8 @@ export interface ResolvedTextNodeState {
 	textColor: string;
 	backgroundColor: string;
 	effectPasses: EffectPass[][];
+	paperFold: PaperFoldRuntimeState | null;
+	localTime: number;
 	measuredText: MeasuredTextElement;
 	activeCapinstaWordIds?: string[];
 }

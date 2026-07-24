@@ -23,6 +23,8 @@ struct ApplyEffectPassesOptions {
 struct EffectPassInput {
     shader: String,
     uniforms: Vec<EffectUniformInput>,
+    #[serde(default)]
+    textures: std::collections::HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -50,6 +52,7 @@ pub fn apply_effect_passes(options: JsValue) -> Result<wgpu::web_sys::OffscreenC
             "effects-input-texture",
         );
         let effect_passes = map_effect_passes(passes);
+        let auxiliary_textures = std::collections::HashMap::new();
         let result_texture = runtime
             .effects
             .apply(
@@ -59,6 +62,7 @@ pub fn apply_effect_passes(options: JsValue) -> Result<wgpu::web_sys::OffscreenC
                     width,
                     height,
                     passes: &effect_passes,
+                    auxiliary_textures: &auxiliary_textures,
                 },
             )
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -83,6 +87,7 @@ fn map_effect_passes(effect_passes: Vec<EffectPassInput>) -> Vec<EffectPass> {
                     (uniform.name, value)
                 })
                 .collect(),
+            textures: pass.textures,
         })
         .collect()
 }
