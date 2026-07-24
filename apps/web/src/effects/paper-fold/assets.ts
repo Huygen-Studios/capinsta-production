@@ -27,7 +27,7 @@ export const PAPER_FOLD_STYLE_MANIFESTS: readonly PaperFoldStyleManifest[] =
 	STYLE_IDS.map((id) => ({
 		id,
 		name: STYLE_NAMES[id],
-		version: 1,
+		version: id === "crumple-fold" ? 2 : 1,
 		width: DESIGN_SIZE,
 		height: DESIGN_SIZE,
 		frameCount: FRAME_COUNT,
@@ -153,9 +153,10 @@ export function getGeneratedFoldAtlas({
 	rows: number;
 	width: number;
 	height: number;
+	version: number;
 } {
-	const key = `${styleId}:${direction}:${origin}`;
 	const manifest = getPaperFoldManifest({ styleId });
+	const key = `${styleId}:v${manifest.version}:${direction}:${origin}`;
 	const columns = Math.ceil(Math.sqrt(manifest.frameCount));
 	const rows = Math.ceil(manifest.frameCount / columns);
 	let atlas = atlasCache.get(key);
@@ -193,6 +194,7 @@ export function getGeneratedFoldAtlas({
 		rows,
 		width: atlas.width,
 		height: atlas.height,
+		version: manifest.version,
 	};
 }
 
@@ -274,22 +276,14 @@ function drawMatte({
 		context.closePath();
 		context.fill();
 	} else {
-		const cells = 7;
-		const cell = DESIGN_SIZE / cells;
-		for (let row = 0; row < cells; row++) {
-			for (let column = 0; column < cells; column++) {
-				const noise = seededUnit(column + row * cells + 73);
-				if (noise <= reveal * 1.18) {
-					const jitter = (1 - progress) * cell * 0.28;
-					context.fillRect(
-						column * cell + (seededUnit(column * 31 + row) - 0.5) * jitter,
-						row * cell + (seededUnit(row * 37 + column) - 0.5) * jitter,
-						cell + 1,
-						cell + 1,
-					);
-				}
-			}
-		}
+		const geometry = crumpleGeometry({ progress, origin });
+		drawIrregularSheetPath({
+			context,
+			...geometry,
+			seed: 811,
+			inset: progress >= 0.999 ? -12 : 0,
+		});
+		context.fill();
 	}
 	context.restore();
 }
@@ -356,24 +350,215 @@ function drawPaper({
 			context.stroke();
 		}
 	} else {
-		const cells = 7;
-		const cell = DESIGN_SIZE / cells;
-		context.globalAlpha = Math.min(1, fold * 1.6);
-		for (let row = 0; row < cells; row++) {
-			for (let column = 0; column < cells; column++) {
-				if (seededUnit(column + row * cells + 11) > progress) {
-					const x = column * cell;
-					const y = row * cell;
-					context.save();
-					context.translate(x + cell / 2, y + cell / 2);
-					context.rotate((seededUnit(column * 17 + row) - 0.5) * fold);
-					context.fillRect(-cell / 2, -cell / 2, cell + 1, cell + 1);
-					context.restore();
-				}
-			}
-		}
+		drawCrumpledRevealPaper({ context, progress, origin });
 	}
 	context.restore();
+}
+
+/**
+ * Original procedural crumpled-paper geometry. The silhouette grows in a few
+ * readable steps so frame-held playback resembles stop-motion paper footage.
+ */
+export function crumpleGeometry({
+	progress,
+	origin,
+}: {
+	progress: number;
+	origin: PaperFoldParams["foldOrigin"];
+}): {
+	centerX: number;
+	centerY: number;
+	width: number;
+	height: number;
+	roughness: number;
+} {
+	const clamped = Math.min(1, Math.max(0, progress));
+	const growth = Math.min(1, 1 - (1 - clamped) ** 2.65);
+	const anchor = originPoint(origin);
+	const centerPull = 1 - growth;
+	return {
+		centerX: DESIGN_SIZE / 2 + (anchor.x - DESIGN_SIZE / 2) * centerPull * 0.42,
+		centerY: DESIGN_SIZE / 2 + (anchor.y - DESIGN_SIZE / 2) * centerPull * 0.42,
+		width: DESIGN_SIZE * (0.15 + growth * 0.91),
+		height: DESIGN_SIZE * (0.18 + growth * 0.88),
+		roughness: DESIGN_SIZE * (0.018 + (1 - growth) * 0.035),
+	};
+}
+
+function drawCrumpledRevealPaper({
+	context,
+	progress,
+	origin,
+}: {
+	context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	progress: number;
+	origin: PaperFoldParams["foldOrigin"];
+}) {
+	const geometry = crumpleGeometry({ progress, origin });
+	const growth = Math.min(1, geometry.width / (DESIGN_SIZE * 1.06));
+	const outer = {
+		context,
+		...geometry,
+		seed: 811,
+		inset: 0,
+	};
+
+	context.save();
+	drawIrregularSheetPath(outer);
+	context.clip();
+	const base = context.createRadialGradient(
+		geometry.centerX - geometry.width * 0.15,
+		geometry.centerY - geometry.height * 0.2,
+		2,
+		geometry.centerX,
+		geometry.centerY,
+		Math.max(geometry.width, geometry.height) * 0.7,
+	);
+	base.addColorStop(0, "#fffef9");
+	base.addColorStop(0.42, "#e8e5dc");
+	base.addColorStop(0.72, "#faf8f0");
+	base.addColorStop(1, "#aaa69c");
+	context.fillStyle = base;
+	context.fillRect(0, 0, DESIGN_SIZE, DESIGN_SIZE);
+
+	for (let index = 0; index < 24; index++) {
+		const angle = seededUnit(index * 13 + 5) * Math.PI * 2;
+		const radius = seededUnit(index * 17 + 19) * 0.48;
+		const x = geometry.centerX + Math.cos(angle) * geometry.width * radius;
+		const y = geometry.centerY + Math.sin(angle) * geometry.height * radius;
+		const size =
+			Math.min(geometry.width, geometry.height) *
+			(0.09 + seededUnit(index * 29 + 7) * 0.2);
+		context.beginPath();
+		context.moveTo(x, y - size);
+		context.lineTo(x + size * 0.85, y + size * 0.65);
+		context.lineTo(x - size * 0.8, y + size * 0.5);
+		context.closePath();
+		const shade = Math.round(174 + seededUnit(index * 31 + 3) * 76);
+		context.fillStyle = `rgba(${shade},${shade},${Math.max(0, shade - 5)},${0.16 + (1 - growth) * 0.34})`;
+		context.fill();
+	}
+	context.restore();
+
+	const reveal = Math.max(0, progress - 0.055) / 0.945;
+	if (reveal > 0) {
+		const rim = 7 + (1 - reveal) * 18;
+		context.save();
+		context.globalCompositeOperation = "destination-out";
+		drawIrregularSheetPath({
+			context,
+			...geometry,
+			width: Math.max(1, geometry.width - rim * 2),
+			height: Math.max(1, geometry.height - rim * 2),
+			roughness: geometry.roughness * 0.72,
+			seed: 947,
+			inset: 0,
+		});
+		context.fillStyle = "#000000";
+		context.fill();
+		context.restore();
+	}
+
+	context.save();
+	drawIrregularSheetPath(outer);
+	context.clip();
+	context.globalCompositeOperation = "source-over";
+	context.lineCap = "round";
+	for (let index = 0; index < 18; index++) {
+		const startAngle = seededUnit(index * 41 + 13) * Math.PI * 2;
+		const endAngle = startAngle + (seededUnit(index * 43 + 17) - 0.5) * 1.8;
+		const radius = 0.18 + seededUnit(index * 47 + 23) * 0.42;
+		const startX =
+			geometry.centerX + Math.cos(startAngle) * geometry.width * radius * 0.45;
+		const startY =
+			geometry.centerY + Math.sin(startAngle) * geometry.height * radius * 0.45;
+		const endX = geometry.centerX + Math.cos(endAngle) * geometry.width * 0.48;
+		const endY = geometry.centerY + Math.sin(endAngle) * geometry.height * 0.48;
+		context.beginPath();
+		context.moveTo(startX, startY);
+		context.quadraticCurveTo(
+			(startX + endX) / 2 +
+				(seededUnit(index * 53 + 29) - 0.5) * geometry.width * 0.16,
+			(startY + endY) / 2 +
+				(seededUnit(index * 59 + 31) - 0.5) * geometry.height * 0.16,
+			endX,
+			endY,
+		);
+		context.strokeStyle =
+			index % 2 === 0
+				? `rgba(72,68,60,${0.12 + (1 - growth) * 0.2})`
+				: `rgba(255,255,250,${0.2 + (1 - growth) * 0.24})`;
+		context.lineWidth = 1.2 + (1 - growth) * 2.8;
+		context.stroke();
+	}
+	context.restore();
+}
+
+function drawIrregularSheetPath({
+	context,
+	centerX,
+	centerY,
+	width,
+	height,
+	roughness,
+	seed,
+	inset,
+}: {
+	context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+	centerX: number;
+	centerY: number;
+	width: number;
+	height: number;
+	roughness: number;
+	seed: number;
+	inset: number;
+}) {
+	const halfWidth = Math.max(1, width / 2 - inset);
+	const halfHeight = Math.max(1, height / 2 - inset);
+	const pointsPerEdge = 12;
+	const points: Array<[number, number]> = [];
+	for (let index = 0; index < pointsPerEdge; index++) {
+		const t = index / pointsPerEdge;
+		points.push([
+			centerX - halfWidth + t * halfWidth * 2,
+			centerY - halfHeight + (seededUnit(seed + index) - 0.5) * roughness,
+		]);
+	}
+	for (let index = 0; index < pointsPerEdge; index++) {
+		const t = index / pointsPerEdge;
+		points.push([
+			centerX + halfWidth + (seededUnit(seed + 101 + index) - 0.5) * roughness,
+			centerY - halfHeight + t * halfHeight * 2,
+		]);
+	}
+	for (let index = 0; index < pointsPerEdge; index++) {
+		const t = index / pointsPerEdge;
+		points.push([
+			centerX + halfWidth - t * halfWidth * 2,
+			centerY + halfHeight + (seededUnit(seed + 211 + index) - 0.5) * roughness,
+		]);
+	}
+	for (let index = 0; index < pointsPerEdge; index++) {
+		const t = index / pointsPerEdge;
+		points.push([
+			centerX - halfWidth + (seededUnit(seed + 307 + index) - 0.5) * roughness,
+			centerY + halfHeight - t * halfHeight * 2,
+		]);
+	}
+
+	context.beginPath();
+	context.moveTo(points[0][0], points[0][1]);
+	for (let index = 1; index < points.length; index++) {
+		const current = points[index];
+		const next = points[(index + 1) % points.length];
+		context.quadraticCurveTo(
+			current[0],
+			current[1],
+			(current[0] + next[0]) / 2,
+			(current[1] + next[1]) / 2,
+		);
+	}
+	context.closePath();
 }
 
 function applyDirectionTransform({

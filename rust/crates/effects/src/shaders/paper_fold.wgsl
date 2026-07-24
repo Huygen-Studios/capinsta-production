@@ -108,8 +108,10 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4f {
     let threshold = uniforms.detail.x;
     let feather = max(0.001, uniforms.detail.y);
     source_alpha = smoothstep(threshold - feather, threshold + feather, source_alpha);
+    let media_shape_alpha = source_alpha;
 
-    let matte = sample_matte(effect_uv) * uniforms.composite.y;
+    // Fold intensity controls treatment strength, not final media visibility.
+    let matte = sample_matte(effect_uv);
     source_alpha = source_alpha * matte * uniforms.key_color.a;
     source = vec4f(source_rgb * source_alpha, source_alpha);
 
@@ -122,7 +124,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4f {
     paper_rgb = paper_rgb + vec3f(grain);
     let dots = step(0.56, fract((input.position.x + input.position.y) * 0.18));
     paper_rgb = mix(paper_rgb, paper_rgb * (0.75 + dots * 0.25), uniforms.detail.z);
-    let paper_alpha = paper.a * uniforms.appearance.x;
+    let paper_alpha = paper.a * media_shape_alpha * uniforms.appearance.x * clamp(uniforms.composite.y, 0.0, 1.0);
     paper = vec4f(paper_rgb * paper_alpha, paper_alpha);
 
     let pixel = vec2f(1.0) / uniforms.resolution;
@@ -131,7 +133,7 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4f {
         abs(sample_matte(effect_uv + vec2f(pixel.x * border_radius, 0.0)) - matte),
         abs(sample_matte(effect_uv + vec2f(0.0, pixel.y * border_radius)) - matte),
     );
-    let border = vec4f(uniforms.border_color.rgb * uniforms.border_color.a, uniforms.border_color.a) * edge * uniforms.border.y;
+    let border = vec4f(uniforms.border_color.rgb * uniforms.border_color.a, uniforms.border_color.a) * edge * media_shape_alpha * uniforms.border.y;
 
     let shadow_offset = vec2f(cos(uniforms.shadow.z), sin(uniforms.shadow.z)) * uniforms.shadow.y * pixel;
     let shadow_matte = sample_matte(effect_uv - shadow_offset);

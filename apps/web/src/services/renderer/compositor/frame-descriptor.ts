@@ -749,7 +749,7 @@ function preparePaperFoldGpu({
 			direction: runtime.params.foldDirection,
 			origin: runtime.params.foldOrigin,
 		});
-		const atlasTextureId = `paper-fold-atlas:${runtime.params.foldStyle}:${runtime.params.foldDirection}:${runtime.params.foldOrigin}`;
+		const atlasTextureId = `paper-fold-atlas:${runtime.params.foldStyle}:v${atlas.version}:${runtime.params.foldDirection}:${runtime.params.foldOrigin}`;
 		textures.set(atlasTextureId, {
 			kind: "external",
 			id: atlasTextureId,

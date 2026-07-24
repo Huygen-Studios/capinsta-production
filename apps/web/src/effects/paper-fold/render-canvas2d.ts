@@ -11,6 +11,7 @@ interface ScratchSet {
 	original: Surface;
 	media: Surface;
 	masked: Surface;
+	paper: Surface;
 	assembled: Surface;
 	transformed: Surface;
 	lastUsed: number;
@@ -48,12 +49,14 @@ export function renderPaperFoldToContext({
 	const originalContext = context2d(scratch.original);
 	const mediaContext = context2d(scratch.media);
 	const maskedContext = context2d(scratch.masked);
+	const paperContext = context2d(scratch.paper);
 	const assembledContext = context2d(scratch.assembled);
 	const transformedContext = context2d(scratch.transformed);
 	for (const context of [
 		originalContext,
 		mediaContext,
 		maskedContext,
+		paperContext,
 		assembledContext,
 		transformedContext,
 	]) {
@@ -110,7 +113,6 @@ export function renderPaperFoldToContext({
 
 	maskedContext.drawImage(scratch.media, 0, 0);
 	maskedContext.globalCompositeOperation = "destination-in";
-	maskedContext.globalAlpha = Math.min(1, params.foldIntensity);
 	maskedContext.drawImage(frame.matte, 0, 0, width, height);
 	maskedContext.globalCompositeOperation = "source-over";
 	maskedContext.globalAlpha = 1;
@@ -124,14 +126,14 @@ export function renderPaperFoldToContext({
 		assembledContext.shadowBlur = params.shadowBlur;
 		assembledContext.shadowOffsetX = Math.cos(radians) * params.shadowDistance;
 		assembledContext.shadowOffsetY = Math.sin(radians) * params.shadowDistance;
-		assembledContext.drawImage(frame.matte, 0, 0, width, height);
+		assembledContext.drawImage(scratch.masked, 0, 0);
 		assembledContext.restore();
 	}
 
 	if (params.borderEnabled && params.borderWidth > 0) {
 		drawBorder({
 			context: assembledContext,
-			matte: frame.matte,
+			matte: scratch.masked,
 			width,
 			height,
 			lineWidth: params.borderWidth,
@@ -140,12 +142,17 @@ export function renderPaperFoldToContext({
 	}
 	assembledContext.drawImage(scratch.masked, 0, 0);
 	drawPaper({
-		context: assembledContext,
+		context: paperContext,
 		paper: frame.paper,
 		width,
 		height,
 		runtime,
 	});
+	paperContext.globalCompositeOperation = "destination-in";
+	paperContext.globalAlpha = 1;
+	paperContext.drawImage(scratch.media, 0, 0);
+	paperContext.globalCompositeOperation = "source-over";
+	assembledContext.drawImage(scratch.paper, 0, 0);
 
 	transformedContext.save();
 	const centerX = width / 2;
@@ -348,7 +355,8 @@ function drawPaper({
 	context.rotate((params.paperRotation * Math.PI) / 180);
 	context.scale(params.paperScale, params.paperScale);
 	context.translate(-width / 2, -height / 2);
-	context.globalAlpha = params.paperOpacity;
+	context.globalAlpha =
+		params.paperOpacity * Math.min(1, Math.max(0, params.foldIntensity));
 	context.filter = [
 		`brightness(${Math.pow(2, params.exposure)})`,
 		`contrast(${params.contrast})`,
@@ -362,7 +370,10 @@ function drawPaper({
 		context.fillStyle = params.paperColor;
 		context.fillRect(0, 0, width, height);
 	}
-	if (params.paperTextureAmount > 0 || params.noiseAmount > 0) {
+	if (
+		params.foldStyle !== "crumple-fold" &&
+		(params.paperTextureAmount > 0 || params.noiseAmount > 0)
+	) {
 		context.globalCompositeOperation = "source-atop";
 		context.globalAlpha = Math.min(
 			0.7,
@@ -418,6 +429,7 @@ function acquireScratch({
 		original: createSurface(width, height),
 		media: createSurface(width, height),
 		masked: createSurface(width, height),
+		paper: createSurface(width, height),
 		assembled: createSurface(width, height),
 		transformed: createSurface(width, height),
 		lastUsed: ++useCounter,

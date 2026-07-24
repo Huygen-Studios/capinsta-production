@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { buildDefaultEffectInstance } from "@/effects";
 import { registerDefaultEffects } from "@/effects/definitions";
-import { getPaperFoldManifest, validateStyleManifest } from "./assets";
+import {
+	crumpleGeometry,
+	getPaperFoldManifest,
+	validateStyleManifest,
+} from "./assets";
 import { buildPaperFoldGpuPass } from "./gpu";
 import { resolvePaperFoldTiming } from "./timing";
 import {
@@ -18,6 +22,8 @@ describe("Paper Fold", () => {
 		expect(effect.type).toBe("paper-fold");
 		expect(effect.enabled).toBe(true);
 		expect(effect.params.mode).toBe("fold-in");
+		expect(effect.params.foldStyle).toBe("crumple-fold");
+		expect(effect.params.posterizeFps).toBe(10);
 		expect(effect.params.paperColor).toBe(PAPER_FOLD_DEFAULTS.paperColor);
 		expect(JSON.parse(JSON.stringify(effect))).toEqual(effect);
 	});
@@ -32,7 +38,7 @@ describe("Paper Fold", () => {
 		expect(params.mode).toBe("manual");
 		expect(params.progress).toBe(1);
 		expect(params.mediaOpacity).toBe(0);
-		expect(params.foldStyle).toBe("center-fold");
+		expect(params.foldStyle).toBe("crumple-fold");
 		expect(params.schemaVersion).toBe(1);
 	});
 
@@ -127,6 +133,17 @@ describe("Paper Fold", () => {
 		expect(pass.shader).toBe("paper-fold");
 		expect(pass.textures?.u_foldAtlas).toBe("atlas-1");
 		expect(pass.uniforms.u_grid).toEqual([4, 3]);
+	});
+
+	test("crumpled reveal grows rapidly from a centered paper ball", () => {
+		const closed = crumpleGeometry({ progress: 0, origin: "center" });
+		const quarter = crumpleGeometry({ progress: 0.25, origin: "center" });
+		const open = crumpleGeometry({ progress: 1, origin: "center" });
+		expect(closed.width).toBeLessThan(100);
+		expect(quarter.width).toBeGreaterThan(closed.width * 3);
+		expect(open.width).toBeGreaterThan(512);
+		expect(closed.centerX).toBe(256);
+		expect(open.centerY).toBe(256);
 	});
 });
 
