@@ -56,7 +56,7 @@ jobs:
           python -m pip install -r backend/requirements-stable-ts.txt
           python -m pip install pytest==9.1.0
           python -m playwright install --with-deps --only-shell chromium
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
       - name: Focused verification
         run: |
           python -m compileall -q backend
