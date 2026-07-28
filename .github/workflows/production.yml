@@ -215,13 +215,15 @@ jobs:
       - name: Apply additive migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          CAPINSTA_MIGRATION_BASELINE: ${{ vars.CAPINSTA_MIGRATION_BASELINE || '0013' }}
-        run: >-
-          docker run --rm
-          -e DATABASE_URL
-          -e CAPINSTA_MIGRATION_BASELINE
-          "$BACKEND_IMAGE:${GITHUB_SHA}"
-          python -m server.production.migrate
+          CAPINSTA_MIGRATION_BASELINE: ${{ vars.CAPINSTA_MIGRATION_BASELINE }}
+        run: |
+          test -n "$DATABASE_URL"
+          test -n "$CAPINSTA_MIGRATION_BASELINE"
+          docker run --rm \
+            -e DATABASE_URL \
+            -e CAPINSTA_MIGRATION_BASELINE \
+            "$BACKEND_IMAGE:${GITHUB_SHA}" \
+            python -m server.production.migrate
       - name: Trigger Coolify
         env:
           COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}

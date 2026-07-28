@@ -11,7 +11,7 @@ GitHub environment variables:
 APPLICATION_URL
 SUPABASE_URL
 SUPABASE_ANON_KEY
-CAPINSTA_MIGRATION_BASELINE=0013
+CAPINSTA_MIGRATION_BASELINE=<latest migration already verified in the target database>
 ```
 
 GitHub environment secrets:
