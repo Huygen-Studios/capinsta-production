@@ -66,6 +66,7 @@ COPY --from=clipping-runtime-builder \
 RUN apt-get update -qq \
   && apt-get install -y -qq --no-install-recommends -o=Dpkg::Use-Pty=0 \
     curl \
+    wget \
     ca-certificates \
     ffmpeg \
     libgl1 \
