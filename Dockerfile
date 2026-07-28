@@ -14,6 +14,7 @@ COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
+COPY packages/transcript-contract/ packages/transcript-contract/
 # The workspace depends on opencut-wasm via file:rust/wasm/pkg. Bun resolves
 # local packages during install, so the generated package must already exist in
 # each dependency stage (not only in the later source-copy layer).
@@ -94,6 +95,7 @@ COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
+COPY packages/transcript-contract/ packages/transcript-contract/
 COPY rust/wasm/pkg/ rust/wasm/pkg/
 
 RUN --mount=type=cache,id=capinsta-bun-cache,target=/root/.bun/install/cache \
@@ -132,6 +134,7 @@ COPY --from=runtime-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=runtime-deps --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
 # Preserve the target of Bun's local file-package link in the runtime image.
 COPY --from=runtime-deps --chown=nextjs:nodejs /app/rust/wasm/pkg ./rust/wasm/pkg
+COPY --from=runtime-deps --chown=nextjs:nodejs /app/packages/transcript-contract ./packages/transcript-contract
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/package.json
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
