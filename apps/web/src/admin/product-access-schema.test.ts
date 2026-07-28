@@ -45,4 +45,11 @@ describe("product access entitlement schema", () => {
 			'code: "app_product_entitlements_missing"',
 		);
 	});
+
+	test("super admins can grant product access to themselves", () => {
+		expect(productAccessSource).toContain("action !== \"grant\"");
+		expect(productAccessSource).toContain(
+			"!context.roleKeys.includes(\"super_admin\")",
+		);
+	});
 });

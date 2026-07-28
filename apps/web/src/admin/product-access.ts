@@ -437,7 +437,12 @@ export async function applyProductAccessForUser({
 	context: AdminContext;
 }) {
 	const validProducts = validateProductIds(productIds);
-	if (userId === context.userId) throw new Error("self_access_change_denied");
+	if (
+		userId === context.userId &&
+		(action !== "grant" || !context.roleKeys.includes("super_admin"))
+	) {
+		throw new Error("self_access_change_denied");
+	}
 	const result = await db.transaction(async (tx) => {
 		const [profile] = await tx
 			.select()

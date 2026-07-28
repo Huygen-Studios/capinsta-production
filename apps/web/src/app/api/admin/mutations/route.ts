@@ -62,6 +62,7 @@ const appPermissionKey = z.enum([
 	"app.access",
 	"projects.access",
 	"editor.access",
+	"clipper.access",
 	"exports.access",
 	"render.access",
 	"internal.diagnostics.access",
