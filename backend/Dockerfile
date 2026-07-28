@@ -16,6 +16,8 @@ RUN cargo build --locked --release -p clipping-runtime \
 
 FROM python:3.11-slim AS app
 
+ARG INSTALL_ALIGNMENT_STACK=false
+
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV DEBIAN_FRONTEND=noninteractive
@@ -81,7 +83,7 @@ COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
 RUN python -m pip install --upgrade pip \
   && python -m pip install --upgrade setuptools wheel \
   && python -m pip install -r requirements.txt \
-  && python -m pip install -r requirements-stable-ts.txt \
+  && if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then python -m pip install -r requirements-stable-ts.txt; else echo "alignment_stack_skipped"; fi \
   && python -m playwright install-deps chromium \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
@@ -107,7 +109,7 @@ RUN mkdir -p \
 COPY backend/ .
 COPY apps/web/migrations/ /app/migrations/
 
-RUN ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke
+RUN if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke; else echo "silero_vad_smoke_skipped"; fi
 RUN printf '%s' '{"protocolVersion":1,"requestId":"docker_health","operation":"health","payload":{},"options":{}}' \
   | capinsta-clipping-runtime >/tmp/clipping-runtime-health.json \
   && grep -q '"ok":true' /tmp/clipping-runtime-health.json \
