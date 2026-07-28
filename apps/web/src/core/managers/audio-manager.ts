@@ -18,6 +18,7 @@ import {
 	AudioBufferSink,
 	BlobSource,
 	Input,
+	UrlSource,
 	type WrappedAudioBuffer,
 } from "mediabunny";
 
@@ -596,7 +597,13 @@ export class AudioManager {
 		}
 
 		const input = new Input({
-			source: new BlobSource(clip.file),
+			source:
+				clip.file.size > 0
+					? new BlobSource(clip.file)
+					: new UrlSource(clip.url ?? "", {
+							requestInit: { cache: "no-store", credentials: "omit" },
+							maxCacheSize: 32 * 1024 * 1024,
+						}),
 			formats: ALL_FORMATS,
 		});
 
@@ -680,7 +687,13 @@ export class AudioManager {
 
 		try {
 			const input = new Input({
-				source: new BlobSource(clip.file),
+				source:
+					clip.file.size > 0
+						? new BlobSource(clip.file)
+						: new UrlSource(clip.url ?? "", {
+								requestInit: { cache: "no-store", credentials: "omit" },
+								maxCacheSize: 32 * 1024 * 1024,
+							}),
 				formats: ALL_FORMATS,
 			});
 			const audioTrack = await input.getPrimaryAudioTrack();

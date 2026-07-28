@@ -53,6 +53,7 @@ class ReadinessResponse(BaseModel):
     apiPrefix: str = "/api"
     readinessRoute: str = "/health/ready"
     commit: str | None = None
+    dependencies: dict[str, str | bool] = Field(default_factory=dict)
 
 class HealthResponse(BaseModel):
     status: str
@@ -73,15 +74,18 @@ class HealthResponse(BaseModel):
     transcription: dict[str, object] = Field(default_factory=dict)
 
 
-def readiness_payload() -> ReadinessResponse:
-    """Lightweight process readiness for Coolify/proxy routing.
-
-    This intentionally avoids database, provider, storage-tree, Silero, and
-    stable-ts checks. Those belong to the diagnostic health routes; the reverse
-    proxy only needs to know that the ASGI process is accepting requests.
-    """
+async def readiness_payload() -> ReadinessResponse:
+    """Bounded API readiness; optional providers are deliberately excluded."""
     commit = (os.getenv("COMMIT_SHA") or "").strip() or None
-    return ReadinessResponse(version="5.0.0", commit=commit)
+    database = await control_plane_health()
+    ready = database["controlPlaneDatabase"] == "healthy"
+    return ReadinessResponse(
+        status="ok" if ready else "degraded",
+        version="5.0.0",
+        commit=commit,
+        ready=ready,
+        dependencies={"database": database["controlPlaneDatabase"]},
+    )
 
 
 def startup_diagnostics_payload() -> dict[str, object]:
@@ -415,7 +419,12 @@ async def health_check():
 
 @router.get("/ready", response_model=ReadinessResponse)
 async def readiness_check():
-    return readiness_payload()
+    payload = await readiness_payload()
+    if not payload.ready:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(payload.model_dump(), status_code=503)
+    return payload
 
 
 @router.get("/startup")

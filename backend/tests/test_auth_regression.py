@@ -55,6 +55,14 @@ def test_missing_header_is_401():
     assert error.value.status_code == 401
 
 
+def test_local_auth_bypass_cannot_enable_in_production(monkeypatch):
+    monkeypatch.setenv("NODE_ENV", "production")
+    monkeypatch.setenv("ENABLE_LOCAL_DEVELOPMENT_ACCESS", "true")
+    assert auth.local_development_access_enabled() is False
+    with pytest.raises(auth.MissingAuthorizationError):
+        auth.authenticate_request(request())
+
+
 def test_empty_bearer_is_401():
     with pytest.raises(auth.MissingAuthorizationError):
         auth.authenticate_request(request("Bearer "))

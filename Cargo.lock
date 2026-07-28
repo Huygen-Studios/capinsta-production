@@ -866,6 +866,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "clip-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "transcript-domain",
+]
+
+[[package]]
+name = "clipping-runtime"
+version = "0.1.0"
+dependencies = [
+ "clip-domain",
+ "project-bridge",
+ "serde",
+ "serde_json",
+ "shorts-domain",
+ "transcript-domain",
+]
+
+[[package]]
 name = "cocoa"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4203,6 +4224,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "project-bridge"
+version = "0.1.0"
+dependencies = [
+ "clip-domain",
+ "serde",
+ "serde_json",
+ "transcript-domain",
+]
+
+[[package]]
 name = "psm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5102,6 +5133,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "shorts-domain"
+version = "0.1.0"
+dependencies = [
+ "clip-domain",
+ "serde",
+ "serde_json",
+ "transcript-domain",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5921,6 +5962,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "transcript-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

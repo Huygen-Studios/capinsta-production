@@ -21,12 +21,16 @@ import {
 	computeCaptionLayoutHash,
 } from "@/capinsta/export/captionLayoutDiagnostics";
 import { resolveCapinstaClipStyle } from "@/capinsta/styles/styleMigration";
+import { normalizeCapinstaCaptionStyle } from "@/capinsta/styles/styleValidation";
 import { resolveRenderBackground, isCaptionsOnlyMode } from "./renderColor";
 import {
 	ensureCapinstaFontLoaded,
 	normalizeCapinstaFontWeight,
 } from "@/capinsta/fonts/captionFontRegistry";
-import type { CapinstaCaptionStyleV1 } from "@/capinsta/styles/styleTypes";
+import {
+	textOverlaysFromComposition,
+	type RenderTextOverlay,
+} from "./automaticHookOverlay";
 
 export const CAPINSTA_RENDER_IMPLEMENTATION_VERSION =
 	"capinsta-render-artifact:v1";
@@ -166,6 +170,14 @@ const PROHIBITED_UI_SELECTORS = [
 	"[data-radix-popper-content-wrapper]",
 ].join(",");
 
+function incrementRenderMetric(
+	metric: keyof Window["__EXPORT_RENDER_METRICS__"],
+) {
+	if (typeof window !== "undefined") {
+		window.__EXPORT_RENDER_METRICS__[metric] += 1;
+	}
+}
+
 interface CaptionState {
 	records: CapinstaCaptionDocumentRecord[];
 	width: number;
@@ -176,6 +188,7 @@ interface CaptionState {
 	renderMode: string;
 	duration: number;
 	jobId: string;
+	textOverlays: RenderTextOverlay[];
 }
 
 export function RenderPageClient() {
@@ -193,9 +206,7 @@ export function RenderPageClient() {
 	const records = captionState?.records;
 	const timingIndex = useMemo(() => {
 		if (!records) return null;
-		if (typeof window !== "undefined") {
-			window.__EXPORT_RENDER_METRICS__.timingIndexBuilds += 1;
-		}
+		incrementRenderMetric("timingIndexBuilds");
 		return createCapinstaCaptionTimingIndex({ records });
 	}, [records]);
 	const activeState = useMemo(
@@ -211,7 +222,6 @@ export function RenderPageClient() {
 	const width = captionState?.width ?? 0;
 	const height = captionState?.height ?? 0;
 	const viewport = useMemo(() => ({ width, height }), [width, height]);
-	const activeWordKey = activeState?.activeWordIds.join(",") ?? "";
 	const indexedRecord = useMemo(
 		() =>
 			activeState && timingIndex
@@ -219,13 +229,11 @@ export function RenderPageClient() {
 						(entry) => entry.record === activeState.record,
 					) ?? null)
 				: null,
-		[timingIndex, activeState?.record],
+		[timingIndex, activeState],
 	);
 	const renderModel = useMemo(() => {
 		if (!indexedRecord || !activeState) return null;
-		if (typeof window !== "undefined") {
-			window.__EXPORT_RENDER_METRICS__.renderModelBuilds += 1;
-		}
+		incrementRenderMetric("renderModelBuilds");
 		return createCapinstaRenderModelFromIndexedRecord({
 			indexedRecord,
 			clip: activeState.clip,
@@ -233,7 +241,7 @@ export function RenderPageClient() {
 			rendererPath: "rendered_capinsta_wysiwyg",
 			viewport,
 		});
-	}, [indexedRecord, activeState?.clip, activeWordKey, viewport]);
+	}, [indexedRecord, activeState, viewport]);
 
 	const applyState = useCallback((state: CaptionState) => {
 		stateRef.current = state;
@@ -470,7 +478,6 @@ export function RenderPageClient() {
 			};
 			window.__RENDER_PAGE_LAST_ERROR__ =
 				window.__RENDER_PAGE_LAST_ERROR__ || "";
-			// eslint-disable-next-line no-console
 			console.info(`[render] renderReady: ${reason}`);
 		};
 
@@ -478,6 +485,7 @@ export function RenderPageClient() {
 		 * setCaptionData — called by the backend to inject caption data before
 		 * frame capture begins.
 		 */
+		// eslint-disable-next-line opencut/prefer-object-params -- Playwright calls this positional browser API.
 		window.setCaptionData = async (
 			captionsJson,
 			theme,
@@ -486,7 +494,7 @@ export function RenderPageClient() {
 			styleConfigJson,
 			fps,
 			backgroundColor,
-			_compositionJson,
+			compositionJson,
 			renderMode,
 			jobId,
 			duration,
@@ -500,8 +508,12 @@ export function RenderPageClient() {
 					return { ok: false, error: "captions must be an array" };
 				}
 				const documentStyle = styleConfigJson
-					? (JSON.parse(styleConfigJson) as CapinstaCaptionStyleV1)
+					? normalizeCapinstaCaptionStyle(JSON.parse(styleConfigJson))
 					: undefined;
+				const composition = compositionJson
+					? JSON.parse(compositionJson)
+					: null;
+				const textOverlays = textOverlaysFromComposition(composition);
 
 				// Resolve the canonical background color for this render mode.
 				// captions-only -> selected hex (or green default when absent);
@@ -515,17 +527,13 @@ export function RenderPageClient() {
 				// Visible diagnostic log exactly as required by the spec.
 				const w = Number(width);
 				const h = Number(height);
-				// eslint-disable-next-line no-console
 				console.info(`[render] renderMode: ${resolvedRenderMode}`);
-				// eslint-disable-next-line no-console
 				console.info(
 					`[render] requested backgroundColor: ${backgroundColor || "(none)"}`,
 				);
-				// eslint-disable-next-line no-console
 				console.info(
 					`[render] applied composition backgroundColor: ${resolvedBackground}`,
 				);
-				// eslint-disable-next-line no-console
 				console.info(`[render] output size: ${w}x${h}`);
 
 				// Paint html/body/render-root with the resolved color so the
@@ -534,36 +542,66 @@ export function RenderPageClient() {
 
 				// Build a CapinstaCaptionDocumentRecord from the raw captions array.
 				// The backend sends an array of clip objects with embedded words.
-				const clips = captions.map((clip: any, i: number) => ({
-					id: clip.id ?? `clip-${i}`,
-					trackId: clip.trackId ?? "capinsta-export",
-					start: Number(clip.start ?? 0),
-					end: Number(clip.end ?? 0),
-					text: clip.text ?? "",
-					wordIds: (clip.words ?? []).map(
-						(w: any, wi: number) => w.id ?? `word-${i}-${wi}`,
-					),
-					stylePresetId: clip.stylePresetId ?? theme ?? "word_highlight_box",
-					selected: false,
-					editable: false,
-					manuallyEdited: false,
-					timingNeedsReview: false,
-					timingSource: "provider" as const,
-					style: clip.style ?? undefined,
-					sourceClipId: clip.id ?? `clip-${i}`,
-				}));
-
-				const words = captions.flatMap((clip: any, i: number) =>
-					(clip.words ?? []).map((w: any, wi: number) => ({
-						id: w.id ?? `word-${i}-${wi}`,
-						text: w.text ?? w.word ?? "",
-						displayedText: w.displayedWord ?? w.text ?? w.word ?? "",
-						start: Number(w.start ?? 0),
-						end: Number(w.end ?? 0),
+				const clips = captions.map((clip, i) => {
+					if (!clip || typeof clip !== "object")
+						throw new Error(`caption ${i} must be an object`);
+					const clipWords = Reflect.get(clip, "words");
+					const rawWords = Array.isArray(clipWords) ? clipWords : [];
+					const id = String(Reflect.get(clip, "id") ?? `clip-${i}`);
+					const rawStyle = Reflect.get(clip, "style");
+					return {
+						id,
+						trackId: String(Reflect.get(clip, "trackId") ?? "capinsta-export"),
+						start: Number(Reflect.get(clip, "start") ?? 0),
+						end: Number(Reflect.get(clip, "end") ?? 0),
+						text: String(Reflect.get(clip, "text") ?? ""),
+						wordIds: rawWords.map((word, wi) =>
+							word && typeof word === "object"
+								? String(Reflect.get(word, "id") ?? `word-${i}-${wi}`)
+								: `word-${i}-${wi}`,
+						),
+						stylePresetId: String(
+							Reflect.get(clip, "stylePresetId") ??
+								theme ??
+								"word_highlight_box",
+						),
+						selected: false,
+						editable: false,
+						manuallyEdited: false,
+						timingNeedsReview: false,
 						timingSource: "provider" as const,
-						sourceWordId: w.id ?? `word-${i}-${wi}`,
-					})),
-				);
+						style: rawStyle
+							? normalizeCapinstaCaptionStyle(rawStyle)
+							: undefined,
+						sourceClipId: id,
+					};
+				});
+
+				const words = captions.flatMap((clip, i) => {
+					if (!clip || typeof clip !== "object") return [];
+					const clipWords = Reflect.get(clip, "words");
+					if (!Array.isArray(clipWords)) return [];
+					return clipWords.flatMap((word, wi) => {
+						if (!word || typeof word !== "object") return [];
+						const id = String(Reflect.get(word, "id") ?? `word-${i}-${wi}`);
+						const text = String(
+							Reflect.get(word, "text") ?? Reflect.get(word, "word") ?? "",
+						);
+						return [
+							{
+								id,
+								text,
+								displayedText: String(
+									Reflect.get(word, "displayedWord") ?? text,
+								),
+								start: Number(Reflect.get(word, "start") ?? 0),
+								end: Number(Reflect.get(word, "end") ?? 0),
+								timingSource: "provider" as const,
+								sourceWordId: id,
+							},
+						];
+					});
+				});
 
 				const doc: NeutralCaptionDocument = {
 					id: `export-doc-${jobId}`,
@@ -655,6 +693,7 @@ export function RenderPageClient() {
 					renderMode: resolvedRenderMode,
 					duration: Number(duration),
 					jobId,
+					textOverlays,
 				});
 				window.__CAPINSTA_RENDER_STATE__.diagnostics = {
 					...window.__CAPINSTA_RENDER_STATE__.diagnostics,
@@ -758,10 +797,9 @@ export function RenderPageClient() {
 
 	// Update style/layout globals whenever active caption changes
 	useEffect(() => {
-		if (!captionState || !activeState || typeof window === "undefined") return;
-		if (!activeState) return;
+		if (!activeState || typeof window === "undefined") return;
 		try {
-			window.__EXPORT_RENDER_METRICS__.diagnosticBuilds += 1;
+			incrementRenderMetric("diagnosticBuilds");
 			const style = resolveCapinstaClipStyle({
 				document: activeState.document,
 				clip: activeState.clip,
@@ -782,7 +820,7 @@ export function RenderPageClient() {
 		} catch {
 			// non-fatal
 		}
-	}, [activeState?.document, activeState?.clip, width, height]);
+	}, [activeState, width, height]);
 
 	if (!captionState) {
 		// Page loaded, awaiting setCaptionData injection.
@@ -828,6 +866,45 @@ export function RenderPageClient() {
 					viewport={viewport}
 				/>
 			)}
+			{captionState.textOverlays
+				.filter(
+					(overlay) =>
+						timeSeconds >= overlay.start && timeSeconds < overlay.end,
+				)
+				.map((overlay) => {
+					const entrance = Math.min(
+						1,
+						Math.max(0, (timeSeconds - overlay.start) / 0.12),
+					);
+					return (
+						<div
+							key={overlay.id}
+							data-capinsta-automatic-hook="true"
+							style={{
+								position: "absolute",
+								left: `calc(50% + ${overlay.positionX}px)`,
+								top: `calc(50% + ${overlay.positionY}px)`,
+								transform: `translate(-50%, -50%) scale(${0.92 + entrance * 0.08})`,
+								opacity: entrance,
+								maxWidth: "82%",
+								whiteSpace: "pre-wrap",
+								textAlign: "center",
+								fontFamily: overlay.fontFamily,
+								fontSize: overlay.fontSize,
+								fontWeight: overlay.fontWeight,
+								lineHeight: overlay.lineHeight,
+								color: overlay.color,
+								background: overlay.backgroundEnabled
+									? overlay.backgroundColor
+									: "transparent",
+								padding: `${overlay.paddingY}px ${overlay.paddingX}px`,
+								borderRadius: overlay.cornerRadius,
+							}}
+						>
+							{overlay.text}
+						</div>
+					);
+				})}
 		</div>
 	);
 }

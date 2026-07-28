@@ -1,0 +1,218 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://capinsta.local/contracts/capinsta-project-conversion-result-v1.schema.json",
+	"title": "CapinstaProjectConversionResultV1",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"sourceClipProjectId",
+		"sourceClipProjectRevision",
+		"targetProjectId",
+		"project",
+		"mediaReference",
+		"mapping",
+		"warnings",
+		"metadata"
+	],
+	"properties": {
+		"schemaVersion": { "const": 1 },
+		"sourceClipProjectId": { "type": "string", "minLength": 1 },
+		"sourceClipProjectRevision": { "type": "integer", "minimum": 1 },
+		"targetProjectId": { "type": "string", "minLength": 1 },
+		"project": {
+			"type": "object",
+			"additionalProperties": true,
+			"required": [
+				"metadata",
+				"scenes",
+				"currentSceneId",
+				"settings",
+				"version",
+				"timelineViewState",
+				"capinstaClippingProvenance"
+			],
+			"properties": {
+				"version": { "const": 35 },
+				"metadata": {
+					"type": "object",
+					"required": ["id", "name", "duration", "createdAt", "updatedAt"],
+					"properties": {
+						"id": { "type": "string", "minLength": 1 },
+						"name": { "type": "string" },
+						"duration": { "type": "integer", "minimum": 0 },
+						"createdAt": { "type": "string" },
+						"updatedAt": { "type": "string" }
+					}
+				},
+				"scenes": { "type": "array", "minItems": 1 },
+				"currentSceneId": { "type": "string", "minLength": 1 },
+				"settings": {
+					"type": "object",
+					"required": ["fps", "canvasSize", "canvasSizeMode", "background"],
+					"properties": {
+						"canvasSize": {
+							"type": "object",
+							"required": ["width", "height"],
+							"properties": {
+								"width": { "type": "integer", "minimum": 1 },
+								"height": { "type": "integer", "minimum": 1 }
+							}
+						}
+					}
+				},
+				"timelineViewState": { "type": "object" },
+				"capinstaClippingProvenance": { "$ref": "#/$defs/provenance" }
+			}
+		},
+		"mediaReference": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"mediaId",
+				"sourceAssetId",
+				"displayName",
+				"mimeType",
+				"durationMs",
+				"requiresMediaAttachment"
+			],
+			"properties": {
+				"mediaId": { "type": "string", "minLength": 1 },
+				"sourceAssetId": { "type": "string", "minLength": 1 },
+				"displayName": { "type": "string" },
+				"mimeType": { "type": ["string", "null"] },
+				"durationMs": { "type": "integer", "minimum": 0 },
+				"requiresMediaAttachment": { "const": true }
+			}
+		},
+		"mapping": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"sourceMediaId",
+				"capinstaMediaId",
+				"rangeMappings",
+				"captionMappings"
+			],
+			"properties": {
+				"sourceMediaId": { "type": "string", "minLength": 1 },
+				"capinstaMediaId": { "type": "string", "minLength": 1 },
+				"rangeMappings": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/rangeMapping" }
+				},
+				"captionMappings": {
+					"type": "array",
+					"items": { "$ref": "#/$defs/captionMapping" }
+				}
+			}
+		},
+		"warnings": {
+			"type": "array",
+			"items": { "$ref": "#/$defs/issue" }
+		},
+		"metadata": { "type": "object" }
+	},
+	"$defs": {
+		"provenance": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"sourceApplication",
+				"sourceClipProjectId",
+				"sourceClipProjectRevision",
+				"sourceTranscriptId",
+				"conversionSchemaVersion"
+			],
+			"properties": {
+				"sourceApplication": { "const": "clipper" },
+				"sourceClipProjectId": { "type": "string", "minLength": 1 },
+				"sourceClipProjectRevision": { "type": "integer", "minimum": 1 },
+				"sourceTranscriptId": { "type": ["string", "null"] },
+				"conversionSchemaVersion": { "const": 1 }
+			}
+		},
+		"rangeMapping": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"rangeId",
+				"edlEntryId",
+				"timelineElementIds",
+				"trackIds",
+				"sourceMediaId",
+				"sourceStartMs",
+				"sourceEndMs",
+				"sourceDurationMs",
+				"timelineStartMs",
+				"timelineEndMs",
+				"outputDurationMs",
+				"playbackRate",
+				"order"
+			],
+			"properties": {
+				"rangeId": { "type": "string", "minLength": 1 },
+				"edlEntryId": { "type": "string", "minLength": 1 },
+				"timelineElementIds": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "type": "string", "minLength": 1 }
+				},
+				"trackIds": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "type": "string", "minLength": 1 }
+				},
+				"sourceMediaId": { "type": "string", "minLength": 1 },
+				"sourceStartMs": { "type": "integer", "minimum": 0 },
+				"sourceEndMs": { "type": "integer", "minimum": 0 },
+				"sourceDurationMs": { "type": "integer", "minimum": 0 },
+				"timelineStartMs": { "type": "integer", "minimum": 0 },
+				"timelineEndMs": { "type": "integer", "minimum": 0 },
+				"outputDurationMs": { "type": "integer", "minimum": 0 },
+				"playbackRate": { "type": "number", "minimum": 0.25, "maximum": 4 },
+				"order": { "type": "integer", "minimum": 0 }
+			}
+		},
+		"captionMapping": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"segmentOccurrenceId",
+				"captionElementId",
+				"sourceWordOccurrenceIds",
+				"captionWordIds"
+			],
+			"properties": {
+				"segmentOccurrenceId": { "type": "string", "minLength": 1 },
+				"captionElementId": { "type": "string", "minLength": 1 },
+				"sourceWordOccurrenceIds": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1 }
+				},
+				"captionWordIds": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1 }
+				}
+			}
+		},
+		"issue": {
+			"type": "object",
+			"additionalProperties": true,
+			"required": [
+				"category",
+				"severity",
+				"message",
+				"fieldPath",
+				"timingValues"
+			],
+			"properties": {
+				"category": { "type": "string", "minLength": 1 },
+				"severity": { "enum": ["error", "warning"] },
+				"message": { "type": "string", "minLength": 1 },
+				"fieldPath": { "type": ["string", "null"] },
+				"timingValues": { "type": "object" }
+			}
+		}
+	}
+}

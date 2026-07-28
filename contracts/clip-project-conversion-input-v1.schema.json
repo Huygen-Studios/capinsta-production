@@ -1,0 +1,149 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://capinsta.local/contracts/clip-project-conversion-input-v1.schema.json",
+	"title": "ClipProjectConversionInputV1",
+	"type": "object",
+	"additionalProperties": false,
+	"required": [
+		"schemaVersion",
+		"clipProject",
+		"editDecisionList",
+		"remappedTranscript",
+		"targetProjectId",
+		"targetProjectVersion",
+		"options",
+		"metadata"
+	],
+	"properties": {
+		"schemaVersion": { "const": 1 },
+		"clipProject": { "$ref": "./clip-project-v1.schema.json" },
+		"editDecisionList": {
+			"$ref": "https://capinsta.local/contracts/clip-project-conversion-input-v1.schema.json#/$defs/editDecisionList"
+		},
+		"remappedTranscript": {
+			"oneOf": [
+				{ "type": "null" },
+				{
+					"$ref": "https://capinsta.local/contracts/clip-project-conversion-input-v1.schema.json#/$defs/remappedTranscript"
+				}
+			]
+		},
+		"targetProjectId": { "type": "string", "minLength": 1 },
+		"targetProjectVersion": { "const": 35 },
+		"options": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"includeCaptions",
+				"preserveDisabledRanges",
+				"createSeparateTracks",
+				"unsupportedFeaturePolicy"
+			],
+			"properties": {
+				"includeCaptions": { "type": "boolean" },
+				"preserveDisabledRanges": { "type": "boolean" },
+				"createSeparateTracks": { "type": "boolean" },
+				"unsupportedFeaturePolicy": { "enum": ["error", "warn"] }
+			}
+		},
+		"metadata": { "type": "object" }
+	},
+	"$defs": {
+		"editDecisionList": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": [
+				"schemaVersion",
+				"clipProjectId",
+				"projectRevision",
+				"sourceMediaId",
+				"sourceDurationMs",
+				"outputDurationMs",
+				"entries",
+				"warnings",
+				"metadata"
+			],
+			"properties": {
+				"schemaVersion": { "const": 1 },
+				"clipProjectId": { "type": "string", "minLength": 1 },
+				"projectRevision": { "type": "integer", "minimum": 1 },
+				"sourceMediaId": { "type": "string", "minLength": 1 },
+				"sourceDurationMs": { "type": "integer", "minimum": 0 },
+				"outputDurationMs": { "type": "integer", "minimum": 0 },
+				"entries": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"additionalProperties": false,
+						"required": [
+							"id",
+							"rangeId",
+							"order",
+							"sourceMediaId",
+							"sourceStartMs",
+							"sourceEndMs",
+							"sourceDurationMs",
+							"outputStartMs",
+							"outputEndMs",
+							"outputDurationMs",
+							"playbackRate",
+							"transitionIn",
+							"transitionOut",
+							"metadata"
+						],
+						"properties": {
+							"id": { "type": "string", "minLength": 1 },
+							"rangeId": { "type": "string", "minLength": 1 },
+							"order": { "type": "integer", "minimum": 0 },
+							"sourceMediaId": { "type": "string", "minLength": 1 },
+							"sourceStartMs": { "type": "integer", "minimum": 0 },
+							"sourceEndMs": { "type": "integer", "minimum": 0 },
+							"sourceDurationMs": { "type": "integer", "minimum": 0 },
+							"outputStartMs": { "type": "integer", "minimum": 0 },
+							"outputEndMs": { "type": "integer", "minimum": 0 },
+							"outputDurationMs": { "type": "integer", "minimum": 0 },
+							"playbackRate": {
+								"type": "number",
+								"minimum": 0.25,
+								"maximum": 4
+							},
+							"transitionIn": {},
+							"transitionOut": {},
+							"metadata": { "type": "object" }
+						}
+					}
+				},
+				"warnings": { "type": "array" },
+				"metadata": { "type": "object" }
+			}
+		},
+		"remappedTranscript": {
+			"type": "object",
+			"additionalProperties": true,
+			"required": [
+				"schemaVersion",
+				"sourceTranscriptId",
+				"clipProjectId",
+				"projectRevision",
+				"sourceMediaId",
+				"outputDurationMs",
+				"segments",
+				"words",
+				"warnings",
+				"metadata"
+			],
+			"properties": {
+				"schemaVersion": { "const": 1 },
+				"sourceTranscriptId": { "type": "string", "minLength": 1 },
+				"clipProjectId": { "type": "string", "minLength": 1 },
+				"projectRevision": { "type": "integer", "minimum": 1 },
+				"sourceMediaId": { "type": "string", "minLength": 1 },
+				"outputDurationMs": { "type": "integer", "minimum": 0 },
+				"segments": { "type": "array" },
+				"words": { "type": "array" },
+				"warnings": { "type": "array" },
+				"metadata": { "type": "object" }
+			}
+		}
+	}
+}

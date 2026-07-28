@@ -1,0 +1,19 @@
+{
+  "protocolVersion": 1,
+  "requestId": "req_version",
+  "ok": true,
+  "result": {
+    "operations": [
+      "derive_project",
+      "convert_project",
+      "health",
+      "version"
+    ],
+    "protocolVersions": [
+      1
+    ],
+    "runtimeVersion": "0.1.0"
+  },
+  "warnings": [],
+  "error": null
+}

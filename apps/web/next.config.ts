@@ -39,6 +39,7 @@ const nextConfig: NextConfig = {
 	// Keep them disabled on the small production VPS; server-side stack traces
 	// and local development source maps remain available.
 	productionBrowserSourceMaps: false,
+	outputFileTracingRoot: workspaceRoot,
 	experimental: {
 		// Caption generation uploads extracted audio/video through the same-origin
 		// Next.js proxy. Next defaults proxy request bodies to 10 MB, which

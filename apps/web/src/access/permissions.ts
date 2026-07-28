@@ -18,6 +18,7 @@ export const APP_PERMISSIONS = [
 	"app.access",
 	"projects.access",
 	"editor.access",
+	"clipper.access",
 	"exports.access",
 	"render.access",
 	"internal.diagnostics.access",

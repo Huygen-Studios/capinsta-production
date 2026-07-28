@@ -591,6 +591,15 @@ export function CapinstaCaptionStylePanel(
 					step={0.1}
 					onChange={(letterSpacing) => updateStyle({ text: { letterSpacing } })}
 				/>
+				<CapinstaSliderControl
+					label="Word spacing"
+					value={commonValue("text.wordSpacing", style.text.wordSpacing)}
+					mixed={hasMixedValue("text.wordSpacing")}
+					min={0}
+					max={40}
+					step={0.5}
+					onChange={(wordSpacing) => updateStyle({ text: { wordSpacing } })}
+				/>
 				<CapinstaColorControl
 					label="Active word"
 					value={commonValue("activeWord.color", style.activeWord.color)}

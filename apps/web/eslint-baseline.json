@@ -1,8 +1,8 @@
 {
 	"version": 1,
-	"errors": 153,
-	"warnings": 17,
-	"files": 97,
+	"errors": 137,
+	"warnings": 14,
+	"files": 94,
 	"rows": [
 		{
 			"file": "src/actions/registry.ts",
@@ -39,25 +39,6 @@
 					"severity": 2,
 					"line": 27,
 					"column": 5
-				}
-			]
-		},
-		{
-			"file": "src/admin/product-access.ts",
-			"errors": 2,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 103,
-					"column": 9
-				},
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 545,
-					"column": 11
 				}
 			]
 		},
@@ -217,109 +198,6 @@
 					"severity": 2,
 					"line": 113,
 					"column": 79
-				}
-			]
-		},
-		{
-			"file": "src/app/render/render-client.tsx",
-			"errors": 13,
-			"warnings": 3,
-			"messages": [
-				{
-					"ruleId": "react-hooks/immutability",
-					"severity": 2,
-					"line": 197,
-					"column": 4
-				},
-				{
-					"ruleId": "react-hooks/exhaustive-deps",
-					"severity": 1,
-					"line": 222,
-					"column": 3
-				},
-				{
-					"ruleId": "react-hooks/immutability",
-					"severity": 2,
-					"line": 227,
-					"column": 4
-				},
-				{
-					"ruleId": "react-hooks/exhaustive-deps",
-					"severity": 1,
-					"line": 236,
-					"column": 5
-				},
-				{
-					"ruleId": null,
-					"severity": 2,
-					"line": 473,
-					"column": 4
-				},
-				{
-					"ruleId": "opencut/prefer-object-params",
-					"severity": 2,
-					"line": 481,
-					"column": 27
-				},
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 503,
-					"column": 9
-				},
-				{
-					"ruleId": null,
-					"severity": 2,
-					"line": 518,
-					"column": 5
-				},
-				{
-					"ruleId": null,
-					"severity": 2,
-					"line": 520,
-					"column": 5
-				},
-				{
-					"ruleId": null,
-					"severity": 2,
-					"line": 524,
-					"column": 5
-				},
-				{
-					"ruleId": null,
-					"severity": 2,
-					"line": 528,
-					"column": 5
-				},
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 537,
-					"column": 39
-				},
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 544,
-					"column": 11
-				},
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 556,
-					"column": 43
-				},
-				{
-					"ruleId": "@typescript-eslint/no-explicit-any",
-					"severity": 2,
-					"line": 557,
-					"column": 33
-				},
-				{
-					"ruleId": "react-hooks/exhaustive-deps",
-					"severity": 1,
-					"line": 785,
-					"column": 5
 				}
 			]
 		},
@@ -1288,19 +1166,6 @@
 					"severity": 1,
 					"line": 60,
 					"column": 11
-				}
-			]
-		},
-		{
-			"file": "src/services/storage/storage-lifecycle.test.ts",
-			"errors": 1,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "opencut/prefer-object-params",
-					"severity": 2,
-					"line": 13,
-					"column": 15
 				}
 			]
 		},

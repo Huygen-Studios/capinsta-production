@@ -33,6 +33,7 @@ export interface CapinstaCaptionTextStyle {
 	opacity: number;
 	textTransform: "none" | "uppercase";
 	letterSpacing: number;
+	wordSpacing: number;
 }
 
 export interface CapinstaCaptionBackgroundStyle {

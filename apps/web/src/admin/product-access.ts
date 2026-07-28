@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "@/db";
 import {
 	adminAuditLog,
@@ -19,14 +20,27 @@ export const PRODUCT_CATALOG = [
 	{
 		id: "editor",
 		name: "Editor",
-		description: "Projects, uploads, caption generation, editor UI, and render preview.",
-		permissions: ["app.access", "projects.access", "editor.access", "render.access"],
+		description:
+			"Projects, uploads, caption generation, editor UI, and render preview.",
+		permissions: [
+			"app.access",
+			"projects.access",
+			"editor.access",
+			"render.access",
+		],
 	},
 	{
 		id: "exports",
 		name: "Exports",
 		description: "Captioned video export jobs and export downloads.",
 		permissions: ["exports.access"],
+	},
+	{
+		id: "clipper",
+		name: "Automatic Clipper",
+		description:
+			"Private-beta automatic clipping, previews, exports, and handoff.",
+		permissions: ["clipper.access"],
 	},
 ] as const;
 
@@ -97,10 +111,10 @@ function iso(value: Date | null | undefined) {
 function validateProductIds(productIds: readonly string[]) {
 	const unique = [...new Set(productIds)];
 	if (unique.length === 0) throw new Error("no_products_selected");
-	for (const productId of unique) {
+	return unique.map((productId) => {
 		if (!isProductId(productId)) throw new Error("invalid_product_id");
-	}
-	return unique as ProductId[];
+		return productId;
+	});
 }
 
 function validateUserIds(userIds: readonly string[]) {
@@ -108,7 +122,11 @@ function validateUserIds(userIds: readonly string[]) {
 	if (unique.length === 0) throw new Error("no_users_selected");
 	if (unique.length > 250) throw new Error("bulk_user_limit_exceeded");
 	for (const userId of unique) {
-		if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+		if (
+			!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+				userId,
+			)
+		) {
 			throw new Error("invalid_user_id");
 		}
 	}
@@ -132,11 +150,13 @@ export async function directProductRevocationsForUser(userId: string) {
 			);
 	} catch (error) {
 		if (!isMissingProductEntitlementsTableError(error)) throw error;
-		console.error(JSON.stringify({
-			event: "product_access_entitlements_missing",
-			code: "app_product_entitlements_missing",
-			operation: "direct_revocations_for_user",
-		}));
+		console.error(
+			JSON.stringify({
+				event: "product_access_entitlements_missing",
+				code: "app_product_entitlements_missing",
+				operation: "direct_revocations_for_user",
+			}),
+		);
 	}
 	const now = new Date();
 	return new Set(
@@ -163,11 +183,13 @@ export async function directProductGrantsForUser(userId: string) {
 			);
 	} catch (error) {
 		if (!isMissingProductEntitlementsTableError(error)) throw error;
-		console.error(JSON.stringify({
-			event: "product_access_entitlements_missing",
-			code: "app_product_entitlements_missing",
-			operation: "direct_grants_for_user",
-		}));
+		console.error(
+			JSON.stringify({
+				event: "product_access_entitlements_missing",
+				code: "app_product_entitlements_missing",
+				operation: "direct_grants_for_user",
+			}),
+		);
 	}
 	const now = new Date();
 	return rows
@@ -175,7 +197,9 @@ export async function directProductGrantsForUser(userId: string) {
 		.map((row) => row.productId);
 }
 
-export async function getUserProductAccess(userId: string): Promise<ProductAccessView> {
+export async function getUserProductAccess(
+	userId: string,
+): Promise<ProductAccessView> {
 	const [profile] = await db
 		.select({
 			userId: profiles.userId,
@@ -194,7 +218,10 @@ export async function getUserProductAccess(userId: string): Promise<ProductAcces
 			.from(appProductEntitlements)
 			.where(eq(appProductEntitlements.userId, userId)),
 		db
-			.select({ key: appPermissions.key, effect: appUserPermissionOverrides.effect })
+			.select({
+				key: appPermissions.key,
+				effect: appUserPermissionOverrides.effect,
+			})
 			.from(appUserPermissionOverrides)
 			.innerJoin(
 				appPermissions,
@@ -212,14 +239,14 @@ export async function getUserProductAccess(userId: string): Promise<ProductAcces
 		entitlements.map((row) => [row.productId, row]),
 	);
 	const allowedOverrides = new Set(
-		overrideRows
-			.filter((row) => row.effect === "allow")
-			.map((row) => row.key),
+		overrideRows.filter((row) => row.effect === "allow").map((row) => row.key),
 	);
 	const profileDisabled =
 		profile.accountStatus !== "active" ||
 		profile.productAccessStatus === "revoked" ||
-		Boolean(profile.productAccessExpiresAt && profile.productAccessExpiresAt <= now);
+		Boolean(
+			profile.productAccessExpiresAt && profile.productAccessExpiresAt <= now,
+		);
 
 	return {
 		userId,
@@ -333,8 +360,12 @@ async function upsertEntitlement({
 		userId,
 		productId,
 		status,
-		grantedBy: status === "granted" ? context.userId : before?.grantedBy ?? context.userId,
-		grantedAt: status === "granted" ? new Date() : before?.grantedAt ?? new Date(),
+		grantedBy:
+			status === "granted"
+				? context.userId
+				: (before?.grantedBy ?? context.userId),
+		grantedAt:
+			status === "granted" ? new Date() : (before?.grantedAt ?? new Date()),
 		revokedBy: status === "revoked" ? context.userId : null,
 		revokedAt: status === "revoked" ? new Date() : null,
 		reason,
@@ -414,12 +445,13 @@ export async function applyProductAccessForUser({
 			.where(eq(profiles.userId, userId))
 			.limit(1);
 		if (!profile) throw new Error("target_not_found");
-		if (profile.accountStatus !== "active") throw new Error("target_ineligible");
+		if (profile.accountStatus !== "active")
+			throw new Error("target_ineligible");
 		const productsToRevoke =
 			action === "replace"
-				? PRODUCT_CATALOG.filter((product) => !validProducts.includes(product.id)).map(
-						(product) => product.id,
-					)
+				? PRODUCT_CATALOG.filter(
+						(product) => !validProducts.includes(product.id),
+					).map((product) => product.id)
 				: action === "revoke"
 					? validProducts
 					: [];
@@ -454,7 +486,10 @@ export async function applyProductAccessForUser({
 			tx,
 			userId,
 			context,
-			status: action === "revoke" && validProducts.length === PRODUCT_CATALOG.length ? "revoked" : "approved",
+			status:
+				action === "revoke" && validProducts.length === PRODUCT_CATALOG.length
+					? "revoked"
+					: "approved",
 			reason,
 		});
 		return { changed, unchanged };
@@ -473,6 +508,19 @@ export type BulkProductAccessOutcome = {
 	skipped: Array<{ userId: string; reason: string }>;
 	failures: Array<{ userId: string; reason: string }>;
 };
+
+const bulkProductAccessOutcomeSchema: z.ZodType<BulkProductAccessOutcome> =
+	z.object({
+		operationId: z.string().nullable(),
+		action: z.enum(["grant", "revoke", "replace"]),
+		productIds: z.array(z.enum(["editor", "exports", "clipper"])),
+		totalUsers: z.number().int().nonnegative(),
+		successfulUsers: z.number().int().nonnegative(),
+		changedEntitlements: z.number().int().nonnegative(),
+		unchangedEntitlements: z.number().int().nonnegative(),
+		skipped: z.array(z.object({ userId: z.string(), reason: z.string() })),
+		failures: z.array(z.object({ userId: z.string(), reason: z.string() })),
+	});
 
 export async function previewBulkProductAccess({
 	userIds,
@@ -533,7 +581,9 @@ export async function applyBulkProductAccess({
 }): Promise<BulkProductAccessOutcome> {
 	if (!idempotencyKey || idempotencyKey.length > 160)
 		throw new Error("invalid_idempotency_key");
-	const validUsers = validateUserIds(userIds).filter((id) => id !== context.userId);
+	const validUsers = validateUserIds(userIds).filter(
+		(id) => id !== context.userId,
+	);
 	const validProducts = validateProductIds(productIds);
 	return await db.transaction(async (tx) => {
 		const [existing] = await tx
@@ -542,7 +592,7 @@ export async function applyBulkProductAccess({
 			.where(eq(appProductAccessBulkOperations.idempotencyKey, idempotencyKey))
 			.limit(1);
 		if (existing) {
-			return existing.outcome as BulkProductAccessOutcome;
+			return bulkProductAccessOutcomeSchema.parse(existing.outcome);
 		}
 		const rows = await tx
 			.select({
@@ -575,16 +625,19 @@ export async function applyBulkProductAccess({
 			.returning();
 		for (const row of rows) {
 			if (row.accountStatus !== "active") {
-				skipped.push({ userId: row.userId, reason: "ineligible_account_state" });
+				skipped.push({
+					userId: row.userId,
+					reason: "ineligible_account_state",
+				});
 				continue;
 			}
 			try {
 				const toGrant = action === "revoke" ? [] : validProducts;
 				const toRevoke =
 					action === "replace"
-						? PRODUCT_CATALOG.filter((product) => !validProducts.includes(product.id)).map(
-								(product) => product.id,
-							)
+						? PRODUCT_CATALOG.filter(
+								(product) => !validProducts.includes(product.id),
+							).map((product) => product.id)
 						: action === "revoke"
 							? validProducts
 							: [];

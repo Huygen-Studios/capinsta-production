@@ -9,7 +9,7 @@ import aiosqlite
 import requests
 from fastapi import HTTPException
 
-from .auth import AuthenticatedUser
+from .auth import AuthenticatedUser, LOCAL_DEVELOPMENT_USER_ID, local_development_access_enabled
 from .api_versioning import canonical_api_path
 from .settings import DB_PATH
 from .settings import CAPTION_DURATION_LIMIT_SECONDS
@@ -237,6 +237,8 @@ async def _query_one(query: str, params: tuple = ()):
 
 
 async def require_active_account(user: AuthenticatedUser) -> None:
+    if local_development_access_enabled() and user.id == LOCAL_DEVELOPMENT_USER_ID:
+        return
     if _rest_control_plane_enabled():
         row = await _rest_profile(user.id, "account_status")
         if not row or row.get("account_status") != "active":
@@ -278,7 +280,14 @@ def _permission_for_path(path: str) -> str:
         return "projects.access"
     if path.startswith("/api/export/jobs"):
         return "exports.access"
-    if path.startswith("/api/jobs") or path.startswith("/api/captions/jobs") or path.startswith("/api/media/assets"):
+    if path.startswith("/api/clipping"):
+        return "clipper.access"
+    if (
+        path.startswith("/api/jobs")
+        or path.startswith("/api/captions/jobs")
+        or path.startswith("/api/media/assets")
+        or path.startswith("/api/capinsta/media")
+    ):
         return "editor.access"
     return "app.access"
 
@@ -370,6 +379,8 @@ def permissions_for_products(product_ids: set[str]) -> set[str]:
         )
     if "exports" in product_ids:
         permissions.add("exports.access")
+    if "clipper" in product_ids:
+        permissions.add("clipper.access")
     return permissions
 
 
@@ -398,6 +409,8 @@ async def is_super_admin(user_id: str) -> bool:
 
 
 async def require_backend_capability(user: AuthenticatedUser, request_path: str) -> None:
+    if local_development_access_enabled() and user.id == LOCAL_DEVELOPMENT_USER_ID:
+        return
     super_admin = await is_super_admin(user.id)
     if super_admin:
         logger.info(

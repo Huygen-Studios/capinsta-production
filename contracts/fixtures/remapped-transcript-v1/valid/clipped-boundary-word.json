@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "sourceTranscriptId": "tr_english",
+  "clipProjectId": "clip_clipped",
+  "projectRevision": 1,
+  "sourceMediaId": "media_english",
+  "outputDurationMs": 700,
+  "segments": [
+    {
+      "occurrenceId": "range_clip__seg_000001",
+      "sourceSegmentId": "seg_000001",
+      "rangeId": "range_clip",
+      "text": "Hello world.",
+      "originalText": "Hello world.",
+      "originalSourceStartMs": 0,
+      "originalSourceEndMs": 1200,
+      "effectiveSourceStartMs": 200,
+      "effectiveSourceEndMs": 900,
+      "outputStartMs": 0,
+      "outputEndMs": 700,
+      "wordOccurrenceIds": [
+        "range_clip__word_000001",
+        "range_clip__word_000002"
+      ],
+      "speakerId": null,
+      "language": "en",
+      "confidence": 0.95,
+      "timingSource": "provider",
+      "metadata": {}
+    }
+  ],
+  "words": [
+    {
+      "occurrenceId": "range_clip__word_000001",
+      "sourceWordId": "word_000001",
+      "sourceSegmentId": "seg_000001",
+      "rangeId": "range_clip",
+      "text": "Hello",
+      "originalText": "Hello",
+      "originalSourceStartMs": 0,
+      "originalSourceEndMs": 500,
+      "effectiveSourceStartMs": 200,
+      "effectiveSourceEndMs": 500,
+      "outputStartMs": 0,
+      "outputEndMs": 300,
+      "speakerId": null,
+      "language": "en",
+      "confidence": 0.96,
+      "timingSource": "provider",
+      "isFiller": false,
+      "isLowConfidence": false,
+      "metadata": {}
+    },
+    {
+      "occurrenceId": "range_clip__word_000002",
+      "sourceWordId": "word_000002",
+      "sourceSegmentId": "seg_000001",
+      "rangeId": "range_clip",
+      "text": "world.",
+      "originalText": "world.",
+      "originalSourceStartMs": 510,
+      "originalSourceEndMs": 1200,
+      "effectiveSourceStartMs": 510,
+      "effectiveSourceEndMs": 900,
+      "outputStartMs": 310,
+      "outputEndMs": 700,
+      "speakerId": null,
+      "language": "en",
+      "confidence": 0.94,
+      "timingSource": "provider",
+      "isFiller": false,
+      "isLowConfidence": false,
+      "metadata": {}
+    }
+  ],
+  "warnings": [],
+  "metadata": {}
+}

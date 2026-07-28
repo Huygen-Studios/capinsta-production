@@ -1,0 +1,178 @@
+{
+  "input": {
+    "schemaVersion": 1,
+    "clipProject": {
+      "schemaVersion": 1,
+      "clipProjectId": "clip_project_001",
+      "workspaceId": null,
+      "name": "Synthetic clip",
+      "sourceMedia": {
+        "mediaId": "media_001",
+        "durationMs": 60000,
+        "sourceType": "uploaded",
+        "displayName": "sample.mp4",
+        "mimeType": "video/mp4",
+        "storageKey": "portable/media_001",
+        "checksum": null,
+        "metadata": {}
+      },
+      "transcriptId": "tr_english",
+      "transcriptRevision": 1,
+      "ranges": [
+        {
+          "schemaVersion": 1,
+          "id": "range_001",
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "sourceEndMs": 31000,
+          "order": 0,
+          "playbackRate": 1.0,
+          "selection": {
+            "transcriptId": "tr_english",
+            "transcriptRevision": 1,
+            "startWordId": null,
+            "endWordId": null,
+            "startSegmentId": null,
+            "endSegmentId": null
+          },
+          "boundary": {
+            "preRollMs": 100,
+            "postRollMs": 150,
+            "startAdjustedManually": false,
+            "endAdjustedManually": false
+          },
+          "transitionIn": null,
+          "transitionOut": null,
+          "enabled": true,
+          "label": null,
+          "metadata": {}
+        }
+      ],
+      "canvas": {
+        "aspectRatio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "background": "#000000",
+        "safeArea": null,
+        "metadata": {}
+      },
+      "captionTrack": {
+        "captionTrackId": "captions_001",
+        "transcriptId": "tr_english",
+        "stylePresetId": "word_highlight_box",
+        "enabled": true,
+        "metadata": {}
+      },
+      "settings": {
+        "defaultPreRollMs": 100,
+        "defaultPostRollMs": 150,
+        "snapToWords": true,
+        "snapToSegments": true,
+        "preserveBreathingRoom": true,
+        "metadata": {}
+      },
+      "status": "draft",
+      "revision": 1,
+      "metadata": {},
+      "createdAt": "2026-07-24T12:00:00Z",
+      "updatedAt": "2026-07-24T12:00:00Z"
+    },
+    "editDecisionList": {
+      "schemaVersion": 1,
+      "clipProjectId": "clip_project_001",
+      "projectRevision": 1,
+      "sourceMediaId": "media_001",
+      "sourceDurationMs": 60000,
+      "outputDurationMs": 19000,
+      "entries": [
+        {
+          "id": "edl_range_001",
+          "rangeId": "range_001",
+          "order": 0,
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "sourceEndMs": 31000,
+          "sourceDurationMs": 19000,
+          "outputStartMs": 0,
+          "outputEndMs": 19000,
+          "outputDurationMs": 19000,
+          "playbackRate": 1.0,
+          "transitionIn": null,
+          "transitionOut": null,
+          "metadata": {}
+        }
+      ],
+      "warnings": [],
+      "metadata": {}
+    },
+    "remappedTranscript": {
+      "schemaVersion": 1,
+      "sourceTranscriptId": "tr_english",
+      "clipProjectId": "clip_project_001",
+      "projectRevision": 1,
+      "sourceMediaId": "media_001",
+      "outputDurationMs": 19000,
+      "segments": [
+        {
+          "occurrenceId": "range_001__seg_001",
+          "sourceSegmentId": "seg_001",
+          "rangeId": "range_001",
+          "text": "hello",
+          "originalText": "hello",
+          "originalSourceStartMs": 12000,
+          "originalSourceEndMs": 31000,
+          "effectiveSourceStartMs": 12000,
+          "effectiveSourceEndMs": 31000,
+          "outputStartMs": 0,
+          "outputEndMs": 19000,
+          "wordOccurrenceIds": [
+            "range_001__word_001",
+            "missing_word"
+          ],
+          "speakerId": "speaker_001",
+          "language": "en",
+          "confidence": 0.93,
+          "timingSource": "provider",
+          "metadata": {}
+        }
+      ],
+      "words": [
+        {
+          "occurrenceId": "range_001__word_001",
+          "sourceWordId": "word_001",
+          "sourceSegmentId": "seg_001",
+          "rangeId": "range_001",
+          "text": "hello",
+          "originalText": "hello",
+          "originalSourceStartMs": 12000,
+          "originalSourceEndMs": 31000,
+          "effectiveSourceStartMs": 12000,
+          "effectiveSourceEndMs": 31000,
+          "outputStartMs": 0,
+          "outputEndMs": 19000,
+          "speakerId": "speaker_001",
+          "language": "en",
+          "confidence": 0.93,
+          "timingSource": "provider",
+          "isFiller": false,
+          "isLowConfidence": false,
+          "metadata": {}
+        }
+      ],
+      "warnings": [],
+      "metadata": {}
+    },
+    "targetProjectId": "project_fixture",
+    "targetProjectVersion": 35,
+    "options": {
+      "includeCaptions": true,
+      "preserveDisabledRanges": false,
+      "createSeparateTracks": false,
+      "unsupportedFeaturePolicy": "warn"
+    },
+    "metadata": {
+      "fixture": true
+    }
+  },
+  "expectedIssueCategory": "caption_mapping_mismatch"
+}

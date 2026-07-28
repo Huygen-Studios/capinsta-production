@@ -448,6 +448,7 @@ export interface CaptionStyleConfig {
   paddingX: number;
   paddingY: number;
   letterSpacing: number;
+  wordSpacing: number;
   lineHeight: number;
   textTransform: "none" | "uppercase";
   textShadowEnabled: boolean;

@@ -1,0 +1,125 @@
+{
+  "operation": "convert_project",
+  "options": {},
+  "payload": {
+    "clipProject": {
+      "canvas": {
+        "aspectRatio": "9:16",
+        "background": "#000000",
+        "height": 1920,
+        "metadata": {},
+        "safeArea": null,
+        "width": 1080
+      },
+      "captionTrack": {
+        "captionTrackId": "captions_001",
+        "enabled": true,
+        "metadata": {},
+        "stylePresetId": "word_highlight_box",
+        "transcriptId": "tr_english"
+      },
+      "clipProjectId": "clip_project_001",
+      "createdAt": "2026-07-24T12:00:00Z",
+      "metadata": {},
+      "name": "Synthetic clip",
+      "ranges": [
+        {
+          "boundary": {
+            "endAdjustedManually": false,
+            "postRollMs": 150,
+            "preRollMs": 100,
+            "startAdjustedManually": false
+          },
+          "enabled": true,
+          "id": "range_001",
+          "label": null,
+          "metadata": {},
+          "order": 0,
+          "playbackRate": 1.0,
+          "schemaVersion": 1,
+          "selection": {
+            "endSegmentId": null,
+            "endWordId": null,
+            "startSegmentId": null,
+            "startWordId": null,
+            "transcriptId": "tr_english",
+            "transcriptRevision": 1
+          },
+          "sourceEndMs": 31000,
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "transitionIn": null,
+          "transitionOut": null
+        }
+      ],
+      "revision": 1,
+      "schemaVersion": 1,
+      "settings": {
+        "defaultPostRollMs": 150,
+        "defaultPreRollMs": 100,
+        "metadata": {},
+        "preserveBreathingRoom": true,
+        "snapToSegments": true,
+        "snapToWords": true
+      },
+      "sourceMedia": {
+        "checksum": null,
+        "displayName": "sample.mp4",
+        "durationMs": 60000,
+        "mediaId": "media_001",
+        "metadata": {},
+        "mimeType": "video/mp4",
+        "sourceType": "uploaded",
+        "storageKey": "portable/media_001"
+      },
+      "status": "draft",
+      "transcriptId": "tr_english",
+      "transcriptRevision": 1,
+      "updatedAt": "2026-07-24T12:00:00Z",
+      "workspaceId": null
+    },
+    "editDecisionList": {
+      "clipProjectId": "clip_project_001",
+      "entries": [
+        {
+          "id": "edl_range_001",
+          "metadata": {},
+          "order": 0,
+          "outputDurationMs": 19000,
+          "outputEndMs": 19000,
+          "outputStartMs": 0,
+          "playbackRate": 1.0,
+          "rangeId": "range_001",
+          "sourceDurationMs": 19000,
+          "sourceEndMs": 31000,
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "transitionIn": null,
+          "transitionOut": null
+        }
+      ],
+      "metadata": {},
+      "outputDurationMs": 19000,
+      "projectRevision": 1,
+      "schemaVersion": 1,
+      "sourceDurationMs": 60000,
+      "sourceMediaId": "media_001",
+      "warnings": []
+    },
+    "metadata": {
+      "fixture": true
+    },
+    "options": {
+      "createSeparateTracks": false,
+      "includeCaptions": true,
+      "preserveDisabledRanges": false,
+      "unsupportedFeaturePolicy": "warn"
+    },
+    "remappedTranscript": null,
+    "schemaVersion": 1,
+    "targetProjectId": "project_fixture",
+    "targetProjectVersion": 35
+  },
+  "protocolVersion": 1,
+  "requestId": "req_convert_no_captions"
+}

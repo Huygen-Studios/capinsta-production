@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://capinsta.dev/contracts/transcript-document-v2.schema.json",
+  "title": "TranscriptDocumentV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "transcriptId", "mediaId", "durationMs", "languageMode", "detectedLanguages", "provider", "segments", "words", "speakers", "silenceRegions", "quality", "metadata", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "transcriptId": { "$ref": "#/$defs/id" }, "mediaId": { "$ref": "#/$defs/id" },
+    "durationMs": { "type": "integer", "minimum": 0 }, "languageMode": { "type": "string" },
+    "detectedLanguages": { "type": "array", "items": { "type": "string" } }, "provider": { "$ref": "#/$defs/provider" },
+    "segments": { "type": "array", "items": { "$ref": "#/$defs/segment" } }, "words": { "type": "array", "items": { "$ref": "#/$defs/word" } },
+    "speakers": { "type": "array", "items": { "$ref": "#/$defs/speaker" } }, "silenceRegions": { "type": "array", "items": { "$ref": "#/$defs/silence" } },
+    "quality": { "$ref": "#/$defs/quality" }, "metadata": { "$ref": "#/$defs/metadata" },
+    "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 }, "metadata": { "type": "object", "additionalProperties": true },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "timingSource": { "type": "string", "enum": ["provider", "aligned", "interpolated", "estimated", "manuallyAdjusted", "unknown"] },
+    "provider": { "type": "object", "additionalProperties": false, "required": ["name", "model", "requestId", "metadata"], "properties": { "name": { "type": "string" }, "model": { "type": ["string", "null"] }, "requestId": { "type": ["string", "null"] }, "metadata": { "$ref": "#/$defs/metadata" } } },
+    "segment": { "type": "object", "additionalProperties": false, "required": ["id", "startMs", "endMs", "text", "originalText", "speakerId", "language", "confidence", "wordIds", "timingSource", "metadata"], "properties": { "id": { "$ref": "#/$defs/id" }, "startMs": { "type": "integer", "minimum": 0 }, "endMs": { "type": "integer", "minimum": 0 }, "text": { "type": "string" }, "originalText": { "type": ["string", "null"] }, "speakerId": { "type": ["string", "null"] }, "language": { "type": ["string", "null"] }, "confidence": { "$ref": "#/$defs/confidence" }, "wordIds": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "timingSource": { "$ref": "#/$defs/timingSource" }, "metadata": { "$ref": "#/$defs/metadata" } } },
+    "word": { "type": "object", "additionalProperties": false, "required": ["id", "segmentId", "text", "originalText", "startMs", "endMs", "confidence", "speakerId", "language", "timingSource", "isFiller", "isLowConfidence", "metadata"], "properties": { "id": { "$ref": "#/$defs/id" }, "segmentId": { "$ref": "#/$defs/id" }, "text": { "type": "string" }, "originalText": { "type": ["string", "null"] }, "startMs": { "type": ["integer", "null"], "minimum": 0 }, "endMs": { "type": ["integer", "null"], "minimum": 0 }, "confidence": { "$ref": "#/$defs/confidence" }, "speakerId": { "type": ["string", "null"] }, "language": { "type": ["string", "null"] }, "timingSource": { "$ref": "#/$defs/timingSource" }, "isFiller": { "type": "boolean", "default": false }, "isLowConfidence": { "type": "boolean", "default": false }, "metadata": { "$ref": "#/$defs/metadata" } } },
+    "speaker": { "type": "object", "additionalProperties": false, "required": ["id", "label", "displayName", "confidence", "metadata"], "properties": { "id": { "$ref": "#/$defs/id" }, "label": { "type": "string" }, "displayName": { "type": ["string", "null"] }, "confidence": { "$ref": "#/$defs/confidence" }, "metadata": { "$ref": "#/$defs/metadata" } } },
+    "silence": { "type": "object", "additionalProperties": false, "required": ["id", "startMs", "endMs", "confidence", "source", "metadata"], "properties": { "id": { "$ref": "#/$defs/id" }, "startMs": { "type": "integer", "minimum": 0 }, "endMs": { "type": "integer", "minimum": 0 }, "confidence": { "$ref": "#/$defs/confidence" }, "source": { "type": "string" }, "metadata": { "$ref": "#/$defs/metadata" } } },
+    "quality": { "type": "object", "additionalProperties": false, "required": ["overallScore", "timingScore", "confidenceScore", "lowConfidenceWordCount", "untimedWordCount", "overlapCount", "warnings"], "properties": { "overallScore": { "$ref": "#/$defs/confidence" }, "timingScore": { "$ref": "#/$defs/confidence" }, "confidenceScore": { "$ref": "#/$defs/confidence" }, "lowConfidenceWordCount": { "type": "integer", "minimum": 0 }, "untimedWordCount": { "type": "integer", "minimum": 0 }, "overlapCount": { "type": "integer", "minimum": 0 }, "warnings": { "type": "array", "items": { "type": "string" } } } }
+  }
+}
