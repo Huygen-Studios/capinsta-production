@@ -9,6 +9,7 @@ indic-transliteration
 pyspellchecker
 soundfile
 numpy
+mediapipe==0.10.21
 langdetect
 
 # === Backend (Full Stack - NEW) ===

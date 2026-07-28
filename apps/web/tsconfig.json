@@ -21,6 +21,9 @@
 		],
 		"paths": {
 			"@/*": ["./src/*"],
+			"@capinsta/transcript-contract": [
+				"../../packages/transcript-contract/src/index.ts"
+			],
 			"content-collections": ["./.content-collections/generated"]
 		},
 		"forceConsistentCasingInFileNames": true

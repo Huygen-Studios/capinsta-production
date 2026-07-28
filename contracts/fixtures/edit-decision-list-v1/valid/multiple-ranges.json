@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "clipProjectId": "clip_multi",
+  "projectRevision": 1,
+  "sourceMediaId": "media_english",
+  "sourceDurationMs": 3000,
+  "outputDurationMs": 1200,
+  "entries": [
+    {
+      "id": "edl_r1",
+      "rangeId": "r1",
+      "order": 0,
+      "sourceMediaId": "media_english",
+      "sourceStartMs": 0,
+      "sourceEndMs": 400,
+      "sourceDurationMs": 400,
+      "outputStartMs": 0,
+      "outputEndMs": 400,
+      "outputDurationMs": 400,
+      "playbackRate": 1.0,
+      "transitionIn": null,
+      "transitionOut": null,
+      "metadata": {}
+    },
+    {
+      "id": "edl_r2",
+      "rangeId": "r2",
+      "order": 1,
+      "sourceMediaId": "media_english",
+      "sourceStartMs": 800,
+      "sourceEndMs": 1200,
+      "sourceDurationMs": 400,
+      "outputStartMs": 400,
+      "outputEndMs": 800,
+      "outputDurationMs": 400,
+      "playbackRate": 1.0,
+      "transitionIn": null,
+      "transitionOut": null,
+      "metadata": {}
+    },
+    {
+      "id": "edl_r3",
+      "rangeId": "r3",
+      "order": 2,
+      "sourceMediaId": "media_english",
+      "sourceStartMs": 1600,
+      "sourceEndMs": 2000,
+      "sourceDurationMs": 400,
+      "outputStartMs": 800,
+      "outputEndMs": 1200,
+      "outputDurationMs": 400,
+      "playbackRate": 1.0,
+      "transitionIn": null,
+      "transitionOut": null,
+      "metadata": {}
+    }
+  ],
+  "warnings": [],
+  "metadata": {}
+}

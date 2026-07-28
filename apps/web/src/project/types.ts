@@ -42,6 +42,14 @@ export interface TTimelineViewState {
 	playheadTime: MediaTime;
 }
 
+export interface CapinstaClippingProvenanceV1 {
+	sourceApplication: "clipper";
+	sourceClipProjectId: string;
+	sourceClipProjectRevision: number;
+	sourceTranscriptId: string | null;
+	conversionSchemaVersion: 1;
+}
+
 export interface TProject {
 	metadata: TProjectMetadata;
 	scenes: TScene[];
@@ -55,6 +63,7 @@ export interface TProject {
 	capinstaServerMediaAssetId?: string;
 	capinstaServerMediaAssetVersion?: number;
 	capinstaSourceFingerprint?: string;
+	capinstaClippingProvenance?: CapinstaClippingProvenanceV1;
 }
 
 export type TProjectSortKey = "createdAt" | "updatedAt" | "name" | "duration";

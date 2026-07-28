@@ -1,9 +1,15 @@
+import asyncio
+
 from server.api.health import readiness_payload, startup_diagnostics_payload
 from server.main import app
 
 
-def test_readiness_payload_is_lightweight_json_contract():
-    payload = readiness_payload().model_dump()
+def test_readiness_payload_is_lightweight_json_contract(monkeypatch):
+    async def healthy():
+        return {"controlPlaneDatabase": "healthy"}
+
+    monkeypatch.setattr("server.api.health.control_plane_health", healthy)
+    payload = asyncio.run(readiness_payload()).model_dump()
 
     assert payload["status"] == "ok"
     assert payload["service"] == "capinsta-backend"

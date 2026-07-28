@@ -42,12 +42,17 @@ def _sign(payload: str) -> str:
     return _b64(hmac.new(_secret(), payload.encode("utf-8"), hashlib.sha256).digest())
 
 
-def encode_cursor(*, created_at: str, item_id: str) -> str:
-    payload = _b64(json.dumps({"created_at": created_at, "id": item_id}, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+def encode_cursor(*, created_at: str, item_id: str, context: str | None = None) -> str:
+    value = {"created_at": created_at, "id": item_id}
+    if context is not None:
+        value["context"] = context
+    payload = _b64(json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8"))
     return f"{payload}.{_sign(payload)}"
 
 
-def decode_cursor(cursor: str | None) -> tuple[str | None, str | None]:
+def decode_cursor(
+    cursor: str | None, *, expected_context: str | None = None
+) -> tuple[str | None, str | None]:
     if not cursor:
         return None, None
     payload, separator, signature = cursor.partition(".")
@@ -59,16 +64,21 @@ def decode_cursor(cursor: str | None) -> tuple[str | None, str | None]:
         raise HTTPException(status_code=400, detail={"code": "invalid_cursor", "message": "Pagination cursor is invalid."}) from exc
     created_at = decoded.get("created_at") if isinstance(decoded, dict) else None
     item_id = decoded.get("id") if isinstance(decoded, dict) else None
+    context = decoded.get("context") if isinstance(decoded, dict) else None
     if not isinstance(created_at, str) or not created_at or not isinstance(item_id, str) or not item_id:
         raise HTTPException(status_code=400, detail={"code": "invalid_cursor", "message": "Pagination cursor is invalid."})
+    if expected_context is not None and context != expected_context:
+        raise HTTPException(status_code=400, detail={"code": "invalid_cursor", "message": "Pagination cursor does not match the current filters."})
     return created_at, item_id
 
 
-def parse_cursor_page(*, limit: int | None, cursor: str | None) -> CursorPage:
+def parse_cursor_page(
+    *, limit: int | None, cursor: str | None, cursor_context: str | None = None
+) -> CursorPage:
     resolved_limit = DEFAULT_PAGE_LIMIT if limit is None else limit
     if resolved_limit < 1 or resolved_limit > MAX_PAGE_LIMIT:
         raise HTTPException(status_code=400, detail={"code": "invalid_page_limit", "message": f"Limit must be between 1 and {MAX_PAGE_LIMIT}."})
-    created_at, item_id = decode_cursor(cursor)
+    created_at, item_id = decode_cursor(cursor, expected_context=cursor_context)
     return CursorPage(limit=resolved_limit, cursor_created_at=created_at, cursor_id=item_id)
 
 

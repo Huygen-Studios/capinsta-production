@@ -10,6 +10,7 @@ export const PRODUCT_CAPABILITIES = [
 	"start_export",
 	"download_export",
 	"use_product_api",
+	"use_clipper",
 ] as const;
 
 export type ProductCapability = (typeof PRODUCT_CAPABILITIES)[number];
@@ -131,7 +132,10 @@ export function evaluateProductAccess(
 		return decision(input, false, "denied_maintenance");
 	}
 
-	if (input.launchMode === "public")
+	if (
+		input.launchMode === "public" &&
+		input.requestedCapability !== "use_clipper"
+	)
 		return decision(input, true, "allowed_public", null, "public_default");
 
 	if (input.user.isAdmin)
@@ -164,6 +168,7 @@ export function requiresApprovedProductAccess(permission: AppPermission) {
 }
 
 export function capabilityForPermission(permission: AppPermission): ProductCapability {
+	if (permission === "clipper.access") return "use_clipper";
 	if (permission === "projects.access") return "create_project";
 	if (permission === "exports.access") return "start_export";
 	if (permission === "render.access") return "download_export";

@@ -1,0 +1,14 @@
+{
+  "protocolVersion": 1,
+  "requestId": "req_health",
+  "ok": true,
+  "result": {
+    "linkedEngines": [
+      "clip-domain",
+      "project-bridge"
+    ],
+    "status": "healthy"
+  },
+  "warnings": [],
+  "error": null
+}

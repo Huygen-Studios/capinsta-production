@@ -114,6 +114,7 @@ export function styleToPreview({
 			lineHeight: style.text.lineHeight,
 			textTransform: style.text.textTransform,
 			letterSpacing: `${style.text.letterSpacing}px`,
+			wordSpacing: `${style.text.wordSpacing}px`,
 			textShadow: style.shadow.enabled
 				? shadow(style.shadow)
 				: undefined,

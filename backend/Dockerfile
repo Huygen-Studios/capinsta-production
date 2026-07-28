@@ -5,6 +5,15 @@
 # independently deployed frontend /render route configured by RENDER_PAGE_URL
 # or FRONTEND_URL. This keeps API deployments small and prevents frontend build
 # OOM/timeouts from taking down backend releases.
+FROM rust:1.88-slim-bookworm AS clipping-runtime-builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY rust/ ./rust/
+COPY apps/desktop/ ./apps/desktop/
+RUN cargo build --locked --release -p clipping-runtime \
+  && strip target/release/capinsta-clipping-runtime
+
 FROM python:3.11-slim AS app
 
 ENV PYTHONUNBUFFERED=1
@@ -50,11 +59,17 @@ ENV STABLE_TS_MAX_CONCURRENCY=1
 
 WORKDIR /app
 
+COPY --from=clipping-runtime-builder \
+  /build/target/release/capinsta-clipping-runtime \
+  /usr/local/bin/capinsta-clipping-runtime
+
 RUN apt-get update -qq \
   && apt-get install -y -qq --no-install-recommends -o=Dpkg::Use-Pty=0 \
     curl \
     ca-certificates \
     ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
     libgomp1 \
     libsndfile1 \
   && apt-get clean \
@@ -89,10 +104,22 @@ RUN mkdir -p \
   && chmod -R 0775 /data/capinsta
 
 COPY backend/ .
+COPY apps/web/migrations/ /app/migrations/
 
 RUN ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke
+RUN printf '%s' '{"protocolVersion":1,"requestId":"docker_health","operation":"health","payload":{},"options":{}}' \
+  | capinsta-clipping-runtime >/tmp/clipping-runtime-health.json \
+  && grep -q '"ok":true' /tmp/clipping-runtime-health.json \
+  && rm /tmp/clipping-runtime-health.json
 
 RUN du -sh /app /usr/local /ms-playwright 2>/dev/null || true
+
+RUN groupadd --system --gid 10001 capinsta \
+  && useradd --system --uid 10001 --gid capinsta --home-dir /app capinsta \
+  && mkdir -p /tmp/huygen-caps /app/storage \
+  && chown -R capinsta:capinsta /tmp/huygen-caps /app/storage /data/capinsta
+
+USER capinsta
 
 EXPOSE 10000
 

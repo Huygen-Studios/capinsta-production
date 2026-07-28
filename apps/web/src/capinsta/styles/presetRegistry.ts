@@ -91,6 +91,7 @@ interface CapinstaSourceStyleConfig {
 	paddingX?: number;
 	paddingY?: number;
 	letterSpacing?: number;
+	wordSpacing?: number;
 	lineHeight: number;
 	textTransform?: "none" | "uppercase";
 	textShadowEnabled?: boolean;
@@ -185,6 +186,7 @@ function sourcePresetPatch({
 			opacity: source.opacity ?? 1,
 			textTransform: source.textTransform ?? "none",
 			letterSpacing: source.letterSpacing ?? 0,
+			wordSpacing: source.wordSpacing ?? 0,
 			alignment: source.alignment ?? "center",
 		},
 		background: {

@@ -8,7 +8,11 @@ import {
   buildSafeCaptionPositionStyle,
   resolveSafeCaptionLayout,
 } from "./captionLayoutSafety";
-import { normalizeCaptionStyleConfig, resolveFontFamily } from "./captionStyleConfig";
+import {
+  captionWordGap,
+  normalizeCaptionStyleConfig,
+  resolveFontFamily,
+} from "./captionStyleConfig";
 import { getActiveWordIndex, getRenderableCaptionWords, getWordDisplayText, wordActivationProgressFrames } from "./captionUtils";
 
 interface Props {
@@ -149,7 +153,10 @@ export default function ViralWordHighlightCaption({
               key={`${caption.id}-${index}-${word.start}`}
               style={{
                 display: "inline-block",
-                marginInlineEnd: index < words.length - 1 ? "0.35em" : 0,
+                marginInlineEnd:
+                  index < words.length - 1
+                    ? captionWordGap({ baseEm: 0.35, wordSpacing: config.wordSpacing })
+                    : 0,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontSize,
                 fontWeight: config.fontWeight,

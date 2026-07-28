@@ -10,6 +10,7 @@ import {
 } from "./captionLayoutSafety";
 import {
   backgroundRgba,
+  captionWordGap,
   colorToRgba,
   directionalShadow,
   normalizeCaptionStyleConfig,
@@ -205,7 +206,10 @@ export default function WordHighlightBoxCaption({
               data-active-word={isActive ? "true" : "false"}
               style={{
                 display: "inline-block",
-                marginInlineEnd: index < words.length - 1 ? "0.32em" : 0,
+                marginInlineEnd:
+                  index < words.length - 1
+                    ? captionWordGap({ baseEm: 0.32, wordSpacing: config.wordSpacing })
+                    : 0,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontSize,
                   fontWeight: config.fontWeight,

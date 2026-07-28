@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
 	lruEntriesToEvict,
 	projectCacheEntryIds,
@@ -8,14 +8,31 @@ import {
 	isStorageQuotaExceededError,
 	StorageQuotaExceededError,
 } from "./quota";
-import { shouldPersistMediaFileInBrowser } from "./service";
 
-const entry = (
-	id: string,
-	projectId: string,
-	bytes: number,
-	lastAccessedAt: string,
-): BrowserCacheEntry => ({
+mock.module("opencut-wasm", () => ({
+	TICKS_PER_SECOND: () => 120_000,
+	mediaTimeFromSeconds: ({ seconds }: { seconds: number }) =>
+		Math.round(seconds * 120_000),
+	mediaTimeToSeconds: ({ time }: { time: number }) => time / 120_000,
+	lastFrameTime: ({ duration }: { duration: number }) => duration,
+	parseTimecode: () => undefined,
+	roundToFrame: ({ time }: { time: number }) => time,
+	snappedSeekTime: ({ time }: { time: number }) => time,
+}));
+
+const { shouldPersistMediaFileInBrowser } = await import("./service");
+
+const entry = ({
+	id,
+	projectId,
+	bytes,
+	lastAccessedAt,
+}: {
+	id: string;
+	projectId: string;
+	bytes: number;
+	lastAccessedAt: string;
+}): BrowserCacheEntry => ({
 	id,
 	projectId,
 	assetType: "thumbnail",
@@ -52,8 +69,18 @@ describe("storage lifecycle safety", () => {
 
 	test("project cache deletion never selects another project's entries", () => {
 		const entries = [
-			entry("a-1", "project-a", 10, "2026-01-01T00:00:00Z"),
-			entry("b-1", "project-b", 10, "2026-01-01T00:00:01Z"),
+			entry({
+				id: "a-1",
+				projectId: "project-a",
+				bytes: 10,
+				lastAccessedAt: "2026-01-01T00:00:00Z",
+			}),
+			entry({
+				id: "b-1",
+				projectId: "project-b",
+				bytes: 10,
+				lastAccessedAt: "2026-01-01T00:00:01Z",
+			}),
 		];
 		expect(projectCacheEntryIds({ entries, projectId: "project-a" })).toEqual([
 			"a-1",
@@ -62,13 +89,21 @@ describe("storage lifecycle safety", () => {
 
 	test("cache eviction is size based and least-recently-used", () => {
 		const entries = [
-			entry("old", "project-a", 40, "2026-01-01T00:00:00Z"),
-			entry("new", "project-a", 40, "2026-01-02T00:00:00Z"),
+			entry({
+				id: "old",
+				projectId: "project-a",
+				bytes: 40,
+				lastAccessedAt: "2026-01-01T00:00:00Z",
+			}),
+			entry({
+				id: "new",
+				projectId: "project-a",
+				bytes: 40,
+				lastAccessedAt: "2026-01-02T00:00:00Z",
+			}),
 		];
 		expect(
-			lruEntriesToEvict({ entries, budgetBytes: 50 }).map(
-				(item) => item.id,
-			),
+			lruEntriesToEvict({ entries, budgetBytes: 50 }).map((item) => item.id),
 		).toEqual(["old"]);
 	});
 });

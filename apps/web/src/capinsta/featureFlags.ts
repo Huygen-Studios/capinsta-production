@@ -41,4 +41,15 @@ export function isCapinstaDebugEnabled(): boolean {
 	return truthyValues.has(value.toLowerCase());
 }
 
+export function isCapinstaProjectHandoffEnabled(): boolean {
+	const value = process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF || "";
+	return truthyValues.has(value.toLowerCase());
+}
+
+export function isServerBackedEditorMediaEnabled(): boolean {
+	const value =
+		process.env.NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA || "";
+	return truthyValues.has(value.toLowerCase());
+}
+
 export const CAPINSTA_TRANSCRIPT_CONTRACT_VERSION = "capinsta.transcript.v1";

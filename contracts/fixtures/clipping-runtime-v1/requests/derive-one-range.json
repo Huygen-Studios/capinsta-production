@@ -1,0 +1,165 @@
+{
+  "operation": "derive_project",
+  "options": {},
+  "payload": {
+    "clipProject": {
+      "canvas": {
+        "aspectRatio": "9:16",
+        "background": null,
+        "height": 1920,
+        "metadata": {},
+        "safeArea": null,
+        "width": 1080
+      },
+      "captionTrack": null,
+      "clipProjectId": "clip_project_001",
+      "createdAt": "2026-07-24T12:00:00Z",
+      "metadata": {
+        "synthetic": true
+      },
+      "name": "Synthetic clip",
+      "ranges": [
+        {
+          "boundary": {
+            "endAdjustedManually": false,
+            "postRollMs": 150,
+            "preRollMs": 100,
+            "startAdjustedManually": false
+          },
+          "enabled": true,
+          "id": "range_001",
+          "label": null,
+          "metadata": {},
+          "order": 0,
+          "playbackRate": 1,
+          "schemaVersion": 1,
+          "selection": {
+            "endSegmentId": null,
+            "endWordId": null,
+            "startSegmentId": null,
+            "startWordId": null,
+            "transcriptId": "tr_english",
+            "transcriptRevision": 1
+          },
+          "sourceEndMs": 2000,
+          "sourceMediaId": "media_english",
+          "sourceStartMs": 0,
+          "transitionIn": null,
+          "transitionOut": null
+        }
+      ],
+      "revision": 1,
+      "schemaVersion": 1,
+      "settings": {
+        "defaultPostRollMs": 150,
+        "defaultPreRollMs": 100,
+        "metadata": {},
+        "preserveBreathingRoom": true,
+        "snapToSegments": true,
+        "snapToWords": true
+      },
+      "sourceMedia": {
+        "checksum": null,
+        "displayName": "sample.mp4",
+        "durationMs": 3000,
+        "mediaId": "media_english",
+        "metadata": {},
+        "mimeType": "video/mp4",
+        "sourceType": "uploaded",
+        "storageKey": null
+      },
+      "status": "draft",
+      "transcriptId": "tr_english",
+      "transcriptRevision": 1,
+      "updatedAt": "2026-07-24T12:00:00Z",
+      "workspaceId": null
+    },
+    "options": {
+      "includeRemappedTranscript": true
+    },
+    "transcript": {
+      "createdAt": "2026-07-24T12:00:00Z",
+      "detectedLanguages": [
+        "en"
+      ],
+      "durationMs": 3000,
+      "languageMode": "auto",
+      "mediaId": "media_english",
+      "metadata": {},
+      "provider": {
+        "metadata": {
+          "region": "in"
+        },
+        "model": "saaras-v3",
+        "name": "sarvam",
+        "requestId": null
+      },
+      "quality": {
+        "confidenceScore": null,
+        "lowConfidenceWordCount": 0,
+        "overallScore": null,
+        "overlapCount": 0,
+        "timingScore": null,
+        "untimedWordCount": 0,
+        "warnings": []
+      },
+      "schemaVersion": 2,
+      "segments": [
+        {
+          "confidence": 0.95,
+          "endMs": 1200,
+          "id": "seg_000001",
+          "language": "en",
+          "metadata": {},
+          "originalText": "Hello world.",
+          "speakerId": null,
+          "startMs": 0,
+          "text": "Hello world.",
+          "timingSource": "provider",
+          "wordIds": [
+            "word_000001",
+            "word_000002"
+          ]
+        }
+      ],
+      "silenceRegions": [],
+      "speakers": [],
+      "transcriptId": "tr_english",
+      "updatedAt": "2026-07-24T12:00:00Z",
+      "words": [
+        {
+          "confidence": 0.96,
+          "endMs": 500,
+          "id": "word_000001",
+          "isFiller": false,
+          "isLowConfidence": false,
+          "language": "en",
+          "metadata": {},
+          "originalText": "Hello",
+          "segmentId": "seg_000001",
+          "speakerId": null,
+          "startMs": 0,
+          "text": "Hello",
+          "timingSource": "provider"
+        },
+        {
+          "confidence": 0.94,
+          "endMs": 1200,
+          "id": "word_000002",
+          "isFiller": false,
+          "isLowConfidence": false,
+          "language": "en",
+          "metadata": {},
+          "originalText": "world.",
+          "segmentId": "seg_000001",
+          "speakerId": null,
+          "startMs": 510,
+          "text": "world.",
+          "timingSource": "provider"
+        }
+      ]
+    }
+  },
+  "protocolVersion": 1,
+  "requestId": "req_derive_one"
+}

@@ -220,6 +220,52 @@ export const appProductEntitlements = pgTable(
 	],
 );
 
+export const whopAccountLinks = pgTable(
+	"whop_account_links",
+	{
+		userId: uuid("user_id").primaryKey(),
+		whopUserId: text("whop_user_id").notNull().unique(),
+		membershipId: text("membership_id").unique(),
+		productId: text("product_id").notNull(),
+		planId: text("plan_id"),
+		entitlementState: text("entitlement_state").default("unknown").notNull(),
+		eventTimestamp: timestamp("event_timestamp", { withTimezone: true }),
+		lastVerifiedAt: timestamp("last_verified_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		index("whop_account_links_state_idx").on(
+			table.entitlementState,
+			table.updatedAt,
+		),
+	],
+);
+
+export const whopWebhookEvents = pgTable(
+	"whop_webhook_events",
+	{
+		eventId: text("event_id").primaryKey(),
+		eventType: text("event_type").notNull(),
+		eventTimestamp: timestamp("event_timestamp", { withTimezone: true }).notNull(),
+		receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+		processingStatus: text("processing_status").default("received").notNull(),
+		whopUserId: text("whop_user_id"),
+		membershipId: text("membership_id"),
+		productId: text("product_id"),
+		attemptCount: integer("attempt_count").default(1).notNull(),
+		failureCode: text("failure_code"),
+		payloadHash: text("payload_hash").notNull(),
+		processedAt: timestamp("processed_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("whop_webhook_events_status_received_idx").on(
+			table.processingStatus,
+			table.receivedAt,
+		),
+	],
+);
+
 export const appProductAccessBulkOperations = pgTable(
 	"app_product_access_bulk_operations",
 	{
@@ -674,6 +720,526 @@ export const projectRegistry = pgTable(
 	],
 );
 
+// Durable Stage 2 clipping records. The SQL migration contains the authoritative
+// Supabase RLS policies and cross-row ownership triggers.
+export const mediaAssets = pgTable(
+	"media_assets",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		displayName: text("display_name").notNull(),
+		mimeType: text("mime_type"),
+		mediaKind: text("media_kind").default("unknown").notNull(),
+		sourceType: text("source_type").default("unknown").notNull(),
+		durationMs: bigint("duration_ms", { mode: "number" }),
+		width: integer("width"),
+		height: integer("height"),
+		fpsNumerator: integer("fps_numerator"),
+		fpsDenominator: integer("fps_denominator"),
+		sizeBytes: bigint("size_bytes", { mode: "number" }),
+		checksum: text("checksum"),
+		storageBucket: text("storage_bucket"),
+		storagePath: text("storage_path"),
+		storageObjectRevision: bigint("storage_object_revision", { mode: "number" }),
+		probeResultIdentity: text("probe_result_identity"),
+		status: text("status").default("pending").notNull(),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		...auditColumns,
+		deletedAt: timestamp("deleted_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("media_assets_owner_idx").on(table.ownerUserId),
+		index("media_assets_status_idx").on(table.status),
+		index("media_assets_probe_queue_idx").on(
+			table.status,
+			table.storageObjectRevision,
+			table.updatedAt,
+		),
+	],
+);
+
+export const mediaVariants = pgTable(
+	"media_variants",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		mediaAssetId: uuid("media_asset_id")
+			.notNull()
+			.references(() => mediaAssets.id, { onDelete: "cascade" }),
+		variantType: text("variant_type").notNull(),
+		mimeType: text("mime_type"),
+		width: integer("width"),
+		height: integer("height"),
+		durationMs: bigint("duration_ms", { mode: "number" }),
+		sizeBytes: bigint("size_bytes", { mode: "number" }),
+		storageBucket: text("storage_bucket"),
+		storagePath: text("storage_path"),
+		status: text("status").default("pending").notNull(),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		sourceMediaRevision: bigint("source_media_revision", { mode: "number" }),
+		sourceStorageObjectRevision: bigint("source_storage_object_revision", {
+			mode: "number",
+		}),
+		generationSpec: jsonb("generation_spec").$type<Record<string, unknown>>(),
+		generationSpecHash: text("generation_spec_hash"),
+		resultIdentity: text("result_identity"),
+		failure: jsonb("failure").$type<Record<string, unknown>>(),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		readyAt: timestamp("ready_at", { withTimezone: true }),
+		...auditColumns,
+		deletedAt: timestamp("deleted_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("media_variants_asset_idx").on(table.mediaAssetId),
+		index("media_variants_status_updated_idx").on(table.status, table.updatedAt),
+		uniqueIndex("media_variants_generation_identity_key")
+			.on(
+				table.mediaAssetId,
+				table.variantType,
+				table.sourceMediaRevision,
+				table.generationSpecHash,
+			)
+			.where(
+				sql`${table.deletedAt} IS NULL AND ${table.sourceMediaRevision} IS NOT NULL AND ${table.generationSpecHash} IS NOT NULL`,
+			),
+	],
+);
+
+export const mediaUploadSessions = pgTable(
+	"media_upload_sessions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		mediaAssetId: uuid("media_asset_id")
+			.notNull()
+			.references(() => mediaAssets.id, { onDelete: "cascade" }),
+		storageBucket: text("storage_bucket").notNull(),
+		storagePath: text("storage_path").notNull(),
+		uploadProtocol: text("upload_protocol").notNull(),
+		purpose: text("purpose").default("initial").notNull(),
+		status: text("status").default("created").notNull(),
+		expectedSizeBytes: bigint("expected_size_bytes", { mode: "number" }).notNull(),
+		receivedSizeBytes: bigint("received_size_bytes", { mode: "number" })
+			.default(0)
+			.notNull(),
+		displayName: text("display_name").notNull(),
+		mimeType: text("mime_type").notNull(),
+		checksumAlgorithm: text("checksum_algorithm"),
+		expectedChecksum: text("expected_checksum"),
+		providerUploadId: text("provider_upload_id"),
+		replacementRevision: bigint("replacement_revision", { mode: "number" }),
+		previousStorageBucket: text("previous_storage_bucket"),
+		previousStoragePath: text("previous_storage_path"),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+		failedAt: timestamp("failed_at", { withTimezone: true }),
+		error: jsonb("error").$type<Record<string, unknown>>(),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		...auditColumns,
+	},
+	(table) => [
+		index("media_upload_sessions_owner_created_idx").on(
+			table.ownerUserId,
+			table.createdAt,
+		),
+		index("media_upload_sessions_asset_idx").on(
+			table.mediaAssetId,
+			table.createdAt,
+		),
+		index("media_upload_sessions_expiry_idx").on(table.expiresAt),
+		uniqueIndex("media_upload_sessions_unique_object").on(
+			table.storageBucket,
+			table.storagePath,
+		),
+	],
+);
+
+export const transcripts = pgTable(
+	"transcripts",
+	{
+		id: text("id").primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		mediaAssetId: uuid("media_asset_id")
+			.notNull()
+			.references(() => mediaAssets.id, { onDelete: "cascade" }),
+		schemaVersion: integer("schema_version").notNull(),
+		providerName: text("provider_name"),
+		providerModel: text("provider_model"),
+		languageMode: text("language_mode"),
+		durationMs: bigint("duration_ms", { mode: "number" }).notNull(),
+		status: text("status").default("ready").notNull(),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		document: jsonb("document").$type<Record<string, unknown>>().notNull(),
+		quality: jsonb("quality").$type<Record<string, unknown>>().default({}).notNull(),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		mediaRevision: bigint("media_revision", { mode: "number" }),
+		storageObjectRevision: bigint("storage_object_revision", { mode: "number" }),
+		audioVariantId: uuid("audio_variant_id").references(() => mediaVariants.id, {
+			onDelete: "restrict",
+		}),
+		audioVariantRevision: bigint("audio_variant_revision", { mode: "number" }),
+		requestIdentity: text("request_identity"),
+		resultIdentity: text("result_identity"),
+		failure: jsonb("failure").$type<Record<string, unknown>>(),
+		readyAt: timestamp("ready_at", { withTimezone: true }),
+		deletedAt: timestamp("deleted_at", { withTimezone: true }),
+		...auditColumns,
+	},
+	(table) => [
+		index("transcripts_owner_idx").on(table.ownerUserId),
+		index("transcripts_media_idx").on(table.mediaAssetId),
+		index("transcripts_media_status_idx").on(
+			table.mediaAssetId,
+			table.status,
+			table.updatedAt,
+		),
+		uniqueIndex("transcripts_request_identity_key")
+			.on(table.ownerUserId, table.requestIdentity)
+			.where(sql`${table.requestIdentity} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+	],
+);
+
+export const transcriptAnalyses = pgTable(
+	"transcript_analyses",
+	{
+		id: text("id").primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		mediaAssetId: uuid("media_asset_id")
+			.notNull()
+			.references(() => mediaAssets.id, { onDelete: "cascade" }),
+		transcriptId: text("transcript_id")
+			.notNull()
+			.references(() => transcripts.id, { onDelete: "cascade" }),
+		transcriptRevision: bigint("transcript_revision", { mode: "number" }).notNull(),
+		mediaRevision: bigint("media_revision", { mode: "number" }).notNull(),
+		audioVariantId: uuid("audio_variant_id").references(() => mediaVariants.id, {
+			onDelete: "restrict",
+		}),
+		audioVariantRevision: bigint("audio_variant_revision", { mode: "number" }),
+		analysisType: text("analysis_type").notNull(),
+		schemaVersion: integer("schema_version").default(1).notNull(),
+		analysisSpec: jsonb("analysis_spec").$type<Record<string, unknown>>().notNull(),
+		analysisSpecHash: text("analysis_spec_hash").notNull(),
+		status: text("status").default("queued").notNull(),
+		document: jsonb("document").$type<Record<string, unknown>>(),
+		summary: jsonb("summary").$type<Record<string, unknown>>(),
+		failure: jsonb("failure").$type<Record<string, unknown>>(),
+		resultIdentity: text("result_identity"),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		readyAt: timestamp("ready_at", { withTimezone: true }),
+		...auditColumns,
+		deletedAt: timestamp("deleted_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("transcript_analyses_owner_status_idx").on(
+			table.ownerUserId,
+			table.status,
+			table.updatedAt,
+		),
+		index("transcript_analyses_transcript_idx").on(
+			table.transcriptId,
+			table.transcriptRevision,
+		),
+	],
+);
+
+export const timelineRecommendations = pgTable(
+	"timeline_recommendations",
+	{
+		id: text("id").primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		analysisId: text("analysis_id")
+			.notNull()
+			.references(() => transcriptAnalyses.id, { onDelete: "cascade" }),
+		mediaAssetId: uuid("media_asset_id")
+			.notNull()
+			.references(() => mediaAssets.id, { onDelete: "cascade" }),
+		transcriptId: text("transcript_id")
+			.notNull()
+			.references(() => transcripts.id, { onDelete: "cascade" }),
+		recommendationType: text("recommendation_type").notNull(),
+		sourceStartMs: bigint("source_start_ms", { mode: "number" }),
+		sourceEndMs: bigint("source_end_ms", { mode: "number" }),
+		wordIds: jsonb("word_ids").$type<string[]>().default([]).notNull(),
+		segmentIds: jsonb("segment_ids").$type<string[]>().default([]).notNull(),
+		reasonCode: text("reason_code").notNull(),
+		severity: text("severity").notNull(),
+		confidence: numeric("confidence"),
+		recommendation: jsonb("recommendation").$type<Record<string, unknown>>().notNull(),
+		status: text("status").default("proposed").notNull(),
+		decidedBy: uuid("decided_by"),
+		decidedAt: timestamp("decided_at", { withTimezone: true }),
+		decisionNote: text("decision_note"),
+		decisionRequestId: text("decision_request_id"),
+		decisionProjectRevision: bigint("decision_project_revision", { mode: "number" }),
+		...auditColumns,
+	},
+	(table) => [
+		index("timeline_recommendations_analysis_idx").on(
+			table.analysisId,
+			table.status,
+			table.sourceStartMs,
+		),
+		index("timeline_recommendations_owner_idx").on(
+			table.ownerUserId,
+			table.createdAt,
+		),
+	],
+);
+
+export const clipProjects = pgTable(
+	"clip_projects",
+	{
+		id: text("id").primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		sourceMediaAssetId: uuid("source_media_asset_id")
+			.notNull()
+			.references(() => mediaAssets.id, { onDelete: "restrict" }),
+		transcriptId: text("transcript_id").references(() => transcripts.id, {
+			onDelete: "set null",
+		}),
+		schemaVersion: integer("schema_version").notNull(),
+		name: text("name").notNull(),
+		status: text("status").notNull(),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		project: jsonb("project").$type<Record<string, unknown>>().notNull(),
+		latestEdl: jsonb("latest_edl").$type<Record<string, unknown>>(),
+		latestRemappedTranscript: jsonb("latest_remapped_transcript").$type<Record<string, unknown>>(),
+		latestConversionResult: jsonb("latest_conversion_result").$type<Record<string, unknown>>(),
+		mediaRevision: bigint("media_revision", { mode: "number" }),
+		transcriptRevision: bigint("transcript_revision", { mode: "number" }),
+		latestEdlRevision: bigint("latest_edl_revision", { mode: "number" }),
+		latestRemappedTranscriptRevision: bigint("latest_remapped_transcript_revision", { mode: "number" }),
+		latestConversionRevision: bigint("latest_conversion_revision", { mode: "number" }),
+		latestDerivationTranscriptRevision: bigint(
+			"latest_derivation_transcript_revision",
+			{ mode: "number" },
+		),
+		latestDerivationResultIdentity: text("latest_derivation_result_identity"),
+		latestConversionResultIdentity: text("latest_conversion_result_identity"),
+		metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+		...auditColumns,
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
+		deletedAt: timestamp("deleted_at", { withTimezone: true }),
+	},
+	(table) => [
+		index("clip_projects_owner_updated_idx").on(table.ownerUserId, table.updatedAt),
+		index("clip_projects_media_idx").on(table.sourceMediaAssetId),
+	],
+);
+
+export const projectHandoffs = pgTable(
+	"project_handoffs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		clipProjectId: text("clip_project_id")
+			.notNull()
+			.references(() => clipProjects.id, { onDelete: "restrict" }),
+		clipProjectRevision: bigint("clip_project_revision", {
+			mode: "number",
+		}).notNull(),
+		conversionResultIdentity: text("conversion_result_identity").notNull(),
+		targetProjectId: text("target_project_id").notNull(),
+		status: text("status").default("prepared").notNull(),
+		manifestSchemaVersion: integer("manifest_schema_version").notNull(),
+		manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
+		requestIdentity: text("request_identity").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+		claimedAt: timestamp("claimed_at", { withTimezone: true }),
+		claimedBy: uuid("claimed_by"),
+		importedProjectId: text("imported_project_id"),
+		importedProjectRevision: bigint("imported_project_revision", {
+			mode: "number",
+		}),
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+		failure: jsonb("failure").$type<Record<string, unknown>>(),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		...auditColumns,
+	},
+	(table) => [
+		index("project_handoffs_owner_created_idx").on(
+			table.ownerUserId,
+			table.createdAt,
+		),
+		index("project_handoffs_project_revision_idx").on(
+			table.clipProjectId,
+			table.clipProjectRevision,
+		),
+		index("project_handoffs_expiry_idx").on(table.status, table.expiresAt),
+		uniqueIndex("project_handoffs_active_identity_key")
+			.on(table.requestIdentity)
+			.where(
+				sql`${table.status} IN ('prepared','claimed','imported')`,
+			),
+	],
+);
+
+export const clipProjectVersions = pgTable(
+	"clip_project_versions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		clipProjectId: text("clip_project_id")
+			.notNull()
+			.references(() => clipProjects.id, { onDelete: "cascade" }),
+		revision: bigint("revision", { mode: "number" }).notNull(),
+		project: jsonb("project").$type<Record<string, unknown>>().notNull(),
+		createdBy: uuid("created_by"),
+		changeSummary: text("change_summary"),
+		versionSource: text("version_source").default("manual").notNull(),
+		transcriptRevision: bigint("transcript_revision", { mode: "number" }),
+		derivationIdentity: text("derivation_identity"),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		uniqueIndex("clip_project_versions_unique_revision").on(
+			table.clipProjectId,
+			table.revision,
+		),
+	],
+);
+
+export const clipProjectRecommendationConsumptions = pgTable(
+	"clip_project_recommendation_consumptions",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		clipProjectId: text("clip_project_id")
+			.notNull()
+			.references(() => clipProjects.id, { onDelete: "cascade" }),
+		projectRevision: bigint("project_revision", { mode: "number" }).notNull(),
+		recommendationId: text("recommendation_id")
+			.notNull()
+			.references(() => timelineRecommendations.id, { onDelete: "restrict" }),
+		derivationIdentity: text("derivation_identity").notNull(),
+		createdBy: uuid("created_by"),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		uniqueIndex("clip_project_recommendation_consumptions_unique").on(
+			table.clipProjectId,
+			table.projectRevision,
+			table.recommendationId,
+		),
+		index("clip_project_consumptions_owner_idx").on(
+			table.ownerUserId,
+			table.createdAt,
+		),
+	],
+);
+
+export const processingJobs = pgTable(
+	"processing_jobs",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		ownerUserId: uuid("owner_user_id").notNull(),
+		projectId: text("project_id").references(() => clipProjects.id, {
+			onDelete: "set null",
+		}),
+		mediaAssetId: uuid("media_asset_id").references(() => mediaAssets.id, {
+			onDelete: "set null",
+		}),
+		jobType: text("job_type").notNull(),
+		status: text("status").default("queued").notNull(),
+		priority: integer("priority").default(0).notNull(),
+		progress: numeric("progress").default("0").notNull(),
+		currentStage: text("current_stage"),
+		input: jsonb("input").$type<Record<string, unknown>>().default({}).notNull(),
+		output: jsonb("output").$type<Record<string, unknown>>(),
+		error: jsonb("error").$type<Record<string, unknown>>(),
+		idempotencyKey: text("idempotency_key"),
+		attemptCount: integer("attempt_count").default(0).notNull(),
+		maxAttempts: integer("max_attempts").default(3).notNull(),
+		workerId: text("worker_id"),
+		heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+		claimToken: uuid("claim_token"),
+		leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+		claimedAt: timestamp("claimed_at", { withTimezone: true }),
+		lastAttemptStartedAt: timestamp("last_attempt_started_at", {
+			withTimezone: true,
+		}),
+		nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+		failureCode: text("failure_code"),
+		failureMessage: text("failure_message"),
+		lastWorkerId: text("last_worker_id"),
+		executionTimeoutSeconds: integer("execution_timeout_seconds"),
+		cancelReason: text("cancel_reason"),
+		availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
+		finishedAt: timestamp("finished_at", { withTimezone: true }),
+		cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+		cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+		revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+		...auditColumns,
+	},
+	(table) => [
+		index("processing_jobs_owner_created_idx").on(table.ownerUserId, table.createdAt),
+		index("processing_jobs_project_idx").on(table.projectId),
+		index("processing_jobs_claim_idx").on(
+			table.status,
+			table.availableAt,
+			table.priority,
+			table.createdAt,
+			table.id,
+		),
+		index("processing_jobs_lease_expiry_idx").on(table.leaseExpiresAt, table.id),
+		index("processing_jobs_type_idx").on(table.jobType),
+		index("processing_jobs_media_idx").on(table.mediaAssetId),
+	],
+);
+
+export const processingJobAttempts = pgTable(
+	"processing_job_attempts",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		jobId: uuid("job_id")
+			.notNull()
+			.references(() => processingJobs.id, { onDelete: "cascade" }),
+		attemptNumber: integer("attempt_number").notNull(),
+		workerId: text("worker_id").notNull(),
+		claimToken: uuid("claim_token").notNull().unique(),
+		status: text("status").notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
+		finishedAt: timestamp("finished_at", { withTimezone: true }),
+		leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+		error: jsonb("error").$type<Record<string, unknown>>(),
+		outputSummary: jsonb("output_summary").$type<Record<string, unknown>>(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		uniqueIndex("processing_job_attempts_job_number_key").on(
+			table.jobId,
+			table.attemptNumber,
+		),
+		index("processing_job_attempts_job_created_idx").on(
+			table.jobId,
+			table.createdAt,
+		),
+	],
+);
+
+export const idempotencyRecords = pgTable(
+	"idempotency_records",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		ownerUserId: uuid("owner_user_id"),
+		scope: text("scope").notNull(),
+		idempotencyKey: text("idempotency_key").notNull(),
+		requestHash: text("request_hash").notNull(),
+		status: text("status").default("in_progress").notNull(),
+		responseCode: integer("response_code"),
+		response: jsonb("response").$type<Record<string, unknown>>(),
+		resourceType: text("resource_type"),
+		resourceId: text("resource_id"),
+		expiresAt: timestamp("expires_at", { withTimezone: true }),
+		...auditColumns,
+	},
+	(table) => [
+		uniqueIndex("idempotency_records_scope_key").on(table.scope, table.idempotencyKey),
+		index("idempotency_records_expiry_idx").on(table.expiresAt),
+	],
+);
+
 export const deletedProjectRecords = pgTable(
 	"deleted_project_records",
 	{
@@ -738,6 +1304,58 @@ export const usageEvents = pgTable(
 			table.occurredAt,
 		),
 		index("usage_events_user_occurred_idx").on(table.userId, table.occurredAt),
+	],
+);
+
+export const usageReservations = pgTable(
+	"usage_reservations",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		idempotencyKey: text("idempotency_key").notNull().unique(),
+		userId: uuid("user_id").notNull(),
+		resourceType: text("resource_type").notNull(),
+		resourceId: text("resource_id").notNull(),
+		metric: text("metric").notNull(),
+		quantity: numeric("quantity").notNull(),
+		finalQuantity: numeric("final_quantity"),
+		unit: text("unit").notNull(),
+		periodStart: date("period_start").default(sql`CURRENT_DATE`).notNull(),
+		status: text("status").default("reserved").notNull(),
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		index("usage_reservations_user_metric_period_idx").on(
+			table.userId,
+			table.metric,
+			table.periodStart,
+			table.status,
+		),
+		index("usage_reservations_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export const accountDeletionRequests = pgTable(
+	"account_deletion_requests",
+	{
+		id: uuid("id").defaultRandom().primaryKey(),
+		userId: uuid("user_id").notNull().unique(),
+		status: text("status").default("requested").notNull(),
+		requestedAt: timestamp("requested_at", { withTimezone: true }).defaultNow().notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
+		completedAt: timestamp("completed_at", { withTimezone: true }),
+		attemptCount: integer("attempt_count").default(0).notNull(),
+		safeFailureCode: text("safe_failure_code"),
+		storageDeleted: boolean("storage_deleted").default(false).notNull(),
+		databaseDeleted: boolean("database_deleted").default(false).notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+	},
+	(table) => [
+		index("account_deletion_requests_status_idx").on(
+			table.status,
+			table.requestedAt,
+		),
 	],
 );
 

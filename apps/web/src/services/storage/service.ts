@@ -21,6 +21,7 @@ import type {
 	StorageConfig,
 	SerializedProject,
 	SerializedScene,
+	ProjectHandoffImportRecordV1,
 } from "./types";
 import {
 	migrations,
@@ -33,6 +34,8 @@ import {
 	verifyProjectMediaAsset,
 } from "@/capinsta/mediaAssetApi";
 import { browserCacheRegistry } from "./browser-cache-registry";
+import type { ServerBackedMediaDescriptorV1 } from "@capinsta/transcript-contract";
+import { serverBackedMediaAccessResolver } from "@/services/server-backed-media/access";
 
 function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 	if (!Array.isArray(raw)) return [];
@@ -61,15 +64,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function shouldPersistMediaFileInBrowser({
-	serverAssetId: _serverAssetId,
+	serverAssetId,
 }: {
 	serverAssetId?: string;
 }): boolean {
-	return true;
+	return !serverAssetId;
 }
 
 class StorageService {
 	private projectsAdapter: IndexedDBAdapter<SerializedProject>;
+	private handoffImportsAdapter: IndexedDBAdapter<ProjectHandoffImportRecordV1>;
 	private config: StorageConfig;
 	private migrationsPromise: Promise<void> | null = null;
 
@@ -85,6 +89,12 @@ class StorageService {
 			storeName: "projects",
 			version: this.config.version,
 		});
+		this.handoffImportsAdapter =
+			new IndexedDBAdapter<ProjectHandoffImportRecordV1>({
+				dbName: "video-editor-handoff-imports",
+				storeName: "handoff-imports",
+				version: this.config.version,
+			});
 	}
 
 	setUserScope({ userId }: { userId: string }): void {
@@ -101,6 +111,12 @@ class StorageService {
 			storeName: "projects",
 			version: this.config.version,
 		});
+		this.handoffImportsAdapter =
+			new IndexedDBAdapter<ProjectHandoffImportRecordV1>({
+				dbName: `video-editor-handoff-imports-${safeUserId}`,
+				storeName: "handoff-imports",
+				version: this.config.version,
+			});
 		this.migrationsPromise = null;
 	}
 
@@ -201,6 +217,7 @@ class StorageService {
 			capinstaServerMediaAssetId: project.capinstaServerMediaAssetId,
 			capinstaServerMediaAssetVersion: project.capinstaServerMediaAssetVersion,
 			capinstaSourceFingerprint: project.capinstaSourceFingerprint,
+			capinstaClippingProvenance: project.capinstaClippingProvenance,
 		};
 
 		await this.projectsAdapter.set({
@@ -214,6 +231,133 @@ class StorageService {
 			estimatedByteSize: new TextEncoder().encode(
 				JSON.stringify(serializedProject),
 			).byteLength,
+			evictable: false,
+		});
+	}
+
+	async beginProjectHandoffImport({
+		project,
+		handoffId,
+		conversionResultIdentity,
+	}: {
+		project: SerializedProject;
+		handoffId: string;
+		conversionResultIdentity: string;
+	}): Promise<"created" | "reused"> {
+		await this.ensureMigrations();
+		const projectId = project.metadata.id;
+		const [existingProject, existingImport] = await Promise.all([
+			this.projectsAdapter.get(projectId),
+			this.handoffImportsAdapter.get(projectId),
+		]);
+		if (existingImport) {
+			if (
+				existingImport.conversionResultIdentity !== conversionResultIdentity
+			) {
+				throw new Error("handoff_project_conflict");
+			}
+			if (!existingProject) {
+				await this.projectsAdapter.set({ key: projectId, value: project });
+			}
+			if (existingImport.handoffId !== handoffId) {
+				await this.handoffImportsAdapter.set({
+					key: projectId,
+					value: { ...existingImport, handoffId },
+				});
+			}
+			return "reused";
+		}
+		if (existingProject) {
+			throw new Error("handoff_project_conflict");
+		}
+		await this.handoffImportsAdapter.set({
+			key: projectId,
+			value: {
+				schemaVersion: 1,
+				projectId,
+				handoffId,
+				conversionResultIdentity,
+				status: "importing",
+			},
+		});
+		await this.projectsAdapter.set({ key: projectId, value: project });
+		await browserCacheRegistry.register({
+			id: `project:${projectId}`,
+			projectId,
+			assetType: "project_snapshot",
+			estimatedByteSize: new TextEncoder().encode(JSON.stringify(project))
+				.byteLength,
+			evictable: false,
+		});
+		return "created";
+	}
+
+	async completeProjectHandoffImport({
+		projectId,
+		handoffId,
+		conversionResultIdentity,
+	}: {
+		projectId: string;
+		handoffId: string;
+		conversionResultIdentity: string;
+	}): Promise<void> {
+		const record = await this.handoffImportsAdapter.get(projectId);
+		if (
+			!record ||
+			record.handoffId !== handoffId ||
+			record.conversionResultIdentity !== conversionResultIdentity
+		) {
+			throw new Error("handoff_project_conflict");
+		}
+		await this.handoffImportsAdapter.set({
+			key: projectId,
+			value: { ...record, status: "imported" },
+		});
+	}
+
+	async getProjectHandoffImport({
+		projectId,
+	}: {
+		projectId: string;
+	}): Promise<ProjectHandoffImportRecordV1 | null> {
+		return this.handoffImportsAdapter.get(projectId);
+	}
+
+	async saveServerBackedMediaDescriptor({
+		projectId,
+		descriptor,
+	}: {
+		projectId: string;
+		descriptor: ServerBackedMediaDescriptorV1;
+	}): Promise<void> {
+		const { mediaMetadataAdapter, mediaAssetsAdapter } =
+			this.getProjectMediaAdapters({ projectId });
+		await mediaAssetsAdapter.remove(descriptor.mediaId);
+		const type =
+			descriptor.mediaKind === "audio" || descriptor.mediaKind === "image"
+				? descriptor.mediaKind
+				: "video";
+		const metadata: MediaAssetData = {
+			id: descriptor.mediaId,
+			name: descriptor.displayName,
+			type,
+			mimeType: descriptor.mimeType ?? undefined,
+			size: descriptor.sizeBytes ?? 0,
+			lastModified: 0,
+			width: descriptor.width ?? undefined,
+			height: descriptor.height ?? undefined,
+			duration: descriptor.durationMs / 1000,
+			serverAssetId: descriptor.mediaAssetId,
+			serverBackedDescriptor: descriptor,
+			syncStatus: "synced",
+		};
+		await mediaMetadataAdapter.set({ key: descriptor.mediaId, value: metadata });
+		await browserCacheRegistry.register({
+			id: `media:${projectId}:${descriptor.mediaId}`,
+			projectId,
+			assetType: "media_metadata",
+			estimatedByteSize: new TextEncoder().encode(JSON.stringify(metadata))
+				.byteLength,
 			evictable: false,
 		});
 	}
@@ -275,8 +419,10 @@ class StorageService {
 			capinstaServerJobId: serializedProject.capinstaServerJobId,
 			capinstaLeftAt: serializedProject.capinstaLeftAt,
 			capinstaServerMediaAssetId: serializedProject.capinstaServerMediaAssetId,
-			capinstaServerMediaAssetVersion: serializedProject.capinstaServerMediaAssetVersion,
+			capinstaServerMediaAssetVersion:
+				serializedProject.capinstaServerMediaAssetVersion,
 			capinstaSourceFingerprint: serializedProject.capinstaSourceFingerprint,
+			capinstaClippingProvenance: serializedProject.capinstaClippingProvenance,
 		};
 
 		return { project };
@@ -344,7 +490,10 @@ class StorageService {
 	}
 
 	async deleteProject({ id }: { id: string }): Promise<void> {
-		await this.projectsAdapter.remove(id);
+		await Promise.all([
+			this.projectsAdapter.remove(id),
+			this.handoffImportsAdapter.remove(id),
+		]);
 		await browserCacheRegistry.deleteProject(id);
 	}
 
@@ -378,6 +527,7 @@ class StorageService {
 			ephemeral: mediaAsset.ephemeral,
 			serverAssetId: mediaAsset.serverAssetId,
 			serverDownloadUrl: mediaAsset.serverDownloadUrl,
+			serverBackedDescriptor: mediaAsset.serverBackedDescriptor,
 			syncStatus: mediaAsset.syncStatus,
 			syncError: mediaAsset.syncError,
 		};
@@ -441,8 +591,14 @@ class StorageService {
 
 		if (!metadata) return null;
 		await browserCacheRegistry.touch(`media:${projectId}:${id}`);
+		const resolvedServerMedia = metadata.serverBackedDescriptor
+			? await serverBackedMediaAccessResolver.materializeFile({
+					descriptor: metadata.serverBackedDescriptor,
+				})
+			: null;
 		const file =
 			storedFile ??
+			resolvedServerMedia?.file ??
 			(metadata.serverAssetId
 				? await fetchProjectMediaAsset({ assetId: metadata.serverAssetId })
 				: null);
@@ -460,6 +616,9 @@ class StorageService {
 		});
 
 		let url: string;
+		if (resolvedServerMedia) {
+			url = resolvedServerMedia.url;
+		} else
 		if (
 			metadata.type === "image" &&
 			(!restoredFile.type || restoredFile.type === "")
@@ -498,6 +657,7 @@ class StorageService {
 			ephemeral: metadata.ephemeral,
 			serverAssetId: metadata.serverAssetId,
 			serverDownloadUrl: metadata.serverDownloadUrl,
+			serverBackedDescriptor: metadata.serverBackedDescriptor,
 			syncStatus:
 				metadata.syncStatus ?? (metadata.serverAssetId ? "synced" : "local"),
 			syncError: metadata.syncError,
@@ -669,7 +829,11 @@ class StorageService {
 	}
 
 	async clearAllData(): Promise<void> {
-		await this.projectsAdapter.clear();
+		await Promise.all([
+			this.projectsAdapter.clear(),
+			this.handoffImportsAdapter.clear(),
+		]);
+		serverBackedMediaAccessResolver.clear();
 		// project-specific media and timelines cleaned up when projects are deleted
 	}
 

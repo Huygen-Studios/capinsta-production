@@ -1,0 +1,245 @@
+name: Production candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment containing staging or production secrets
+        type: choice
+        options: [staging, production]
+        default: staging
+      deploy:
+        description: Apply migrations and trigger the Coolify deployment
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: capinsta-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  WEB_IMAGE: ghcr.io/huygen-studios/capinsta-production-web
+  BACKEND_IMAGE: ghcr.io/huygen-studios/capinsta-production-backend
+  PYTHONPATH: backend
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.18
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88"
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          python -m pip install -r backend/requirements.txt
+      - name: Focused verification
+        run: |
+          python -m compileall -q backend
+          python -m pytest -q backend/tests
+          (cd apps/web && bun x tsc --noEmit)
+          (cd apps/web && bun run lint)
+          (cd apps/web && bun test \
+            src/services/automatic-clipper/api.test.ts \
+            src/services/server-backed-media/access.test.ts \
+            src/services/clipping-handoff/import.test.ts \
+            src/app/api/capinsta/[...path]/route.test.ts \
+            src/capinsta/originalAdapter.test.tsx \
+            src/capinsta/clipProjectConversion.test.ts)
+          cargo fmt --all -- --check
+          cargo test --workspace --no-fail-fast
+          git diff --check
+      - name: Secret scan
+        run: >-
+          docker run --rm
+          -v "$PWD:/repo"
+          zricethezav/gitleaks:latest
+          detect --source=/repo --redact --no-banner
+      - name: Validate production Compose
+        env:
+          APPLICATION_URL: https://staging.example.com
+          CORS_ORIGINS: https://staging.example.com
+          DATABASE_URL: postgresql://user:password@db.example.com:5432/postgres
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_ANON_KEY: example-anon
+          SUPABASE_SERVICE_ROLE_KEY: example-service-role
+          UPSTASH_REDIS_REST_URL: https://example.upstash.io
+          UPSTASH_REDIS_REST_TOKEN: example-token
+          ADMIN_SECURITY_PEPPER: 00000000000000000000000000000000
+          INTERNAL_ADMIN_API_SECRET: 00000000000000000000000000000000
+          INTERNAL_MAINTENANCE_SECRET: 00000000000000000000000000000000
+          CAPINSTA_RENDER_TOKEN_SECRET: 00000000000000000000000000000000
+          MARBLE_WORKSPACE_KEY: example
+          PRIVATE_BETA_ALLOWLIST: owner@example.com
+        run: docker compose -f docker-compose.production.yml config --quiet
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    strategy:
+      matrix:
+        include:
+          - name: web
+            image: ghcr.io/huygen-studios/capinsta-production-web
+            dockerfile: apps/web/Dockerfile
+          - name: backend
+            image: ghcr.io/huygen-studios/capinsta-production-backend
+            dockerfile: backend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Require public web build variables
+        if: matrix.name == 'web'
+        env:
+          SITE_URL: ${{ vars.APPLICATION_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: test -n "$SITE_URL" -a -n "$SUPABASE_URL" -a -n "$SUPABASE_ANON_KEY"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ matrix.image }}:${{ github.sha }}
+            ${{ matrix.image }}:production-candidate
+          build-args: |
+            NEXT_PUBLIC_SITE_URL=${{ vars.APPLICATION_URL }}
+            NEXT_PUBLIC_SUPABASE_URL=${{ vars.SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_CAPINSTA_API_BASE_URL=/api/capinsta
+            NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF=true
+            NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA=true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  smoke:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Backend image smoke
+        run: |
+          docker run --rm "$BACKEND_IMAGE:${GITHUB_SHA}" \
+            sh -c "ffmpeg -version >/dev/null && ffprobe -version >/dev/null && printf '%s' '{\"protocolVersion\":1,\"requestId\":\"ci\",\"operation\":\"health\",\"payload\":{},\"options\":{}}' | capinsta-clipping-runtime | grep -q '\"ok\":true'"
+      - name: Web image smoke
+        env:
+          DATABASE_URL: postgresql://user:password@db.example.com:5432/postgres
+        run: |
+          docker run -d --name capinsta-web-smoke -p 3000:3000 \
+            -e DATABASE_URL \
+            -e UPSTASH_REDIS_REST_URL=https://example.upstash.io \
+            -e UPSTASH_REDIS_REST_TOKEN=example-token \
+            -e NEXT_PUBLIC_SITE_URL=https://staging.example.com \
+            -e NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co \
+            -e NEXT_PUBLIC_SUPABASE_ANON_KEY=example-anon \
+            -e NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com \
+            -e SUPABASE_SERVICE_ROLE_KEY=00000000000000000000 \
+            -e ADMIN_SECURITY_PEPPER=00000000000000000000000000000000 \
+            -e INTERNAL_ADMIN_API_SECRET=00000000000000000000000000000000 \
+            -e INTERNAL_MAINTENANCE_SECRET=00000000000000000000000000000000 \
+            -e BACKEND_INTERNAL_URL=http://127.0.0.1:10000 \
+            -e MARBLE_WORKSPACE_KEY=example \
+            "$WEB_IMAGE:${GITHUB_SHA}"
+          for attempt in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3000/api/health && exit 0
+            sleep 2
+          done
+          docker logs capinsta-web-smoke
+          exit 1
+      - name: Scan browser output and image history
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          WHOP_API_KEY: ${{ secrets.WHOP_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SARVAM_API_KEY: ${{ secrets.SARVAM_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          container=$(docker create "$WEB_IMAGE:${GITHUB_SHA}")
+          docker cp "$container:/app/apps/web/.next" /tmp/capinsta-next
+          docker rm "$container"
+          for name in SUPABASE_SERVICE_ROLE_KEY WHOP_API_KEY GEMINI_API_KEY SARVAM_API_KEY GROQ_API_KEY OPENAI_API_KEY; do
+            value="${!name}"
+            if [ -n "$value" ] && grep -R -F -q "$value" /tmp/capinsta-next; then
+              echo "$name leaked into browser output"
+              exit 1
+            fi
+          done
+          ! docker history --no-trunc "$WEB_IMAGE:${GITHUB_SHA}" | grep -E 'SUPABASE_SERVICE_ROLE_KEY=|WHOP_API_KEY=|GEMINI_API_KEY=|SARVAM_API_KEY=|GROQ_API_KEY=|OPENAI_API_KEY='
+          ! docker history --no-trunc "$BACKEND_IMAGE:${GITHUB_SHA}" | grep -E 'SUPABASE_SERVICE_ROLE_KEY=|WHOP_API_KEY=|GEMINI_API_KEY=|SARVAM_API_KEY=|GROQ_API_KEY=|OPENAI_API_KEY='
+
+  deploy:
+    if: inputs.deploy
+    needs: smoke
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply additive migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CAPINSTA_MIGRATION_BASELINE: ${{ vars.CAPINSTA_MIGRATION_BASELINE || '0013' }}
+        run: >-
+          docker run --rm
+          -e DATABASE_URL
+          -e CAPINSTA_MIGRATION_BASELINE
+          "$BACKEND_IMAGE:${GITHUB_SHA}"
+          python -m server.production.migrate
+      - name: Trigger Coolify
+        env:
+          COOLIFY_DEPLOY_WEBHOOK: ${{ secrets.COOLIFY_DEPLOY_WEBHOOK }}
+        run: |
+          test -n "$COOLIFY_DEPLOY_WEBHOOK"
+          curl --fail --silent --show-error --request POST "$COOLIFY_DEPLOY_WEBHOOK"
+      - name: Verify deployed health
+        env:
+          APPLICATION_URL: ${{ vars.APPLICATION_URL }}
+        run: |
+          test -n "$APPLICATION_URL"
+          for attempt in $(seq 1 60); do
+            curl -fsS "$APPLICATION_URL/api/health" && \
+            curl -fsS "$APPLICATION_URL/api/capinsta/health/ready" && exit 0
+            sleep 10
+          done
+          exit 1
+      - name: Promote successful images
+        run: |
+          for image in "$WEB_IMAGE" "$BACKEND_IMAGE"; do
+            docker pull "$image:${GITHUB_SHA}"
+            docker tag "$image:${GITHUB_SHA}" "$image:latest"
+            docker push "$image:latest"
+          done

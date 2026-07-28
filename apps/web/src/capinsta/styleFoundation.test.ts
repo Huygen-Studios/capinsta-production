@@ -340,6 +340,7 @@ describe("Capinsta style foundation", () => {
 
 		expect(migrated.style?.version).toBe("capinsta.captionStyle.v1");
 		expect(migrated.style?.presetId).toBe("word_highlight_box");
+		expect(migrated.style?.text.wordSpacing).toBe(0);
 		expect(migrated.clips[0]?.style).toBeUndefined();
 	});
 
@@ -469,6 +470,7 @@ describe("Capinsta style foundation", () => {
 			...getCapinstaPresetStyle("word_highlight_box"),
 			text: {
 				letterSpacing: 4,
+				wordSpacing: 12,
 				opacity: 0.7,
 				maxLines: 1,
 			},
@@ -487,9 +489,11 @@ describe("Capinsta style foundation", () => {
 		const exportStyle = styleToExport({ style });
 
 		expect(preview.textStyle.letterSpacing).toBe("4px");
+		expect(preview.textStyle.wordSpacing).toBe("12px");
 		expect(preview.textStyle.WebkitLineClamp).toBe(1);
 		expect(preview.textStyle.WebkitTextStroke).toBe("7px #000000");
 		expect(exportStyle.textParams.letterSpacing).toBe(4);
+		expect(exportStyle.textParams.wordSpacing).toBe(12);
 		expect(exportStyle.textParams.opacity).toBe(0.6);
 		expect(exportStyle.textParams["transform.scaleX"]).toBe(1.3);
 		expect(exportStyle.textParams["transform.scaleY"]).toBeCloseTo(1.04);

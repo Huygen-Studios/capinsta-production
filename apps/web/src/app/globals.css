@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/*
+ * Bundled for deterministic editable hook emoji in both interactive preview
+ * and Chromium export. Licensed under OFL-1.1; see public/emoji-fonts.
+ */
+@font-face {
+	font-family: "Noto Color Emoji";
+	src: url("/emoji-fonts/NotoColorEmoji.ttf") format("truetype");
+	font-style: normal;
+	font-weight: 400;
+	font-display: block;
+}
+
 /* Custom variant for dark mode */
 @custom-variant dark (&:where(.dark, .dark *));
 

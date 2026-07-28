@@ -40,6 +40,10 @@ backend/storage/temp/
 backend/storage/exports/
 backend/storage/uploads/
 storage/
+.local-data/
+.local-tools/
+apps/web/.next-local-clipper/
+apps/web/.next-shared-build/
 !apps/web/src/services/storage/
 !apps/web/src/services/storage/**
 

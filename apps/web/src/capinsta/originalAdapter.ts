@@ -48,6 +48,7 @@ export function toOriginalCaptionStyleConfig({
 		paddingX: style.background.paddingX,
 		paddingY: style.background.paddingY,
 		letterSpacing: style.text.letterSpacing,
+		wordSpacing: style.text.wordSpacing,
 		lineHeight: style.text.lineHeight,
 		textTransform: style.text.textTransform,
 		textShadowEnabled: style.shadow.enabled,
