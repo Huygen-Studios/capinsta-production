@@ -192,11 +192,11 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           container=$(docker create "$WEB_IMAGE:${GITHUB_SHA}")
-          docker cp "$container:/app/apps/web/.next" /tmp/capinsta-next
+          docker cp "$container:/app/apps/web/.next/static" /tmp/capinsta-browser-static
           docker rm "$container"
           for name in SUPABASE_SERVICE_ROLE_KEY WHOP_API_KEY GEMINI_API_KEY SARVAM_API_KEY GROQ_API_KEY OPENAI_API_KEY; do
             value="${!name}"
-            if [ -n "$value" ] && grep -R -F -q "$value" /tmp/capinsta-next; then
+            if [ -n "$value" ] && grep -R -F -q "$value" /tmp/capinsta-browser-static; then
               echo "$name leaked into browser output"
               exit 1
             fi
