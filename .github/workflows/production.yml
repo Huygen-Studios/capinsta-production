@@ -61,6 +61,7 @@ jobs:
         run: |
           python -m compileall -q backend
           python -m pytest -q backend/tests
+          (cd apps/web && bun x next typegen)
           (cd apps/web && bun x tsc --noEmit)
           (cd apps/web && bun run lint)
           (cd apps/web && bun test \
