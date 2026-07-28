@@ -53,6 +53,7 @@ jobs:
         run: |
           bun install --frozen-lockfile
           python -m pip install -r backend/requirements.txt
+          python -m pip install pytest==9.1.0
       - name: Focused verification
         run: |
           python -m compileall -q backend
