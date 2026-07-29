@@ -2,6 +2,7 @@
 import { buildCapinstaApiUrl, buildCapinstaHealthUrl } from "@/capinsta/api-url";
 import { getCapinstaApiBaseUrl } from "@/capinsta/featureFlags";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
+import { createClient } from "@/lib/supabase/client";
 import { z } from "zod";
 
 export type ClipperLayoutStrategy =
@@ -297,6 +298,21 @@ async function patchTusChunk(
 	throw lastError;
 }
 
+async function supabaseTusAuthHeaders(): Promise<Record<string, string>> {
+	const supabase = createClient();
+	const {
+		data: { session },
+	} = await supabase.auth.getSession();
+	const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+	const token = session?.access_token ?? anonKey;
+	return token && anonKey
+		? {
+				apikey: anonKey,
+				authorization: `Bearer ${token}`,
+			}
+		: {};
+}
+
 export async function uploadClipperMedia({
 	file,
 	onProgress,
@@ -323,10 +339,12 @@ export async function uploadClipperMedia({
 		window.localStorage.removeItem(resumeKey);
 	}
 	let offset = 0;
+	const tusAuthHeaders = await supabaseTusAuthHeaders();
 	if (instructions) {
 		const resume = await fetch(instructions.uploadLocation, {
 			method: "HEAD",
 			headers: {
+				...tusAuthHeaders,
 				...instructions.requiredHeaders,
 				"Tus-Resumable": "1.0.0",
 			},
@@ -365,6 +383,7 @@ export async function uploadClipperMedia({
 		const create = await fetch(createdInstructions.uploadUrl, {
 			method: "POST",
 			headers: {
+				...tusAuthHeaders,
 				...createdInstructions.requiredHeaders,
 				"Tus-Resumable": "1.0.0",
 				"Upload-Length": String(file.size),
@@ -399,6 +418,7 @@ export async function uploadClipperMedia({
 		const response = await patchTusChunk(instructions.uploadLocation, {
 			method: "PATCH",
 			headers: {
+				...tusAuthHeaders,
 				...instructions.requiredHeaders,
 				"Tus-Resumable": "1.0.0",
 				"Upload-Offset": String(offset),
