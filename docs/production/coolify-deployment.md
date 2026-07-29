@@ -33,6 +33,29 @@ Keep all three admission flags `true` for the first deployment. Set exact HTTPS
 origins, the private-beta allowlist, and at least one real transcription and
 candidate-provider credential.
 
+The API and backend workers also share the existing `clipper-workspaces` named
+volume for legacy AI-caption media and SQLite metadata:
+
+```text
+LEGACY_CAPTION_STORAGE_ROOT=/app/storage/legacy-caption
+TEMP_DIR=/app/storage/legacy-caption/tmp
+UPLOAD_DIR=/app/storage/legacy-caption/uploads
+MEDIA_DIR=/app/storage/legacy-caption/media
+EXPORT_DIR=/app/storage/legacy-caption/exports
+CACHE_DIR=/app/storage/legacy-caption/cache
+DB_PATH=/app/storage/legacy-caption/database.sqlite
+MAX_UPLOAD_SIZE_MB=500
+DISK_WARNING_FREE_BYTES=1073741824
+DISK_REJECT_UPLOAD_FREE_BYTES=268435456
+DISK_CRITICAL_FREE_BYTES=134217728
+```
+
+These variables belong on the API service and every backend worker service
+that creates, reads, exports, cleans up, or diagnoses legacy caption media.
+The backend image initializes only `/app/storage/legacy-caption`, preserves
+existing files, fixes ownership for the `capinsta` runtime user, then starts
+the public API as that non-root user.
+
 Before enabling uploads, set Supabase Storage limits:
 
 ```text

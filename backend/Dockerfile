@@ -23,20 +23,22 @@ ENV PIP_NO_CACHE_DIR=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-ENV TEMP_DIR=/tmp/huygen-caps
-ENV UPLOAD_DIR=/tmp/huygen-caps/uploads
-ENV EXPORT_DIR=/tmp/huygen-caps/exports
-ENV MEDIA_DIR=/tmp/huygen-caps/media
-ENV DB_PATH=/tmp/huygen-caps/database.sqlite
+ENV LEGACY_CAPTION_STORAGE_ROOT=/app/storage/legacy-caption
+ENV TEMP_DIR=/app/storage/legacy-caption/tmp
+ENV UPLOAD_DIR=/app/storage/legacy-caption/uploads
+ENV EXPORT_DIR=/app/storage/legacy-caption/exports
+ENV CACHE_DIR=/app/storage/legacy-caption/cache
+ENV MEDIA_DIR=/app/storage/legacy-caption/media
+ENV DB_PATH=/app/storage/legacy-caption/database.sqlite
 ENV RUNTIME_CLEANUP_HOURS=24
 ENV ABANDONED_UPLOAD_RETENTION_HOURS=24
 ENV FAILED_EXPORT_RETENTION_HOURS=6
 ENV DOWNLOAD_ARTIFACT_RETENTION_HOURS=24
 ENV TEMP_AUDIO_RETENTION_HOURS=6
 ENV ORPHAN_SCAN_INTERVAL_SECONDS=86400
-ENV DISK_WARNING_FREE_BYTES=8589934592
-ENV DISK_REJECT_UPLOAD_FREE_BYTES=5368709120
-ENV DISK_CRITICAL_FREE_BYTES=2147483648
+ENV DISK_WARNING_FREE_BYTES=1073741824
+ENV DISK_REJECT_UPLOAD_FREE_BYTES=268435456
+ENV DISK_CRITICAL_FREE_BYTES=134217728
 ENV MAX_CONCURRENT_EXPORTS=1
 ENV MAX_EXPORT_DURATION_SECONDS=300
 ENV EXPORT_RENDER_SAFE_MODE=true
@@ -68,6 +70,7 @@ COPY --from=clipping-runtime-builder \
 RUN apt-get update -qq \
   && apt-get install -y -qq --no-install-recommends -o=Dpkg::Use-Pty=0 \
     curl \
+    gosu \
     wget \
     ca-certificates \
     ffmpeg \
@@ -108,6 +111,8 @@ RUN mkdir -p \
 
 COPY backend/ .
 COPY apps/web/migrations/ /app/migrations/
+COPY backend/docker-entrypoint.sh /usr/local/bin/capinsta-backend-entrypoint
+RUN chmod +x /usr/local/bin/capinsta-backend-entrypoint
 
 RUN if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke; else echo "silero_vad_smoke_skipped"; fi
 RUN printf '%s' '{"protocolVersion":1,"requestId":"docker_health","operation":"health","payload":{},"options":{}}' \
@@ -119,14 +124,15 @@ RUN du -sh /app /usr/local /ms-playwright 2>/dev/null || true
 
 RUN groupadd --system --gid 10001 capinsta \
   && useradd --system --uid 10001 --gid capinsta --home-dir /app capinsta \
-  && mkdir -p /tmp/huygen-caps /app/storage \
+  && mkdir -p /tmp/huygen-caps /app/storage/legacy-caption \
   && chown -R capinsta:capinsta /tmp/huygen-caps /app/storage /data/capinsta
 
-USER capinsta
+USER root
 
 EXPOSE 10000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -fsS http://127.0.0.1:${PORT:-10000}/health/ready || exit 1
 
+ENTRYPOINT ["capinsta-backend-entrypoint"]
 CMD ["sh", "-c", "uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

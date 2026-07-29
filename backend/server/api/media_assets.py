@@ -392,13 +392,13 @@ async def upload_media_asset(
 
     asset_id = str(uuid.uuid4())
     destination = _asset_path(current_user().id, project_id, asset_id)
-    destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{asset_id}.uploading")
     max_bytes = MAX_UPLOAD_SIZE_MB * 1024 * 1024
     declared_size = int(file.size or 0)
-    require_disk_capacity(operation="upload", required_bytes=declared_size)
     written = 0
     try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        require_disk_capacity(operation="upload", required_bytes=declared_size)
         async with aiofiles.open(temporary, "wb") as output:
             while chunk := await file.read(1024 * 1024):
                 written += len(chunk)
@@ -434,6 +434,31 @@ async def upload_media_asset(
         if destination.parent.exists() and not any(destination.parent.iterdir()):
             destination.parent.rmdir()
         raise
+    except PermissionError as exc:
+        temporary.unlink(missing_ok=True)
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "storage_not_writable",
+                "stage": "temporary_write",
+                "message": "Video storage is temporarily unavailable.",
+            },
+        ) from exc
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        destination.unlink(missing_ok=True)
+        if destination.parent.exists() and not any(destination.parent.iterdir()):
+            destination.parent.rmdir()
+        code = "insufficient_storage" if getattr(exc, "errno", None) == 28 else "storage_unavailable"
+        raise HTTPException(
+            status_code=507 if code == "insufficient_storage" else 503,
+            detail={
+                "code": code,
+                "stage": "temporary_write",
+                "message": "Video storage is temporarily unavailable.",
+            },
+        ) from exc
     except Exception as exc:
         temporary.unlink(missing_ok=True)
         destination.unlink(missing_ok=True)
@@ -443,6 +468,7 @@ async def upload_media_asset(
             status_code=500,
             detail={
                 "code": "media_upload_failed",
+                "stage": "file_finalize",
                 "message": "Upload could not be saved. Please retry.",
             },
         ) from exc

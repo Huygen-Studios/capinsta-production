@@ -202,7 +202,12 @@ export async function uploadProjectMediaAsset({
 			size: file.size,
 			error,
 		});
-		throw error;
+		if (signal?.aborted) throw error;
+		throw new MediaUploadError({
+			message: "The video-processing service is temporarily unavailable.",
+			status: 0,
+			code: "network_error",
+		});
 	}
 	if (!response.ok) {
 		throw await readError({

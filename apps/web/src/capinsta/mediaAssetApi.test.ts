@@ -130,6 +130,23 @@ describe("media asset API", () => {
 		});
 	});
 
+	test("maps network failures instead of surfacing raw failed fetch", async () => {
+		authenticatedFetchMock.mockImplementationOnce(async () => {
+			throw new TypeError("Failed to fetch");
+		});
+
+		await expect(
+			uploadProjectMediaAsset({
+				projectId: "project-1",
+				file: new File(["hello"], "sample.webm", { type: "audio/webm" }),
+			}),
+		).rejects.toMatchObject({
+			name: "MediaUploadError",
+			message: "The video-processing service is temporarily unavailable.",
+			code: "network_error",
+		});
+	});
+
 	test("parses structured FastAPI media upload errors", async () => {
 		authenticatedFetchMock.mockImplementationOnce(async () =>
 			Response.json(

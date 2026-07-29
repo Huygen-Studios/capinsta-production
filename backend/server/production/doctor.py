@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from typing import Any
 
@@ -13,6 +14,16 @@ except Exception:  # pragma: no cover - optional production dependency
 
 from server.api.health import API_CAPABILITIES, API_CONTRACT_VERSION
 from server.clipping_storage.config import MediaStorageConfig
+from server.settings import (
+    CACHE_DIR,
+    DB_PATH,
+    DISK_REJECT_UPLOAD_FREE_BYTES,
+    EXPORT_DIR,
+    MEDIA_DIR,
+    TEMP_DIR,
+    UPLOAD_DIR,
+    validate_storage_startup,
+)
 
 EXPECTED_MIGRATION = 27
 BUCKETS = ("source-media", "media-variants", "media-exports")
@@ -47,6 +58,36 @@ def _check_env() -> dict[str, Any]:
         else "not_configured",
         "candidateProvider": "deterministic_fallback_available",
     }
+
+
+def _legacy_caption_report() -> tuple[dict[str, Any], bool]:
+    findings = validate_storage_startup()
+    failed = [item for item in findings if item.get("level") == "error"]
+    sqlite_ok = False
+    try:
+        with sqlite3.connect(f"file:{DB_PATH}?mode=rw", uri=True, timeout=5) as db:
+            db.execute("PRAGMA busy_timeout = 5000")
+            db.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+        sqlite_ok = True
+    except Exception:
+        failed.append({"level": "error", "code": "sqlite_unavailable", "path": "DB_PATH"})
+    return (
+        {
+            "legacyCaptionStorage": {
+                "TEMP_DIR": TEMP_DIR.exists() and os.access(TEMP_DIR, os.W_OK),
+                "UPLOAD_DIR": UPLOAD_DIR.exists() and os.access(UPLOAD_DIR, os.W_OK),
+                "MEDIA_DIR": MEDIA_DIR.exists() and os.access(MEDIA_DIR, os.W_OK),
+                "CACHE_DIR": CACHE_DIR.exists() and os.access(CACHE_DIR, os.W_OK),
+                "EXPORT_DIR": EXPORT_DIR.exists() and os.access(EXPORT_DIR, os.W_OK),
+                "DB_PATH_PARENT": DB_PATH.parent.exists()
+                and os.access(DB_PATH.parent, os.W_OK),
+                "sqliteOpen": sqlite_ok,
+                "diskRejectUploadFreeBytes": DISK_REJECT_UPLOAD_FREE_BYTES,
+                "findings": failed,
+            }
+        },
+        not failed,
+    )
 
 
 def _query_one(connection: Any, query: str, params: tuple[Any, ...] = ()) -> Any:
@@ -144,8 +185,10 @@ def _db_report() -> tuple[dict[str, Any], bool]:
 
 def build_report() -> tuple[dict[str, Any], bool]:
     db, db_ok = _db_report()
-    report = {"status": "ok" if db_ok else "missing_setup", **_check_env(), **db}
-    return report, db_ok
+    legacy, legacy_ok = _legacy_caption_report()
+    ok = db_ok and legacy_ok
+    report = {"status": "ok" if ok else "missing_setup", **_check_env(), **db, **legacy}
+    return report, ok
 
 
 def main() -> int:

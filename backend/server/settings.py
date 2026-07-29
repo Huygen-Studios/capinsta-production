@@ -35,6 +35,10 @@ def _sqlite_path_env(name: str, default: Path) -> Path:
         probe.unlink(missing_ok=True)
         return path
     except OSError as exc:
+        if os.getenv("NODE_ENV") == "production":
+            raise RuntimeError(
+                f"{name} parent is not writable; check legacy caption storage volume"
+            ) from exc
         fallback = DEFAULT_TEMP_DIR / "database.sqlite"
         fallback.parent.mkdir(parents=True, exist_ok=True)
         logger.warning(

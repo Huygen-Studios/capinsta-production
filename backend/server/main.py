@@ -201,7 +201,9 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize Database
     _log_startup_operational_summary()
     ensure_runtime_dirs()
-    validate_storage_startup()
+    storage_findings = validate_storage_startup()
+    if any(finding.get("level") == "error" for finding in storage_findings):
+        raise RuntimeError("legacy caption storage is not writable")
     await init_db()
     try:
         validate_auth_startup()
