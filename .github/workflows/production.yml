@@ -120,7 +120,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Require public web build variables
-        if: matrix.name == 'web' && github.event_name == 'workflow_dispatch'
+        if: matrix.name == 'web' && github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
         env:
           SITE_URL: ${{ vars.APPLICATION_URL }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
