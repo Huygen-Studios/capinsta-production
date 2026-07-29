@@ -57,10 +57,10 @@ class TranscriptAnalysisConfig:
                 "TRANSCRIPT_ANALYSIS_JOB_TYPES contains an unsupported job type",
             )
         backend = os.getenv("TRANSCRIPT_ANALYSIS_STORAGE_BACKEND", "supabase").strip().lower()
-        if backend not in {"supabase", "local"}:
+        if backend not in {"supabase", "r2", "local"}:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "TRANSCRIPT_ANALYSIS_STORAGE_BACKEND must be supabase or local",
+                "TRANSCRIPT_ANALYSIS_STORAGE_BACKEND must be supabase, r2, or local",
             )
         return cls(
             handlers_enabled=enabled,

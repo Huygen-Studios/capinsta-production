@@ -12,7 +12,9 @@ def _enabled(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _integer(name: str, default: int, minimum: int) -> int:
+def _integer(
+    name: str, default: int, minimum: int, maximum: int | None = None
+) -> int:
     try:
         value = int(os.getenv(name, str(default)))
     except ValueError as exc:
@@ -23,14 +25,19 @@ def _integer(name: str, default: int, minimum: int) -> int:
         raise StorageError(
             "storage_not_configured", f"{name} must be at least {minimum}"
         )
+    if maximum is not None and value > maximum:
+        raise StorageError(
+            "storage_not_configured", f"{name} must be at most {maximum}"
+        )
     return value
 
 
 @dataclass(frozen=True)
 class MediaStorageConfig:
     enabled: bool
-    supabase_url: str
-    service_role_key: str
+    storage_provider: str = "supabase"
+    supabase_url: str = ""
+    service_role_key: str = ""
     source_bucket: str = "source-media"
     variants_bucket: str = "media-variants"
     exports_bucket: str = "media-exports"
@@ -42,13 +49,31 @@ class MediaStorageConfig:
     maximum_url_ttl_seconds: int = 3600
     upload_session_ttl_seconds: int = 7200
     local_storage_root: str = ""
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_region: str = "auto"
+    r2_source_bucket: str = "capinsta-source-media"
+    r2_variants_bucket: str = "capinsta-media-variants"
+    r2_exports_bucket: str = "capinsta-media-exports"
+    r2_part_size_bytes: int = 32 * 1024 * 1024
+    r2_signed_url_ttl_seconds: int = 900
+    r2_upload_concurrency: int = 3
 
     @classmethod
     def from_env(cls) -> "MediaStorageConfig":
         local_storage_root = (os.getenv("CLIPPING_LOCAL_STORAGE_ROOT") or "").strip()
         local_enabled = _enabled(os.getenv("ENABLE_LOCAL_MEDIA_STORAGE"))
+        provider = (os.getenv("CLIPPING_STORAGE_PROVIDER") or "").strip().lower()
+        if not provider:
+            provider = "local" if local_enabled else "supabase"
         config = cls(
-            enabled=_enabled(os.getenv("ENABLE_SUPABASE_MEDIA_STORAGE")) or local_enabled,
+            enabled=(
+                provider == "r2"
+                or _enabled(os.getenv("ENABLE_SUPABASE_MEDIA_STORAGE"))
+                or local_enabled
+            ),
+            storage_provider=provider,
             supabase_url=(os.getenv("SUPABASE_URL") or "").rstrip("/"),
             service_role_key=(
                 os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
@@ -84,17 +109,69 @@ class MediaStorageConfig:
                 "MEDIA_UPLOAD_SESSION_TTL_SECONDS", 7200, 60
             ),
             local_storage_root=local_storage_root,
+            r2_endpoint_url=(os.getenv("R2_ENDPOINT_URL") or "").rstrip("/"),
+            r2_access_key_id=(os.getenv("R2_ACCESS_KEY_ID") or "").strip(),
+            r2_secret_access_key=(os.getenv("R2_SECRET_ACCESS_KEY") or "").strip(),
+            r2_region=(os.getenv("R2_REGION") or "auto").strip() or "auto",
+            r2_source_bucket=os.getenv(
+                "R2_SOURCE_BUCKET", "capinsta-source-media"
+            ).strip(),
+            r2_variants_bucket=os.getenv(
+                "R2_VARIANTS_BUCKET", "capinsta-media-variants"
+            ).strip(),
+            r2_exports_bucket=os.getenv(
+                "R2_EXPORTS_BUCKET", "capinsta-media-exports"
+            ).strip(),
+            r2_part_size_bytes=_integer(
+                "R2_MULTIPART_PART_SIZE_BYTES", 32 * 1024 * 1024, 5 * 1024 * 1024
+            ),
+            r2_signed_url_ttl_seconds=_integer(
+                "R2_SIGNED_URL_TTL_SECONDS", 900, 60
+            ),
+            r2_upload_concurrency=_integer("R2_UPLOAD_CONCURRENCY", 3, 1, 5),
         )
         if config.enabled:
             config.validate()
         return config
 
     def validate(self) -> None:
-        if self.local_storage_root:
-            if os.getenv("NODE_ENV") == "production" or not Path(self.local_storage_root).is_absolute():
+        if self.storage_provider not in {"supabase", "r2", "local"}:
+            raise StorageError(
+                "storage_not_configured",
+                "CLIPPING_STORAGE_PROVIDER must be supabase, r2, or local",
+            )
+        if self.storage_provider == "local":
+            if (
+                os.getenv("NODE_ENV") == "production"
+                or not self.local_storage_root
+                or not Path(self.local_storage_root).is_absolute()
+            ):
                 raise StorageError(
                     "storage_not_configured",
                     "Local media storage is development-only and requires an absolute root",
+                )
+            return
+        if self.storage_provider == "r2":
+            parsed = urlparse(self.r2_endpoint_url)
+            if (
+                parsed.scheme != "https"
+                or not parsed.netloc
+                or not self.r2_access_key_id
+                or not self.r2_secret_access_key
+            ):
+                raise StorageError(
+                    "r2_not_configured",
+                    "Cloudflare R2 media storage credentials are not configured",
+                )
+            if self.r2_part_size_bytes < 5 * 1024 * 1024:
+                raise StorageError(
+                    "storage_not_configured",
+                    "R2_MULTIPART_PART_SIZE_BYTES must be at least 5 MiB",
+                )
+            if self.maximum_upload_bytes // self.r2_part_size_bytes > 10_000:
+                raise StorageError(
+                    "storage_not_configured",
+                    "R2 part size creates too many multipart parts",
                 )
             return
         parsed = urlparse(self.supabase_url)

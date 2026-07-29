@@ -129,10 +129,10 @@ class MediaProbeConfig:
                 "worker_not_configured",
                 "Signed URL TTL must exceed probe timeout plus its safety margin",
             )
-        if self.storage_backend not in {"supabase", "local"}:
+        if self.storage_backend not in {"supabase", "r2", "local"}:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "MEDIA_PROBE_STORAGE_BACKEND must be supabase or local",
+                "MEDIA_PROBE_STORAGE_BACKEND must be supabase, r2, or local",
             )
         if self.enabled and self.storage_backend == "local" and (
             not self.local_storage_root

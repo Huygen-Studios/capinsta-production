@@ -41,3 +41,10 @@ PATCH chunks. Supabase's project-global Storage limit remains an external
 manual setting in Supabase Dashboard -> Storage -> Settings -> Global file size
 limit; doctor reports it as unverified rather than assuming it matches the
 bucket.
+
+R2 storage update (2026-07-29): additive migration `0028` adds persisted
+`storage_provider` plus R2 multipart metadata. New production Clipper uploads
+use private Cloudflare R2 buckets through backend-signed multipart part URLs;
+existing Supabase-backed rows keep `storage_provider='supabase'` and remain
+readable. The browser no longer sends large source-video chunks to Supabase
+Storage when `CLIPPING_STORAGE_PROVIDER=r2`.

@@ -37,8 +37,11 @@ def _database_failure(exc: PersistenceError) -> JobOrchestrationError:
 
 
 class MediaVariantRepository:
-    def __init__(self, database: DurableDatabase) -> None:
+    def __init__(
+        self, database: DurableDatabase, *, storage_provider: str = "supabase"
+    ) -> None:
         self.database = database
+        self.storage_provider = storage_provider
 
     @staticmethod
     async def _locked_target(
@@ -272,7 +275,7 @@ class MediaVariantRepository:
                         """
                         UPDATE media_variants SET
                           mime_type=%s,width=%s,height=%s,duration_ms=%s,
-                          size_bytes=%s,storage_bucket=%s,storage_path=%s,
+                          size_bytes=%s,storage_provider=%s,storage_bucket=%s,storage_path=%s,
                           status='ready',metadata=%s,result_identity=%s,
                           failure=NULL,ready_at=now(),revision=revision+1,
                           updated_at=now()
@@ -286,6 +289,7 @@ class MediaVariantRepository:
                             result.height,
                             result.durationMs,
                             result.sizeBytes,
+                            self.storage_provider,
                             result.storageBucket,
                             result.storagePath,
                             _json(metadata),

@@ -16,6 +16,7 @@ from server.clipping_storage.paths import (
 )
 from server.media_variants.paths import variant_object_path
 from server.media_variants.presets import PROXY_SPEC, generation_spec_hash
+from server.clipping_storage.r2_storage import R2MediaStorage
 from server.clipping_storage.supabase_storage import SupabaseMediaStorage
 
 
@@ -56,6 +57,41 @@ class _Session:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class _S3Client:
+    def __init__(self):
+        self.calls = []
+
+    def create_multipart_upload(self, **kwargs):
+        self.calls.append(("create_multipart_upload", kwargs))
+        return {"UploadId": "upload-1"}
+
+    def generate_presigned_url(self, operation, **kwargs):
+        self.calls.append((operation, kwargs))
+        return f"https://r2.invalid/{operation}/{kwargs['Params'].get('PartNumber', 'object')}"
+
+    def list_parts(self, **kwargs):
+        self.calls.append(("list_parts", kwargs))
+        return {
+            "Parts": [
+                {"PartNumber": 2, "ETag": '"etag-2"', "Size": 5},
+                {"PartNumber": 1, "ETag": '"etag-1"', "Size": 5},
+            ]
+        }
+
+    def complete_multipart_upload(self, **kwargs):
+        self.calls.append(("complete_multipart_upload", kwargs))
+        return {}
+
+    def head_object(self, **kwargs):
+        self.calls.append(("head_object", kwargs))
+        return {
+            "ContentLength": 10,
+            "ContentType": "video/mp4",
+            "ETag": '"final-etag"',
+            "LastModified": datetime.now(timezone.utc),
+        }
 
 
 def test_safe_stable_versioned_paths_and_mime_extensions():
@@ -120,6 +156,69 @@ def test_config_is_feature_flagged_and_validates_secrets(monkeypatch):
     assert _config().tus_upload_url == (
         "https://project-ref.storage.supabase.co/storage/v1/upload/resumable"
     )
+
+
+def test_r2_adapter_creates_signs_and_completes_multipart():
+    owner, asset = uuid4(), uuid4()
+    path = f"{owner}/{asset}/source/v1.mp4"
+    client = _S3Client()
+    storage = R2MediaStorage(
+        _config(
+            storage_provider="r2",
+            r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+            r2_access_key_id="key",
+            r2_secret_access_key="secret",
+        ),
+        client=client,
+    )
+
+    authorization = _run(
+        storage.create_upload_session(
+            bucket="source-media", path=path, mime_type="video/mp4"
+        )
+    )
+    signed = _run(
+        storage.create_upload_part_url(
+            bucket="source-media",
+            path=path,
+            upload_id=authorization.provider_upload_id,
+            part_number=2,
+            expires_in=900,
+        )
+    )
+    parts = _run(
+        storage.list_multipart_parts(
+            bucket="source-media",
+            path=path,
+            upload_id=authorization.provider_upload_id,
+        )
+    )
+    metadata = _run(
+        storage.complete_multipart_upload(
+            bucket="source-media",
+            path=path,
+            upload_id=authorization.provider_upload_id,
+            parts=parts,
+        )
+    )
+
+    assert authorization.protocol == "s3_multipart"
+    assert signed.endswith("/2")
+    assert parts == [
+        {"partNumber": 2, "etag": "etag-2", "size": 5},
+        {"partNumber": 1, "etag": "etag-1", "size": 5},
+    ]
+    assert metadata.size_bytes == 10
+    complete_call = [
+        call for call in client.calls if call[0] == "complete_multipart_upload"
+    ][0][1]
+    assert complete_call["Bucket"] == "capinsta-source-media"
+    assert complete_call["MultipartUpload"] == {
+        "Parts": [
+            {"PartNumber": 1, "ETag": "etag-1"},
+            {"PartNumber": 2, "ETag": "etag-2"},
+        ]
+    }
 
 
 def test_production_rejects_local_storage_and_uses_long_media_defaults(

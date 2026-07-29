@@ -10,7 +10,9 @@ from pydantic import ValidationError
 
 from server.clipping_jobs.errors import JobOrchestrationError, ProcessingJobFailure
 from server.clipping_jobs.models import JobExecutionContext, JobExecutionResult
+from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
+from server.clipping_storage.provider import media_storage_for_provider
 from server.clipping_storage.storage import MediaStorage
 from server.media_probe.ffprobe import FFprobeRunner
 
@@ -133,13 +135,20 @@ class BaseVariantJobHandler(Generic[InputT]):
         runner: FFmpegRunner,
         verifier_runner: FFprobeRunner,
         variants_bucket: str = "media-variants",
+        storage_config: MediaStorageConfig | None = None,
     ) -> None:
         self.config = config
         self.storage = storage
+        self.storage_config = storage_config
         self.repository = repository
         self.runner = runner
         self.verifier_runner = verifier_runner
         self.variants_bucket = variants_bucket
+
+    def _row_storage(self, row: dict[str, Any]) -> MediaStorage:
+        if self.storage_config is None:
+            return self.storage
+        return media_storage_for_provider(row.get("storage_provider"), self.storage_config)
 
     def _input(self, payload: dict[str, Any]) -> InputT:
         try:
@@ -238,7 +247,8 @@ class BaseVariantJobHandler(Generic[InputT]):
             await context.raise_if_cancelled()
             try:
                 if asset["variant"]["status"] == "ready":
-                    existing = await self.storage.inspect_object(
+                    existing_storage = self._row_storage(asset["variant"])
+                    existing = await existing_storage.inspect_object(
                         bucket=asset["variant"]["storage_bucket"],
                         path=asset["variant"]["storage_path"],
                     )
@@ -273,11 +283,12 @@ class BaseVariantJobHandler(Generic[InputT]):
                         context, job_input, result
                     )
                     return JobExecutionResult(output=output, finalized=True)
-                await self.storage.inspect_object(
+                source_storage = self._row_storage(asset)
+                await source_storage.inspect_object(
                     bucket=asset["storage_bucket"],
                     path=asset["storage_path"],
                 )
-                source_context = self.storage.open_probe_source(
+                source_context = source_storage.open_probe_source(
                     bucket=asset["storage_bucket"],
                     path=asset["storage_path"],
                     expires_in=self.config.signed_url_ttl_seconds,

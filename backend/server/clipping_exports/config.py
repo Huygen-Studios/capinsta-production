@@ -82,9 +82,9 @@ class ClippingExportConfig:
     def validate(self) -> None:
         if self.preset != "vertical-mp4-v1":
             raise ValueError("CLIPPING_EXPORT_PRESET must be vertical-mp4-v1")
-        if self.storage_backend not in {"supabase", "local"}:
+        if self.storage_backend not in {"supabase", "r2", "local"}:
             raise ValueError(
-                "CLIPPING_EXPORT_STORAGE_BACKEND must be supabase or local"
+                "CLIPPING_EXPORT_STORAGE_BACKEND must be supabase, r2, or local"
             )
         if (
             self.storage_backend == "local"

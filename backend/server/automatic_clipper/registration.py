@@ -7,7 +7,7 @@ from server.clipping_runtime.client import ClippingRuntimeClient
 from server.clipping_runtime.config import ClippingRuntimeConfig
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.local_storage import LocalMediaStorage
-from server.clipping_storage.supabase_storage import SupabaseMediaStorage
+from server.clipping_storage.provider import media_storage_from_config
 
 from .config import AutomaticClipperConfig
 from .handlers import SmartReframeJobHandler, ViralCandidateAnalysisJobHandler
@@ -54,7 +54,7 @@ async def register_automatic_clipper_if_enabled(
                     "worker_not_configured",
                     "Smart framing requires enabled private media storage",
                 )
-            storage = SupabaseMediaStorage(storage_config)
+            storage = media_storage_from_config(storage_config)
             source_ttl = min(
                 storage_config.maximum_url_ttl_seconds,
                 config.reframe_timeout_seconds + 120,
@@ -66,6 +66,7 @@ async def register_automatic_clipper_if_enabled(
                 runtime=runtime,
                 storage=storage,
                 source_ttl_seconds=source_ttl,
+                storage_config=storage_config if config.storage_backend != "local" else None,
             )
         )
         registered.append("smart_reframe")

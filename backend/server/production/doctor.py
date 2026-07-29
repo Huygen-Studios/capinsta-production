@@ -25,7 +25,7 @@ from server.settings import (
     validate_storage_startup,
 )
 
-EXPECTED_MIGRATION = 27
+EXPECTED_MIGRATION = 28
 BUCKETS = ("source-media", "media-variants", "media-exports")
 
 
@@ -39,9 +39,21 @@ def _database_url() -> str:
 
 
 def _check_env() -> dict[str, Any]:
+    storage = MediaStorageConfig.from_env()
     return {
         "backendApiContractVersion": API_CONTRACT_VERSION,
         "routeCapabilities": API_CAPABILITIES,
+        "mediaStorageProvider": storage.storage_provider,
+        "r2Storage": {
+            "configured": storage.storage_provider == "r2",
+            "endpointConfigured": bool(storage.r2_endpoint_url),
+            "sourceBucket": storage.r2_source_bucket,
+            "variantsBucket": storage.r2_variants_bucket,
+            "exportsBucket": storage.r2_exports_bucket,
+            "partSizeBytes": storage.r2_part_size_bytes,
+            "signedUrlTtlSeconds": storage.r2_signed_url_ttl_seconds,
+            "uploadConcurrency": storage.r2_upload_concurrency,
+        },
         "uploadAdmission": "disabled" if os.getenv("DISABLE_NEW_UPLOADS") else "enabled",
         "candidateAdmission": "disabled"
         if os.getenv("DISABLE_CANDIDATE_ANALYSIS")
@@ -123,29 +135,46 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 if latest_name and str(latest_name)[:4].isdigit()
                 else 0
             )
-            bucket_rows = _query_one(
-                connection,
-                """
-                SELECT COALESCE(
-                  jsonb_object_agg(
-                    id,
-                    jsonb_build_object('public', public, 'fileSizeLimit', file_size_limit)
-                  ),
-                  '{}'::jsonb
+            storage_config = MediaStorageConfig.from_env()
+            buckets: dict[str, Any] = {}
+            source_limit = None
+            if storage_config.storage_provider == "supabase":
+                bucket_rows = _query_one(
+                    connection,
+                    """
+                    SELECT COALESCE(
+                      jsonb_object_agg(
+                        id,
+                        jsonb_build_object('public', public, 'fileSizeLimit', file_size_limit)
+                      ),
+                      '{}'::jsonb
+                    )
+                    FROM storage.buckets WHERE id = ANY(%s)
+                    """,
+                    (list(BUCKETS),),
                 )
-                FROM storage.buckets WHERE id = ANY(%s)
-                """,
-                (list(BUCKETS),),
-            )
-            buckets = dict(bucket_rows[0] or {})
-            source_bucket = buckets.get("source-media") or {}
-            source_limit = source_bucket.get("fileSizeLimit")
-            source_limit = int(source_limit) if source_limit is not None else None
-            app_limit = MediaStorageConfig.from_env().maximum_upload_bytes
+                buckets = dict(bucket_rows[0] or {})
+                source_bucket = buckets.get("source-media") or {}
+                source_limit = source_bucket.get("fileSizeLimit")
+                source_limit = int(source_limit) if source_limit is not None else None
+            app_limit = storage_config.maximum_upload_bytes
             warnings = ["storage_global_limit_unverified"]
             failures: list[str] = []
             if source_limit is not None and source_limit < app_limit:
                 failures.append("source_bucket_limit_too_low")
+            r2_ok = (
+                storage_config.storage_provider != "r2"
+                or (
+                    bool(storage_config.r2_endpoint_url)
+                    and bool(storage_config.r2_access_key_id)
+                    and bool(storage_config.r2_secret_access_key)
+                    and bool(storage_config.r2_source_bucket)
+                    and bool(storage_config.r2_variants_bucket)
+                    and bool(storage_config.r2_exports_bucket)
+                )
+            )
+            if not r2_ok:
+                failures.append("r2_storage_not_configured")
             mode_row = _query_one(
                 connection,
                 "SELECT mode FROM site_access_policy WHERE id='global'",
@@ -157,6 +186,7 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 "expectedLatestMigrationVersion": EXPECTED_MIGRATION,
                 "applicationMaximumUploadBytes": app_limit,
                 "sourceBucketMaximumUploadBytes": source_limit,
+                "mediaStorageProvider": storage_config.storage_provider,
                 "warnings": warnings,
                 "failures": failures,
                 "storageBuckets": {
@@ -169,13 +199,15 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 },
                 "siteAccessMode": mode_row[0] if mode_row else "public",
             }
+            supabase_ok = storage_config.storage_provider != "supabase" or all(
+                bucket.get("exists") and bucket.get("private")
+                for bucket in report["storageBuckets"].values()
+            )
             ok = (
                 migration_table
                 and latest_version >= EXPECTED_MIGRATION
-                and all(
-                    bucket.get("exists") and bucket.get("private")
-                    for bucket in report["storageBuckets"].values()
-                )
+                and supabase_ok
+                and r2_ok
                 and not failures
             )
             return report, ok

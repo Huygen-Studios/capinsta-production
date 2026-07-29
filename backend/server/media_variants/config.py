@@ -196,10 +196,10 @@ class MediaVariantConfig:
                 "worker_not_configured",
                 "MEDIA_VARIANT_TEMP_ROOT must be an absolute trusted path",
             )
-        if self.storage_backend not in {"supabase", "local"}:
+        if self.storage_backend not in {"supabase", "r2", "local"}:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "MEDIA_VARIANT_STORAGE_BACKEND must be supabase or local",
+                "MEDIA_VARIANT_STORAGE_BACKEND must be supabase, r2, or local",
             )
         if self.enabled and self.storage_backend == "local" and (
             not self.local_storage_root

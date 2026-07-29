@@ -185,7 +185,7 @@ def _services():
         MediaAccessService(
             config=config, storage=storage, repository=repository
         ),
-        MediaDeletionService(storage=storage, repository=repository),
+        MediaDeletionService(config=config, storage=storage, repository=repository),
     )
 
 

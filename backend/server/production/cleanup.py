@@ -12,7 +12,7 @@ import psycopg
 
 from ..clipping_storage.config import MediaStorageConfig
 from ..clipping_storage.errors import StorageError
-from ..clipping_storage.supabase_storage import SupabaseMediaStorage
+from ..clipping_storage.provider import media_storage_for_provider
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,11 @@ async def _delete(storage, bucket: str, path: str) -> bool:
     return True
 
 
-async def _expire_source(connection, asset_id: str, cutoff: datetime, storage) -> bool:
+async def _expire_source(connection, asset_id: str, cutoff: datetime, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
             await cursor.execute(
-                """SELECT m.storage_bucket,m.storage_path FROM media_assets m
+                """SELECT m.storage_provider,m.storage_bucket,m.storage_path FROM media_assets m
                 WHERE m.id=%s::uuid AND m.deleted_at IS NULL AND m.updated_at < %s
                   AND m.storage_bucket IS NOT NULL AND m.storage_path IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM clip_projects p WHERE p.source_media_asset_id=m.id
@@ -51,15 +51,19 @@ async def _expire_source(connection, asset_id: str, cutoff: datetime, storage) -
                 (asset_id, cutoff, ACTIVE_JOB_STATUSES),
             )
             row = await cursor.fetchone()
-            if row is None or not await _delete(storage, str(row[0]), str(row[1])):
+            if row is None:
+                return False
+            storage = media_storage_for_provider(row[0], config)
+            if not await _delete(storage, str(row[1]), str(row[2])):
                 return False
             await cursor.execute(
-                """SELECT storage_bucket,storage_path FROM media_variants
+                """SELECT storage_provider,storage_bucket,storage_path FROM media_variants
                 WHERE media_asset_id=%s::uuid AND storage_bucket IS NOT NULL AND storage_path IS NOT NULL""",
                 (asset_id,),
             )
             for variant in await cursor.fetchall():
-                if not await _delete(storage, str(variant[0]), str(variant[1])):
+                variant_storage = media_storage_for_provider(variant[0], config)
+                if not await _delete(variant_storage, str(variant[1]), str(variant[2])):
                     return False
             await cursor.execute(
                 "UPDATE media_assets SET deleted_at=now(),updated_at=now() WHERE id=%s::uuid",
@@ -68,11 +72,11 @@ async def _expire_source(connection, asset_id: str, cutoff: datetime, storage) -
             return cursor.rowcount == 1
 
 
-async def _expire_export(connection, export_id: str, cutoff: datetime, storage) -> bool:
+async def _expire_export(connection, export_id: str, cutoff: datetime, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
             await cursor.execute(
-                """SELECT e.storage_bucket,e.storage_path FROM clipping_exports e
+                """SELECT e.storage_provider,e.storage_bucket,e.storage_path FROM clipping_exports e
                 WHERE e.id=%s::uuid AND e.status='ready' AND e.ready_at < %s
                   AND e.storage_bucket IS NOT NULL AND e.storage_path IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM processing_jobs j WHERE j.id=e.processing_job_id
@@ -80,7 +84,10 @@ async def _expire_export(connection, export_id: str, cutoff: datetime, storage) 
                 (export_id, cutoff, ACTIVE_JOB_STATUSES),
             )
             row = await cursor.fetchone()
-            if row is None or not await _delete(storage, str(row[0]), str(row[1])):
+            if row is None:
+                return False
+            storage = media_storage_for_provider(row[0], config)
+            if not await _delete(storage, str(row[1]), str(row[2])):
                 return False
             await cursor.execute(
                 """UPDATE clipping_exports SET status='deleted',ready_at=NULL,updated_at=now()
@@ -90,18 +97,21 @@ async def _expire_export(connection, export_id: str, cutoff: datetime, storage) 
             return cursor.rowcount == 1
 
 
-async def _expire_upload(connection, session_id: str, storage) -> bool:
+async def _expire_upload(connection, session_id: str, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
             await cursor.execute(
-                """SELECT storage_bucket,storage_path FROM media_upload_sessions
+                """SELECT storage_provider,storage_bucket,storage_path FROM media_upload_sessions
                 WHERE id=%s::uuid AND expires_at < now()
                   AND status NOT IN ('completed','failed','expired','cancelled')
                 FOR UPDATE SKIP LOCKED""",
                 (session_id,),
             )
             row = await cursor.fetchone()
-            if row is None or not await _delete(storage, str(row[0]), str(row[1])):
+            if row is None:
+                return False
+            storage = media_storage_for_provider(row[0], config)
+            if not await _delete(storage, str(row[1]), str(row[2])):
                 return False
             await cursor.execute(
                 """UPDATE media_upload_sessions SET status='expired',failed_at=now(),updated_at=now()
@@ -164,13 +174,13 @@ async def run_cleanup(*, dry_run: bool = False, batch_size: int = 500) -> dict[s
         if dry_run:
             counts.update(sourceMedia=len(sources), exports=len(exports), uploadSessions=len(uploads))
         elif sources or exports or uploads:
-            storage = SupabaseMediaStorage(MediaStorageConfig.from_env())
+            storage_config = MediaStorageConfig.from_env()
             for asset_id in sources:
-                counts["sourceMedia"] += await _expire_source(connection, asset_id, source_cutoff, storage)
+                counts["sourceMedia"] += await _expire_source(connection, asset_id, source_cutoff, storage_config)
             for export_id in exports:
-                counts["exports"] += await _expire_export(connection, export_id, export_cutoff, storage)
+                counts["exports"] += await _expire_export(connection, export_id, export_cutoff, storage_config)
             for session_id in uploads:
-                counts["uploadSessions"] += await _expire_upload(connection, session_id, storage)
+                counts["uploadSessions"] += await _expire_upload(connection, session_id, storage_config)
         async with connection.transaction():
             async with connection.cursor() as cursor:
                 statements = {

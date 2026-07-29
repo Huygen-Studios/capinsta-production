@@ -10,28 +10,31 @@ import requests
 
 from ..clipping_storage.config import MediaStorageConfig
 from ..clipping_storage.errors import StorageError
-from ..clipping_storage.supabase_storage import SupabaseMediaStorage
+from ..clipping_storage.provider import media_storage_for_provider
 
 logger = logging.getLogger(__name__)
 
 
-async def _objects(cursor, user_id: str) -> list[tuple[str, str]]:
+async def _objects(cursor, user_id: str) -> list[tuple[str | None, str, str]]:
     await cursor.execute(
         """
-        SELECT storage_bucket,storage_path FROM media_assets
+        SELECT storage_provider,storage_bucket,storage_path FROM media_assets
           WHERE owner_user_id=%s::uuid AND storage_bucket IS NOT NULL AND storage_path IS NOT NULL
         UNION
-        SELECT v.storage_bucket,v.storage_path FROM media_variants v
+        SELECT v.storage_provider,v.storage_bucket,v.storage_path FROM media_variants v
           JOIN media_assets a ON a.id=v.media_asset_id
           WHERE a.owner_user_id=%s::uuid
             AND v.storage_bucket IS NOT NULL AND v.storage_path IS NOT NULL
         UNION
-        SELECT storage_bucket,storage_path FROM clipping_exports
+        SELECT storage_provider,storage_bucket,storage_path FROM clipping_exports
           WHERE owner_user_id=%s::uuid AND storage_bucket IS NOT NULL AND storage_path IS NOT NULL
         """,
         (user_id, user_id, user_id),
     )
-    return [(str(row[0]), str(row[1])) for row in await cursor.fetchall()]
+    return [
+        (str(row[0]) if row[0] is not None else None, str(row[1]), str(row[2]))
+        for row in await cursor.fetchall()
+    ]
 
 
 async def run_batch(*, dry_run: bool = False, batch_size: int = 10) -> dict[str, int]:
@@ -39,7 +42,6 @@ async def run_batch(*, dry_run: bool = False, batch_size: int = 10) -> dict[str,
         os.getenv("ADMIN_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
     ).strip()
     config = MediaStorageConfig.from_env()
-    storage = SupabaseMediaStorage(config)
     counts = {"selected": 0, "completed": 0, "failed": 0, "objects": 0}
     async with await psycopg.AsyncConnection.connect(
         database_url, connect_timeout=5
@@ -73,7 +75,8 @@ async def run_batch(*, dry_run: bool = False, batch_size: int = 10) -> dict[str,
                 counts["objects"] += len(objects)
                 if dry_run:
                     continue
-                for bucket, path in objects:
+                for provider, bucket, path in objects:
+                    storage = media_storage_for_provider(provider, config)
                     try:
                         await storage.delete_object(bucket=bucket, path=path)
                     except StorageError as exc:

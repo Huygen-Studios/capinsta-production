@@ -133,9 +133,24 @@ const unknownRecordSchema = z.record(z.string(), z.unknown());
 const uploadInstructionsSchema = z.object({
 	mediaAssetId: z.string().min(1),
 	uploadSessionId: z.string().min(1),
-	uploadUrl: z.url(),
+	provider: z.enum(["supabase", "r2", "local"]).optional(),
+	protocol: z.enum(["tus", "s3_multipart"]).optional(),
+	uploadUrl: z.url().optional(),
 	requiredHeaders: z.record(z.string(), z.string()),
 	uploadMetadata: z.record(z.string(), z.string()),
+	partSizeBytes: z.number().int().positive().optional(),
+	partCount: z.number().int().positive().optional(),
+	uploadConcurrency: z.number().int().positive().optional(),
+	signedUrlTtlSeconds: z.number().int().positive().optional(),
+	uploadedParts: z
+		.array(
+			z.object({
+				partNumber: z.number().int().positive(),
+				etag: z.string().min(1),
+				size: z.number().int().positive().optional(),
+			}),
+		)
+		.optional(),
 	applicationMaximumUploadBytes: z.number().int().positive().optional(),
 	sourceBucketMaximumUploadBytes: z.number().int().positive().nullable().optional(),
 	effectiveKnownMaximumUploadBytes: z.number().int().positive().optional(),
@@ -154,11 +169,20 @@ const uploadLimitsSchema = z.object({
 type UploadInstructions = {
 	mediaAssetId: string;
 	uploadSessionId: string;
-	uploadUrl: string;
+	provider?: "supabase" | "r2" | "local";
+	protocol?: "tus" | "s3_multipart";
+	uploadUrl?: string;
 	requiredHeaders: Record<string, string>;
 	uploadMetadata: Record<string, string>;
 	uploadLocation?: string;
+	partSizeBytes?: number;
+	partCount?: number;
+	uploadConcurrency?: number;
+	signedUrlTtlSeconds?: number;
+	uploadedParts?: UploadedPart[];
 };
+type UploadedPart = { partNumber: number; etag: string; size?: number };
+type SignedPart = { partNumber: number; url: string; expiresAt: string };
 const selectionResultSchema = z.object({
 	jobId: z.string().optional(),
 	status: z.string(),
@@ -434,6 +458,7 @@ export async function uploadTusForTest({
 		}
 	}
 	if (!uploadLocation) {
+		if (!instructions.uploadUrl) throw new Error("The upload server did not return an upload URL.");
 		const create = await fetchImpl(instructions.uploadUrl, {
 			method: "POST",
 			headers: {
@@ -475,6 +500,158 @@ export async function uploadTusForTest({
 		onProgress(Math.min(100, Math.round((offset / file.size) * 100)));
 	}
 	return { ...instructions, uploadLocation };
+}
+
+const signedPartsSchema = z.object({
+	parts: z.array(
+		z.object({
+			partNumber: z.number().int().positive(),
+			url: z.url(),
+			expiresAt: z.string(),
+		}),
+	),
+});
+
+async function signMultipartParts(
+	uploadSessionId: string,
+	partNumbers: number[],
+	signal?: AbortSignal,
+): Promise<SignedPart[]> {
+	const result = signedPartsSchema.parse(
+		await json(`/clipping/media/uploads/${encodeURIComponent(uploadSessionId)}/parts/sign`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ partNumbers }),
+			signal,
+		}),
+	);
+	return result.parts;
+}
+
+function completedBytes(parts: UploadedPart[], fileSize: number, partSize: number): number {
+	return parts.reduce((total, part) => {
+		const start = (part.partNumber - 1) * partSize;
+		return total + Math.max(0, Math.min(fileSize, start + partSize) - start);
+	}, 0);
+}
+
+const transientUploadStatuses = new Set([408, 429, 500, 502, 503, 504]);
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		if (signal?.aborted) {
+			reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+			return;
+		}
+		const timeout = globalThis.setTimeout(resolve, ms);
+		signal?.addEventListener(
+			"abort",
+			() => {
+				globalThis.clearTimeout(timeout);
+				reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+			},
+			{ once: true },
+		);
+	});
+}
+
+async function putMultipartPart({
+	file,
+	part,
+	partSize,
+	fetchImpl,
+	signal,
+}: {
+	file: File;
+	part: SignedPart;
+	partSize: number;
+	fetchImpl: typeof fetch;
+	signal?: AbortSignal;
+}): Promise<UploadedPart> {
+	const start = (part.partNumber - 1) * partSize;
+	const end = Math.min(file.size, start + partSize);
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		const response = await fetchImpl(part.url, {
+			method: "PUT",
+			body: file.slice(start, end),
+			signal,
+		});
+		if (response.ok) {
+			const etag = response.headers.get("etag")?.replaceAll('"', "");
+			if (!etag) throw new Error("The upload server did not return a part ETag.");
+			return { partNumber: part.partNumber, etag, size: end - start };
+		}
+		if (!transientUploadStatuses.has(response.status) || attempt === 2)
+			throw new Error("A video part failed to upload. Only the failed part will be retried.");
+		await sleep(300 * 2 ** attempt, signal);
+	}
+	throw new Error("A video part failed to upload. Only the failed part will be retried.");
+}
+
+export async function uploadR2MultipartForTest({
+	file,
+	instructions,
+	onProgress,
+	signParts = signMultipartParts,
+	completeUpload,
+	onPartComplete,
+	fetchImpl = fetch,
+	signal,
+}: {
+	file: File;
+	instructions: UploadInstructions;
+	onProgress: (progress: number) => void;
+	signParts?: (uploadSessionId: string, partNumbers: number[], signal?: AbortSignal) => Promise<SignedPart[]>;
+	completeUpload?: (parts: UploadedPart[]) => Promise<void>;
+	onPartComplete?: (parts: UploadedPart[]) => void;
+	fetchImpl?: typeof fetch;
+	signal?: AbortSignal;
+}): Promise<UploadedPart[]> {
+	const partSize = instructions.partSizeBytes;
+	const partCount = instructions.partCount;
+	if (!partSize || !partCount) throw new Error("The upload server did not return multipart settings.");
+	const concurrency = Math.max(1, Math.min(5, instructions.uploadConcurrency ?? 3));
+	const completed = new Map<number, UploadedPart>(
+		(instructions.uploadedParts ?? []).map((part) => [part.partNumber, part]),
+	);
+	onProgress(Math.round((completedBytes([...completed.values()], file.size, partSize) / file.size) * 100));
+	for (let startPart = 1; startPart <= partCount; startPart += 10) {
+		const requested = Array.from(
+			{ length: Math.min(10, partCount - startPart + 1) },
+			(_, index) => startPart + index,
+		).filter((partNumber) => !completed.has(partNumber));
+		if (!requested.length) continue;
+		const signed = await signParts(instructions.uploadSessionId, requested, signal);
+		let nextIndex = 0;
+		await Promise.all(
+			Array.from({ length: Math.min(concurrency, signed.length) }, async () => {
+				while (nextIndex < signed.length) {
+					const part = signed[nextIndex++];
+					const uploaded = await putMultipartPart({
+						file,
+						part,
+						partSize,
+						fetchImpl,
+						signal,
+					});
+					completed.set(part.partNumber, uploaded);
+					const completedParts = [...completed.values()].sort(
+						(a, b) => a.partNumber - b.partNumber,
+					);
+					onPartComplete?.(completedParts);
+					onProgress(
+						Math.min(
+							100,
+							Math.round((completedBytes(completedParts, file.size, partSize) / file.size) * 100),
+						),
+					);
+				}
+			}),
+		);
+	}
+	const parts = [...completed.values()].sort((a, b) => a.partNumber - b.partNumber);
+	if (completeUpload) await completeUpload(parts);
+	return parts;
 }
 
 export async function uploadClipperMedia({
@@ -522,27 +699,56 @@ export async function uploadClipperMedia({
 		);
 	}
 	try {
-		instructions = await uploadTusForTest({
-			file,
-			instructions,
-			tusAuthHeaders,
-			onProgress,
-			signal,
-		});
+		if (instructions.protocol === "s3_multipart" || instructions.provider === "r2") {
+			const parts = await uploadR2MultipartForTest({
+				file,
+				instructions,
+				onProgress,
+				completeUpload: async (uploadedParts) => {
+					await json(
+						`/clipping/media/uploads/${instructions!.uploadSessionId}/complete`,
+						{
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({ createProbeJob: true, parts: uploadedParts }),
+							signal,
+						},
+					);
+				},
+				onPartComplete: (uploadedParts) => {
+					window.localStorage.setItem(
+						resumeKey,
+						JSON.stringify({ ...instructions, uploadedParts }),
+					);
+				},
+				signal,
+			});
+			instructions.uploadedParts = parts;
+		} else {
+			instructions = await uploadTusForTest({
+				file,
+				instructions,
+				tusAuthHeaders,
+				onProgress,
+				signal,
+			});
+		}
 	} catch (error) {
-		window.localStorage.removeItem(resumeKey);
+		if (instructions.protocol !== "s3_multipart" && instructions.provider !== "r2")
+			window.localStorage.removeItem(resumeKey);
 		throw error;
 	}
 	window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
-	await json(
-		`/clipping/media/uploads/${instructions.uploadSessionId}/complete`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ createProbeJob: true }),
-			signal,
-		},
-	);
+	if (instructions.protocol !== "s3_multipart" && instructions.provider !== "r2")
+		await json(
+			`/clipping/media/uploads/${instructions.uploadSessionId}/complete`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ createProbeJob: true }),
+				signal,
+			},
+		);
 	window.localStorage.removeItem(resumeKey);
 	return instructions.mediaAssetId;
 }

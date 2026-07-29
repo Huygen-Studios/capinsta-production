@@ -33,6 +33,25 @@ Keep all three admission flags `true` for the first deployment. Set exact HTTPS
 origins, the private-beta allowlist, and at least one real transcription and
 candidate-provider credential.
 
+For production Clipper media, configure Cloudflare R2 on the API and every
+backend worker:
+
+```text
+CLIPPING_STORAGE_PROVIDER=r2
+R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=<server-only-key>
+R2_SECRET_ACCESS_KEY=<server-only-secret>
+R2_SOURCE_BUCKET=capinsta-source-media
+R2_VARIANTS_BUCKET=capinsta-media-variants
+R2_EXPORTS_BUCKET=capinsta-media-exports
+R2_MULTIPART_PART_SIZE_BYTES=33554432
+R2_SIGNED_URL_TTL_SECONDS=900
+R2_UPLOAD_CONCURRENCY=3
+```
+
+Create those R2 buckets as private buckets. No public bucket, token, signed URL,
+or provider key belongs in browser-visible environment variables.
+
 The API and backend workers also share the existing `clipper-workspaces` named
 volume for legacy AI-caption media and SQLite metadata:
 
@@ -56,17 +75,17 @@ The backend image initializes only `/app/storage/legacy-caption`, preserves
 existing files, fixes ownership for the `capinsta` runtime user, then starts
 the public API as that non-root user.
 
-Before enabling uploads, set Supabase Storage limits:
+If `CLIPPING_STORAGE_PROVIDER=supabase`, set Supabase Storage limits before
+enabling uploads:
 
 ```text
 Storage -> Settings -> Global file size limit
 Storage -> source-media -> Edit bucket -> File size limit
 ```
 
-Both must be at least `MAX_SOURCE_FILE_BYTES` (`2147483648` bytes by default)
-for 30-60 minute source videos. The production doctor can verify the bucket
-limit, but the project-global Storage limit may remain externally configured
-and unverified.
+Both must be at least `MAX_SOURCE_FILE_BYTES` (`2147483648` bytes by default).
+R2 mode does not use Supabase Storage for new Clipper uploads, but existing
+Supabase-backed media remains readable by its persisted `storage_provider`.
 
 Run the `Production candidate` workflow with `staging` and deploy disabled.
 After Linux verification and image smoke tests pass, run it with staging deploy

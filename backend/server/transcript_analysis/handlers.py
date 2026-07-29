@@ -9,7 +9,9 @@ from pydantic import ValidationError
 
 from server.clipping_jobs.errors import JobOrchestrationError, ProcessingJobFailure
 from server.clipping_jobs.models import JobExecutionContext, JobExecutionResult
+from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
+from server.clipping_storage.provider import media_storage_for_provider
 from server.clipping_storage.storage import MediaStorage
 from server.durable_transcription.config import DurableTranscriptionConfig
 from server.durable_transcription.source import materialize_transcription_source
@@ -231,10 +233,12 @@ class SilenceAnalysisJobHandler(_Base):
         config: TranscriptAnalysisConfig,
         repository: TranscriptAnalysisRepository,
         storage: MediaStorage,
+        storage_config: MediaStorageConfig | None = None,
         runner: SilenceFFmpegRunner | None = None,
     ) -> None:
         super().__init__(config=config, repository=repository)
         self.storage = storage
+        self.storage_config = storage_config
         self.runner = runner or SilenceFFmpegRunner(
             config.ffmpeg_path, maximum_stderr_bytes=config.maximum_stderr_bytes
         )
@@ -250,12 +254,19 @@ class SilenceAnalysisJobHandler(_Base):
             asset, _, _, variant, transcript = await self.repository.begin(context, value)
             began = True
             try:
-                metadata = await self.storage.inspect_object(
+                storage = (
+                    media_storage_for_provider(
+                        variant.get("storage_provider"), self.storage_config
+                    )
+                    if self.storage_config
+                    else self.storage
+                )
+                metadata = await storage.inspect_object(
                     bucket=variant["storage_bucket"], path=variant["storage_path"]
                 )
                 if variant["size_bytes"] is not None and metadata.size_bytes != variant["size_bytes"]:
                     raise ProcessingJobFailure("audio_variant_revision_mismatch", "The audio object changed", retryable=False)
-                source_context = self.storage.open_probe_source(
+                source_context = storage.open_probe_source(
                     bucket=variant["storage_bucket"],
                     path=variant["storage_path"],
                     expires_in=self.config.source_url_ttl_seconds,

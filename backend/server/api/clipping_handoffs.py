@@ -19,8 +19,8 @@ from ..clipping_persistence.errors import PersistenceError
 from ..clipping_persistence.models import AuthenticatedActor
 from ..clipping_storage.config import MediaStorageConfig
 from ..clipping_storage.errors import StorageError
+from ..clipping_storage.provider import media_storage_for_provider
 from ..clipping_storage.repository import MediaStorageRepository
-from ..clipping_storage.supabase_storage import SupabaseMediaStorage
 
 router = APIRouter(prefix="/clipping", tags=["clipping-handoffs"])
 media_router = APIRouter(prefix="/capinsta/media", tags=["capinsta-media"])
@@ -179,7 +179,6 @@ async def resolve_media_access(
     actor = _actor()
     database = DurableDatabase()
     repository = MediaStorageRepository(database)
-    storage = SupabaseMediaStorage(storage_config)
     try:
         asset = await repository.get_asset(
             actor, media_asset_id, include_deleted=True
@@ -209,6 +208,9 @@ async def resolve_media_access(
                 "signed_url_failed",
                 "Requested signed URL lifetime is outside the allowed range",
             )
+        storage = media_storage_for_provider(
+            proxy.get("storage_provider"), storage_config
+        )
         url = await storage.create_read_url(
             bucket=proxy["storage_bucket"],
             path=proxy["storage_path"],

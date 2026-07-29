@@ -53,10 +53,10 @@ class DurableTranscriptionConfig:
             .strip()
             .lower()
         )
-        if backend not in {"supabase", "local"}:
+        if backend not in {"supabase", "r2", "local"}:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "TRANSCRIPTION_STORAGE_BACKEND must be supabase or local",
+                "TRANSCRIPTION_STORAGE_BACKEND must be supabase, r2, or local",
             )
         config = cls(
             enabled=enabled,

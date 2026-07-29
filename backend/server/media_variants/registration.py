@@ -7,7 +7,7 @@ from server.clipping_jobs.registry import JobHandlerRegistry
 from server.clipping_persistence.database import DurableDatabase
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.local_storage import LocalMediaStorage
-from server.clipping_storage.supabase_storage import SupabaseMediaStorage
+from server.clipping_storage.provider import media_storage_from_config
 from server.media_probe.config import MediaProbeConfig
 from server.media_probe.ffprobe import FFprobeRunner
 
@@ -44,7 +44,7 @@ async def register_media_variants_if_enabled(
         if not storage_config.enabled:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "Media-variant handlers require enabled Supabase media storage",
+                "Media-variant handlers require enabled private media storage",
             )
         if config.signed_url_ttl_seconds > (
             storage_config.maximum_url_ttl_seconds
@@ -53,7 +53,7 @@ async def register_media_variants_if_enabled(
                 "worker_not_configured",
                 "Variant signed URL TTL exceeds the Storage maximum",
             )
-        storage = SupabaseMediaStorage(storage_config)
+        storage = media_storage_from_config(storage_config)
         variants_bucket = storage_config.variants_bucket
     runner = FFmpegRunner(config)
     ffmpeg_version = await runner.validate_available()
@@ -67,7 +67,12 @@ async def register_media_variants_if_enabled(
         )
     )
     ffprobe_version = await verifier.validate_available()
-    repository = MediaVariantRepository(database)
+    repository = MediaVariantRepository(
+        database,
+        storage_provider=(
+            "local" if config.storage_backend == "local" else storage_config.storage_provider
+        ),
+    )
     for job_type in config.enabled_job_types:
         registry.register(
             _HANDLERS[job_type](
@@ -77,6 +82,7 @@ async def register_media_variants_if_enabled(
                 runner=runner,
                 verifier_runner=verifier,
                 variants_bucket=variants_bucket,
+                storage_config=storage_config if config.storage_backend != "local" else None,
             )
         )
     return ffmpeg_version, ffprobe_version

@@ -20,7 +20,7 @@ from ..clipping_persistence.models import AuthenticatedActor
 from ..clipping_storage.config import MediaStorageConfig
 from ..clipping_storage.errors import StorageError
 from ..clipping_storage.local_storage import LocalMediaStorage
-from ..clipping_storage.supabase_storage import SupabaseMediaStorage
+from ..clipping_storage.provider import media_storage_for_provider
 
 router = APIRouter(prefix="/clipping", tags=["clipping-exports"])
 
@@ -181,10 +181,13 @@ async def download_export(export_id: UUID):
     config = _config()
     try:
         row = await _repo(config).download_record(_actor(), export_id)
+        storage_config = MediaStorageConfig.from_env()
         if config.storage_backend == "local":
             storage = LocalMediaStorage(Path(config.local_storage_root))
         else:
-            storage = SupabaseMediaStorage(MediaStorageConfig.from_env())
+            storage = media_storage_for_provider(
+                row.get("storage_provider"), storage_config
+            )
         metadata = await storage.inspect_object(
             bucket=row["storage_bucket"], path=row["storage_path"]
         )

@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion, opencut/prefer-object-params -- Synthetic File doubles avoid allocating a 480 MB test buffer. */
 import { describe, expect, test } from "bun:test";
-import { parseCandidates, uploadTusForTest, viralCandidateSchema } from "./api";
+import {
+	parseCandidates,
+	uploadR2MultipartForTest,
+	uploadTusForTest,
+	viralCandidateSchema,
+} from "./api";
 
 const candidate = {
 	candidateId: "candidate_001",
@@ -176,5 +181,103 @@ describe("automatic clipper API contracts", () => {
 					})) as typeof fetch,
 			}),
 		).rejects.toThrow("Video exceeds the Storage limit");
+	});
+
+	test("uploads R2 multipart slices and completes with ETags", async () => {
+		const putBodies: Array<{ start: number; end: number; size: number }> = [];
+		const completedPayloads: unknown[] = [];
+		const file = {
+			size: 12,
+			slice: (start: number, end: number) => ({ size: end - start, start, end }),
+		} as unknown as File;
+
+		const parts = await uploadR2MultipartForTest({
+			file,
+			instructions: {
+				provider: "r2",
+				protocol: "s3_multipart",
+				mediaAssetId: "media-1",
+				uploadSessionId: "upload-1",
+				requiredHeaders: {},
+				uploadMetadata: {},
+				partSizeBytes: 5,
+				partCount: 3,
+			},
+			onProgress: () => {},
+			signParts: async (_sessionId, partNumbers) =>
+				partNumbers.map((partNumber) => ({
+					partNumber,
+					url: `https://r2.invalid/part/${partNumber}`,
+					expiresAt: "2026-07-29T00:00:00Z",
+				})),
+			completeUpload: async (payload) => {
+				completedPayloads.push(payload);
+			},
+			fetchImpl: (async (_url, init) => {
+				putBodies.push(init?.body as { start: number; end: number; size: number });
+				return new Response("", {
+					status: 200,
+					headers: { etag: `"etag-${putBodies.length}"` },
+				});
+			}) as typeof fetch,
+		});
+
+		expect(putBodies).toEqual([
+			{ start: 0, end: 5, size: 5 },
+			{ start: 5, end: 10, size: 5 },
+			{ start: 10, end: 12, size: 2 },
+		]);
+		expect(parts).toEqual([
+			{ partNumber: 1, etag: "etag-1", size: 5 },
+			{ partNumber: 2, etag: "etag-2", size: 5 },
+			{ partNumber: 3, etag: "etag-3", size: 2 },
+		]);
+		expect(completedPayloads).toEqual([parts]);
+	});
+
+	test("retries transient R2 part upload failures", async () => {
+		const attempts: Record<string, number> = {};
+		const file = {
+			size: 6,
+			slice: (start: number, end: number) => ({ size: end - start, start, end }),
+		} as unknown as File;
+
+		const parts = await uploadR2MultipartForTest({
+			file,
+			instructions: {
+				provider: "r2",
+				protocol: "s3_multipart",
+				mediaAssetId: "media-1",
+				uploadSessionId: "upload-1",
+				requiredHeaders: {},
+				uploadMetadata: {},
+				partSizeBytes: 3,
+				partCount: 2,
+				uploadConcurrency: 1,
+			},
+			onProgress: () => {},
+			signParts: async (_sessionId, partNumbers) =>
+				partNumbers.map((partNumber) => ({
+					partNumber,
+					url: `https://r2.invalid/part/${partNumber}`,
+					expiresAt: "2026-07-29T00:00:00Z",
+				})),
+			fetchImpl: (async (url) => {
+				const key = String(url);
+				attempts[key] = (attempts[key] ?? 0) + 1;
+				if (key.endsWith("/2") && attempts[key] === 1)
+					return new Response("", { status: 503 });
+				return new Response("", {
+					status: 200,
+					headers: { etag: `"etag-${key.at(-1)}"` },
+				});
+			}) as typeof fetch,
+		});
+
+		expect(attempts["https://r2.invalid/part/2"]).toBe(2);
+		expect(parts).toEqual([
+			{ partNumber: 1, etag: "etag-1", size: 3 },
+			{ partNumber: 2, etag: "etag-2", size: 3 },
+		]);
 	});
 });

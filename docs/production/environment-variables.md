@@ -21,7 +21,26 @@ Canonical long-source limits are `MAX_SOURCE_FILE_BYTES` (2 GiB),
 `MAX_PROCESSING_MINUTES_PER_PERIOD` (180),
 `MAX_STORED_SOURCE_BYTES` (10 GiB), and `MAX_STORED_EXPORT_BYTES` (10 GiB).
 Legacy `PRIVATE_BETA_*` names remain compatibility fallbacks. The Supabase
-project global Storage limit must be at least the configured source limit.
+project global Storage limit only applies when `CLIPPING_STORAGE_PROVIDER` is
+`supabase`.
+
+Production Clipper media defaults to Cloudflare R2:
+
+```text
+CLIPPING_STORAGE_PROVIDER=r2
+R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=<server-only-key>
+R2_SECRET_ACCESS_KEY=<server-only-secret>
+R2_SOURCE_BUCKET=capinsta-source-media
+R2_VARIANTS_BUCKET=capinsta-media-variants
+R2_EXPORTS_BUCKET=capinsta-media-exports
+R2_MULTIPART_PART_SIZE_BYTES=33554432
+R2_SIGNED_URL_TTL_SECONDS=900
+R2_UPLOAD_CONCURRENCY=3
+```
+
+R2 buckets must be private. Browser uploads use backend-authorized multipart
+presigned URLs; do not expose R2 secrets to the web image.
 
 Defaults deny new expensive work. Rotate Whop/API/webhook secrets and Supabase
 service keys through Coolify secrets, then redeploy affected server roles.

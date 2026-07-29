@@ -15,8 +15,10 @@ from server.clipping_jobs.errors import (
     ProcessingJobFailure,
 )
 from server.clipping_jobs.models import JobExecutionContext, JobExecutionResult
+from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
 from server.clipping_storage.models import ProbeSource
+from server.clipping_storage.provider import media_storage_for_provider
 from server.media_probe.config import MediaProbeConfig
 from server.media_probe.ffprobe import FFprobeRunner
 from server.media_variants.workspace import temporary_workspace
@@ -121,11 +123,19 @@ class ClippingExportJobHandler:
     job_type = "clip_export"
 
     def __init__(
-        self, *, config, repository, storage, source_ttl_seconds, exports_bucket
+        self,
+        *,
+        config,
+        repository,
+        storage,
+        source_ttl_seconds,
+        exports_bucket,
+        storage_config: MediaStorageConfig | None = None,
     ):
         self.config: ClippingExportConfig = config
         self.repository: ClippingExportRepository = repository
         self.storage = storage
+        self.storage_config = storage_config
         self.source_ttl_seconds = source_ttl_seconds
         self.exports_bucket = exports_bucket
 
@@ -177,7 +187,12 @@ class ClippingExportJobHandler:
             )
             await context.raise_if_cancelled()
             await context.heartbeat(progress=10, current_stage="resolving_media")
-            async with self.storage.open_probe_source(
+            source_storage = (
+                media_storage_for_provider(asset.get("storage_provider"), self.storage_config)
+                if self.storage_config
+                else self.storage
+            )
+            async with source_storage.open_probe_source(
                 bucket=asset["storage_bucket"],
                 path=asset["storage_path"],
                 expires_in=self.source_ttl_seconds,

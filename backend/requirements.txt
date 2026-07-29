@@ -4,6 +4,7 @@ openai
 pydub
 audioop-lts; python_version >= "3.13"
 requests
+boto3
 google-genai
 indic-transliteration
 pyspellchecker

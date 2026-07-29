@@ -13,13 +13,13 @@ from ..clipping_persistence.models import AuthenticatedActor
 from ..clipping_storage.config import MediaStorageConfig
 from ..clipping_storage.errors import StorageError
 from ..clipping_storage.local_storage import LocalMediaStorage
+from ..clipping_storage.provider import media_storage_from_config
 from ..clipping_storage.repository import MediaStorageRepository
 from ..clipping_storage.services import (
     MediaAccessService,
     MediaDeletionService,
     MediaUploadService,
 )
-from ..clipping_storage.supabase_storage import SupabaseMediaStorage
 
 router = APIRouter(prefix="/clipping/media", tags=["clipping-media"])
 
@@ -36,6 +36,12 @@ class UploadCreateRequest(BaseModel):
 class UploadCompleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     createProbeJob: bool = True
+    parts: list[dict[str, int | str]] | None = None
+
+
+class SignPartsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    partNumbers: list[int] = Field(min_length=1, max_length=20)
 
 
 def _actor() -> AuthenticatedActor:
@@ -53,11 +59,7 @@ def _services():
             },
         )
     repository = MediaStorageRepository(DurableDatabase())
-    storage = (
-        LocalMediaStorage(Path(config.local_storage_root))
-        if config.local_storage_root
-        else SupabaseMediaStorage(config)
-    )
+    storage = media_storage_from_config(config)
     return (
         MediaUploadService(
             config=config, storage=storage, repository=repository
@@ -65,7 +67,7 @@ def _services():
         MediaAccessService(
             config=config, storage=storage, repository=repository
         ),
-        MediaDeletionService(storage=storage, repository=repository),
+        MediaDeletionService(config=config, storage=storage, repository=repository),
     )
 
 
@@ -85,9 +87,22 @@ def _raise_storage(error: StorageError) -> None:
         "upload_size_mismatch": 413,
         "upload_mime_mismatch": 415,
         "storage_not_configured": 503,
+        "r2_not_configured": 503,
+        "r2_bucket_missing": 503,
+        "r2_credentials_invalid": 503,
         "storage_provider_unavailable": 503,
         "storage_delete_failed": 503,
         "signed_url_failed": 502,
+        "multipart_creation_failed": 503,
+        "multipart_upload_expired": 410,
+        "multipart_part_failed": 502,
+        "multipart_etag_missing": 422,
+        "multipart_part_mismatch": 422,
+        "multipart_completion_failed": 502,
+        "multipart_abort_failed": 502,
+        "object_verification_failed": 502,
+        "object_size_mismatch": 409,
+        "signed_url_expired": 410,
     }.get(error.category, 422)
     raise HTTPException(status_code=status, detail=error.as_dict()) from error
 
@@ -150,8 +165,38 @@ async def complete_upload(
             create_probe_job=(
                 request.createProbeJob if request is not None else True
             ),
+            parts=request.parts if request is not None else None,
         )
         return attachment.as_dict()
+    except StorageError as error:
+        _raise_storage(error)
+
+
+@router.post("/uploads/{upload_session_id}/parts/sign")
+async def sign_upload_parts(upload_session_id: UUID, payload: SignPartsRequest):
+    try:
+        upload, _, _ = _services()
+        return await upload.sign_multipart_parts(
+            _actor(), upload_session_id, part_numbers=payload.partNumbers
+        )
+    except StorageError as error:
+        _raise_storage(error)
+
+
+@router.get("/uploads/{upload_session_id}/parts")
+async def list_upload_parts(upload_session_id: UUID):
+    try:
+        upload, _, _ = _services()
+        return await upload.list_multipart_parts(_actor(), upload_session_id)
+    except StorageError as error:
+        _raise_storage(error)
+
+
+@router.delete("/uploads/{upload_session_id}")
+async def abort_upload(upload_session_id: UUID):
+    try:
+        upload, _, _ = _services()
+        return await upload.abort_upload(_actor(), upload_session_id)
     except StorageError as error:
         _raise_storage(error)
 

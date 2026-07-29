@@ -207,7 +207,9 @@ def test_editor_media_access_returns_ready_proxy(
 
     monkeypatch.setattr(clipping_handoffs, "DurableDatabase", Database)
     monkeypatch.setattr(clipping_handoffs, "MediaStorageRepository", Repository)
-    monkeypatch.setattr(clipping_handoffs, "SupabaseMediaStorage", Storage)
+    monkeypatch.setattr(
+        clipping_handoffs, "media_storage_for_provider", lambda _provider, _config: Storage(_config)
+    )
     monkeypatch.setattr(
         clipping_handoffs.MediaStorageConfig,
         "from_env",

@@ -8,7 +8,7 @@ from server.clipping_jobs.registry import JobHandlerRegistry
 from server.clipping_persistence.database import DurableDatabase
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.local_storage import LocalMediaStorage
-from server.clipping_storage.supabase_storage import SupabaseMediaStorage
+from server.clipping_storage.provider import media_storage_from_config
 
 from .config import MediaProbeConfig
 from .ffprobe import FFprobeRunner
@@ -33,7 +33,7 @@ async def register_media_probe_if_enabled(
         if not storage_config.enabled:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "The media-probe handler requires enabled Supabase media storage",
+                "The media-probe handler requires enabled private media storage",
             )
         if (
             config.signed_url_ttl_seconds
@@ -43,13 +43,14 @@ async def register_media_probe_if_enabled(
                 "worker_not_configured",
                 "Media probe signed URL TTL exceeds the storage maximum",
             )
-        storage = SupabaseMediaStorage(storage_config)
+        storage = media_storage_from_config(storage_config)
     runner = FFprobeRunner(config)
     version = await runner.validate_available()
     registry.register(
         MediaProbeJobHandler(
             config=config,
             storage=storage,
+            storage_config=storage_config if config.storage_backend != "local" else None,
             repository=MediaProbeRepository(database),
             runner=runner,
         )

@@ -40,6 +40,7 @@ class ClippingExportRepository:
     def __init__(self, database: DurableDatabase, config: ClippingExportConfig) -> None:
         self.database = database
         self.config = config
+        self.storage_provider = config.storage_backend
 
     @staticmethod
     async def _reserve(connection, actor, scope, key, request):
@@ -711,12 +712,13 @@ class ClippingExportRepository:
             async with connection.cursor() as cursor:
                 await cursor.execute(
                     """UPDATE clipping_exports SET status='ready',
-                    storage_bucket=%s,storage_path=%s,mime_type=%s,size_bytes=%s,
+                    storage_provider=%s,storage_bucket=%s,storage_path=%s,mime_type=%s,size_bytes=%s,
                     duration_ms=%s,width=%s,height=%s,checksum=%s,
                     result_identity=%s,failure=NULL,ready_at=now(),
                     revision=revision+1,updated_at=now()
                     WHERE id=%s AND request_identity=%s""",
                     (
+                        self.storage_provider,
                         output["storageBucket"],
                         output["storagePath"],
                         output["mimeType"],

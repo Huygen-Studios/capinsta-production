@@ -7,7 +7,7 @@ from server.clipping_jobs.registry import JobHandlerRegistry
 from server.clipping_persistence.database import DurableDatabase
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.local_storage import LocalMediaStorage
-from server.clipping_storage.supabase_storage import SupabaseMediaStorage
+from server.clipping_storage.provider import media_storage_from_config
 from server.headless_export import check_export_runtime
 
 from .config import ClippingExportConfig
@@ -36,13 +36,13 @@ async def register_clipping_exports_if_enabled(
         if not storage_config.enabled:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "Clipping exports require enabled Supabase media storage",
+                "Clipping exports require enabled private media storage",
             )
         source_ttl = min(
             storage_config.maximum_url_ttl_seconds,
             config.timeout_seconds + 120,
         )
-        storage = SupabaseMediaStorage(storage_config)
+        storage = media_storage_from_config(storage_config)
         exports_bucket = storage_config.exports_bucket
     registry.register(
         ClippingExportJobHandler(
@@ -51,6 +51,7 @@ async def register_clipping_exports_if_enabled(
             storage=storage,
             source_ttl_seconds=source_ttl,
             exports_bucket=exports_bucket,
+            storage_config=storage_config if config.storage_backend != "local" else None,
         )
     )
     return config.preset

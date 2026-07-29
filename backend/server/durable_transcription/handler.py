@@ -13,7 +13,9 @@ from server.clipping_jobs.errors import (
     ProcessingJobFailure,
 )
 from server.clipping_jobs.models import JobExecutionContext, JobExecutionResult
+from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
+from server.clipping_storage.provider import media_storage_for_provider
 from server.clipping_storage.storage import MediaStorage
 from server.media_variants.workspace import temporary_workspace
 from server.transcription_control import TranscriptionConfigSnapshot
@@ -137,10 +139,12 @@ class TranscriptionJobHandler:
         storage: MediaStorage,
         repository: DurableTranscriptionRepository,
         configuration_snapshot: TranscriptionConfigSnapshot,
+        storage_config: MediaStorageConfig | None = None,
         pipeline: TranscriptionPipeline | None = None,
     ) -> None:
         self.config = config
         self.storage = storage
+        self.storage_config = storage_config
         self.repository = repository
         self.configuration_snapshot = configuration_snapshot
         self.pipeline = pipeline or ExistingTranscriptionPipeline()
@@ -235,7 +239,14 @@ class TranscriptionJobHandler:
             await context.heartbeat(progress=7, current_stage="resolving_audio")
             variant = target["variant"]
             try:
-                metadata = await self.storage.inspect_object(
+                storage = (
+                    media_storage_for_provider(
+                        variant.get("storage_provider"), self.storage_config
+                    )
+                    if self.storage_config
+                    else self.storage
+                )
+                metadata = await storage.inspect_object(
                     bucket=variant["storage_bucket"],
                     path=variant["storage_path"],
                 )
@@ -248,7 +259,7 @@ class TranscriptionJobHandler:
                         "The transcription audio object no longer matches its row",
                         retryable=False,
                     )
-                source_context = self.storage.open_probe_source(
+                source_context = storage.open_probe_source(
                     bucket=variant["storage_bucket"],
                     path=variant["storage_path"],
                     expires_in=self.config.source_url_ttl_seconds,

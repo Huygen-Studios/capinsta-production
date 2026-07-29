@@ -14,7 +14,7 @@ class Cursor:
         self.statement = statement
 
     async def fetchall(self):
-        return [("media-variants", "owner/asset/proxy.mp4")]
+        return [("r2", "media-variants", "owner/asset/proxy.mp4")]
 
 
 def test_account_deletion_finds_variants_through_media_owner():

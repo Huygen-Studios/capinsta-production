@@ -9,7 +9,7 @@ from server.clipping_jobs.registry import JobHandlerRegistry
 from server.clipping_persistence.database import DurableDatabase
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.local_storage import LocalMediaStorage
-from server.clipping_storage.supabase_storage import SupabaseMediaStorage
+from server.clipping_storage.provider import media_storage_from_config
 from server.transcription_catalog import (
     catalog_entry,
     model_runtime_availability,
@@ -68,11 +68,12 @@ async def register_durable_transcription_if_enabled(
                 "worker_not_configured",
                 "Transcription URL TTL exceeds the Storage maximum",
             )
-        storage = SupabaseMediaStorage(storage_config)
+        storage = media_storage_from_config(storage_config)
     registry.register(
         TranscriptionJobHandler(
             config=config,
             storage=storage,
+            storage_config=storage_config if config.storage_backend != "local" else None,
             repository=DurableTranscriptionRepository(database),
             configuration_snapshot=snapshot,
         )

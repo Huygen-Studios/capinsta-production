@@ -108,3 +108,48 @@ class MediaStorage(ABC):
         destination_bucket: str,
         destination_path: str,
     ) -> None: ...
+
+    async def create_multipart_upload(
+        self, *, bucket: str, path: str, mime_type: str
+    ) -> str:
+        del bucket, path, mime_type
+        raise StorageError(
+            "multipart_creation_failed",
+            "This Storage adapter does not support multipart uploads",
+        )
+
+    async def create_upload_part_url(
+        self, *, bucket: str, path: str, upload_id: str, part_number: int, expires_in: int
+    ) -> str:
+        del bucket, path, upload_id, part_number, expires_in
+        raise StorageError(
+            "multipart_part_failed",
+            "This Storage adapter does not sign multipart upload parts",
+        )
+
+    async def list_multipart_parts(
+        self, *, bucket: str, path: str, upload_id: str
+    ) -> list[dict[str, int | str]]:
+        del bucket, path, upload_id
+        raise StorageError(
+            "multipart_part_failed",
+            "This Storage adapter does not list multipart upload parts",
+        )
+
+    async def complete_multipart_upload(
+        self, *, bucket: str, path: str, upload_id: str, parts: list[dict[str, int | str]]
+    ) -> StorageObjectMetadata:
+        del bucket, path, upload_id, parts
+        raise StorageError(
+            "multipart_completion_failed",
+            "This Storage adapter does not complete multipart uploads",
+        )
+
+    async def abort_multipart_upload(
+        self, *, bucket: str, path: str, upload_id: str
+    ) -> None:
+        del bucket, path, upload_id
+        raise StorageError(
+            "multipart_abort_failed",
+            "This Storage adapter does not abort multipart uploads",
+        )

@@ -9,7 +9,9 @@ from server.clipping_jobs.errors import JobOrchestrationError, ProcessingJobFail
 from server.clipping_jobs.models import JobExecutionResult
 from server.clipping_runtime.client import ClippingRuntimeClient
 from server.clipping_runtime.errors import ClippingRuntimeError
+from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
+from server.clipping_storage.provider import media_storage_for_provider
 from server.clipping_storage.storage import MediaStorage
 from server.durable_transcription.config import DurableTranscriptionConfig
 from server.durable_transcription.source import materialize_transcription_source
@@ -207,11 +209,13 @@ class SmartReframeJobHandler(_BaseHandler):
         runtime: ClippingRuntimeClient,
         storage: MediaStorage,
         source_ttl_seconds: int,
+        storage_config: MediaStorageConfig | None = None,
     ) -> None:
         super().__init__(repository=repository)
         self.config = config
         self.runtime = runtime
         self.storage = storage
+        self.storage_config = storage_config
         self.source_ttl_seconds = source_ttl_seconds
 
     async def execute(self, context, payload):
@@ -247,7 +251,14 @@ class SmartReframeJobHandler(_BaseHandler):
                     retryable=False,
                 )
             try:
-                metadata = await self.storage.inspect_object(
+                storage = (
+                    media_storage_for_provider(
+                        asset.get("storage_provider"), self.storage_config
+                    )
+                    if self.storage_config
+                    else self.storage
+                )
+                metadata = await storage.inspect_object(
                     bucket=asset["storage_bucket"], path=asset["storage_path"]
                 )
                 if asset["size_bytes"] and metadata.size_bytes != asset["size_bytes"]:
@@ -256,7 +267,7 @@ class SmartReframeJobHandler(_BaseHandler):
                         "Source media changed before smart framing",
                         retryable=False,
                     )
-                source_context = self.storage.open_probe_source(
+                source_context = storage.open_probe_source(
                     bucket=asset["storage_bucket"],
                     path=asset["storage_path"],
                     expires_in=self.source_ttl_seconds,

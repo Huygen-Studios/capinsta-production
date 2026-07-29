@@ -11,7 +11,9 @@ from server.clipping_jobs.errors import (
     ProcessingJobFailure,
 )
 from server.clipping_jobs.models import JobExecutionContext, JobExecutionResult
+from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
+from server.clipping_storage.provider import media_storage_for_provider
 from server.clipping_storage.storage import MediaStorage
 
 from .config import MediaProbeConfig
@@ -60,11 +62,13 @@ class MediaProbeJobHandler:
         config: MediaProbeConfig,
         storage: MediaStorage,
         repository: MediaProbeRepository,
+        storage_config: MediaStorageConfig | None = None,
         runner: FFprobeRunner | None = None,
         normalizer: MediaProbeNormalizer | None = None,
     ) -> None:
         self.config = config
         self.storage = storage
+        self.storage_config = storage_config
         self.repository = repository
         self.runner = runner or FFprobeRunner(config)
         self.normalizer = normalizer or MediaProbeNormalizer(
@@ -111,7 +115,14 @@ class MediaProbeJobHandler:
                 progress=10, current_stage="authorizing_storage"
             )
             try:
-                object_metadata = await self.storage.inspect_object(
+                storage = (
+                    media_storage_for_provider(
+                        asset.get("storage_provider"), self.storage_config
+                    )
+                    if self.storage_config
+                    else self.storage
+                )
+                object_metadata = await storage.inspect_object(
                     bucket=asset["storage_bucket"],
                     path=asset["storage_path"],
                 )
@@ -119,7 +130,7 @@ class MediaProbeJobHandler:
                 raise _storage_failure(exc) from exc
             await context.raise_if_cancelled()
             try:
-                source_context = self.storage.open_probe_source(
+                source_context = storage.open_probe_source(
                     bucket=asset["storage_bucket"],
                     path=asset["storage_path"],
                     expires_in=self.config.signed_url_ttl_seconds,

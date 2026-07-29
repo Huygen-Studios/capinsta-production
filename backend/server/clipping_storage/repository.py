@@ -104,6 +104,8 @@ class MediaStorageRepository:
         expected_size_bytes: int,
         storage_bucket: str,
         storage_path: str,
+        storage_provider: str = "supabase",
+        upload_protocol: str = "tus",
         expires_at: datetime,
         media_asset_id: UUID,
         replacement_of: UUID | None = None,
@@ -189,6 +191,7 @@ class MediaStorageRepository:
                         asset = dict(await cursor.fetchone())
                     purpose = "initial"
                     replacement_revision = None
+                    previous_provider = None
                     previous_bucket = None
                     previous_path = None
                 else:
@@ -209,31 +212,36 @@ class MediaStorageRepository:
                     replacement_revision = expected_revision + 1
                     previous_bucket = asset["storage_bucket"]
                     previous_path = asset["storage_path"]
+                    previous_provider = asset.get("storage_provider") or "supabase"
 
                 session_id = uuid4()
                 async with connection.cursor() as cursor:
                     await cursor.execute(
                         """
                         INSERT INTO media_upload_sessions (
-                          id,owner_user_id,media_asset_id,storage_bucket,
+                          id,owner_user_id,media_asset_id,storage_provider,storage_bucket,
                           storage_path,upload_protocol,purpose,status,
                           expected_size_bytes,display_name,mime_type,replacement_revision,
-                          previous_storage_bucket,previous_storage_path,expires_at
+                          previous_storage_provider,previous_storage_bucket,
+                          previous_storage_path,expires_at
                         ) VALUES (
-                          %s,%s,%s,%s,%s,'tus',%s,'created',%s,%s,%s,%s,%s,%s,%s
+                          %s,%s,%s,%s,%s,%s,%s,%s,'created',%s,%s,%s,%s,%s,%s,%s,%s
                         ) RETURNING *
                         """,
                         (
                             session_id,
                             actor.user_id,
                             media_asset_id,
+                            storage_provider,
                             storage_bucket,
                             storage_path,
+                            upload_protocol,
                             purpose,
                             expected_size_bytes,
                             display_name,
                             mime_type,
                             replacement_revision,
+                            previous_provider if replacement_of is not None else None,
                             previous_bucket,
                             previous_path,
                             expires_at,
@@ -263,7 +271,14 @@ class MediaStorageRepository:
             raise _translate(exc) from exc
 
     async def mark_authorized(
-        self, actor: AuthenticatedActor, session_id: UUID
+        self,
+        actor: AuthenticatedActor,
+        session_id: UUID,
+        *,
+        provider_upload_id: str | None = None,
+        multipart_part_size_bytes: int | None = None,
+        multipart_part_count: int | None = None,
+        signed_url_expires_at: datetime | None = None,
     ) -> dict[str, Any]:
         async with self.database.transaction() as connection:
             session = await self._session(
@@ -281,10 +296,24 @@ class MediaStorageRepository:
                 await cursor.execute(
                     """
                     UPDATE media_upload_sessions SET status='authorized',
+                      provider_upload_id=COALESCE(%s,provider_upload_id),
+                      multipart_upload_id=COALESCE(%s,multipart_upload_id),
+                      multipart_part_size_bytes=COALESCE(%s,multipart_part_size_bytes),
+                      multipart_part_count=COALESCE(%s,multipart_part_count),
+                      multipart_state=CASE WHEN %s IS NULL THEN multipart_state ELSE 'created' END,
+                      signed_url_expires_at=COALESCE(%s,signed_url_expires_at),
                       revision=revision+1,updated_at=now()
                     WHERE id=%s RETURNING *
                     """,
-                    (session_id,),
+                    (
+                        provider_upload_id,
+                        provider_upload_id,
+                        multipart_part_size_bytes,
+                        multipart_part_count,
+                        provider_upload_id,
+                        signed_url_expires_at,
+                        session_id,
+                    ),
                 )
                 return dict(await cursor.fetchone())
 
@@ -388,6 +417,7 @@ class MediaStorageRepository:
         *,
         received_size_bytes: int,
         create_probe_job: bool,
+        storage_etag: str | None = None,
     ) -> MediaAttachment:
         async with self.database.transaction() as connection:
             session = await self._session(
@@ -428,6 +458,10 @@ class MediaStorageRepository:
                     """
                     UPDATE media_upload_sessions SET status='completed',
                       received_size_bytes=%s,completed_at=now(),
+                      multipart_state=CASE
+                        WHEN upload_protocol='s3_multipart' THEN 'completed'
+                        ELSE multipart_state
+                      END,
                       revision=revision+1,updated_at=now()
                     WHERE id=%s
                     """,
@@ -437,6 +471,7 @@ class MediaStorageRepository:
                     """
                     UPDATE media_assets SET storage_bucket=%s,storage_path=%s,
                       display_name=%s,mime_type=%s,size_bytes=%s,status='ready_for_probe',
+                      storage_provider=%s,storage_etag=%s,
                       storage_object_revision=%s,probe_result_identity=NULL,
                       revision=revision+1,updated_at=now()
                     WHERE id=%s AND owner_user_id=%s RETURNING *
@@ -447,6 +482,8 @@ class MediaStorageRepository:
                         session["display_name"],
                         session["mime_type"],
                         received_size_bytes,
+                        session.get("storage_provider") or "supabase",
+                        storage_etag,
                         (
                             session["replacement_revision"]
                             if session["purpose"] == "replacement"
@@ -496,7 +533,7 @@ class MediaStorageRepository:
     ) -> MediaAttachment:
         return MediaAttachment(
             media_asset_id=asset["id"],
-            storage_provider="supabase",
+            storage_provider=asset.get("storage_provider") or "supabase",
             storage_bucket=asset["storage_bucket"],
             storage_path=asset["storage_path"],
             display_name=asset["display_name"],

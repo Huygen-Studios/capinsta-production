@@ -7,7 +7,7 @@ from server.clipping_jobs.registry import JobHandlerRegistry
 from server.clipping_persistence.database import DurableDatabase
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.local_storage import LocalMediaStorage
-from server.clipping_storage.supabase_storage import SupabaseMediaStorage
+from server.clipping_storage.provider import media_storage_from_config
 
 from .config import TranscriptAnalysisConfig
 from .handlers import SilenceAnalysisJobHandler, TranscriptAnalysisJobHandler
@@ -39,7 +39,7 @@ async def register_transcript_analysis_if_enabled(
                     "worker_not_configured",
                     "Silence analysis requires enabled private media storage",
                 )
-            storage = SupabaseMediaStorage(storage_config)
+            storage = media_storage_from_config(storage_config)
         runner = SilenceFFmpegRunner(
             config.ffmpeg_path,
             maximum_stderr_bytes=config.maximum_stderr_bytes,
@@ -49,6 +49,7 @@ async def register_transcript_analysis_if_enabled(
             SilenceAnalysisJobHandler(
                 config=config,
                 storage=storage,
+                storage_config=storage_config if config.storage_backend != "local" else None,
                 repository=repository,
                 runner=runner,
             )

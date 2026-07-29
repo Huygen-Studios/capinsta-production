@@ -94,9 +94,9 @@ class AutomaticClipperConfig:
                 os.getenv("CLIPPING_LOCAL_STORAGE_ROOT", "data/clipping-storage")
             ),
         )
-        if config.storage_backend not in {"local", "supabase"}:
+        if config.storage_backend not in {"local", "supabase", "r2"}:
             raise JobOrchestrationError(
                 "worker_not_configured",
-                "AUTOMATIC_CLIPPER_STORAGE_BACKEND must be local or supabase",
+                "AUTOMATIC_CLIPPER_STORAGE_BACKEND must be local, supabase, or r2",
             )
         return config
