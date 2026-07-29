@@ -12,8 +12,9 @@ except Exception:  # pragma: no cover - optional production dependency
     psycopg = None
 
 from server.api.health import API_CAPABILITIES, API_CONTRACT_VERSION
+from server.clipping_storage.config import MediaStorageConfig
 
-EXPECTED_MIGRATION = 26
+EXPECTED_MIGRATION = 27
 BUCKETS = ("source-media", "media-variants", "media-exports")
 
 
@@ -84,12 +85,26 @@ def _db_report() -> tuple[dict[str, Any], bool]:
             bucket_rows = _query_one(
                 connection,
                 """
-                SELECT COALESCE(jsonb_object_agg(id, public), '{}'::jsonb)
+                SELECT COALESCE(
+                  jsonb_object_agg(
+                    id,
+                    jsonb_build_object('public', public, 'fileSizeLimit', file_size_limit)
+                  ),
+                  '{}'::jsonb
+                )
                 FROM storage.buckets WHERE id = ANY(%s)
                 """,
                 (list(BUCKETS),),
             )
             buckets = dict(bucket_rows[0] or {})
+            source_bucket = buckets.get("source-media") or {}
+            source_limit = source_bucket.get("fileSizeLimit")
+            source_limit = int(source_limit) if source_limit is not None else None
+            app_limit = MediaStorageConfig.from_env().maximum_upload_bytes
+            warnings = ["storage_global_limit_unverified"]
+            failures: list[str] = []
+            if source_limit is not None and source_limit < app_limit:
+                failures.append("source_bucket_limit_too_low")
             mode_row = _query_one(
                 connection,
                 "SELECT mode FROM site_access_policy WHERE id='global'",
@@ -99,10 +114,15 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 "migrationLedger": "present" if migration_table else "missing",
                 "latestMigration": latest_name,
                 "expectedLatestMigrationVersion": EXPECTED_MIGRATION,
+                "applicationMaximumUploadBytes": app_limit,
+                "sourceBucketMaximumUploadBytes": source_limit,
+                "warnings": warnings,
+                "failures": failures,
                 "storageBuckets": {
                     name: {
                         "exists": name in buckets,
-                        "private": buckets.get(name) is False,
+                        "private": (buckets.get(name) or {}).get("public") is False,
+                        "fileSizeLimit": (buckets.get(name) or {}).get("fileSizeLimit"),
                     }
                     for name in BUCKETS
                 },
@@ -115,6 +135,7 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                     bucket.get("exists") and bucket.get("private")
                     for bucket in report["storageBuckets"].values()
                 )
+                and not failures
             )
             return report, ok
     except Exception as error:

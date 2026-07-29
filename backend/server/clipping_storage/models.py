@@ -44,6 +44,9 @@ class UploadInstructions:
     upload_metadata: dict[str, str]
     expires_at: datetime
     maximum_size_bytes: int
+    source_bucket_maximum_upload_bytes: int | None = None
+    effective_known_maximum_upload_bytes: int | None = None
+    limit_source: str = "application"
     replayed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
@@ -56,6 +59,11 @@ class UploadInstructions:
             "uploadMetadata": self.upload_metadata,
             "expiresAt": self.expires_at.isoformat(),
             "maximumSizeBytes": self.maximum_size_bytes,
+            "applicationMaximumUploadBytes": self.maximum_size_bytes,
+            "sourceBucketMaximumUploadBytes": self.source_bucket_maximum_upload_bytes,
+            "effectiveKnownMaximumUploadBytes": self.effective_known_maximum_upload_bytes
+            or self.maximum_size_bytes,
+            "limitSource": self.limit_source,
             "replayed": self.replayed,
         }
 

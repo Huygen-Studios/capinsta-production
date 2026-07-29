@@ -33,6 +33,18 @@ Keep all three admission flags `true` for the first deployment. Set exact HTTPS
 origins, the private-beta allowlist, and at least one real transcription and
 candidate-provider credential.
 
+Before enabling uploads, set Supabase Storage limits:
+
+```text
+Storage -> Settings -> Global file size limit
+Storage -> source-media -> Edit bucket -> File size limit
+```
+
+Both must be at least `MAX_SOURCE_FILE_BYTES` (`2147483648` bytes by default)
+for 30-60 minute source videos. The production doctor can verify the bucket
+limit, but the project-global Storage limit may remain externally configured
+and unverified.
+
 Run the `Production candidate` workflow with `staging` and deploy disabled.
 After Linux verification and image smoke tests pass, run it with staging deploy
 enabled. The workflow applies additive migrations under a PostgreSQL advisory

@@ -32,3 +32,12 @@ retry/resume behavior, and range-based proxy playback are prepared. Deployment
 remains gated on the GitHub environment values and Coolify/Supabase/provider
 credentials documented in `docs/production/coolify-deployment.md`; no URL is
 considered verified until that workflow passes.
+
+Large-upload hardening update (2026-07-29): additive migration `0027` restores
+the private `source-media` bucket file-size limit to `2147483648` bytes without
+editing released migration `0015`. The TUS browser boundary now creates the
+resumable upload with an empty POST and sends all media bytes through bounded
+PATCH chunks. Supabase's project-global Storage limit remains an external
+manual setting in Supabase Dashboard -> Storage -> Settings -> Global file size
+limit; doctor reports it as unverified rather than assuming it matches the
+bucket.

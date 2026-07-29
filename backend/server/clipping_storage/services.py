@@ -67,7 +67,12 @@ class MediaUploadService:
         self.repository = repository
 
     def _validate_upload(
-        self, *, display_name: str, mime_type: str, size_bytes: int
+        self,
+        *,
+        display_name: str,
+        mime_type: str,
+        size_bytes: int,
+        bucket_limit: int | None = None,
     ) -> tuple[str, str]:
         display_name = validate_display_filename(display_name)
         mime_type = mime_type.split(";", 1)[0].strip().lower()
@@ -77,16 +82,42 @@ class MediaUploadService:
                 "Upload a supported video or audio file",
                 {"mimeType": mime_type},
             )
-        if size_bytes <= 0 or size_bytes > self.config.maximum_upload_bytes:
+        effective_limit = min(
+            limit
+            for limit in (self.config.maximum_upload_bytes, bucket_limit)
+            if limit is not None
+        )
+        if size_bytes <= 0 or size_bytes > effective_limit:
             raise StorageError(
                 "upload_size_mismatch",
                 "Declared upload size is outside the allowed range",
                 {
                     "expectedSize": size_bytes,
-                    "maximumSize": self.config.maximum_upload_bytes,
+                    "maximumSize": effective_limit,
+                    "applicationMaximumUploadBytes": self.config.maximum_upload_bytes,
+                    "sourceBucketMaximumUploadBytes": bucket_limit,
                 },
             )
         return display_name, mime_type
+
+    async def upload_limits(self) -> dict[str, Any]:
+        bucket_limit = await self.repository.bucket_file_size_limit(
+            self.config.source_bucket
+        )
+        known_limits = [self.config.maximum_upload_bytes]
+        if bucket_limit is not None:
+            known_limits.append(bucket_limit)
+        effective = min(known_limits)
+        return {
+            "applicationMaximumUploadBytes": self.config.maximum_upload_bytes,
+            "sourceBucketMaximumUploadBytes": bucket_limit,
+            "effectiveKnownMaximumUploadBytes": effective,
+            "limitSource": "bucket"
+            if bucket_limit is not None and bucket_limit <= self.config.maximum_upload_bytes
+            else "application",
+            "supabaseGlobalMaximumUploadBytes": None,
+            "supabaseGlobalLimitKnown": False,
+        }
 
     async def create_upload_session(
         self,
@@ -99,10 +130,14 @@ class MediaUploadService:
         replace_media_asset_id: UUID | None = None,
         expected_revision: int | None = None,
     ) -> UploadInstructions:
+        bucket_limit = await self.repository.bucket_file_size_limit(
+            self.config.source_bucket
+        )
         display_name, mime_type = self._validate_upload(
             display_name=display_name,
             mime_type=mime_type,
             size_bytes=size_bytes,
+            bucket_limit=bucket_limit,
         )
         if not idempotency_key or len(idempotency_key) > 200:
             raise StorageError(
@@ -196,6 +231,18 @@ class MediaUploadService:
             upload_metadata=authorization.upload_metadata,
             expires_at=session["expires_at"],
             maximum_size_bytes=self.config.maximum_upload_bytes,
+            source_bucket_maximum_upload_bytes=bucket_limit,
+            effective_known_maximum_upload_bytes=min(
+                limit
+                for limit in (self.config.maximum_upload_bytes, bucket_limit)
+                if limit is not None
+            ),
+            limit_source=(
+                "bucket"
+                if bucket_limit is not None
+                and bucket_limit <= self.config.maximum_upload_bytes
+                else "application"
+            ),
             replayed=replayed,
         )
 

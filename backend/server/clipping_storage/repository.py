@@ -288,6 +288,24 @@ class MediaStorageRepository:
                 )
                 return dict(await cursor.fetchone())
 
+    async def bucket_file_size_limit(self, bucket: str) -> int | None:
+        try:
+            async with self.database.connection() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT file_size_limit FROM storage.buckets
+                        WHERE id=%s AND public=false
+                        """,
+                        (bucket,),
+                    )
+                    row = await cursor.fetchone()
+                    if not row or row["file_size_limit"] is None:
+                        return None
+                    return int(row["file_size_limit"])
+        except Exception:
+            return None
+
     async def mark_failed(
         self,
         actor: AuthenticatedActor,

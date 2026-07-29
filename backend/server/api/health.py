@@ -66,7 +66,7 @@ class ReadinessResponse(BaseModel):
     readinessRoute: str = "/health/ready"
     apiContractVersion: int = API_CONTRACT_VERSION
     capabilities: list[str] = Field(default_factory=lambda: API_CAPABILITIES.copy())
-    latestExpectedMigrationVersion: int = 26
+    latestExpectedMigrationVersion: int = 27
     commit: str | None = None
     dependencies: dict[str, str | bool] = Field(default_factory=dict)
 

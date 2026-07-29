@@ -92,6 +92,15 @@ def _raise_storage(error: StorageError) -> None:
     raise HTTPException(status_code=status, detail=error.as_dict()) from error
 
 
+@router.get("/upload-limits")
+async def upload_limits():
+    try:
+        upload, _, _ = _services()
+        return await upload.upload_limits()
+    except StorageError as error:
+        _raise_storage(error)
+
+
 @router.post("/uploads", status_code=201)
 async def create_upload(
     payload: UploadCreateRequest,

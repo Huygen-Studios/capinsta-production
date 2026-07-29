@@ -136,7 +136,29 @@ const uploadInstructionsSchema = z.object({
 	uploadUrl: z.url(),
 	requiredHeaders: z.record(z.string(), z.string()),
 	uploadMetadata: z.record(z.string(), z.string()),
+	applicationMaximumUploadBytes: z.number().int().positive().optional(),
+	sourceBucketMaximumUploadBytes: z.number().int().positive().nullable().optional(),
+	effectiveKnownMaximumUploadBytes: z.number().int().positive().optional(),
+	limitSource: z
+		.enum(["application", "bucket", "storage-endpoint", "unknown"])
+		.optional(),
 });
+const uploadLimitsSchema = z.object({
+	applicationMaximumUploadBytes: z.number().int().positive(),
+	sourceBucketMaximumUploadBytes: z.number().int().positive().nullable(),
+	effectiveKnownMaximumUploadBytes: z.number().int().positive(),
+	limitSource: z.enum(["application", "bucket", "storage-endpoint", "unknown"]),
+	supabaseGlobalLimitKnown: z.boolean().optional(),
+});
+
+type UploadInstructions = {
+	mediaAssetId: string;
+	uploadSessionId: string;
+	uploadUrl: string;
+	requiredHeaders: Record<string, string>;
+	uploadMetadata: Record<string, string>;
+	uploadLocation?: string;
+};
 const selectionResultSchema = z.object({
 	jobId: z.string().optional(),
 	status: z.string(),
@@ -261,6 +283,34 @@ function encodeTusMetadata(metadata: Record<string, string>): string {
 		.join(",");
 }
 
+function formatBytes(bytes: number): string {
+	const gib = bytes / 1024 / 1024 / 1024;
+	return gib >= 1
+		? `${gib.toFixed(2)} GiB`
+		: `${(bytes / 1_000_000).toFixed(0)} MB`;
+}
+
+class ClipperUploadLimitError extends Error {
+	constructor({
+		fileSize,
+		limit,
+		requestId,
+	}: {
+		fileSize: number;
+		limit?: number;
+		requestId?: string | null;
+	}) {
+		super(
+			`Video exceeds the Storage limit. This video is ${formatBytes(fileSize)}${
+				limit ? `, but the known upload limit is ${formatBytes(limit)}` : ""
+			}. Increase the Supabase global Storage limit and the source-media bucket file-size limit, or choose a smaller video.${
+				requestId ? ` Diagnostic ID: ${requestId}` : ""
+			}`,
+		);
+		this.name = "ClipperUploadLimitError";
+	}
+}
+
 async function uploadFingerprint(file: File): Promise<string> {
 	const value = new TextEncoder().encode(
 		`${file.name}\0${file.size}\0${file.lastModified}\0${file.type}`,
@@ -274,6 +324,7 @@ async function uploadFingerprint(file: File): Promise<string> {
 async function patchTusChunk(
 	url: string,
 	init: RequestInit,
+	fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
 	const delays = [0, 3_000, 5_000, 10_000, 20_000];
 	let response: Response | null = null;
@@ -281,7 +332,7 @@ async function patchTusChunk(
 	for (const delay of delays) {
 		if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
 		try {
-			response = await fetch(url, init);
+			response = await fetchImpl(url, init);
 		} catch (error) {
 			if (init.signal?.aborted) throw error;
 			lastError = error;
@@ -313,35 +364,57 @@ async function supabaseTusAuthHeaders(): Promise<Record<string, string>> {
 		: {};
 }
 
-export async function uploadClipperMedia({
+async function safeTusError(response: Response, fileSize: number): Promise<Error> {
+	const requestId = response.headers.get("sb-request-id");
+	const contentType = response.headers.get("content-type") ?? "";
+	const body = contentType.includes("application/json")
+		? await response
+				.clone()
+				.json()
+				.catch(() => null)
+		: await response
+				.clone()
+				.text()
+				.then((text) => text.slice(0, 200))
+				.catch(() => "");
+	if (response.status === 413) {
+		return new ClipperUploadLimitError({ fileSize, requestId });
+	}
+	const code =
+		typeof body === "object" && body !== null ? Reflect.get(body, "code") : null;
+	return new Error(
+		`The resumable upload could not continue.${
+			typeof code === "string" ? ` (${code})` : ""
+		}${requestId ? ` Diagnostic ID: ${requestId}` : ""}`,
+	);
+}
+
+async function getUploadLimits(signal?: AbortSignal) {
+	return uploadLimitsSchema.parse(
+		await json("/clipping/media/upload-limits", { signal }),
+	);
+}
+
+export async function uploadTusForTest({
 	file,
+	instructions,
+	tusAuthHeaders,
 	onProgress,
+	fetchImpl = fetch,
 	signal,
 }: {
 	file: File;
+	instructions: UploadInstructions;
+	tusAuthHeaders: Record<string, string>;
 	onProgress: (progress: number) => void;
+	fetchImpl?: typeof fetch;
 	signal?: AbortSignal;
-}): Promise<string> {
-	type UploadInstructions = {
-		mediaAssetId: string;
-		uploadSessionId: string;
-		uploadUrl: string;
-		requiredHeaders: Record<string, string>;
-		uploadMetadata: Record<string, string>;
-		uploadLocation: string;
-	};
-	const fingerprint = await uploadFingerprint(file);
-	const resumeKey = `capinsta:clipper:tus-v1:${fingerprint}`;
-	let instructions: UploadInstructions | null = null;
-	try {
-		instructions = JSON.parse(window.localStorage.getItem(resumeKey) ?? "null");
-	} catch {
-		window.localStorage.removeItem(resumeKey);
-	}
+}): Promise<UploadInstructions> {
+	const chunkSize = 5_000_000;
 	let offset = 0;
-	const tusAuthHeaders = await supabaseTusAuthHeaders();
-	if (instructions) {
-		const resume = await fetch(instructions.uploadLocation, {
+	let uploadLocation = instructions.uploadLocation;
+	if (uploadLocation) {
+		const resume = await fetchImpl(uploadLocation, {
 			method: "HEAD",
 			headers: {
 				...tusAuthHeaders,
@@ -357,14 +430,82 @@ export async function uploadClipperMedia({
 			}
 			onProgress(Math.round((offset / file.size) * 100));
 		} else {
-			window.localStorage.removeItem(resumeKey);
-			instructions = null;
+			uploadLocation = undefined;
 		}
 	}
-	const chunkSize = 6_000_000;
+	if (!uploadLocation) {
+		const create = await fetchImpl(instructions.uploadUrl, {
+			method: "POST",
+			headers: {
+				...tusAuthHeaders,
+				...instructions.requiredHeaders,
+				"Tus-Resumable": "1.0.0",
+				"Upload-Length": String(file.size),
+				"Upload-Metadata": encodeTusMetadata(instructions.uploadMetadata),
+			},
+			signal,
+		});
+		if (!create.ok) throw await safeTusError(create, file.size);
+		const location = create.headers.get("location");
+		if (!location)
+			throw new Error("The upload server did not return a resume URL.");
+		uploadLocation = new URL(location, instructions.uploadUrl).toString();
+		offset = Number(create.headers.get("upload-offset") ?? 0);
+		if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size) {
+			throw new Error("The resumable upload returned an invalid offset.");
+		}
+		onProgress(Math.round((offset / file.size) * 100));
+	}
+	while (offset < file.size) {
+		const chunk = file.slice(offset, Math.min(file.size, offset + chunkSize));
+		const response = await patchTusChunk(uploadLocation, {
+			method: "PATCH",
+			headers: {
+				...tusAuthHeaders,
+				...instructions.requiredHeaders,
+				"Tus-Resumable": "1.0.0",
+				"Upload-Offset": String(offset),
+				"Content-Type": "application/offset+octet-stream",
+			},
+			body: chunk,
+			signal,
+		}, fetchImpl);
+		if (!response.ok) throw await safeTusError(response, file.size);
+		offset = Number(response.headers.get("upload-offset") ?? offset + chunk.size);
+		onProgress(Math.min(100, Math.round((offset / file.size) * 100)));
+	}
+	return { ...instructions, uploadLocation };
+}
+
+export async function uploadClipperMedia({
+	file,
+	onProgress,
+	signal,
+}: {
+	file: File;
+	onProgress: (progress: number) => void;
+	signal?: AbortSignal;
+}): Promise<string> {
+	const fingerprint = await uploadFingerprint(file);
+	const resumeKey = `capinsta:clipper:tus-v1:${fingerprint}`;
+	let instructions: UploadInstructions | null = null;
+	try {
+		instructions = JSON.parse(window.localStorage.getItem(resumeKey) ?? "null");
+	} catch {
+		window.localStorage.removeItem(resumeKey);
+	}
+	const tusAuthHeaders = await supabaseTusAuthHeaders();
+	const limits = await getUploadLimits(signal);
+	if (file.size > limits.effectiveKnownMaximumUploadBytes) {
+		window.localStorage.removeItem(resumeKey);
+		throw new ClipperUploadLimitError({
+			fileSize: file.size,
+			limit: limits.effectiveKnownMaximumUploadBytes,
+		});
+	}
 	if (!instructions) {
 		await ensureClipperBackendReady(signal);
-		const createdInstructions = uploadInstructionsSchema.parse(
+		instructions = uploadInstructionsSchema.parse(
 			await json("/clipping/media/uploads", {
 				method: "POST",
 				headers: {
@@ -379,60 +520,20 @@ export async function uploadClipperMedia({
 				signal,
 			}),
 		);
-		const firstChunk = file.slice(0, Math.min(file.size, chunkSize));
-		const create = await fetch(createdInstructions.uploadUrl, {
-			method: "POST",
-			headers: {
-				...tusAuthHeaders,
-				...createdInstructions.requiredHeaders,
-				"Tus-Resumable": "1.0.0",
-				"Upload-Length": String(file.size),
-				"Upload-Metadata": encodeTusMetadata(
-					createdInstructions.uploadMetadata,
-				),
-				"Content-Type": "application/offset+octet-stream",
-			},
-			body: firstChunk,
+	}
+	try {
+		instructions = await uploadTusForTest({
+			file,
+			instructions,
+			tusAuthHeaders,
+			onProgress,
 			signal,
 		});
-		if (!create.ok) throw new Error("The resumable upload could not start.");
-		const location = create.headers.get("location");
-		if (!location)
-			throw new Error("The upload server did not return a resume URL.");
-		offset = Number(create.headers.get("upload-offset") ?? firstChunk.size);
-		if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size) {
-			throw new Error("The resumable upload returned an invalid offset.");
-		}
-		onProgress(Math.round((offset / file.size) * 100));
-		instructions = {
-			...createdInstructions,
-			uploadLocation: new URL(
-				location,
-				createdInstructions.uploadUrl,
-			).toString(),
-		};
-		window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
+	} catch (error) {
+		window.localStorage.removeItem(resumeKey);
+		throw error;
 	}
-	while (offset < file.size) {
-		const chunk = file.slice(offset, Math.min(file.size, offset + chunkSize));
-		const response = await patchTusChunk(instructions.uploadLocation, {
-			method: "PATCH",
-			headers: {
-				...tusAuthHeaders,
-				...instructions.requiredHeaders,
-				"Tus-Resumable": "1.0.0",
-				"Upload-Offset": String(offset),
-				"Content-Type": "application/offset+octet-stream",
-			},
-			body: chunk,
-			signal,
-		});
-		if (!response.ok) throw new Error("The resumable upload was interrupted.");
-		offset = Number(
-			response.headers.get("upload-offset") ?? offset + chunk.size,
-		);
-		onProgress(Math.min(100, Math.round((offset / file.size) * 100)));
-	}
+	window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
 	await json(
 		`/clipping/media/uploads/${instructions.uploadSessionId}/complete`,
 		{

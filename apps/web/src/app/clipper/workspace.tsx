@@ -718,10 +718,21 @@ export function ClipperWorkspace() {
 				{state === "error" && (
 					<Card className="mx-auto max-w-2xl border-2 border-destructive">
 						<CardHeader>
-							<CardTitle>Clipper needs attention</CardTitle>
+							<CardTitle>
+								{error.startsWith("Video exceeds the Storage limit")
+									? "Video exceeds the Storage limit"
+									: "Clipper needs attention"}
+							</CardTitle>
 						</CardHeader>
 						<CardContent className="space-y-4">
 							<p>{error}</p>
+							{error.startsWith("Video exceeds the Storage limit") && (
+								<p className="text-sm text-muted-foreground">
+									Admins: Supabase Dashboard â†’ Storage â†’ Settings â†’
+									Global file size limit, then Storage â†’ source-media â†’
+									Edit bucket â†’ File size limit.
+								</p>
+							)}
 							<div className="flex gap-2">
 								<Button onClick={() => window.location.reload()}>
 									Try again
@@ -733,7 +744,9 @@ export function ClipperWorkspace() {
 										window.location.reload();
 									}}
 								>
-									Start another video
+									{error.startsWith("Video exceeds the Storage limit")
+										? "Choose a smaller video"
+										: "Start another video"}
 								</Button>
 							</div>
 						</CardContent>
