@@ -28,15 +28,24 @@ Production Clipper media defaults to Cloudflare R2:
 
 ```text
 CLIPPING_STORAGE_PROVIDER=r2
-R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+R2_ACCOUNT_ID=<account-id>
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 R2_ACCESS_KEY_ID=<server-only-key>
 R2_SECRET_ACCESS_KEY=<server-only-secret>
+R2_REGION=auto
 R2_SOURCE_BUCKET=capinsta-source-media
 R2_VARIANTS_BUCKET=capinsta-media-variants
 R2_EXPORTS_BUCKET=capinsta-media-exports
 R2_MULTIPART_PART_SIZE_BYTES=33554432
-R2_SIGNED_URL_TTL_SECONDS=900
-R2_UPLOAD_CONCURRENCY=3
+R2_MULTIPART_CONCURRENCY=3
+R2_MULTIPART_SIGN_BATCH_SIZE=10
+R2_PRESIGNED_UPLOAD_TTL_SECONDS=900
+R2_PRESIGNED_DOWNLOAD_TTL_SECONDS=900
+R2_PRESIGNED_WORKER_TTL_SECONDS=3600
+R2_CONNECT_TIMEOUT_SECONDS=10
+R2_READ_TIMEOUT_SECONDS=120
+R2_MAX_RETRY_ATTEMPTS=5
+R2_VERIFY_TLS=true
 ```
 
 R2 buckets must be private. Browser uploads use backend-authorized multipart

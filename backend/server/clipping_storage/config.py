@@ -32,6 +32,23 @@ def _integer(
     return value
 
 
+def _integer_any(
+    names: tuple[str, ...], default: int, minimum: int, maximum: int | None = None
+) -> int:
+    for name in names:
+        if os.getenv(name) is not None:
+            return _integer(name, default, minimum, maximum)
+    return _integer(names[0], default, minimum, maximum)
+
+
+def _env(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value.strip()
+    return default
+
+
 @dataclass(frozen=True)
 class MediaStorageConfig:
     enabled: bool
@@ -49,6 +66,7 @@ class MediaStorageConfig:
     maximum_url_ttl_seconds: int = 3600
     upload_session_ttl_seconds: int = 7200
     local_storage_root: str = ""
+    r2_account_id: str = ""
     r2_endpoint_url: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
@@ -109,26 +127,30 @@ class MediaStorageConfig:
                 "MEDIA_UPLOAD_SESSION_TTL_SECONDS", 7200, 60
             ),
             local_storage_root=local_storage_root,
-            r2_endpoint_url=(os.getenv("R2_ENDPOINT_URL") or "").rstrip("/"),
-            r2_access_key_id=(os.getenv("R2_ACCESS_KEY_ID") or "").strip(),
-            r2_secret_access_key=(os.getenv("R2_SECRET_ACCESS_KEY") or "").strip(),
-            r2_region=(os.getenv("R2_REGION") or "auto").strip() or "auto",
-            r2_source_bucket=os.getenv(
-                "R2_SOURCE_BUCKET", "capinsta-source-media"
-            ).strip(),
-            r2_variants_bucket=os.getenv(
-                "R2_VARIANTS_BUCKET", "capinsta-media-variants"
-            ).strip(),
-            r2_exports_bucket=os.getenv(
-                "R2_EXPORTS_BUCKET", "capinsta-media-exports"
-            ).strip(),
+            r2_account_id=_env("R2_ACCOUNT_ID"),
+            r2_endpoint_url=_env("R2_ENDPOINT_URL", "R2_ENDPOINT").rstrip("/"),
+            r2_access_key_id=_env("R2_ACCESS_KEY_ID"),
+            r2_secret_access_key=_env("R2_SECRET_ACCESS_KEY"),
+            r2_region=_env("R2_REGION", default="auto") or "auto",
+            r2_source_bucket=_env("R2_SOURCE_BUCKET", default="capinsta-source-media"),
+            r2_variants_bucket=_env(
+                "R2_VARIANTS_BUCKET", default="capinsta-media-variants"
+            ),
+            r2_exports_bucket=_env("R2_EXPORTS_BUCKET", default="capinsta-media-exports"),
             r2_part_size_bytes=_integer(
                 "R2_MULTIPART_PART_SIZE_BYTES", 32 * 1024 * 1024, 5 * 1024 * 1024
             ),
-            r2_signed_url_ttl_seconds=_integer(
-                "R2_SIGNED_URL_TTL_SECONDS", 900, 60
+            r2_signed_url_ttl_seconds=_integer_any(
+                ("R2_PRESIGNED_UPLOAD_TTL_SECONDS", "R2_SIGNED_URL_TTL_SECONDS"),
+                900,
+                60,
             ),
-            r2_upload_concurrency=_integer("R2_UPLOAD_CONCURRENCY", 3, 1, 5),
+            r2_upload_concurrency=_integer_any(
+                ("R2_MULTIPART_CONCURRENCY", "R2_UPLOAD_CONCURRENCY"),
+                3,
+                1,
+                5,
+            ),
         )
         if config.enabled:
             config.validate()
@@ -162,6 +184,21 @@ class MediaStorageConfig:
                 raise StorageError(
                     "r2_not_configured",
                     "Cloudflare R2 media storage credentials are not configured",
+                )
+            if self.r2_account_id and self.r2_account_id not in parsed.netloc:
+                raise StorageError(
+                    "r2_not_configured",
+                    "R2_ENDPOINT must include the configured R2_ACCOUNT_ID",
+                )
+            buckets = {
+                self.r2_source_bucket,
+                self.r2_variants_bucket,
+                self.r2_exports_bucket,
+            }
+            if len(buckets) != 3:
+                raise StorageError(
+                    "r2_not_configured",
+                    "R2 source, variants, and exports buckets must be distinct",
                 )
             if self.r2_part_size_bytes < 5 * 1024 * 1024:
                 raise StorageError(

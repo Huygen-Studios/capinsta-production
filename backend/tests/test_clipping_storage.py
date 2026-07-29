@@ -239,6 +239,38 @@ def test_production_rejects_local_storage_and_uses_long_media_defaults(
     assert config.maximum_active_uploads_per_user == 2
 
 
+def test_r2_config_accepts_documented_environment_aliases(monkeypatch):
+    monkeypatch.setenv("CLIPPING_STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-id")
+    monkeypatch.setenv("R2_ENDPOINT", "https://account-id.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("R2_MULTIPART_CONCURRENCY", "4")
+    monkeypatch.setenv("R2_PRESIGNED_UPLOAD_TTL_SECONDS", "600")
+
+    config = MediaStorageConfig.from_env()
+
+    assert config.enabled is True
+    assert config.storage_provider == "r2"
+    assert config.r2_account_id == "account-id"
+    assert config.r2_endpoint_url == "https://account-id.r2.cloudflarestorage.com"
+    assert config.r2_upload_concurrency == 4
+    assert config.r2_signed_url_ttl_seconds == 600
+
+
+def test_r2_config_rejects_endpoint_for_wrong_account(monkeypatch):
+    monkeypatch.setenv("CLIPPING_STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "expected-account")
+    monkeypatch.setenv("R2_ENDPOINT", "https://other-account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+
+    with pytest.raises(StorageError) as error:
+        MediaStorageConfig.from_env()
+
+    assert error.value.category == "r2_not_configured"
+
+
 def test_supabase_adapter_upload_inspection_signed_urls_and_delete():
     owner, asset = uuid4(), uuid4()
     path = f"{owner}/{asset}/source/v1.mp4"

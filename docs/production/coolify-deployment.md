@@ -38,19 +38,75 @@ backend worker:
 
 ```text
 CLIPPING_STORAGE_PROVIDER=r2
-R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+R2_ACCOUNT_ID=<account-id>
+R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 R2_ACCESS_KEY_ID=<server-only-key>
 R2_SECRET_ACCESS_KEY=<server-only-secret>
+R2_REGION=auto
 R2_SOURCE_BUCKET=capinsta-source-media
 R2_VARIANTS_BUCKET=capinsta-media-variants
 R2_EXPORTS_BUCKET=capinsta-media-exports
 R2_MULTIPART_PART_SIZE_BYTES=33554432
-R2_SIGNED_URL_TTL_SECONDS=900
-R2_UPLOAD_CONCURRENCY=3
+R2_MULTIPART_CONCURRENCY=3
+R2_MULTIPART_SIGN_BATCH_SIZE=10
+R2_PRESIGNED_UPLOAD_TTL_SECONDS=900
+R2_PRESIGNED_DOWNLOAD_TTL_SECONDS=900
+R2_PRESIGNED_WORKER_TTL_SECONDS=3600
+R2_CONNECT_TIMEOUT_SECONDS=10
+R2_READ_TIMEOUT_SECONDS=120
+R2_MAX_RETRY_ATTEMPTS=5
+R2_VERIFY_TLS=true
 ```
 
 Create those R2 buckets as private buckets. No public bucket, token, signed URL,
 or provider key belongs in browser-visible environment variables.
+
+Cloudflare R2 manual setup:
+
+1. Open Cloudflare Dashboard.
+2. Select the Huygen/Capinsta Cloudflare account.
+3. Open `R2 Object Storage`.
+4. Enable R2 if Cloudflare asks.
+5. Create private Standard buckets:
+   - `capinsta-source-media`
+   - `capinsta-media-variants`
+   - `capinsta-media-exports`
+6. Keep public access disabled and do not connect a public custom domain.
+7. Create an R2 API token scoped to object read/write for only those buckets.
+8. Copy `Account ID`, `Access Key ID`, and `Secret Access Key`; the secret may
+   only be shown once.
+
+Production CORS for all three buckets:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://capinsta.huygenstudios.com"],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Optional local-development CORS:
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:3000"],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Use lifecycle only as a safety net: abort incomplete multipart uploads after
+one day where Cloudflare exposes that rule. Application retention remains
+authoritative for active source media, variants, and exports.
 
 The API and backend workers also share the existing `clipper-workspaces` named
 volume for legacy AI-caption media and SQLite metadata:

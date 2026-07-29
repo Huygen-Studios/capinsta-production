@@ -46,6 +46,7 @@ def _check_env() -> dict[str, Any]:
         "mediaStorageProvider": storage.storage_provider,
         "r2Storage": {
             "configured": storage.storage_provider == "r2",
+            "accountIdConfigured": bool(storage.r2_account_id),
             "endpointConfigured": bool(storage.r2_endpoint_url),
             "sourceBucket": storage.r2_source_bucket,
             "variantsBucket": storage.r2_variants_bucket,
@@ -165,7 +166,8 @@ def _db_report() -> tuple[dict[str, Any], bool]:
             r2_ok = (
                 storage_config.storage_provider != "r2"
                 or (
-                    bool(storage_config.r2_endpoint_url)
+                    bool(storage_config.r2_account_id)
+                    and bool(storage_config.r2_endpoint_url)
                     and bool(storage_config.r2_access_key_id)
                     and bool(storage_config.r2_secret_access_key)
                     and bool(storage_config.r2_source_bucket)
