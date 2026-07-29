@@ -82,6 +82,7 @@ jobs:
       - name: Validate production Compose
         env:
           APPLICATION_URL: https://staging.example.com
+          CAPINSTA_IMAGE_TAG: ${{ github.sha }}
           CORS_ORIGINS: https://staging.example.com
           DATABASE_URL: postgresql://user:password@db.example.com:5432/postgres
           SUPABASE_URL: https://example.supabase.co
