@@ -316,8 +316,11 @@ class MediaUploadService:
         *,
         part_numbers: list[int],
     ) -> dict[str, Any]:
-        if not 1 <= len(part_numbers) <= 20:
-            raise StorageError("multipart_part_mismatch", "Request between 1 and 20 parts")
+        if not 1 <= len(part_numbers) <= self.config.r2_sign_batch_size:
+            raise StorageError(
+                "multipart_part_mismatch",
+                f"Request between 1 and {self.config.r2_sign_batch_size} parts",
+            )
         session = await self.repository.get_session(actor, upload_session_id)
         if session["upload_protocol"] != "s3_multipart":
             raise StorageError("multipart_part_mismatch", "Upload is not multipart")

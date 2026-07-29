@@ -62,6 +62,11 @@ def _check_env() -> dict[str, Any]:
             "partSizeBytes": storage.r2_part_size_bytes,
             "signedUrlTtlSeconds": storage.r2_signed_url_ttl_seconds,
             "uploadConcurrency": storage.r2_upload_concurrency,
+            "signBatchSize": storage.r2_sign_batch_size,
+            "connectTimeoutSeconds": storage.r2_connect_timeout_seconds,
+            "readTimeoutSeconds": storage.r2_read_timeout_seconds,
+            "maxRetryAttempts": storage.r2_max_retry_attempts,
+            "verifyTls": storage.r2_verify_tls,
         },
         "uploadAdmission": "disabled" if os.getenv("DISABLE_NEW_UPLOADS") else "enabled",
         "candidateAdmission": "disabled"

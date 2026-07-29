@@ -246,7 +246,12 @@ def test_r2_config_accepts_documented_environment_aliases(monkeypatch):
     monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
     monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
     monkeypatch.setenv("R2_MULTIPART_CONCURRENCY", "4")
+    monkeypatch.setenv("R2_MULTIPART_SIGN_BATCH_SIZE", "12")
     monkeypatch.setenv("R2_PRESIGNED_UPLOAD_TTL_SECONDS", "600")
+    monkeypatch.setenv("R2_CONNECT_TIMEOUT_SECONDS", "7")
+    monkeypatch.setenv("R2_READ_TIMEOUT_SECONDS", "70")
+    monkeypatch.setenv("R2_MAX_RETRY_ATTEMPTS", "4")
+    monkeypatch.setenv("R2_VERIFY_TLS", "false")
 
     config = MediaStorageConfig.from_env()
 
@@ -255,7 +260,12 @@ def test_r2_config_accepts_documented_environment_aliases(monkeypatch):
     assert config.r2_account_id == "account-id"
     assert config.r2_endpoint_url == "https://account-id.r2.cloudflarestorage.com"
     assert config.r2_upload_concurrency == 4
+    assert config.r2_sign_batch_size == 12
     assert config.r2_signed_url_ttl_seconds == 600
+    assert config.r2_connect_timeout_seconds == 7
+    assert config.r2_read_timeout_seconds == 70
+    assert config.r2_max_retry_attempts == 4
+    assert config.r2_verify_tls is False
 
 
 def test_r2_config_rejects_endpoint_for_wrong_account(monkeypatch):

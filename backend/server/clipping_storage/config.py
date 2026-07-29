@@ -49,6 +49,13 @@ def _env(*names: str, default: str = "") -> str:
     return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
 @dataclass(frozen=True)
 class MediaStorageConfig:
     enabled: bool
@@ -77,6 +84,11 @@ class MediaStorageConfig:
     r2_part_size_bytes: int = 32 * 1024 * 1024
     r2_signed_url_ttl_seconds: int = 900
     r2_upload_concurrency: int = 3
+    r2_sign_batch_size: int = 10
+    r2_connect_timeout_seconds: int = 10
+    r2_read_timeout_seconds: int = 120
+    r2_max_retry_attempts: int = 5
+    r2_verify_tls: bool = True
 
     @classmethod
     def from_env(cls) -> "MediaStorageConfig":
@@ -151,6 +163,11 @@ class MediaStorageConfig:
                 1,
                 5,
             ),
+            r2_sign_batch_size=_integer("R2_MULTIPART_SIGN_BATCH_SIZE", 10, 1, 20),
+            r2_connect_timeout_seconds=_integer("R2_CONNECT_TIMEOUT_SECONDS", 10, 1),
+            r2_read_timeout_seconds=_integer("R2_READ_TIMEOUT_SECONDS", 120, 1),
+            r2_max_retry_attempts=_integer("R2_MAX_RETRY_ATTEMPTS", 5, 1, 10),
+            r2_verify_tls=_bool_env("R2_VERIFY_TLS", True),
         )
         if config.enabled:
             config.validate()
