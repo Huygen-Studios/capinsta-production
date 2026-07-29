@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sqlite3
 import sys
+import tempfile
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 try:
     import psycopg
@@ -14,6 +18,10 @@ except Exception:  # pragma: no cover - optional production dependency
 
 from server.api.health import API_CAPABILITIES, API_CONTRACT_VERSION
 from server.clipping_storage.config import MediaStorageConfig
+from server.clipping_storage.errors import StorageError
+from server.clipping_storage.provider import media_storage_from_config
+from server.clipping_storage.r2_storage import R2MediaStorage
+from server.clipping_storage.paths import source_object_path
 from server.settings import (
     CACHE_DIR,
     DB_PATH,
@@ -73,6 +81,28 @@ def _check_env() -> dict[str, Any]:
     }
 
 
+def _safe_env_report() -> tuple[dict[str, Any], bool]:
+    try:
+        return _check_env(), True
+    except StorageError as error:
+        return (
+            {
+                "backendApiContractVersion": API_CONTRACT_VERSION,
+                "routeCapabilities": API_CAPABILITIES,
+                "mediaStorageProvider": (
+                    os.getenv("CLIPPING_STORAGE_PROVIDER") or ""
+                ).strip().lower(),
+                "r2Storage": {"configured": False, "error": error.category},
+                "uploadAdmission": "unknown",
+                "candidateAdmission": "unknown",
+                "exportAdmission": "unknown",
+                "transcriptionProvider": "unknown",
+                "candidateProvider": "unknown",
+            },
+            False,
+        )
+
+
 def _legacy_caption_report() -> tuple[dict[str, Any], bool]:
     findings = validate_storage_startup()
     failed = [item for item in findings if item.get("level") == "error"]
@@ -103,6 +133,148 @@ def _legacy_caption_report() -> tuple[dict[str, Any], bool]:
     )
 
 
+def _r2_error_code(error: Exception) -> str:
+    if isinstance(error, StorageError):
+        return error.category
+    return type(error).__name__
+
+
+async def _r2_write_test(storage: R2MediaStorage) -> dict[str, Any]:
+    owner = uuid4()
+    asset = uuid4()
+    path = source_object_path(
+        owner_user_id=owner, media_asset_id=asset, mime_type="video/mp4"
+    )
+    payload = b"capinsta-r2-doctor\n"
+    with tempfile.NamedTemporaryFile(delete=False) as temp:
+        temp.write(payload)
+        temp_path = Path(temp.name)
+    try:
+        metadata = await storage.upload_file(
+            bucket=storage.config.source_bucket,
+            path=path,
+            local_path=temp_path,
+            content_type="video/mp4",
+            maximum_bytes=len(payload),
+            checksum="doctor-write-test",
+            overwrite=True,
+        )
+        await storage.create_read_url(
+            bucket=storage.config.source_bucket, path=path, expires_in=60
+        )
+        await storage.delete_object(bucket=storage.config.source_bucket, path=path)
+
+        multipart_path = source_object_path(
+            owner_user_id=owner, media_asset_id=asset, mime_type="video/mp4", version=2
+        )
+        upload_id = await storage.create_multipart_upload(
+            bucket=storage.config.source_bucket,
+            path=multipart_path,
+            mime_type="video/mp4",
+        )
+        await storage.abort_multipart_upload(
+            bucket=storage.config.source_bucket,
+            path=multipart_path,
+            upload_id=upload_id,
+        )
+        return {
+            "status": "ok",
+            "putObject": "ok",
+            "headObject": "ok" if metadata.size_bytes == len(payload) else "mismatch",
+            "signedGet": "ok",
+            "multipartCreateAbort": "ok",
+        }
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _r2_runtime_report(*, write_test: bool = False) -> tuple[dict[str, Any], bool]:
+    try:
+        config = MediaStorageConfig.from_env()
+    except StorageError as error:
+        return {
+            "r2Runtime": {
+                "checked": True,
+                "client": "failed",
+                "error": error.category,
+            }
+        }, False
+    if config.storage_provider != "r2":
+        return {"r2Runtime": {"checked": False, "reason": "provider_not_r2"}}, True
+    try:
+        storage = media_storage_from_config(config)
+    except Exception as error:
+        return {
+            "r2Runtime": {
+                "checked": True,
+                "client": "failed",
+                "error": _r2_error_code(error),
+            }
+        }, False
+    if not isinstance(storage, R2MediaStorage):
+        return {
+            "r2Runtime": {
+                "checked": True,
+                "client": "failed",
+                "error": "wrong_storage_provider",
+            }
+        }, False
+
+    bucket_map = {
+        config.source_bucket: config.r2_source_bucket,
+        config.variants_bucket: config.r2_variants_bucket,
+        config.exports_bucket: config.r2_exports_bucket,
+    }
+    buckets: dict[str, Any] = {}
+    ok = True
+    for logical, physical in bucket_map.items():
+        try:
+            storage.client.head_bucket(Bucket=physical)
+            buckets[logical] = {
+                "bucket": physical,
+                "reachable": True,
+                "private": "not_publicly_detectable",
+            }
+        except Exception as error:
+            ok = False
+            buckets[logical] = {
+                "bucket": physical,
+                "reachable": False,
+                "error": _r2_error_code(error),
+            }
+
+    presigning = "ok"
+    try:
+        storage.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": config.r2_source_bucket, "Key": "doctor/presign-check"},
+            ExpiresIn=60,
+            HttpMethod="GET",
+        )
+    except Exception as error:
+        ok = False
+        presigning = _r2_error_code(error)
+
+    write: dict[str, Any] = {"status": "skipped"}
+    if write_test:
+        try:
+            write = asyncio.run(_r2_write_test(storage))
+        except Exception as error:
+            ok = False
+            write = {"status": "failed", "error": _r2_error_code(error)}
+
+    return {
+        "r2Runtime": {
+            "checked": True,
+            "client": "ok",
+            "buckets": buckets,
+            "presigning": presigning,
+            "writeTest": write,
+            "cors": "not_verifiable_without_browser_preflight",
+        }
+    }, ok
+
+
 def _query_one(connection: Any, query: str, params: tuple[Any, ...] = ()) -> Any:
     with connection.cursor() as cursor:
         cursor.execute(query, params)
@@ -115,6 +287,12 @@ def _db_report() -> tuple[dict[str, Any], bool]:
         return {"database": "missing_database_url"}, False
     if psycopg is None:
         return {"database": "psycopg_not_installed"}, False
+    storage_error: StorageError | None = None
+    try:
+        storage_config = MediaStorageConfig.from_env()
+    except StorageError as error:
+        storage_config = None
+        storage_error = error
 
     try:
         with psycopg.connect(url, connect_timeout=5) as connection:
@@ -136,10 +314,9 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 if latest_name and str(latest_name)[:4].isdigit()
                 else 0
             )
-            storage_config = MediaStorageConfig.from_env()
             buckets: dict[str, Any] = {}
             source_limit = None
-            if storage_config.storage_provider == "supabase":
+            if storage_config and storage_config.storage_provider == "supabase":
                 bucket_rows = _query_one(
                     connection,
                     """
@@ -158,13 +335,20 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 source_bucket = buckets.get("source-media") or {}
                 source_limit = source_bucket.get("fileSizeLimit")
                 source_limit = int(source_limit) if source_limit is not None else None
-            app_limit = storage_config.maximum_upload_bytes
+            app_limit = (
+                storage_config.maximum_upload_bytes
+                if storage_config
+                else 2 * 1024 * 1024 * 1024
+            )
             warnings = ["storage_global_limit_unverified"]
             failures: list[str] = []
+            if storage_error:
+                failures.append(storage_error.category)
             if source_limit is not None and source_limit < app_limit:
                 failures.append("source_bucket_limit_too_low")
             r2_ok = (
-                storage_config.storage_provider != "r2"
+                not storage_config
+                or storage_config.storage_provider != "r2"
                 or (
                     bool(storage_config.r2_account_id)
                     and bool(storage_config.r2_endpoint_url)
@@ -188,7 +372,11 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 "expectedLatestMigrationVersion": EXPECTED_MIGRATION,
                 "applicationMaximumUploadBytes": app_limit,
                 "sourceBucketMaximumUploadBytes": source_limit,
-                "mediaStorageProvider": storage_config.storage_provider,
+                "mediaStorageProvider": (
+                    storage_config.storage_provider
+                    if storage_config
+                    else (os.getenv("CLIPPING_STORAGE_PROVIDER") or "").strip().lower()
+                ),
                 "warnings": warnings,
                 "failures": failures,
                 "storageBuckets": {
@@ -201,13 +389,18 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 },
                 "siteAccessMode": mode_row[0] if mode_row else "public",
             }
-            supabase_ok = storage_config.storage_provider != "supabase" or all(
-                bucket.get("exists") and bucket.get("private")
-                for bucket in report["storageBuckets"].values()
+            supabase_ok = (
+                not storage_config
+                or storage_config.storage_provider != "supabase"
+                or all(
+                    bucket.get("exists") and bucket.get("private")
+                    for bucket in report["storageBuckets"].values()
+                )
             )
             ok = (
                 migration_table
                 and latest_version >= EXPECTED_MIGRATION
+                and storage_error is None
                 and supabase_ok
                 and r2_ok
                 and not failures
@@ -217,19 +410,32 @@ def _db_report() -> tuple[dict[str, Any], bool]:
         return {"database": "unreachable", "errorType": type(error).__name__}, False
 
 
-def build_report() -> tuple[dict[str, Any], bool]:
+def build_report(*, write_test: bool = False) -> tuple[dict[str, Any], bool]:
+    env, env_ok = _safe_env_report()
     db, db_ok = _db_report()
     legacy, legacy_ok = _legacy_caption_report()
-    ok = db_ok and legacy_ok
-    report = {"status": "ok" if ok else "missing_setup", **_check_env(), **db, **legacy}
+    r2, r2_ok = _r2_runtime_report(write_test=write_test)
+    ok = env_ok and db_ok and legacy_ok and r2_ok
+    report = {
+        "status": "ok" if ok else "missing_setup",
+        **env,
+        **db,
+        **legacy,
+        **r2,
+    }
     return report, ok
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only Capinsta production doctor.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    parser.add_argument(
+        "--write-test",
+        action="store_true",
+        help="Run a tiny R2 write/delete and multipart create/abort check.",
+    )
     args = parser.parse_args()
-    report, ok = build_report()
+    report, ok = build_report(write_test=args.write_test)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

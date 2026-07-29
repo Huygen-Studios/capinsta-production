@@ -108,6 +108,23 @@ Use lifecycle only as a safety net: abort incomplete multipart uploads after
 one day where Cloudflare exposes that rule. Application retention remains
 authoritative for active source media, variants, and exports.
 
+After deployment, run the read-only production doctor:
+
+```bash
+docker exec <api-container-name> python -m server.production.doctor --json
+```
+
+After the R2 buckets and credentials are configured, run the explicit R2 write
+test once:
+
+```bash
+docker exec <api-container-name> python -m server.production.doctor --json --write-test
+```
+
+The write test creates one tiny UUID-scoped object, signs a GET URL, deletes
+the object, creates one multipart upload, and aborts it. It does not print R2
+credentials or signed URLs.
+
 The API and backend workers also share the existing `clipper-workspaces` named
 volume for legacy AI-caption media and SQLite metadata:
 

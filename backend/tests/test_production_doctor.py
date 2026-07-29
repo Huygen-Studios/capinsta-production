@@ -1,4 +1,6 @@
 from server.production import doctor
+from server.clipping_storage.config import MediaStorageConfig
+from server.clipping_storage.r2_storage import R2MediaStorage
 
 
 def test_doctor_reports_missing_database_without_secrets(monkeypatch):
@@ -12,3 +14,79 @@ def test_doctor_reports_missing_database_without_secrets(monkeypatch):
     assert report["backendApiContractVersion"] == 1
     assert "clipping-media-uploads" in report["routeCapabilities"]
     assert "SECRET" not in str(report).upper()
+
+
+class R2Client:
+    def __init__(self):
+        self.calls = []
+
+    def head_bucket(self, **kwargs):
+        self.calls.append(("head_bucket", kwargs))
+        return {}
+
+    def generate_presigned_url(self, operation, **kwargs):
+        self.calls.append((operation, kwargs))
+        return "https://r2.invalid/signed"
+
+    def upload_file(self, *args, **kwargs):
+        self.calls.append(("upload_file", args, kwargs))
+
+    def head_object(self, **kwargs):
+        self.calls.append(("head_object", kwargs))
+        return {"ContentLength": 19, "ContentType": "video/mp4", "ETag": '"etag"'}
+
+    def delete_object(self, **kwargs):
+        self.calls.append(("delete_object", kwargs))
+
+    def create_multipart_upload(self, **kwargs):
+        self.calls.append(("create_multipart_upload", kwargs))
+        return {"UploadId": "upload-1"}
+
+    def abort_multipart_upload(self, **kwargs):
+        self.calls.append(("abort_multipart_upload", kwargs))
+
+
+def _r2_env(monkeypatch):
+    monkeypatch.setenv("CLIPPING_STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-id")
+    monkeypatch.setenv("R2_ENDPOINT", "https://account-id.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+
+
+def test_doctor_r2_runtime_check_is_read_only_by_default(monkeypatch):
+    _r2_env(monkeypatch)
+    client = R2Client()
+
+    def storage_from_config(config):
+        return R2MediaStorage(config, client=client)
+
+    monkeypatch.setattr(doctor, "media_storage_from_config", storage_from_config)
+
+    report, ok = doctor._r2_runtime_report()
+
+    assert ok is True
+    assert report["r2Runtime"]["presigning"] == "ok"
+    assert report["r2Runtime"]["writeTest"] == {"status": "skipped"}
+    assert [call[0] for call in client.calls].count("head_bucket") == 3
+    assert "upload_file" not in [call[0] for call in client.calls]
+
+
+def test_doctor_r2_write_test_uploads_deletes_and_aborts(monkeypatch):
+    _r2_env(monkeypatch)
+    client = R2Client()
+
+    def storage_from_config(config: MediaStorageConfig):
+        return R2MediaStorage(config, client=client)
+
+    monkeypatch.setattr(doctor, "media_storage_from_config", storage_from_config)
+
+    report, ok = doctor._r2_runtime_report(write_test=True)
+
+    calls = [call[0] for call in client.calls]
+    assert ok is True
+    assert report["r2Runtime"]["writeTest"]["status"] == "ok"
+    assert "upload_file" in calls
+    assert "delete_object" in calls
+    assert "create_multipart_upload" in calls
+    assert "abort_multipart_upload" in calls
