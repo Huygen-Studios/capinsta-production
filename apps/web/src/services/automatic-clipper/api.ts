@@ -361,7 +361,7 @@ export async function uploadClipperMedia({
 			instructions = null;
 		}
 	}
-	const chunkSize = 6 * 1024 * 1024;
+	const chunkSize = 6_000_000;
 	if (!instructions) {
 		await ensureClipperBackendReady(signal);
 		const createdInstructions = uploadInstructionsSchema.parse(
