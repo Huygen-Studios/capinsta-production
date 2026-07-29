@@ -18,6 +18,7 @@ export type ProductCapability = (typeof PRODUCT_CAPABILITIES)[number];
 export const PRODUCT_CAPABILITY_PERMISSIONS = [
 	"projects.access",
 	"editor.access",
+	"clipper.access",
 	"exports.access",
 	"render.access",
 ] as const satisfies readonly AppPermission[];
@@ -105,11 +106,6 @@ export function evaluateProductAccess(
 ): ProductAccessDecision {
 	if (!input.user) return decision(input, false, "denied_missing_session");
 
-	// Super administrators retain operational access. Their actions are audited at
-	// the mutation/job boundary; access alone never suppresses audit recording.
-	if (input.user.isSuperAdmin)
-		return decision(input, true, "allowed_admin", null, "super_admin");
-
 	const restriction = input.restriction ??
 		(input.entitlement.hasCapabilityRevocation ? "product_revoked" : null) ??
 		(input.entitlement.status === "revoked" ? "product_revoked" : null) ??
@@ -124,6 +120,11 @@ export function evaluateProductAccess(
 		return decision(input, false, code, restriction);
 	}
 
+	// Super administrators retain operational access after hard account/product
+	// denials have been applied.
+	if (input.user.isSuperAdmin)
+		return decision(input, true, "allowed_admin", null, "super_admin");
+
 	if (input.launchMode === "maintenance") {
 		if (input.user.isAdmin)
 			return decision(input, true, "allowed_admin", null, "administrator");
@@ -132,10 +133,7 @@ export function evaluateProductAccess(
 		return decision(input, false, "denied_maintenance");
 	}
 
-	if (
-		input.launchMode === "public" &&
-		input.requestedCapability !== "use_clipper"
-	)
+	if (input.launchMode === "public")
 		return decision(input, true, "allowed_public", null, "public_default");
 
 	if (input.user.isAdmin)

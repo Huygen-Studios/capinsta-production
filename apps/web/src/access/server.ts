@@ -1,7 +1,7 @@
 import "server-only";
 
 /* eslint-disable opencut/prefer-object-params -- Authorization guard call sites read better with permission/path pairs. */
-import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { unstable_cache as nextCache, revalidateTag } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
@@ -209,11 +209,36 @@ export const getCurrentAccessContext = cache(
 		} = await supabase.auth.getUser();
 		if (!user) return null;
 
-		const [profile] = await db
+		let [profile] = await db
 			.select()
 			.from(profiles)
 			.where(eq(profiles.userId, user.id))
 			.limit(1);
+		if (!profile) {
+			[profile] = await db
+				.insert(profiles)
+				.values({
+					userId: user.id,
+					emailSnapshot: user.email ?? null,
+					emailConfirmedAt: user.email_confirmed_at
+						? new Date(user.email_confirmed_at)
+						: null,
+					lastSignInAt: user.last_sign_in_at
+						? new Date(user.last_sign_in_at)
+						: null,
+				})
+				.onConflictDoUpdate({
+					target: profiles.userId,
+					set: {
+						emailSnapshot: sql`COALESCE(${profiles.emailSnapshot}, EXCLUDED.email_snapshot)`,
+						lastSignInAt: user.last_sign_in_at
+							? new Date(user.last_sign_in_at)
+							: null,
+						updatedAt: new Date(),
+					},
+				})
+				.returning();
+		}
 		if (!profile) return null;
 
 		const [{ permissions, roleKeys }, sitePolicy, adminContext, directGrants, directRevocations] =

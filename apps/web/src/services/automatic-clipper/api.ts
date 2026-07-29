@@ -1,5 +1,5 @@
 /* eslint-disable opencut/prefer-object-params -- Public client helpers mirror their REST route parameters. */
-import { buildCapinstaApiUrl } from "@/capinsta/api-url";
+import { buildCapinstaApiUrl, buildCapinstaHealthUrl } from "@/capinsta/api-url";
 import { getCapinstaApiBaseUrl } from "@/capinsta/featureFlags";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { z } from "zod";
@@ -170,24 +170,80 @@ function endpoint(path: string): string {
 	return buildCapinstaApiUrl({ baseUrl: getCapinstaApiBaseUrl(), path });
 }
 
+async function ensureClipperBackendReady(signal?: AbortSignal) {
+	const url = buildCapinstaHealthUrl({ baseUrl: getCapinstaApiBaseUrl() });
+	let response: Response;
+	try {
+		response = await fetch(url, { signal });
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		throw new Error("The video-processing service is unavailable.");
+	}
+	const body: unknown = await response.json().catch(() => null);
+	if (!response.ok) throw new Error("The video-processing service is unavailable.");
+	if (typeof body !== "object" || body === null) return;
+	const contractVersion = Reflect.get(body, "apiContractVersion");
+	if (typeof contractVersion === "number" && contractVersion !== 1)
+		throw new Error(
+			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+		);
+	const capabilities = Reflect.get(body, "capabilities");
+	if (
+		Array.isArray(capabilities) &&
+		!capabilities.includes("clipping-media-uploads")
+	) {
+		throw new Error(
+			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+		);
+	}
+}
+
 function key(scope: string): string {
 	return `${scope}:${crypto.randomUUID()}`;
 }
 
 async function json(path: string, init?: RequestInit): Promise<unknown> {
-	const response = await authenticatedFetch(endpoint(path), init);
+	const url = endpoint(path);
+	let response: Response;
+	try {
+		response = await authenticatedFetch(url, init);
+	} catch (error) {
+		if (init?.signal?.aborted) throw error;
+		throw new Error("The video-processing service is unavailable.");
+	}
 	const body: unknown = await response.json().catch(() => null);
 	if (!response.ok) {
-		const detail =
-			typeof body === "object" && body !== null
-				? Reflect.get(body, "detail")
-				: null;
+		const objectBody = typeof body === "object" && body !== null ? body : null;
+		const detail = objectBody ? Reflect.get(objectBody, "detail") : null;
+		const error = objectBody ? Reflect.get(objectBody, "error") : null;
+		const code =
+			(objectBody ? Reflect.get(objectBody, "code") : null) ??
+			(typeof detail === "object" && detail !== null
+				? Reflect.get(detail, "code")
+				: null) ??
+			(typeof error === "object" && error !== null
+				? Reflect.get(error, "code")
+				: null);
 		const message =
-			typeof detail === "object" && detail !== null
-				? Reflect.get(detail, "message")
-				: detail;
+			code === "backend_unreachable" || response.status >= 500
+				? "The video-processing service is unavailable."
+				: code === "storage_not_configured"
+					? "Clipper Storage is not configured. Apply the Storage migration."
+					: code === "uploads_disabled"
+						? "New uploads are temporarily paused."
+						: response.status === 401
+							? "Your session expired. Sign in again."
+							: response.status === 403
+								? "You do not have permission to use this feature."
+								: response.status === 404
+									? "The deployed web and API versions do not match. Redeploy both services using the same image tag."
+									: typeof detail === "object" && detail !== null
+										? Reflect.get(detail, "message")
+										: detail;
 		throw new Error(
-			typeof message === "string" ? message : "Clipper request failed.",
+			typeof message === "string"
+				? message
+				: "The clipper request could not be completed.",
 		);
 	}
 	return body;
@@ -288,6 +344,7 @@ export async function uploadClipperMedia({
 		}
 	}
 	if (!instructions) {
+		await ensureClipperBackendReady(signal);
 		const createdInstructions = uploadInstructionsSchema.parse(
 			await json("/clipping/media/uploads", {
 				method: "POST",

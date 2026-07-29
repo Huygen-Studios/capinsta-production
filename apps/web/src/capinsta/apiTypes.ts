@@ -43,6 +43,9 @@ export interface CapinstaHealthResponse {
 	message?: string | null;
 	provider_keys?: Record<string, boolean>;
 	dependencies?: Record<string, boolean | string>;
+	apiContractVersion?: number;
+	capabilities?: string[];
+	latestExpectedMigrationVersion?: number;
 }
 
 export interface CapinstaJobCreateResponse {

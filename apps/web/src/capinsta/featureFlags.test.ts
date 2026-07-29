@@ -55,6 +55,8 @@ describe("Capinsta feature flags", () => {
 
 	test("uses a configured public Capinsta API URL when provided", () => {
 		const previous = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
+		const previousNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = "development";
 		process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = "http://127.0.0.1:8000/";
 
 		expect(getCapinstaApiBaseUrl()).toBe("http://127.0.0.1:8000/");
@@ -63,6 +65,24 @@ describe("Capinsta feature flags", () => {
 			name: "NEXT_PUBLIC_CAPINSTA_API_BASE_URL",
 			value: previous,
 		});
+		if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+		else process.env.NODE_ENV = previousNodeEnv;
+	});
+
+	test("rejects unsafe absolute API URLs in production browser config", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL;
+		const previousNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = "production";
+		process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL = "http://api:10000";
+
+		expect(getCapinstaApiBaseUrl()).toBe("/api/capinsta");
+
+		restoreEnv({
+			name: "NEXT_PUBLIC_CAPINSTA_API_BASE_URL",
+			value: previous,
+		});
+		if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+		else process.env.NODE_ENV = previousNodeEnv;
 	});
 
 	test("requires explicit handoff and server-backed media gates", () => {

@@ -19,7 +19,22 @@ export function isCapinstaSampleImportEnabled(): boolean {
 
 export function getCapinstaApiBaseUrl(): string {
 	const configured = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL?.trim();
-	return configured || "/api/capinsta";
+	if (!configured) return "/api/capinsta";
+	if (process.env.NODE_ENV === "production") {
+		try {
+			const url = new URL(configured);
+			if (
+				["api", "localhost", "127.0.0.1", "0.0.0.0"].includes(
+					url.hostname.toLowerCase(),
+				)
+			) {
+				return "/api/capinsta";
+			}
+		} catch {
+			// Relative same-origin overrides are safe.
+		}
+	}
+	return configured;
 }
 
 export function getCapinstaJobTimeoutMs(): number {

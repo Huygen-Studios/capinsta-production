@@ -16,6 +16,9 @@ def test_readiness_payload_is_lightweight_json_contract(monkeypatch):
     assert payload["ready"] is True
     assert payload["readinessRoute"] == "/health/ready"
     assert payload["apiPrefix"] == "/api"
+    assert payload["apiContractVersion"] == 1
+    assert "clipping-media-uploads" in payload["capabilities"]
+    assert payload["latestExpectedMigrationVersion"] >= 26
 
 
 def test_readiness_routes_are_mounted_without_auth():
@@ -26,6 +29,15 @@ def test_readiness_routes_are_mounted_without_auth():
     assert "get" in paths["/api/v1/health/ready"]
     assert "post" in paths["/api/v1/jobs"]
     assert "get" in paths["/api/v1/export/jobs/{export_job_id}"]
+    for prefix in ("/api", "/api/v1"):
+        assert "post" in paths[f"{prefix}/jobs"]
+        assert "get" in paths[f"{prefix}/jobs/{{job_id}}"]
+        assert "post" in paths[f"{prefix}/clipping/media/uploads"]
+        assert "post" in paths[f"{prefix}/clipping/media/uploads/{{upload_session_id}}/complete"]
+        assert "post" in paths[f"{prefix}/clipping/workflows/{{media_asset_id}}/advance"]
+        assert "get" in paths[f"{prefix}/clipping/projects/{{project_id}}/candidates"]
+        assert "post" in paths[f"{prefix}/clipping/projects/{{project_id}}/exports"]
+        assert "post" in paths[f"{prefix}/capinsta/media/{{media_asset_id}}/access"]
 
 
 def test_startup_diagnostics_reports_catalog_counts():

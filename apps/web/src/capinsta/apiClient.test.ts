@@ -30,6 +30,25 @@ describe("Capinsta API client", () => {
 		expect(health.status).toBe("ok");
 	});
 
+	test("detects backend API contract mismatch", async () => {
+		await expect(
+			checkCapinstaHealth({
+				baseUrl: "/api/capinsta",
+				fetchImpl: async () =>
+					jsonResponse({
+						status: "ok",
+						version: "5.0.0",
+						apiContractVersion: 99,
+						capabilities: ["jobs"],
+					}),
+			}),
+		).rejects.toMatchObject({
+			name: "CapinstaApiError",
+			message:
+				"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+		});
+	});
+
 	test("creates caption jobs with expected form fields", async () => {
 		const file = new File(["video"], "sample.mp4", { type: "video/mp4" });
 		const job = await startCapinstaCaptionJob({

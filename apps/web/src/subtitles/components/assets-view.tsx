@@ -400,6 +400,7 @@ export function Captions() {
 			await checkCapinstaHealth({
 				baseUrl: capinstaApiBaseUrl,
 				signal: abortController.signal,
+				requiredCapabilities: ["captions", "jobs"],
 			});
 
 			const projectId = editor.project.getActive().metadata.id;

@@ -1,5 +1,5 @@
 x-backend-image: &backend-image
-  image: ghcr.io/huygen-studios/capinsta-production-backend:${CAPINSTA_IMAGE_TAG:-production-candidate}
+  image: ghcr.io/huygen-studios/capinsta-production-backend:${CAPINSTA_IMAGE_TAG:?Set CAPINSTA_IMAGE_TAG}
   restart: unless-stopped
   init: true
   stop_grace_period: 45s
@@ -38,7 +38,7 @@ x-backend-image: &backend-image
     MAX_STORED_EXPORT_BYTES: ${MAX_STORED_EXPORT_BYTES:-10737418240}
     ENABLE_USAGE_QUOTAS: "true"
     PRIVATE_BETA_MAX_USERS: ${PRIVATE_BETA_MAX_USERS:-10}
-    PRIVATE_BETA_ALLOWLIST: ${PRIVATE_BETA_ALLOWLIST:?Set PRIVATE_BETA_ALLOWLIST}
+    PRIVATE_BETA_ALLOWLIST: ${PRIVATE_BETA_ALLOWLIST:-}
     ENABLE_WHOP_ACCESS: "false"
     DISABLE_NEW_UPLOADS: ${DISABLE_NEW_UPLOADS:-true}
     DISABLE_CANDIDATE_ANALYSIS: ${DISABLE_CANDIDATE_ANALYSIS:-true}
@@ -84,7 +84,7 @@ x-worker: &worker
 
 services:
   web:
-    image: ghcr.io/huygen-studios/capinsta-production-web:${CAPINSTA_IMAGE_TAG:-production-candidate}
+    image: ghcr.io/huygen-studios/capinsta-production-web:${CAPINSTA_IMAGE_TAG:?Set CAPINSTA_IMAGE_TAG}
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -116,7 +116,7 @@ services:
       ENABLE_WHOP_ACCESS: "false"
       ENABLE_ACCOUNT_DELETION: "true"
       PRIVATE_BETA_MAX_USERS: ${PRIVATE_BETA_MAX_USERS:-10}
-      PRIVATE_BETA_ALLOWLIST: ${PRIVATE_BETA_ALLOWLIST:?Set PRIVATE_BETA_ALLOWLIST}
+      PRIVATE_BETA_ALLOWLIST: ${PRIVATE_BETA_ALLOWLIST:-}
     depends_on:
       api:
         condition: service_healthy

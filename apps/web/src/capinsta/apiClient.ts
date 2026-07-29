@@ -18,7 +18,7 @@ import { validateCapinstaTranscriptV1 } from "./adapter";
 import { CAPINSTA_PRESET_IDS } from "./styles/presetRegistry";
 import type { CapinstaCaptionPresetId } from "./styles/styleTypes";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
-import { readJsonApiResponse } from "./api-response";
+import { CapinstaResponseFormatError, readJsonApiResponse } from "./api-response";
 import { buildCapinstaApiUrl, buildCapinstaHealthUrl } from "./api-url";
 
 export class CapinstaApiError extends Error {
@@ -105,10 +105,24 @@ async function readJsonResponse<T>({
 	response: Response;
 	endpoint: string;
 }): Promise<T> {
-	const body = await readJsonApiResponse<Record<string, unknown>>({
-		response,
-		endpoint,
-	});
+	let body: Record<string, unknown>;
+	try {
+		body = await readJsonApiResponse<Record<string, unknown>>({
+			response,
+			endpoint,
+		});
+	} catch (error) {
+		if (error instanceof CapinstaResponseFormatError) {
+			throw new CapinstaApiError(
+				response.status === 404
+					? "The deployed web and API versions do not match. Redeploy both services using the same image tag."
+					: "The video-processing service is temporarily unavailable.",
+				response.status,
+				{ code: "backend_unavailable", endpoint },
+			);
+		}
+		throw error;
+	}
 	if (!response.ok) {
 		const parsedError = readFastApiErrorBody(body);
 		const correlationId =
@@ -134,19 +148,74 @@ async function readJsonResponse<T>({
 	return body as T;
 }
 
+async function safeAuthenticatedFetch(
+	endpoint: string,
+	init: RequestInit,
+	fetchImpl: typeof fetch,
+) {
+	try {
+		return await authenticatedFetch(endpoint, init, fetchImpl);
+	} catch (error) {
+		if (init.signal?.aborted) throw error;
+		throw new CapinstaApiError(
+			"The video-processing service is temporarily unavailable.",
+			undefined,
+			{ code: "backend_unreachable", stage: "network", endpoint },
+		);
+	}
+}
+
 export async function checkCapinstaHealth({
 	baseUrl,
 	fetchImpl = fetch,
 	signal,
+	requiredCapabilities = [],
 }: {
 	baseUrl: string;
 	fetchImpl?: typeof fetch;
 	signal?: AbortSignal;
+	requiredCapabilities?: string[];
 }): Promise<CapinstaHealthResponse> {
 	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
 	const endpoint = buildCapinstaHealthUrl({ baseUrl });
-	const response = await fetchImpl(endpoint, { signal });
-	return readJsonResponse<CapinstaHealthResponse>({ response, endpoint });
+	let response: Response;
+	try {
+		response = await fetchImpl(endpoint, { signal });
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		throw new CapinstaApiError(
+			"The video-processing service is temporarily unavailable.",
+			undefined,
+			{ code: "backend_unreachable", stage: "health", endpoint },
+		);
+	}
+	const health = await readJsonResponse<CapinstaHealthResponse>({
+		response,
+		endpoint,
+	});
+	if (
+		typeof health.apiContractVersion === "number" &&
+		health.apiContractVersion !== 1
+	) {
+		throw new CapinstaApiError(
+			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+			503,
+			{ code: "api_contract_mismatch", stage: "health", endpoint },
+		);
+	}
+	const capabilities = new Set(health.capabilities ?? []);
+	if (
+		requiredCapabilities.length > 0 &&
+		health.capabilities &&
+		requiredCapabilities.some((capability) => !capabilities.has(capability))
+	) {
+		throw new CapinstaApiError(
+			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+			503,
+			{ code: "api_capability_missing", stage: "health", endpoint },
+		);
+	}
+	return health;
 }
 
 export async function startCapinstaCaptionJob({
@@ -204,7 +273,7 @@ export async function startCapinstaCaptionJob({
 		captionOutput,
 	});
 
-	const response = await authenticatedFetch(
+	const response = await safeAuthenticatedFetch(
 		endpoint,
 		{
 			method: "POST",
@@ -233,7 +302,7 @@ export async function getCapinstaJob({
 	signal?: AbortSignal;
 }): Promise<CapinstaJobDetailResponse> {
 	const endpoint = buildCapinstaApiUrl({ baseUrl, path: `/jobs/${jobId}` });
-	const response = await authenticatedFetch(
+	const response = await safeAuthenticatedFetch(
 		endpoint,
 		{
 			signal,
@@ -268,7 +337,7 @@ export async function cancelCapinstaJob({
 		baseUrl,
 		path: `/jobs/${jobId}/cancel`,
 	});
-	const response = await authenticatedFetch(
+	const response = await safeAuthenticatedFetch(
 		endpoint,
 		{
 			method: "POST",
@@ -360,7 +429,7 @@ export async function sendCapinstaProjectHeartbeat({
 		baseUrl,
 		path: `/jobs/${jobId}/heartbeat`,
 	});
-	const response = await authenticatedFetch(
+	const response = await safeAuthenticatedFetch(
 		endpoint,
 		{
 			method: "POST",

@@ -29,6 +29,18 @@ from ..storage_pressure import read_disk_pressure
 from ..transcription_control import active_transcription_config, transcription_database_status
 
 router = APIRouter(prefix="/health", tags=["health"])
+API_CONTRACT_VERSION = 1
+API_CAPABILITIES = [
+    "captions",
+    "jobs",
+    "clipping-media-uploads",
+    "clipping-workflows",
+    "clipping-projects",
+    "clipping-exports",
+    "server-backed-media",
+    "preview",
+    "handoff",
+]
 
 
 def _build_sha() -> str:
@@ -52,6 +64,9 @@ class ReadinessResponse(BaseModel):
     ready: bool = True
     apiPrefix: str = "/api"
     readinessRoute: str = "/health/ready"
+    apiContractVersion: int = API_CONTRACT_VERSION
+    capabilities: list[str] = Field(default_factory=lambda: API_CAPABILITIES.copy())
+    latestExpectedMigrationVersion: int = 26
     commit: str | None = None
     dependencies: dict[str, str | bool] = Field(default_factory=dict)
 

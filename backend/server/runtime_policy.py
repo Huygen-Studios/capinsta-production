@@ -327,6 +327,48 @@ async def effective_app_permissions(user_id: str) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+async def denied_app_permissions(user_id: str) -> set[str]:
+    if _rest_control_plane_enabled():
+        overrides = await _rest_rows(
+            "app_user_permission_overrides",
+            {
+                "select": "permission_id,expires_at",
+                "user_id": f"eq.{user_id}",
+                "active": "eq.true",
+                "effect": "eq.deny",
+            },
+        )
+        permission_ids = [
+            str(row.get("permission_id"))
+            for row in overrides
+            if row.get("permission_id") and _not_expired(row.get("expires_at"))
+        ]
+        if not permission_ids:
+            return set()
+        permissions = await _rest_rows(
+            "app_permissions",
+            {"select": "id,key", "id": _in_filter(permission_ids)},
+        )
+        return {str(row.get("key")) for row in permissions if row.get("key")}
+
+    try:
+        rows = await _query_all(
+            """
+            SELECT p.key
+            FROM app_user_permission_overrides o
+            JOIN app_permissions p ON p.id = o.permission_id
+            WHERE o.user_id = %s::uuid
+              AND o.active = true
+              AND o.effect = 'deny'
+              AND (o.expires_at IS NULL OR o.expires_at > now())
+            """,
+            (user_id,),
+        )
+    except ControlPlaneUnavailableError:
+        return set()
+    return {str(row[0]) for row in rows}
+
+
 async def direct_product_entitlements(user_id: str) -> tuple[set[str], set[str]]:
     if _rest_control_plane_enabled():
         rows = await _rest_rows(
@@ -411,14 +453,6 @@ async def is_super_admin(user_id: str) -> bool:
 async def require_backend_capability(user: AuthenticatedUser, request_path: str) -> None:
     if local_development_access_enabled() and user.id == LOCAL_DEVELOPMENT_USER_ID:
         return
-    super_admin = await is_super_admin(user.id)
-    if super_admin:
-        logger.info(
-            "auth_allow user_id=%s path=%s admin=super_admin reason=plan_bypass",
-            user.id,
-            request_path,
-        )
-        return
 
     if _rest_control_plane_enabled():
         profile = await _rest_profile(
@@ -462,6 +496,21 @@ async def require_backend_capability(user: AuthenticatedUser, request_path: str)
         mode = "public" if policy is None else str(policy[0])
     permission = _permission_for_path(request_path)
     permissions = await effective_app_permissions(user.id)
+    direct_grants, direct_revocations = await direct_product_entitlements(user.id)
+    denied_permissions = await denied_app_permissions(user.id)
+    revoked_permissions = permissions_for_products(direct_revocations)
+    if permission in denied_permissions or permission in revoked_permissions:
+        raise ProductAccessDeniedError(f"missing_permission:{permission}")
+
+    super_admin = await is_super_admin(user.id)
+    if super_admin:
+        logger.info(
+            "auth_allow user_id=%s path=%s admin=super_admin reason=plan_bypass",
+            user.id,
+            request_path,
+        )
+        return
+
     if mode == "maintenance":
         if "maintenance.bypass" in permissions:
             logger.info(
@@ -475,13 +524,19 @@ async def require_backend_capability(user: AuthenticatedUser, request_path: str)
         raise ProductAccessDeniedError("maintenance_mode", 503)
     if mode not in {"public", "coming_soon"}:
         raise ProductAccessDeniedError("control_plane_unavailable", 503)
-    direct_grants, direct_revocations = await direct_product_entitlements(user.id)
     permissions.update(permissions_for_products(direct_grants))
-    permissions.difference_update(permissions_for_products(direct_revocations))
-    if product_status != "approved":
+    permissions.difference_update(revoked_permissions)
+    if mode == "public":
+        logger.info(
+            "auth_allow user_id=%s path=%s permission=%s product_status=%s reason=public_default",
+            user.id,
+            request_path,
+            permission,
+            product_status,
+        )
+        return
+    if product_status != "approved" and permission not in permissions:
         raise ProductAccessDeniedError("product_access_pending")
-    if permission not in permissions:
-        raise ProductAccessDeniedError(f"missing_permission:{permission}")
     logger.info(
         "auth_allow user_id=%s path=%s permission=%s product_status=%s",
         user.id,

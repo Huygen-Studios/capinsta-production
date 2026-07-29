@@ -335,7 +335,7 @@ def test_database_password_failure_has_safe_reason():
     assert policy.control_plane_error_reason(error) == "database_authentication_failed"
 
 
-def test_public_mode_backend_requires_approved_product_access(monkeypatch):
+def test_public_mode_backend_allows_pending_authenticated_user(monkeypatch):
     user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
     calls = iter([
         ("pending", None),
@@ -359,12 +359,10 @@ def test_public_mode_backend_requires_approved_product_access(monkeypatch):
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
     monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
-    with pytest.raises(policy.ProductAccessDeniedError) as error:
-        asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
-    assert error.value.reason == "product_access_pending"
+    asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
 
 
-def test_public_mode_backend_requires_exact_app_permission(monkeypatch):
+def test_public_mode_backend_allows_exports_without_manual_permission(monkeypatch):
     user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
     calls = iter([
         ("approved", None),
@@ -388,9 +386,40 @@ def test_public_mode_backend_requires_exact_app_permission(monkeypatch):
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
     monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
+    asyncio.run(policy.require_backend_capability(user, "/api/export/jobs"))
+
+
+def test_public_mode_backend_honors_explicit_permission_deny(monkeypatch):
+    user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
+    calls = iter([
+        ("approved", None),
+        ("public",),
+    ])
+
+    async def query_one(query, params=()):
+        return next(calls)
+
+    async def permissions(unused):
+        return {"clipper.access"}
+
+    async def denied(unused):
+        return {"clipper.access"}
+
+    async def super_admin(unused):
+        return False
+
+    async def direct_entitlements(unused):
+        return set(), set()
+
+    monkeypatch.setattr(policy, "_query_one", query_one)
+    monkeypatch.setattr(policy, "effective_app_permissions", permissions)
+    monkeypatch.setattr(policy, "denied_app_permissions", denied)
+    monkeypatch.setattr(policy, "is_super_admin", super_admin)
+    monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
+
     with pytest.raises(policy.ProductAccessDeniedError) as error:
-        asyncio.run(policy.require_backend_capability(user, "/api/export/jobs"))
-    assert error.value.reason == "missing_permission:exports.access"
+        asyncio.run(policy.require_backend_capability(user, "/api/clipping/media/uploads"))
+    assert error.value.reason == "missing_permission:clipper.access"
 
 
 def test_public_mode_backend_allows_approved_member_with_permission(monkeypatch):
