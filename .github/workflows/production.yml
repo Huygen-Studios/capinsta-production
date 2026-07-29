@@ -162,6 +162,44 @@ jobs:
         run: |
           docker run --rm "$BACKEND_IMAGE:${GITHUB_SHA}" \
             sh -c "ffmpeg -version >/dev/null && ffprobe -version >/dev/null && printf '%s' '{\"protocolVersion\":1,\"requestId\":\"ci\",\"operation\":\"health\",\"payload\":{},\"options\":{}}' | capinsta-clipping-runtime | grep -q '\"ok\":true'"
+      - name: Legacy caption storage smoke
+        run: |
+          docker volume create capinsta-caption-smoke
+          trap 'docker rm -f capinsta-backend-caption-smoke >/dev/null 2>&1 || true; docker volume rm capinsta-caption-smoke >/dev/null 2>&1 || true' EXIT
+          docker run -d --name capinsta-backend-caption-smoke \
+            -v capinsta-caption-smoke:/app/storage \
+            -e NODE_ENV=development \
+            -e ENABLE_LOCAL_DEVELOPMENT_ACCESS=true \
+            -e CLIPPING_STORAGE_PROVIDER=local \
+            -e ENABLE_LOCAL_MEDIA_STORAGE=true \
+            -e CLIPPING_LOCAL_STORAGE_ROOT=/app/storage/clipper-local \
+            -e TEMP_DIR=/app/storage/legacy-caption/tmp \
+            -e UPLOAD_DIR=/app/storage/legacy-caption/uploads \
+            -e MEDIA_DIR=/app/storage/legacy-caption/media \
+            -e EXPORT_DIR=/app/storage/legacy-caption/exports \
+            -e CACHE_DIR=/app/storage/legacy-caption/cache \
+            -e DB_PATH=/app/storage/legacy-caption/database.sqlite \
+            "$BACKEND_IMAGE:${GITHUB_SHA}"
+          for attempt in $(seq 1 45); do
+            docker exec capinsta-backend-caption-smoke curl -fsS http://127.0.0.1:10000/health/ready >/dev/null && break
+            sleep 2
+          done
+          docker exec capinsta-backend-caption-smoke ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i testsrc=duration=1:size=16x16:rate=1 -pix_fmt yuv420p /tmp/smoke.mp4
+          docker exec capinsta-backend-caption-smoke curl -fsS \
+            -F project_id=project_smoke \
+            -F 'file=@/tmp/smoke.mp4;type=video/mp4' \
+            http://127.0.0.1:10000/api/media/assets \
+            -o /tmp/media-asset.json
+          docker exec capinsta-backend-caption-smoke sh -lc \
+            'test -s /app/storage/legacy-caption/database.sqlite && find /app/storage/legacy-caption/media -type f | grep -q .'
+          docker restart capinsta-backend-caption-smoke >/dev/null
+          for attempt in $(seq 1 45); do
+            docker exec capinsta-backend-caption-smoke curl -fsS http://127.0.0.1:10000/health/ready >/dev/null && break
+            sleep 2
+          done
+          docker exec capinsta-backend-caption-smoke sh -lc \
+            'test -s /app/storage/legacy-caption/database.sqlite && find /app/storage/legacy-caption/media -type f | grep -q .'
       - name: Web image smoke
         env:
           DATABASE_URL: postgresql://user:password@db.example.com:5432/postgres
