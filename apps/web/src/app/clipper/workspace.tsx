@@ -20,6 +20,7 @@ import {
 	advanceWorkflow,
 	cancelExport,
 	createExport,
+	discardClipperUpload,
 	getExport,
 	getExportDownload,
 	getProjectJob,
@@ -739,9 +740,13 @@ export function ClipperWorkspace() {
 								</Button>
 								<Button
 									variant="outline"
-									onClick={() => {
-										window.localStorage.removeItem(CLIPPER_MEDIA_STORAGE_KEY);
-										window.location.reload();
+									onClick={async () => {
+										try {
+											await discardClipperUpload(selectedFileRef.current);
+										} finally {
+											window.localStorage.removeItem(CLIPPER_MEDIA_STORAGE_KEY);
+											window.location.reload();
+										}
 									}}
 								>
 									{error.startsWith("Video exceeds the Storage limit")

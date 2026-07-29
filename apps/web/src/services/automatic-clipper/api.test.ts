@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	parseCandidates,
+	safeR2ResumeInstructions,
 	uploadR2MultipartForTest,
 	uploadTusForTest,
 	viralCandidateSchema,
@@ -233,6 +234,34 @@ describe("automatic clipper API contracts", () => {
 			{ partNumber: 3, etag: "etag-3", size: 2 },
 		]);
 		expect(completedPayloads).toEqual([parts]);
+	});
+
+	test("persists only safe R2 resume state", () => {
+		const unsafeInstructions = {
+			provider: "r2" as const,
+			protocol: "s3_multipart" as const,
+			mediaAssetId: "media-1",
+			uploadSessionId: "upload-1",
+			uploadUrl: "https://signed.invalid/create",
+			uploadLocation: "https://signed.invalid/resume",
+			requiredHeaders: { "x-signature": "secret-signature" },
+			uploadMetadata: { objectName: "owner/media/source/v1.mp4" },
+			partSizeBytes: 5,
+			partCount: 2,
+			uploadConcurrency: 1,
+			signedUrlTtlSeconds: 900,
+		};
+
+		const persisted = JSON.stringify(
+			safeR2ResumeInstructions(unsafeInstructions, [
+				{ partNumber: 1, etag: "etag-1", size: 5 },
+			]),
+		);
+
+		expect(persisted).toContain("etag-1");
+		expect(persisted).not.toContain("signed.invalid");
+		expect(persisted).not.toContain("secret-signature");
+		expect(persisted).not.toContain("owner/media/source");
 	});
 
 	test("retries transient R2 part upload failures", async () => {

@@ -183,6 +183,51 @@ type UploadInstructions = {
 };
 type UploadedPart = { partNumber: number; etag: string; size?: number };
 type SignedPart = { partNumber: number; url: string; expiresAt: string };
+
+export function safeR2ResumeInstructions(
+	instructions: UploadInstructions,
+	uploadedParts: UploadedPart[],
+): UploadInstructions {
+	return {
+		mediaAssetId: instructions.mediaAssetId,
+		uploadSessionId: instructions.uploadSessionId,
+		provider: "r2",
+		protocol: "s3_multipart",
+		requiredHeaders: {},
+		uploadMetadata: {},
+		partSizeBytes: instructions.partSizeBytes,
+		partCount: instructions.partCount,
+		uploadConcurrency: instructions.uploadConcurrency,
+		signedUrlTtlSeconds: instructions.signedUrlTtlSeconds,
+		uploadedParts,
+	};
+}
+
+export async function discardClipperUpload(
+	file: File | null | undefined,
+	signal?: AbortSignal,
+): Promise<void> {
+	if (!file) return;
+	const resumeKey = `capinsta:clipper:tus-v1:${await uploadFingerprint(file)}`;
+	let stored: ReturnType<typeof uploadInstructionsSchema.safeParse>;
+	try {
+		stored = uploadInstructionsSchema.safeParse(
+			JSON.parse(window.localStorage.getItem(resumeKey) ?? "null"),
+		);
+	} catch {
+		window.localStorage.removeItem(resumeKey);
+		return;
+	}
+	try {
+		if (stored.success)
+			await json(`/clipping/media/uploads/${stored.data.uploadSessionId}`, {
+				method: "DELETE",
+				signal,
+			});
+	} finally {
+		window.localStorage.removeItem(resumeKey);
+	}
+}
 const selectionResultSchema = z.object({
 	jobId: z.string().optional(),
 	status: z.string(),
@@ -718,7 +763,7 @@ export async function uploadClipperMedia({
 				onPartComplete: (uploadedParts) => {
 					window.localStorage.setItem(
 						resumeKey,
-						JSON.stringify({ ...instructions, uploadedParts }),
+						JSON.stringify(safeR2ResumeInstructions(instructions!, uploadedParts)),
 					);
 				},
 				signal,
@@ -738,8 +783,8 @@ export async function uploadClipperMedia({
 			window.localStorage.removeItem(resumeKey);
 		throw error;
 	}
-	window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
-	if (instructions.protocol !== "s3_multipart" && instructions.provider !== "r2")
+	if (instructions.protocol !== "s3_multipart" && instructions.provider !== "r2") {
+		window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
 		await json(
 			`/clipping/media/uploads/${instructions.uploadSessionId}/complete`,
 			{
@@ -749,6 +794,7 @@ export async function uploadClipperMedia({
 				signal,
 			},
 		);
+	}
 	window.localStorage.removeItem(resumeKey);
 	return instructions.mediaAssetId;
 }
