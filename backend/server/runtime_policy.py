@@ -453,6 +453,14 @@ async def is_super_admin(user_id: str) -> bool:
 async def require_backend_capability(user: AuthenticatedUser, request_path: str) -> None:
     if local_development_access_enabled() and user.id == LOCAL_DEVELOPMENT_USER_ID:
         return
+    super_admin = await is_super_admin(user.id)
+    if super_admin:
+        logger.info(
+            "auth_allow user_id=%s path=%s admin=super_admin reason=plan_bypass",
+            user.id,
+            request_path,
+        )
+        return
 
     if _rest_control_plane_enabled():
         profile = await _rest_profile(
@@ -501,15 +509,6 @@ async def require_backend_capability(user: AuthenticatedUser, request_path: str)
     revoked_permissions = permissions_for_products(direct_revocations)
     if permission in denied_permissions or permission in revoked_permissions:
         raise ProductAccessDeniedError(f"missing_permission:{permission}")
-
-    super_admin = await is_super_admin(user.id)
-    if super_admin:
-        logger.info(
-            "auth_allow user_id=%s path=%s admin=super_admin reason=plan_bypass",
-            user.id,
-            request_path,
-        )
-        return
 
     if mode == "maintenance":
         if "maintenance.bypass" in permissions:
