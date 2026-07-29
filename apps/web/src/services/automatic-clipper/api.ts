@@ -343,6 +343,7 @@ export async function uploadClipperMedia({
 			instructions = null;
 		}
 	}
+	const chunkSize = 6 * 1024 * 1024;
 	if (!instructions) {
 		await ensureClipperBackendReady(signal);
 		const createdInstructions = uploadInstructionsSchema.parse(
@@ -360,6 +361,7 @@ export async function uploadClipperMedia({
 				signal,
 			}),
 		);
+		const firstChunk = file.slice(0, Math.min(file.size, chunkSize));
 		const create = await fetch(createdInstructions.uploadUrl, {
 			method: "POST",
 			headers: {
@@ -369,13 +371,20 @@ export async function uploadClipperMedia({
 				"Upload-Metadata": encodeTusMetadata(
 					createdInstructions.uploadMetadata,
 				),
+				"Content-Type": "application/offset+octet-stream",
 			},
+			body: firstChunk,
 			signal,
 		});
 		if (!create.ok) throw new Error("The resumable upload could not start.");
 		const location = create.headers.get("location");
 		if (!location)
 			throw new Error("The upload server did not return a resume URL.");
+		offset = Number(create.headers.get("upload-offset") ?? firstChunk.size);
+		if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size) {
+			throw new Error("The resumable upload returned an invalid offset.");
+		}
+		onProgress(Math.round((offset / file.size) * 100));
 		instructions = {
 			...createdInstructions,
 			uploadLocation: new URL(
@@ -385,7 +394,6 @@ export async function uploadClipperMedia({
 		};
 		window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
 	}
-	const chunkSize = 6 * 1024 * 1024;
 	while (offset < file.size) {
 		const chunk = file.slice(offset, Math.min(file.size, offset + chunkSize));
 		const response = await patchTusChunk(instructions.uploadLocation, {
