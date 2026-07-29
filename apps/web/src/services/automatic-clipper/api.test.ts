@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, opencut/prefer-object-params -- Synthetic File doubles avoid allocating a 480 MB test buffer. */
 import { describe, expect, test } from "bun:test";
 import { parseCandidates, uploadTusForTest, viralCandidateSchema } from "./api";
 
