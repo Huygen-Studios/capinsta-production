@@ -96,6 +96,9 @@ jobs:
           CAPINSTA_RENDER_TOKEN_SECRET: 00000000000000000000000000000000
           MARBLE_WORKSPACE_KEY: example
           PRIVATE_BETA_ALLOWLIST: owner@example.com
+          R2_ENDPOINT_URL: https://example-account.r2.cloudflarestorage.com
+          R2_ACCESS_KEY_ID: example-access-key
+          R2_SECRET_ACCESS_KEY: example-secret-key
         run: docker compose -f docker-compose.production.yml config --quiet
 
   images:
