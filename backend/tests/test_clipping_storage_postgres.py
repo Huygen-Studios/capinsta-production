@@ -99,7 +99,7 @@ def _prepare_database():
         connection.execute(bootstrap)
         connection.execute(migration_14)
         connection.execute(storage_schema)
-        for version in (15, 16, 17, 28):
+        for version in (15, 16, 17, 24, 28):
             migration = next(
                 (ROOT / "apps/web/migrations").glob(f"{version:04d}_*.sql")
             ).read_text(encoding="utf-8")
