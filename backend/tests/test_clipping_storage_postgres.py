@@ -42,7 +42,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _prepare_database():
+def _prepare_database(*, r2=False):
     bootstrap = """
       DROP SCHEMA IF EXISTS storage CASCADE;
       DROP SCHEMA IF EXISTS public CASCADE;
@@ -99,7 +99,8 @@ def _prepare_database():
         connection.execute(bootstrap)
         connection.execute(migration_14)
         connection.execute(storage_schema)
-        for version in (15, 16, 17, 24, 28):
+        versions = (15, 16, 17, 24, 28) if r2 else (15, 16, 17)
+        for version in versions:
             migration = next(
                 (ROOT / "apps/web/migrations").glob(f"{version:04d}_*.sql")
             ).read_text(encoding="utf-8")
@@ -328,7 +329,7 @@ def test_private_buckets_and_storage_rls():
 
 
 def test_r2_migration_0028_and_atomic_upload_session_creation():
-    _prepare_database()
+    _prepare_database(r2=True)
     user_id = uuid4()
     with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
         connection.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
@@ -385,7 +386,7 @@ def test_r2_migration_0028_and_atomic_upload_session_creation():
 
 
 def test_r2_missing_live_column_is_rejected_before_provider_call():
-    _prepare_database()
+    _prepare_database(r2=True)
     user_id = uuid4()
     with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
         connection.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
@@ -420,7 +421,7 @@ def test_r2_missing_live_column_is_rejected_before_provider_call():
 
 
 def test_r2_identical_concurrent_requests_create_one_multipart_upload():
-    _prepare_database()
+    _prepare_database(r2=True)
     user_id = uuid4()
     with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
         connection.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
