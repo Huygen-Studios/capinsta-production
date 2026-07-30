@@ -194,6 +194,7 @@ def _services():
         supabase_url="https://project.supabase.co",
         service_role_key="test",
         maximum_upload_bytes=1_000,
+        maximum_active_uploads_per_user=10,
     )
     return (
         repository,
