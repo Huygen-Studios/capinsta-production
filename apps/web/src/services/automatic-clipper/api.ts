@@ -183,6 +183,22 @@ type UploadInstructions = {
 };
 type UploadedPart = { partNumber: number; etag: string; size?: number };
 type SignedPart = { partNumber: number; url: string; expiresAt: string };
+const CLIPPER_UPLOAD_ATTEMPT_KEY = "capinsta:clipper:upload-attempt-v1";
+
+export function clipperUploadAttemptId(
+	storage: Pick<Storage, "getItem" | "setItem"> = window.localStorage,
+	createId: () => string = () => crypto.randomUUID(),
+): string {
+	const existing = storage.getItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
+	if (existing) return existing;
+	const created = createId();
+	storage.setItem(CLIPPER_UPLOAD_ATTEMPT_KEY, created);
+	return created;
+}
+
+function clipperResumeKey(attemptId: string, fingerprint: string): string {
+	return `capinsta:clipper:tus-v1:${attemptId}:${fingerprint}`;
+}
 
 export function safeR2ResumeInstructions(
 	instructions: UploadInstructions,
@@ -207,8 +223,12 @@ export async function discardClipperUpload(
 	file: File | null | undefined,
 	signal?: AbortSignal,
 ): Promise<void> {
-	if (!file) return;
-	const resumeKey = `capinsta:clipper:tus-v1:${await uploadFingerprint(file)}`;
+	const attemptId = window.localStorage.getItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
+	if (!file || !attemptId) {
+		window.localStorage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
+		return;
+	}
+	const resumeKey = clipperResumeKey(attemptId, await uploadFingerprint(file));
 	let stored: ReturnType<typeof uploadInstructionsSchema.safeParse>;
 	try {
 		stored = uploadInstructionsSchema.safeParse(
@@ -216,6 +236,7 @@ export async function discardClipperUpload(
 		);
 	} catch {
 		window.localStorage.removeItem(resumeKey);
+		window.localStorage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
 		return;
 	}
 	try {
@@ -226,6 +247,7 @@ export async function discardClipperUpload(
 			});
 	} finally {
 		window.localStorage.removeItem(resumeKey);
+		window.localStorage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
 	}
 }
 const selectionResultSchema = z.object({
@@ -709,12 +731,20 @@ export async function uploadClipperMedia({
 	signal?: AbortSignal;
 }): Promise<string> {
 	const fingerprint = await uploadFingerprint(file);
-	const resumeKey = `capinsta:clipper:tus-v1:${fingerprint}`;
+	const attemptId = clipperUploadAttemptId();
+	const resumeKey = clipperResumeKey(attemptId, fingerprint);
+	const legacyResumeKey = `capinsta:clipper:tus-v1:${fingerprint}`;
 	let instructions: UploadInstructions | null = null;
 	try {
-		instructions = JSON.parse(window.localStorage.getItem(resumeKey) ?? "null");
+		const serialized =
+			window.localStorage.getItem(resumeKey) ??
+			window.localStorage.getItem(legacyResumeKey);
+		instructions = JSON.parse(serialized ?? "null");
+		if (serialized) window.localStorage.setItem(resumeKey, serialized);
+		window.localStorage.removeItem(legacyResumeKey);
 	} catch {
 		window.localStorage.removeItem(resumeKey);
+		window.localStorage.removeItem(legacyResumeKey);
 	}
 	const tusAuthHeaders = await supabaseTusAuthHeaders();
 	const limits = await getUploadLimits(signal);
@@ -732,7 +762,7 @@ export async function uploadClipperMedia({
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"Idempotency-Key": `clipper-upload:${fingerprint}`,
+					"Idempotency-Key": `clipper-upload:${attemptId}:${fingerprint}`,
 				},
 				body: JSON.stringify({
 					displayName: file.name,

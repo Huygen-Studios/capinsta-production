@@ -427,6 +427,8 @@ PROTECTED_API_PREFIXES = (
     "/api/v1/projects",
     "/api/clipping/media",
     "/api/v1/clipping/media",
+    "/api/clipping/workflows",
+    "/api/v1/clipping/workflows",
     "/api/clipping/projects",
     "/api/v1/clipping/projects",
     "/api/clipping/handoffs",

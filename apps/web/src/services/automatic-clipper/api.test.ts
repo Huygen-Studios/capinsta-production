@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion, opencut/prefer-object-params -- Synthetic File doubles avoid allocating a 480 MB test buffer. */
 import { describe, expect, test } from "bun:test";
 import {
+	clipperUploadAttemptId,
 	parseCandidates,
 	safeR2ResumeInstructions,
 	uploadR2MultipartForTest,
@@ -39,6 +40,18 @@ const candidate = {
 } as const;
 
 describe("automatic clipper API contracts", () => {
+	test("keeps retries in one upload attempt and allows a new attempt", () => {
+		const values = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => values.set(key, value),
+		};
+		expect(clipperUploadAttemptId(storage, () => "attempt-1")).toBe("attempt-1");
+		expect(clipperUploadAttemptId(storage, () => "attempt-2")).toBe("attempt-1");
+		values.clear();
+		expect(clipperUploadAttemptId(storage, () => "attempt-2")).toBe("attempt-2");
+	});
+
 	test("accepts bounded candidates and preserves multi-codepoint emoji", () => {
 		const parsed = parseCandidates([candidate]);
 		expect(parsed[0]?.supportingEmojis).toEqual(["👨🏽‍💻", "✨"]);
