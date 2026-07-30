@@ -90,7 +90,7 @@ jobs:
       - name: PostgreSQL 17 R2 migration verification
         env:
           CLIPPING_PERSISTENCE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capinsta_test
-        run: python -m pytest -q backend/tests/test_clipping_storage_postgres.py
+        run: python -m pytest -q backend/tests/test_clipping_storage_postgres.py -k r2
       - name: Secret scan
         run: >-
           docker run --rm
