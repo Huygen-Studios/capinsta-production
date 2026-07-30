@@ -24,7 +24,11 @@ from ..worker_startup import check_pipeline_worker_import
 from ai_pipeline.transcriber import is_real_secret
 from .export_jobs import export_job_metrics
 from ..auth import auth_health_status
-from ..runtime_policy import control_plane_health
+from ..runtime_policy import (
+    _allow_without_control_plane,
+    _rest_control_plane_enabled,
+    control_plane_health,
+)
 from ..storage_pressure import read_disk_pressure
 from ..transcription_control import active_transcription_config, transcription_database_status
 from ..clipping_persistence.database import DurableDatabase
@@ -105,8 +109,13 @@ async def readiness_payload() -> ReadinessResponse:
             schema = "ready"
     except StorageError as error:
         schema = error.category
-    ready = (
+    db_ready = (
         database["controlPlaneDatabase"] == "healthy"
+        or _allow_without_control_plane()
+        or _rest_control_plane_enabled()
+    )
+    ready = (
+        db_ready
         and schema in {"not_required", "ready"}
     )
     return ReadinessResponse(
