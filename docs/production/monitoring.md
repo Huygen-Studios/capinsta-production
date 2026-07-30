@@ -19,3 +19,6 @@ docker logs <api-container> --since 30m 2>&1 |
 R2 upload logs include only the request ID, failure stage, exception type, and
 safe category. They omit JWTs, credentials, upload IDs, object keys, and signed
 URLs.
+
+If the safe category is `storage_schema_outdated`, apply migration 0028 before
+retrying the upload.
