@@ -46,8 +46,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    env:
-      CLIPPING_PERSISTENCE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capinsta_test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +87,10 @@ jobs:
           cargo fmt --all -- --check
           cargo test --workspace --no-fail-fast
           git diff --check
+      - name: PostgreSQL 17 R2 migration verification
+        env:
+          CLIPPING_PERSISTENCE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capinsta_test
+        run: python -m pytest -q backend/tests/test_clipping_storage_postgres.py
       - name: Secret scan
         run: >-
           docker run --rm
