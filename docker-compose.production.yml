@@ -180,7 +180,7 @@ services:
       ENABLE_SMART_REFRAME: "true"
       ENABLE_CLIPPING_RUST_RUNTIME: "true"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10000/health/ready"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 5

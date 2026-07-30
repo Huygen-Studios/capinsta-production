@@ -1,9 +1,9 @@
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { buildCapinstaApiUrl } from "./api-url";
-import { getCapinstaApiBaseUrl } from "./featureFlags";
+import { getCapinstaMediaUploadBaseUrl } from "./featureFlags";
 
 function endpoint(path: string): string {
-	return buildCapinstaApiUrl({ baseUrl: getCapinstaApiBaseUrl(), path });
+	return buildCapinstaApiUrl({ baseUrl: getCapinstaMediaUploadBaseUrl(), path });
 }
 
 const MEDIA_UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024;
@@ -88,7 +88,10 @@ export function messageForMediaFailure({
 		return "The media upload request is missing required fields.";
 	if (status === 429) return "Too many uploads. Please try again shortly.";
 	if (status === 503 || code === "backend_unreachable") {
-		return "The media service is temporarily unavailable.";
+		return (
+			fallback ||
+			"The processing API is unavailable before the upload could begin."
+		);
 	}
 	if (status >= 500) return "The media service could not save this file.";
 	return fallback || "Media upload failed.";
@@ -262,11 +265,24 @@ async function uploadProjectMediaAssetInChunks({
 	initForm.append("mime_type", file.type || "application/octet-stream");
 	initForm.append("size_bytes", file.size.toString());
 	const initEndpoint = endpoint("/media/assets/chunked");
-	const initResponse = await authenticatedFetch(initEndpoint, {
-		method: "POST",
-		body: initForm,
-		signal,
-	});
+	let initResponse: Response;
+	try {
+		initResponse = await authenticatedFetch(initEndpoint, {
+			method: "POST",
+			body: initForm,
+			signal,
+		});
+	} catch (error) {
+		if (error instanceof TypeError) {
+			throw new MediaUploadError({
+				message:
+					"The processing API is unavailable before the upload could begin. The media-upload service could not be reached from this site. An administrator must check the API health and CORS configuration.",
+				status: 503,
+				code: "media_service_unreachable",
+			});
+		}
+		throw error;
+	}
 	if (!initResponse.ok) {
 		throw await readError({
 			response: initResponse,
@@ -299,15 +315,28 @@ async function uploadProjectMediaAssetInChunks({
 		const chunkEndpoint = endpoint(
 			`/media/assets/chunked/${encodeURIComponent(uploadId)}`,
 		);
-		const chunkResponse = await authenticatedFetch(chunkEndpoint, {
-			method: "PUT",
-			body: chunk,
-			headers: {
-				"Content-Type": "application/octet-stream",
-				"X-Upload-Offset": offset.toString(),
-			},
-			signal,
-		});
+		let chunkResponse: Response;
+		try {
+			chunkResponse = await authenticatedFetch(chunkEndpoint, {
+				method: "PUT",
+				body: chunk,
+				headers: {
+					"Content-Type": "application/octet-stream",
+					"X-Upload-Offset": offset.toString(),
+				},
+				signal,
+			});
+		} catch (error) {
+			if (error instanceof TypeError) {
+				throw new MediaUploadError({
+					message:
+						"The media chunk upload was interrupted. Check your network connection and retry.",
+					status: 503,
+					code: "media_chunk_upload_interrupted",
+				});
+			}
+			throw error;
+		}
 		if (!chunkResponse.ok) {
 			throw await readError({
 				response: chunkResponse,
@@ -327,10 +356,23 @@ async function uploadProjectMediaAssetInChunks({
 	const completeEndpoint = endpoint(
 		`/media/assets/chunked/${encodeURIComponent(uploadId)}/complete`,
 	);
-	const completeResponse = await authenticatedFetch(completeEndpoint, {
-		method: "POST",
-		signal,
-	});
+	let completeResponse: Response;
+	try {
+		completeResponse = await authenticatedFetch(completeEndpoint, {
+			method: "POST",
+			signal,
+		});
+	} catch (error) {
+		if (error instanceof TypeError) {
+			throw new MediaUploadError({
+				message:
+					"The processing API could not finalize the media upload. Please retry.",
+				status: 503,
+				code: "media_completion_failed",
+			});
+		}
+		throw error;
+	}
 	if (!completeResponse.ok) {
 		throw await readError({ response: completeResponse });
 	}

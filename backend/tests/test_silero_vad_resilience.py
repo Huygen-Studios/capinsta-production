@@ -41,4 +41,4 @@ def test_doctor_silero_vad_report():
     report, ok = _silero_vad_report()
     assert "sileroVad" in report
     status = report["sileroVad"]["status"]
-    assert status in {"silero_vad_ready", "silero_vad_degraded_fallback_available", "silero_vad_required_unavailable", "silero_vad_unavailable_no_fallback"}
+    assert status in {"silero_vad_ready", "silero_optional_degraded", "silero_required_unavailable", "silero_vad_unavailable_no_fallback"}

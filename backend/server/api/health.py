@@ -78,6 +78,14 @@ class ReadinessResponse(BaseModel):
     commit: str | None = None
     dependencies: dict[str, str | bool] = Field(default_factory=dict)
 
+class LivenessResponse(BaseModel):
+    status: str = "ok"
+    service: str = "capinsta-backend"
+    version: str = "5.0.0"
+    live: bool = True
+    commit: str | None = None
+    timestamp: str
+
 class HealthResponse(BaseModel):
     status: str
     service: str = "huygen-caps-backend"
@@ -450,6 +458,19 @@ async def export_health_payload_async() -> dict[str, object]:
     if not (payload["ffmpegAvailable"] and payload["ffprobeAvailable"] and temp_writable and export_writable and renderer_available):
         payload["status"] = "degraded"
     return payload
+
+
+@router.get("/live", response_model=LivenessResponse)
+async def liveness_check():
+    commit = (os.getenv("COMMIT_SHA") or "").strip() or None
+    return LivenessResponse(
+        status="ok",
+        service="capinsta-backend",
+        version="5.0.0",
+        live=True,
+        commit=commit,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 @router.get("", response_model=HealthResponse)

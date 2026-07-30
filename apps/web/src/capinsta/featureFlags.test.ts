@@ -3,6 +3,7 @@ import {
 	getCapinstaApiBaseUrl,
 	getCapinstaJobPollIntervalMs,
 	getCapinstaJobTimeoutMs,
+	getCapinstaMediaUploadBaseUrl,
 	isCapinstaProjectHandoffEnabled,
 	isCapinstaSampleImportEnabled,
 	isServerBackedEditorMediaEnabled,
@@ -155,5 +156,21 @@ describe("Capinsta feature flags", () => {
 			name: "NEXT_PUBLIC_CAPINSTA_JOB_POLL_INTERVAL_MS",
 			value: previous,
 		});
+	});
+
+	test("uses configured media upload origin when provided", () => {
+		const previous = process.env.NEXT_PUBLIC_CAPINSTA_MEDIA_UPLOAD_ORIGIN;
+		process.env.NEXT_PUBLIC_CAPINSTA_MEDIA_UPLOAD_ORIGIN =
+			"https://api.capinsta.huygenstudios.com";
+
+		expect(getCapinstaMediaUploadBaseUrl()).toBe(
+			"https://api.capinsta.huygenstudios.com",
+		);
+
+		if (previous === undefined) {
+			delete process.env.NEXT_PUBLIC_CAPINSTA_MEDIA_UPLOAD_ORIGIN;
+		} else {
+			process.env.NEXT_PUBLIC_CAPINSTA_MEDIA_UPLOAD_ORIGIN = previous;
+		}
 	});
 });

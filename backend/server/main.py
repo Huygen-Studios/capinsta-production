@@ -290,7 +290,7 @@ async def lifespan(app: FastAPI):
             )
     except Exception as exc:
         logger.warning("timing_startup_check_failed error=%s", exc)
-        if os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true":
+        if os.getenv("REQUIRE_SILERO_VAD", "false").strip().lower() in {"1", "true", "yes", "on"}:
             raise
     if frontend_dist_available():
         logger.info("frontend_static_enabled path=%s", FRONTEND_DIST_DIR)
@@ -359,6 +359,8 @@ async def add_security_headers(request: Request, call_next):
 
 @app.middleware("http")
 async def enforce_request_body_limits(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
     decision = evaluate_request_body_limit(request)
     if not decision.allowed:
         logger.warning(
@@ -440,7 +442,7 @@ PROTECTED_API_PREFIXES = (
 
 @app.middleware("http")
 async def require_supabase_auth(request: Request, call_next):
-    if not request.url.path.startswith(PROTECTED_API_PREFIXES):
+    if request.method == "OPTIONS" or not request.url.path.startswith(PROTECTED_API_PREFIXES):
         return await call_next(request)
     correlation_id = (
         request.headers.get("x-correlation-id") or str(uuid.uuid4())
@@ -563,8 +565,19 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all_origins else allow_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "authorization",
+        "content-type",
+        "x-upload-offset",
+        "x-request-id",
+        "x-correlation-id",
+        "x-idempotency-key",
+        "accept",
+        "origin",
+    ],
+    expose_headers=["x-correlation-id", "x-request-id"],
+    max_age=600,
 )
 
 # Add API routers

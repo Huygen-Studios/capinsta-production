@@ -37,6 +37,27 @@ export function getCapinstaApiBaseUrl(): string {
 	return configured;
 }
 
+export function getCapinstaMediaUploadBaseUrl(): string {
+	const configured =
+		process.env.NEXT_PUBLIC_CAPINSTA_MEDIA_UPLOAD_ORIGIN?.trim();
+	if (!configured) return getCapinstaApiBaseUrl();
+	if (process.env.NODE_ENV === "production") {
+		try {
+			const url = new URL(configured);
+			if (
+				["api", "localhost", "127.0.0.1", "0.0.0.0"].includes(
+					url.hostname.toLowerCase(),
+				)
+			) {
+				return getCapinstaApiBaseUrl();
+			}
+		} catch {
+			return getCapinstaApiBaseUrl();
+		}
+	}
+	return configured;
+}
+
 export function getCapinstaJobTimeoutMs(): number {
 	const raw = process.env.NEXT_PUBLIC_CAPINSTA_JOB_TIMEOUT_MS || "";
 	const parsed = Number(raw);

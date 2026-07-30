@@ -456,11 +456,11 @@ def _silero_vad_report() -> tuple[dict[str, Any], bool]:
     failure_category = readiness["failureCategory"]
 
     if silero_required and not inference_ready:
-        status_code = "silero_vad_required_unavailable"
+        status_code = "silero_required_unavailable"
         ok = False
     elif silero_enabled and not inference_ready:
         if fallback_available:
-            status_code = "silero_vad_degraded_fallback_available"
+            status_code = "silero_optional_degraded"
             ok = True
         else:
             status_code = "silero_vad_unavailable_no_fallback"
