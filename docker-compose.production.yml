@@ -84,6 +84,8 @@ x-backend-image: &backend-image
     SARVAM_API_KEY: ${SARVAM_API_KEY:-}
     GROQ_API_KEY: ${GROQ_API_KEY:-}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ENABLE_SILERO_VAD: ${ENABLE_SILERO_VAD:-true}
+    REQUIRE_SILERO_VAD: ${REQUIRE_SILERO_VAD:-false}
   logging:
     driver: json-file
     options:

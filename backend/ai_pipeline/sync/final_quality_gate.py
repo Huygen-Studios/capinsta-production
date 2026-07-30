@@ -6,7 +6,7 @@ import math
 from typing import Any
 
 from ai_pipeline.renderer import _hard_boundary_between
-from ai_pipeline.timing import PRODUCTION_INVALID_TIMING_SOURCES, normalize_timing_source
+from ai_pipeline.timing import PRODUCTION_INVALID_TIMING_SOURCES, normalize_timing_source, categorize_silero_error
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +242,7 @@ def validate_final_timing_quality(
         "alignmentBoundariesFromRawSpeechGaps": (sync_report.get("alignmentGroups") or {}).get("boundariesFromRawSpeechGaps") if isinstance(sync_report, dict) else None,
         "pauseDetectionProvider": vad_report.get("pauseDetectionProvider") or vad_report.get("provider"),
         "pauseDetectionDegraded": bool(vad_report.get("pauseDetectionDegraded")),
+        "sileroFailureCategory": vad_report.get("sileroFailureCategory") or (categorize_silero_error(vad_report.get("sileroError")) if vad_report.get("sileroError") else None),
         "resolvedConfigSources": resolved_config_sources,
     }
 
@@ -263,11 +264,22 @@ def validate_final_timing_quality(
             "estimated_words_disabled",
             f"{estimated_count} of {total} word(s) use estimated timing, but the selected preset disallows estimated words.",
         ))
-    if getattr(pipeline_config.vad, "sileroEnabled", False):
-        if final_report["pauseDetectionProvider"] != "silero":
-            blocking_failures.append(("pause_detector_not_silero", "Silero VAD is enabled, but the job did not use Silero pause detection."))
-        if final_report["pauseDetectionDegraded"]:
-            blocking_failures.append(("pause_detection_degraded", "Silero VAD is enabled, but pause detection degraded to a fallback."))
+    silero_enabled = bool(getattr(pipeline_config.vad, "sileroEnabled", False))
+    silero_required = bool(getattr(pipeline_config.vad, "sileroRequired", False))
+    if silero_enabled:
+        if final_report["pauseDetectionProvider"] != "silero" or final_report["pauseDetectionDegraded"]:
+            if silero_required:
+                blocking_failures.append((
+                    "silero_vad_unavailable",
+                    "Silero VAD is required for this job, but pause detection was unavailable or degraded to a fallback.",
+                ))
+            else:
+                if "pause_detection_fallback" not in fallback_reasons:
+                    fallback_reasons.append("pause_detection_fallback")
+                failures.append((
+                    "pause_detection_fallback",
+                    "Captions were generated using fallback pause detection. Review timing around long pauses.",
+                ))
     if not getattr(pipeline_config.alignment, "allowStableTsOrderFallback", False) and stable_order_count:
         blocking_failures.append(("stable_ts_order_fallback_disabled", "Stable-ts order fallback is disabled, but order-adjusted words were produced."))
     if invalid_ranges:

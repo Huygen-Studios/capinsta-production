@@ -189,18 +189,34 @@ def test_final_gate_marks_production_fallback_heavy_alignment_degraded_without_b
     assert report["blockingFailures"] == []
 
 
-def test_final_gate_blocks_degraded_pause_detection_when_silero_requested():
+def test_final_gate_allows_fallback_pause_detection_when_silero_preferred():
+    segments = [{"words": [{"word": "ok", "start": 0.0, "end": 0.2, "timingSource": "provider_native"}]}]
+
+    report = validate_final_timing_quality(
+        segments,
+        pipeline_config=_base_config(vad={"sileroEnabled": True, "sileroRequired": False}),
+        vad_report=_vad("ffmpeg_energy_fallback", True),
+        sync_report={},
+    )
+
+    assert report["passed"] is False
+    assert report["blockingFailures"] == []
+    assert report["reviewRequired"] is True
+    assert any(failure["category"] == "pause_detection_fallback" for failure in report["failures"])
+
+
+def test_final_gate_blocks_degraded_pause_detection_when_silero_required():
     segments = [{"words": [{"word": "ok", "start": 0.0, "end": 0.2, "timingSource": "provider_native"}]}]
 
     with pytest.raises(TimingQualityError) as exc:
         validate_final_timing_quality(
             segments,
-            pipeline_config=_base_config(),
+            pipeline_config=_base_config(vad={"sileroEnabled": True, "sileroRequired": True}),
             vad_report=_vad("ffmpeg_energy_fallback", True),
             sync_report={},
         )
 
-    assert exc.value.category == "pause_detector_not_silero"
+    assert exc.value.category == "silero_vad_unavailable"
 
 
 def test_final_gate_blocks_overlap_and_group_window_escape():

@@ -29,6 +29,99 @@ def _round_time(value: float) -> float:
     return round(max(0.0, float(value)), 3)
 
 
+def categorize_silero_error(exc_or_str: Any) -> str:
+    if exc_or_str is None:
+        return "silero_unknown_failure"
+    text = str(exc_or_str).lower()
+    if "silero_vad" in text or "no module named 'silero_vad'" in text or "module_not_found" in text:
+        return "silero_module_missing"
+    if "torch" in text or "no module named 'torch'" in text:
+        return "silero_torch_unavailable"
+    if "torchaudio" in text or "soundfile" in text or "could not load audio" in text:
+        return "silero_audio_backend_unavailable"
+    if "model" in text and ("not found" in text or "missing" in text or "cannot find" in text):
+        return "silero_model_missing"
+    if "load" in text or "initialize" in text or "download" in text:
+        return "silero_model_load_failed"
+    if "inference" in text or "forward" in text or "tensor" in text or "eval" in text:
+        return "silero_inference_failed"
+    if "audio" in text or "sample_rate" in text or "waveform" in text:
+        return "silero_invalid_audio"
+    return "silero_unknown_failure"
+
+
+_silero_readiness_cache: dict[str, Any] | None = None
+
+
+def check_silero_readiness(*, force_recheck: bool = False) -> dict[str, Any]:
+    global _silero_readiness_cache
+    if _silero_readiness_cache is not None and not force_recheck:
+        return _silero_readiness_cache
+
+    silero_enabled = os.getenv("ENABLE_SILERO_VAD", "true").strip().lower() in {"1", "true", "yes", "on"}
+    silero_required = os.getenv("REQUIRE_SILERO_VAD", "false").strip().lower() in {"1", "true", "yes", "on"}
+    ffmpeg_available = bool(shutil.which(os.getenv("FFMPEG_PATH") or "ffmpeg"))
+
+    result = {
+        "sileroEnabled": silero_enabled,
+        "sileroRequired": silero_required,
+        "sileroImportable": False,
+        "sileroModelLoadable": False,
+        "sileroInferenceReady": False,
+        "sileroVersion": None,
+        "failureCategory": None,
+        "fallbackAvailable": ffmpeg_available,
+    }
+
+    if not silero_enabled:
+        result["failureCategory"] = "silero_disabled"
+        _silero_readiness_cache = result
+        return result
+
+    silero_status = _module_import_status("silero_vad")
+    torch_status = _module_import_status("torch")
+    if not silero_status["importable"]:
+        result["failureCategory"] = "silero_module_missing"
+        _silero_readiness_cache = result
+        return result
+    if not torch_status["importable"]:
+        result["failureCategory"] = "silero_torch_unavailable"
+        _silero_readiness_cache = result
+        return result
+
+    result["sileroImportable"] = True
+    result["sileroVersion"] = silero_status["version"]
+
+    try:
+        import torch
+        from silero_vad import load_silero_vad
+
+        model = load_silero_vad()
+        model.eval()
+        result["sileroModelLoadable"] = True
+
+        chunk = torch.zeros(512, dtype=torch.float32)
+        with torch.no_grad():
+            if hasattr(model, "reset_states"):
+                model.reset_states()
+            output = model(chunk, 16000)
+            if output is not None and len(output.reshape(-1)) > 0:
+                prob = float(output.detach().cpu().reshape(-1)[0].item())
+                if 0.0 <= prob <= 1.0:
+                    result["sileroInferenceReady"] = True
+                    result["failureCategory"] = None
+                else:
+                    result["failureCategory"] = "silero_inference_failed"
+            else:
+                result["failureCategory"] = "silero_inference_failed"
+    except Exception as exc:
+        result["failureCategory"] = categorize_silero_error(exc)
+        logger.warning("Silero VAD readiness check failed: %s", result["failureCategory"])
+
+    _silero_readiness_cache = result
+    return result
+
+
 def _module_available(*names: str) -> bool:
     return any(importlib.util.find_spec(name) is not None for name in names)
 
@@ -355,10 +448,12 @@ def detect_silence_gaps(
                 },
             }
         except Exception as exc:
+            silero_failure_category = categorize_silero_error(exc)
             logger.warning("Silero VAD silence detection failed: %s. Falling back to FFmpeg.", exc)
             silero_error = str(exc)
     else:
         silero_error = None
+        silero_failure_category = None
 
     # 2. Fall back to FFmpeg silencedetect
     if threshold_db is None:
@@ -485,6 +580,7 @@ def detect_silence_gaps(
         "thresholdSeconds": min_silence,
         "thresholdDb": threshold_db,
         "sileroError": silero_error if enable_silero else None,
+        "sileroFailureCategory": silero_failure_category if enable_silero else None,
     }
 
 

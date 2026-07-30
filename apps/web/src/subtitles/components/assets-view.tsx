@@ -673,7 +673,21 @@ export function Captions() {
 				captionCount: result.captions.length,
 			});
 
-			setWarnings([`Generated AI captions for ${selectedMediaAsset.name}.`]);
+			const timingReport = (completedJob.timing_report || {}) as Record<string, unknown>;
+			const fallbackReasons = Array.isArray(timingReport.fallbackReasons)
+				? (timingReport.fallbackReasons as string[])
+				: [];
+			const isFallback = Boolean(
+				timingReport.pauseDetectionDegraded ||
+					timingReport.pauseDetectionProvider === "ffmpeg_energy_fallback" ||
+					fallbackReasons.includes("pause_detection_fallback") ||
+					completedJob.reviewRequired,
+			);
+			const successMessage = isFallback
+				? `Generated AI captions for ${selectedMediaAsset.name} using fallback pause timing. Review timing around long pauses.`
+				: `Generated AI captions for ${selectedMediaAsset.name}.`;
+
+			setWarnings([successMessage]);
 			dispatchCaptionJob({
 				type: "done",
 				message: "Done",
@@ -687,12 +701,18 @@ export function Captions() {
 				return;
 			}
 			console.error("Capinsta AI caption generation failed:", error);
+			let userErrorMessage =
+				error instanceof Error ? error.message : "An unexpected error occurred";
+			if (
+				userErrorMessage.includes("pause_detector_not_silero") ||
+				userErrorMessage.includes("Silero VAD is enabled, but the job did not use Silero")
+			) {
+				userErrorMessage =
+					"Caption timing processing failed. Please check project media audio and retry.";
+			}
 			dispatchCaptionJob({
 				type: "error",
-				message:
-					error instanceof Error
-						? error.message
-						: "An unexpected error occurred",
+				message: userErrorMessage,
 			});
 		} finally {
 			if (activeBackendJobId) {

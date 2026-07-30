@@ -16,6 +16,7 @@ try:
 except Exception:  # pragma: no cover - optional production dependency
     psycopg = None
 
+from ai_pipeline.timing import check_silero_readiness
 from server.api.health import API_CAPABILITIES, API_CONTRACT_VERSION
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
@@ -36,7 +37,6 @@ from server.settings import (
 
 EXPECTED_MIGRATION = 28
 BUCKETS = ("source-media", "media-variants", "media-exports")
-
 
 def _database_url() -> str:
     return (
@@ -447,18 +447,58 @@ def _db_report() -> tuple[dict[str, Any], bool]:
         return {"database": "unreachable", "errorType": type(error).__name__}, False
 
 
+def _silero_vad_report() -> tuple[dict[str, Any], bool]:
+    readiness = check_silero_readiness(force_recheck=True)
+    silero_enabled = readiness["sileroEnabled"]
+    silero_required = readiness["sileroRequired"]
+    inference_ready = readiness["sileroInferenceReady"]
+    fallback_available = readiness["fallbackAvailable"]
+    failure_category = readiness["failureCategory"]
+
+    if silero_required and not inference_ready:
+        status_code = "silero_vad_required_unavailable"
+        ok = False
+    elif silero_enabled and not inference_ready:
+        if fallback_available:
+            status_code = "silero_vad_degraded_fallback_available"
+            ok = True
+        else:
+            status_code = "silero_vad_unavailable_no_fallback"
+            ok = False
+    else:
+        status_code = "silero_vad_ready"
+        ok = True
+
+    report = {
+        "sileroVad": {
+            "status": status_code,
+            "sileroEnabled": silero_enabled,
+            "sileroRequired": silero_required,
+            "sileroImportable": readiness["sileroImportable"],
+            "sileroModelLoadable": readiness["sileroModelLoadable"],
+            "sileroInferenceReady": inference_ready,
+            "sileroVersion": readiness["sileroVersion"],
+            "failureCategory": failure_category,
+            "fallbackAvailable": fallback_available,
+        }
+    }
+    return report, ok
+
+
 def build_report(*, write_test: bool = False) -> tuple[dict[str, Any], bool]:
     env, env_ok = _safe_env_report()
     db, db_ok = _db_report()
     legacy, legacy_ok = _legacy_caption_report()
     r2, r2_ok = _r2_runtime_report(write_test=write_test)
-    ok = env_ok and db_ok and legacy_ok and r2_ok
+    silero, silero_ok = _silero_vad_report()
+    ok = env_ok and db_ok and legacy_ok and r2_ok and silero_ok
     report = {
         "status": "ok" if ok else "missing_setup",
         **env,
         **db,
         **legacy,
         **r2,
+        **silero,
     }
     return report, ok
 
@@ -471,8 +511,16 @@ def main() -> int:
         action="store_true",
         help="Run a tiny R2 write/delete and multipart create/abort check.",
     )
+    parser.add_argument(
+        "--check-silero",
+        action="store_true",
+        help="Run Silero VAD readiness check and print details.",
+    )
     args = parser.parse_args()
     report, ok = build_report(write_test=args.write_test)
+    if args.check_silero:
+        print(json.dumps(report.get("sileroVad", {}), indent=2))
+        return 0 if (report.get("sileroVad", {}).get("status") in {"silero_vad_ready", "silero_vad_degraded_fallback_available"}) else 1
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

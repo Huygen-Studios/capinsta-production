@@ -112,6 +112,8 @@ export interface CapinstaJobDetailResponse extends CapinstaJobCreateResponse {
 	srt?: string | null;
 	vtt?: string | null;
 	segments?: CapinstaApiSegment[] | null;
+	reviewRequired?: boolean | null;
+	timing_report?: Record<string, unknown> | null;
 	transcript?: {
 		languageMode?: string;
 		sourceLanguage?: string;

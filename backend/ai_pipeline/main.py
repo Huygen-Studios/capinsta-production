@@ -47,6 +47,7 @@ from .timing import (
     alignment_provider_status,
     annotate_word_timing_sources,
     build_timing_report,
+    check_silero_readiness,
     detect_silence_gaps,
     normalize_timing_source,
 )
@@ -642,6 +643,14 @@ def run_pipeline(
             resolved=pipeline_config_with_sources.get("resolved"),
             sources=pipeline_option_sources,
         )
+        if pipeline_config.vad.sileroEnabled and pipeline_config.vad.sileroRequired:
+            silero_readiness = check_silero_readiness()
+            if not silero_readiness["sileroInferenceReady"]:
+                category = silero_readiness.get("failureCategory") or "silero_vad_unavailable"
+                _stage_log("strict_silero_preflight_failed", failure_category=category)
+                raise TranscriptValidationError(
+                    f"{category}: Silero VAD is required on the processing server, but Silero readiness check failed ({category})."
+                )
         if owns_audio_path:
             _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
             emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")
