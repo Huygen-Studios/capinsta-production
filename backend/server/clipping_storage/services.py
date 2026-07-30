@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
@@ -23,6 +24,8 @@ from .paths import (
 from .provider import media_storage_for_provider
 from .repository import MediaStorageRepository
 from .storage import MediaStorage
+
+logger = logging.getLogger(__name__)
 
 
 def upload_request_hash(
@@ -236,15 +239,35 @@ class MediaUploadService:
                     path=session["storage_path"],
                     mime_type=session["mime_type"],
                 )
-                session = await self.repository.mark_authorized(
-                    actor,
-                    session["id"],
-                    provider_upload_id=authorization.provider_upload_id,
-                    multipart_part_size_bytes=part_size,
-                    multipart_part_count=part_count,
-                    signed_url_expires_at=datetime.now(timezone.utc)
-                    + timedelta(seconds=self.config.r2_signed_url_ttl_seconds),
-                )
+                try:
+                    session = await self.repository.mark_authorized(
+                        actor,
+                        session["id"],
+                        provider_upload_id=authorization.provider_upload_id,
+                        multipart_part_size_bytes=part_size,
+                        multipart_part_count=part_count,
+                        signed_url_expires_at=datetime.now(timezone.utc)
+                        + timedelta(seconds=self.config.r2_signed_url_ttl_seconds),
+                    )
+                except Exception:
+                    if authorization.provider_upload_id:
+                        try:
+                            await self.storage.abort_multipart_upload(
+                                bucket=session["storage_bucket"],
+                                path=session["storage_path"],
+                                upload_id=authorization.provider_upload_id,
+                            )
+                        except StorageError as abort_error:
+                            logger.warning(
+                                "r2_multipart_abort_failed stage=mark_authorized request_id=%s category=%s",
+                                idempotency_key[:64],
+                                abort_error.category,
+                            )
+                    logger.exception(
+                        "r2_multipart_authorization_failed stage=mark_authorized request_id=%s",
+                        idempotency_key[:64],
+                    )
+                    raise
             return UploadInstructions(
                 media_asset_id=session["media_asset_id"],
                 upload_session_id=session["id"],

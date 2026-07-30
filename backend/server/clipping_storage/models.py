@@ -57,6 +57,7 @@ class UploadInstructions:
     provider: str = "supabase"
     part_size_bytes: int | None = None
     part_count: int | None = None
+    upload_concurrency: int | None = None
     signed_url_ttl_seconds: int | None = None
     uploaded_parts: list[dict[str, Any]] = field(default_factory=list)
 

@@ -37,6 +37,16 @@ async def _delete(storage, bucket: str, path: str) -> bool:
     return True
 
 
+async def _abort_multipart(storage, bucket: str, path: str, upload_id: str) -> bool:
+    try:
+        await storage.abort_multipart_upload(bucket=bucket, path=path, upload_id=upload_id)
+    except StorageError as exc:
+        if exc.category != "object_not_found":
+            logger.warning("retention_multipart_abort_failed category=%s", exc.category)
+            return False
+    return True
+
+
 async def _expire_source(connection, asset_id: str, cutoff: datetime, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
@@ -101,7 +111,8 @@ async def _expire_upload(connection, session_id: str, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
             await cursor.execute(
-                """SELECT storage_provider,storage_bucket,storage_path FROM media_upload_sessions
+                """SELECT storage_provider,storage_bucket,storage_path,upload_protocol,provider_upload_id
+                FROM media_upload_sessions
                 WHERE id=%s::uuid AND expires_at < now()
                   AND status NOT IN ('completed','failed','expired','cancelled')
                 FOR UPDATE SKIP LOCKED""",
@@ -111,7 +122,10 @@ async def _expire_upload(connection, session_id: str, config) -> bool:
             if row is None:
                 return False
             storage = media_storage_for_provider(row[0], config)
-            if not await _delete(storage, str(row[1]), str(row[2])):
+            if row[3] == "s3_multipart" and row[4]:
+                if not await _abort_multipart(storage, str(row[1]), str(row[2]), str(row[4])):
+                    return False
+            elif not await _delete(storage, str(row[1]), str(row[2])):
                 return False
             await cursor.execute(
                 """UPDATE media_upload_sessions SET status='expired',failed_at=now(),updated_at=now()

@@ -3,7 +3,7 @@ import os
 import time
 
 from server.clipping_storage.errors import StorageError
-from server.production.cleanup import _cleanup_workspaces, _delete
+from server.production.cleanup import _abort_multipart, _cleanup_workspaces, _delete
 
 
 def test_workspace_cleanup_is_bounded_and_honors_dry_run(monkeypatch, tmp_path):
@@ -24,3 +24,13 @@ def test_missing_storage_object_is_a_successful_retention_retry():
             raise StorageError("object_not_found", "gone")
 
     assert asyncio.run(_delete(Storage(), "source-media", "owner/source.mp4"))
+
+
+def test_missing_multipart_upload_is_a_successful_retention_retry():
+    class Storage:
+        async def abort_multipart_upload(self, **_kwargs):
+            raise StorageError("object_not_found", "gone")
+
+    assert asyncio.run(
+        _abort_multipart(Storage(), "source-media", "owner/source.mp4", "upload-1")
+    )

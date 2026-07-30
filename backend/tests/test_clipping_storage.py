@@ -1,13 +1,16 @@
 import asyncio
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 import requests
 
+from server.clipping_persistence.models import AuthenticatedActor
 from server.clipping_storage.config import MediaStorageConfig
 from server.clipping_storage.errors import StorageError
+from server.clipping_storage.models import UploadAuthorization, UploadInstructions
 from server.clipping_storage.paths import (
     extension_for_mime,
     source_object_path,
@@ -17,6 +20,7 @@ from server.clipping_storage.paths import (
 from server.media_variants.paths import variant_object_path
 from server.media_variants.presets import PROXY_SPEC, generation_spec_hash
 from server.clipping_storage.r2_storage import R2MediaStorage
+from server.clipping_storage.services import MediaUploadService
 from server.clipping_storage.supabase_storage import SupabaseMediaStorage
 
 
@@ -92,6 +96,9 @@ class _S3Client:
             "ETag": '"final-etag"',
             "LastModified": datetime.now(timezone.utc),
         }
+
+    def abort_multipart_upload(self, **kwargs):
+        self.calls.append(("abort_multipart_upload", kwargs))
 
 
 def test_safe_stable_versioned_paths_and_mime_extensions():
@@ -219,6 +226,178 @@ def test_r2_adapter_creates_signs_and_completes_multipart():
             {"PartNumber": 2, "ETag": "etag-2"},
         ]
     }
+
+
+def test_upload_instructions_serializes_optional_concurrency():
+    base = {
+        "media_asset_id": uuid4(),
+        "upload_session_id": uuid4(),
+        "protocol": "s3_multipart",
+        "upload_url": None,
+        "required_headers": {},
+        "upload_metadata": {},
+        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        "maximum_size_bytes": 2_147_483_648,
+        "provider": "r2",
+        "part_size_bytes": 33_554_432,
+        "part_count": 3,
+        "signed_url_ttl_seconds": 900,
+    }
+    without = UploadInstructions(**base).as_dict()
+    with_concurrency = UploadInstructions(**base, upload_concurrency=3).as_dict()
+
+    assert "uploadConcurrency" not in without
+    assert with_concurrency["uploadConcurrency"] == 3
+
+
+def test_r2_config_bounds_upload_concurrency(monkeypatch):
+    monkeypatch.setenv("CLIPPING_STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-id")
+    monkeypatch.setenv("R2_ENDPOINT", "https://account-id.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.setenv("R2_MULTIPART_CONCURRENCY", "5")
+    assert MediaStorageConfig.from_env().r2_upload_concurrency == 5
+
+    monkeypatch.setenv("R2_MULTIPART_CONCURRENCY", "6")
+    with pytest.raises(StorageError) as error:
+        MediaStorageConfig.from_env()
+    assert error.value.category == "storage_not_configured"
+
+
+def test_migration_0028_adds_r2_columns_without_rewriting_history():
+    migration = (
+        Path(__file__).resolve().parents[2]
+        / "apps/web/migrations/0028_r2_media_storage.sql"
+    ).read_text(encoding="utf-8")
+    for field in (
+        "multipart_upload_id",
+        "multipart_part_size_bytes",
+        "multipart_part_count",
+        "multipart_state",
+        "signed_url_expires_at",
+        "storage_provider",
+    ):
+        assert f'ADD COLUMN IF NOT EXISTS "{field}"' in migration
+    assert "ADD COLUMN IF NOT EXISTS" in migration
+
+
+def test_r2_upload_session_returns_multipart_instructions_and_aborts_unpersisted_failure():
+    actor = AuthenticatedActor(uuid4())
+    session_id = uuid4()
+    asset_id = uuid4()
+    path = source_object_path(
+        owner_user_id=actor.user_id, media_asset_id=asset_id, mime_type="video/mp4"
+    )
+
+    class Storage:
+        def __init__(self):
+            self.created = 0
+            self.aborted = 0
+
+        async def create_upload_session(self, **_kwargs):
+            self.created += 1
+            return UploadAuthorization(
+                protocol="s3_multipart",
+                upload_url=None,
+                required_headers={},
+                upload_metadata={},
+                provider_upload_id="upload-1",
+            )
+
+        async def list_multipart_parts(self, **_kwargs):
+            return []
+
+        async def abort_multipart_upload(self, **_kwargs):
+            self.aborted += 1
+
+    class Repository:
+        def __init__(self, fail=False):
+            self.fail = fail
+
+        async def bucket_file_size_limit(self, _bucket):
+            return None
+
+        async def create_intent(self, *_args, **kwargs):
+            return (
+                {
+                    "id": session_id,
+                    "media_asset_id": kwargs["media_asset_id"],
+                    "storage_bucket": kwargs["storage_bucket"],
+                    "storage_path": kwargs["storage_path"],
+                    "mime_type": kwargs["mime_type"],
+                    "status": "created",
+                    "expires_at": kwargs["expires_at"],
+                    "upload_protocol": kwargs["upload_protocol"],
+                },
+                {},
+                False,
+            )
+
+        async def mark_authorized(self, *_args, **kwargs):
+            if self.fail:
+                raise StorageError("storage_provider_unavailable", "db failed")
+            return {
+                "id": session_id,
+                "media_asset_id": asset_id,
+                "storage_bucket": "source-media",
+                "storage_path": path,
+                "mime_type": "video/mp4",
+                "status": "authorized",
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+                "upload_protocol": "s3_multipart",
+                "provider_upload_id": kwargs["provider_upload_id"],
+                "multipart_part_size_bytes": kwargs["multipart_part_size_bytes"],
+                "multipart_part_count": kwargs["multipart_part_count"],
+            }
+
+    def service(repository, storage):
+        return MediaUploadService(
+            config=_config(
+                storage_provider="r2",
+                r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+                r2_access_key_id="key",
+                r2_secret_access_key="secret",
+                r2_upload_concurrency=3,
+            ),
+            storage=storage,
+            repository=repository,
+        )
+
+    storage = Storage()
+    instructions = _run(
+        service(Repository(), storage).create_upload_session(
+            actor,
+            display_name="video.mp4",
+            mime_type="video/mp4",
+            size_bytes=70_000_000,
+            idempotency_key="safe-request-id",
+        )
+    ).as_dict()
+
+    assert storage.created == 1
+    assert instructions["provider"] == "r2"
+    assert instructions["protocol"] == "s3_multipart"
+    assert instructions["partSizeBytes"] == 33_554_432
+    assert instructions["partCount"] == 3
+    assert instructions["uploadConcurrency"] == 3
+    assert instructions["signedUrlTtlSeconds"] == 900
+    assert "R2_SECRET_ACCESS_KEY" not in repr(instructions)
+    assert "secret" not in repr(instructions)
+
+    failing_storage = Storage()
+    with pytest.raises(StorageError):
+        _run(
+            service(Repository(fail=True), failing_storage).create_upload_session(
+                actor,
+                display_name="video.mp4",
+                mime_type="video/mp4",
+                size_bytes=70_000_000,
+                idempotency_key="safe-request-id",
+            )
+        )
+    assert failing_storage.created == 1
+    assert failing_storage.aborted == 1
 
 
 def test_production_rejects_local_storage_and_uses_long_media_defaults(

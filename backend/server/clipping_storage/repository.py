@@ -280,42 +280,45 @@ class MediaStorageRepository:
         multipart_part_count: int | None = None,
         signed_url_expires_at: datetime | None = None,
     ) -> dict[str, Any]:
-        async with self.database.transaction() as connection:
-            session = await self._session(
-                connection, actor, session_id, lock=True
-            )
-            if session["status"] == "authorized":
-                return session
-            if session["status"] != "created":
-                raise StorageError(
-                    "upload_session_completed",
-                    "Upload session cannot be authorized in its current state",
-                    {"status": session["status"]},
+        try:
+            async with self.database.transaction() as connection:
+                session = await self._session(
+                    connection, actor, session_id, lock=True
                 )
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    """
-                    UPDATE media_upload_sessions SET status='authorized',
-                      provider_upload_id=COALESCE(%s,provider_upload_id),
-                      multipart_upload_id=COALESCE(%s,multipart_upload_id),
-                      multipart_part_size_bytes=COALESCE(%s,multipart_part_size_bytes),
-                      multipart_part_count=COALESCE(%s,multipart_part_count),
-                      multipart_state=CASE WHEN %s IS NULL THEN multipart_state ELSE 'created' END,
-                      signed_url_expires_at=COALESCE(%s,signed_url_expires_at),
-                      revision=revision+1,updated_at=now()
-                    WHERE id=%s RETURNING *
-                    """,
-                    (
-                        provider_upload_id,
-                        provider_upload_id,
-                        multipart_part_size_bytes,
-                        multipart_part_count,
-                        provider_upload_id,
-                        signed_url_expires_at,
-                        session_id,
-                    ),
-                )
-                return dict(await cursor.fetchone())
+                if session["status"] == "authorized":
+                    return session
+                if session["status"] != "created":
+                    raise StorageError(
+                        "upload_session_completed",
+                        "Upload session cannot be authorized in its current state",
+                        {"status": session["status"]},
+                    )
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        UPDATE media_upload_sessions SET status='authorized',
+                          provider_upload_id=COALESCE(%s,provider_upload_id),
+                          multipart_upload_id=COALESCE(%s,multipart_upload_id),
+                          multipart_part_size_bytes=COALESCE(%s,multipart_part_size_bytes),
+                          multipart_part_count=COALESCE(%s,multipart_part_count),
+                          multipart_state=CASE WHEN %s IS NULL THEN multipart_state ELSE 'created' END,
+                          signed_url_expires_at=COALESCE(%s,signed_url_expires_at),
+                          revision=revision+1,updated_at=now()
+                        WHERE id=%s RETURNING *
+                        """,
+                        (
+                            provider_upload_id,
+                            provider_upload_id,
+                            multipart_part_size_bytes,
+                            multipart_part_count,
+                            provider_upload_id,
+                            signed_url_expires_at,
+                            session_id,
+                        ),
+                    )
+                    return dict(await cursor.fetchone())
+        except PersistenceError as exc:
+            raise _translate(exc) from exc
 
     async def bucket_file_size_limit(self, bucket: str) -> int | None:
         try:
