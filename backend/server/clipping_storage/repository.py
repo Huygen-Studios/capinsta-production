@@ -420,7 +420,7 @@ class MediaStorageRepository:
                           multipart_upload_id=COALESCE(%s,multipart_upload_id),
                           multipart_part_size_bytes=COALESCE(%s,multipart_part_size_bytes),
                           multipart_part_count=COALESCE(%s,multipart_part_count),
-                          multipart_state=CASE WHEN %s IS NULL THEN multipart_state ELSE 'created' END,
+                          multipart_state=CASE WHEN %s::text IS NULL THEN multipart_state ELSE 'created' END,
                           signed_url_expires_at=COALESCE(%s,signed_url_expires_at),
                           revision=revision+1,updated_at=now()
                         WHERE id=%s RETURNING *
