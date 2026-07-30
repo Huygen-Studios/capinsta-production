@@ -21,6 +21,8 @@ STORAGE_ERROR_CATEGORIES = frozenset(
         "signed_url_failed",
         "storage_permission_denied",
         "storage_provider_unavailable",
+        "storage_schema_outdated",
+        "storage_persistence_failed",
         "storage_delete_failed",
         "storage_metadata_invalid",
         "r2_not_configured",
@@ -41,6 +43,7 @@ STORAGE_ERROR_CATEGORIES = frozenset(
         "idempotency_conflict",
         "idempotency_in_progress",
         "stale_revision",
+        "active_upload_limit_exceeded",
     }
 )
 

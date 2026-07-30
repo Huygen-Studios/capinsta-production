@@ -92,15 +92,6 @@ def _prepare_database():
     migration_14 = (
         ROOT / "apps/web/migrations/0014_clipping_persistence.sql"
     ).read_text(encoding="utf-8")
-    migration_15 = (
-        ROOT / "apps/web/migrations/0015_supabase_media_storage.sql"
-    ).read_text(encoding="utf-8")
-    migration_16 = (
-        ROOT / "apps/web/migrations/0016_processing_job_leases.sql"
-    ).read_text(encoding="utf-8")
-    migration_17 = (
-        ROOT / "apps/web/migrations/0017_media_probe_handler.sql"
-    ).read_text(encoding="utf-8")
     with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
         database_name = connection.execute("SELECT current_database()").fetchone()[0]
         if "test" not in database_name.lower():
@@ -108,9 +99,11 @@ def _prepare_database():
         connection.execute(bootstrap)
         connection.execute(migration_14)
         connection.execute(storage_schema)
-        connection.execute(migration_15)
-        connection.execute(migration_16)
-        connection.execute(migration_17)
+        for version in range(15, 29):
+            migration = next(
+                (ROOT / "apps/web/migrations").glob(f"{version:04d}_*.sql")
+            ).read_text(encoding="utf-8")
+            connection.execute(migration)
 
 
 class FakeStorage(MediaStorage):
@@ -164,6 +157,32 @@ class FakeStorage(MediaStorage):
 
     async def copy_object(self, **kwargs):
         raise NotImplementedError
+
+
+class FakeR2Storage(FakeStorage):
+    def __init__(self):
+        super().__init__()
+        self.created = 0
+        self.listed = 0
+        self.aborted = 0
+
+    async def create_upload_session(self, *, bucket, path, mime_type):
+        self.created += 1
+        await asyncio.sleep(0.02)
+        return UploadAuthorization(
+            protocol="s3_multipart",
+            upload_url=None,
+            required_headers={},
+            upload_metadata={},
+            provider_upload_id="provider-upload-1",
+        )
+
+    async def list_multipart_parts(self, **_kwargs):
+        self.listed += 1
+        return []
+
+    async def abort_multipart_upload(self, **_kwargs):
+        self.aborted += 1
 
 
 def _services():
@@ -305,6 +324,141 @@ def test_private_buckets_and_storage_rls():
         assert connection.execute(
             "SELECT count(*) FROM storage.objects"
         ).fetchone()[0] == 3
+
+
+def test_r2_migration_0028_and_atomic_upload_session_creation():
+    _prepare_database()
+    user_id = uuid4()
+    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+        connection.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
+    actor = AuthenticatedActor(user_id)
+    repository = MediaStorageRepository(DurableDatabase(DATABASE_URL))
+    storage = FakeR2Storage()
+    service = MediaUploadService(
+        config=MediaStorageConfig(
+            enabled=True,
+            storage_provider="r2",
+            r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+            r2_access_key_id="key",
+            r2_secret_access_key="secret",
+            maximum_upload_bytes=2_147_483_648,
+        ),
+        storage=storage,
+        repository=repository,
+    )
+
+    instructions = _run(
+        service.create_upload_session(
+            actor,
+            display_name="video.mp4",
+            mime_type="video/mp4",
+            size_bytes=70_000_000,
+            idempotency_key="postgres-r2-upload",
+        )
+    )
+
+    assert instructions.provider == "r2"
+    assert instructions.uploaded_parts == []
+    assert storage.created == 1
+    assert storage.listed == 0
+    with psycopg.connect(DATABASE_URL) as connection:
+        row = connection.execute(
+            """
+            SELECT storage_provider,provider_upload_id,multipart_upload_id,
+              multipart_part_size_bytes,multipart_part_count,multipart_state,
+              signed_url_expires_at,aborted_at
+            FROM media_upload_sessions WHERE id=%s
+            """,
+            (instructions.upload_session_id,),
+        ).fetchone()
+    assert row[:6] == (
+        "r2",
+        "provider-upload-1",
+        "provider-upload-1",
+        33_554_432,
+        3,
+        "created",
+    )
+    assert row[6] is not None
+    assert row[7] is None
+
+
+def test_r2_missing_live_column_is_rejected_before_provider_call():
+    _prepare_database()
+    user_id = uuid4()
+    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+        connection.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
+        connection.execute(
+            "ALTER TABLE media_upload_sessions DROP COLUMN multipart_upload_id CASCADE"
+        )
+    storage = FakeR2Storage()
+    service = MediaUploadService(
+        config=MediaStorageConfig(
+            enabled=True,
+            storage_provider="r2",
+            r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+            r2_access_key_id="key",
+            r2_secret_access_key="secret",
+        ),
+        storage=storage,
+        repository=MediaStorageRepository(DurableDatabase(DATABASE_URL)),
+    )
+
+    with pytest.raises(StorageError) as error:
+        _run(
+            service.create_upload_session(
+                AuthenticatedActor(user_id),
+                display_name="video.mp4",
+                mime_type="video/mp4",
+                size_bytes=10,
+                idempotency_key="missing-schema",
+            )
+        )
+    assert error.value.category == "storage_schema_outdated"
+    assert storage.created == 0
+
+
+def test_r2_identical_concurrent_requests_create_one_multipart_upload():
+    _prepare_database()
+    user_id = uuid4()
+    with psycopg.connect(DATABASE_URL, autocommit=True) as connection:
+        connection.execute("INSERT INTO auth.users(id) VALUES (%s)", (user_id,))
+    actor = AuthenticatedActor(user_id)
+    storage = FakeR2Storage()
+    service = MediaUploadService(
+        config=MediaStorageConfig(
+            enabled=True,
+            storage_provider="r2",
+            r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+            r2_access_key_id="key",
+            r2_secret_access_key="secret",
+        ),
+        storage=storage,
+        repository=MediaStorageRepository(DurableDatabase(DATABASE_URL)),
+    )
+
+    async def scenario():
+        return await asyncio.gather(
+            *(
+                service.create_upload_session(
+                    actor,
+                    display_name="video.mp4",
+                    mime_type="video/mp4",
+                    size_bytes=70_000_000,
+                    idempotency_key="same-postgres-key",
+                )
+                for _ in range(2)
+            )
+        )
+
+    first, second = _run(scenario())
+    assert first.upload_session_id == second.upload_session_id
+    assert storage.created == 1
+    assert storage.listed == 1
+    with psycopg.connect(DATABASE_URL) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM media_upload_sessions"
+        ).fetchone()[0] == 1
 
 
 def test_upload_completion_replacement_urls_and_deletion():

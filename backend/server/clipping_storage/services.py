@@ -58,6 +58,10 @@ def _media_kind(mime_type: str) -> str:
     return "unknown"
 
 
+def _multipart_upload_id(session: dict[str, Any]) -> str | None:
+    return session.get("provider_upload_id") or session.get("multipart_upload_id")
+
+
 class MediaUploadService:
     def __init__(
         self,
@@ -133,7 +137,11 @@ class MediaUploadService:
         idempotency_key: str,
         replace_media_asset_id: UUID | None = None,
         expected_revision: int | None = None,
+        request_id: str | None = None,
     ) -> UploadInstructions:
+        request_id = request_id or "-"
+        if self.config.storage_provider == "r2":
+            await self.repository.ensure_r2_schema()
         bucket_limit = await self.repository.bucket_file_size_limit(
             self.config.source_bucket
         )
@@ -233,41 +241,135 @@ class MediaUploadService:
                     "Upload requires too many multipart parts",
                     {"partCount": part_count},
                 )
-            if not session.get("provider_upload_id"):
-                authorization = await self.storage.create_upload_session(
-                    bucket=session["storage_bucket"],
-                    path=session["storage_path"],
-                    mime_type=session["mime_type"],
-                )
-                try:
+            new_upload = False
+            async with self.repository.multipart_authorization_lock(
+                actor, session["id"]
+            ):
+                session = await self.repository.get_session(actor, session["id"])
+                if session["status"] == "completed":
+                    raise StorageError(
+                        "upload_session_completed",
+                        "This upload session has already completed",
+                    )
+                if session["status"] in {"failed", "expired", "cancelled"}:
+                    raise StorageError(
+                        "upload_session_completed",
+                        "Upload session is terminal",
+                        {"status": session["status"]},
+                    )
+                provider_upload_id = _multipart_upload_id(session)
+                if session["status"] == "authorized" and not provider_upload_id:
+                    await self.repository.mark_failed(
+                        actor, session["id"], code="missing_provider_upload_id"
+                    )
+                    raise StorageError(
+                        "storage_persistence_failed",
+                        "The media upload session could not be resumed",
+                        {"stage": "multipart_persistence"},
+                    )
+                if session["status"] == "created" and provider_upload_id:
                     session = await self.repository.mark_authorized(
                         actor,
                         session["id"],
-                        provider_upload_id=authorization.provider_upload_id,
+                        provider_upload_id=provider_upload_id,
                         multipart_part_size_bytes=part_size,
                         multipart_part_count=part_count,
                         signed_url_expires_at=datetime.now(timezone.utc)
                         + timedelta(seconds=self.config.r2_signed_url_ttl_seconds),
                     )
-                except Exception:
-                    if authorization.provider_upload_id:
-                        try:
-                            await self.storage.abort_multipart_upload(
-                                bucket=session["storage_bucket"],
-                                path=session["storage_path"],
-                                upload_id=authorization.provider_upload_id,
-                            )
-                        except StorageError as abort_error:
-                            logger.warning(
-                                "r2_multipart_abort_failed stage=mark_authorized request_id=%s category=%s",
-                                idempotency_key[:64],
-                                abort_error.category,
-                            )
-                    logger.exception(
-                        "r2_multipart_authorization_failed stage=mark_authorized request_id=%s",
-                        idempotency_key[:64],
+                elif not provider_upload_id:
+                    authorization = await self.storage.create_upload_session(
+                        bucket=session["storage_bucket"],
+                        path=session["storage_path"],
+                        mime_type=session["mime_type"],
                     )
-                    raise
+                    provider_upload_id = authorization.provider_upload_id
+                    new_upload = True
+                    try:
+                        session = await self.repository.mark_authorized(
+                            actor,
+                            session["id"],
+                            provider_upload_id=provider_upload_id,
+                            multipart_part_size_bytes=part_size,
+                            multipart_part_count=part_count,
+                            signed_url_expires_at=datetime.now(timezone.utc)
+                            + timedelta(
+                                seconds=self.config.r2_signed_url_ttl_seconds
+                            ),
+                        )
+                    except Exception as error:
+                        if provider_upload_id:
+                            try:
+                                await self.storage.abort_multipart_upload(
+                                    bucket=session["storage_bucket"],
+                                    path=session["storage_path"],
+                                    upload_id=provider_upload_id,
+                                )
+                            except StorageError as abort_error:
+                                logger.warning(
+                                    "r2_multipart_abort_failed request_id=%s stage=multipart_persistence category=%s",
+                                    request_id,
+                                    abort_error.category,
+                                )
+                        try:
+                            await self.repository.mark_failed(
+                                actor,
+                                session["id"],
+                                code=(
+                                    error.category
+                                    if isinstance(error, StorageError)
+                                    else "storage_persistence_failed"
+                                ),
+                            )
+                        except Exception as mark_error:
+                            logger.warning(
+                                "r2_multipart_failure_record_failed request_id=%s stage=multipart_persistence exception_type=%s",
+                                request_id,
+                                type(mark_error).__name__,
+                            )
+                        logger.warning(
+                            "r2_multipart_authorization_failed request_id=%s stage=multipart_persistence exception_type=%s category=%s",
+                            request_id,
+                            type(error).__name__,
+                            (
+                                error.category
+                                if isinstance(error, StorageError)
+                                else "storage_persistence_failed"
+                            ),
+                        )
+                        if isinstance(error, StorageError):
+                            raise StorageError(
+                                error.category,
+                                error.message,
+                                {**error.details, "stage": "multipart_persistence"},
+                            ) from error
+                        raise StorageError(
+                            "storage_persistence_failed",
+                            "The media upload session could not be recorded",
+                            {"stage": "multipart_persistence"},
+                        ) from error
+                session = await self.repository.get_session(actor, session["id"])
+                provider_upload_id = _multipart_upload_id(session)
+                if (
+                    session["status"] != "authorized"
+                    or not provider_upload_id
+                    or not session.get("multipart_part_size_bytes")
+                    or not session.get("multipart_part_count")
+                ):
+                    raise StorageError(
+                        "storage_persistence_failed",
+                        "The media upload session could not be verified",
+                        {"stage": "multipart_persistence"},
+                    )
+            uploaded_parts = (
+                []
+                if new_upload
+                else await self.storage.list_multipart_parts(
+                    bucket=session["storage_bucket"],
+                    path=session["storage_path"],
+                    upload_id=provider_upload_id,
+                )
+            )
             return UploadInstructions(
                 media_asset_id=session["media_asset_id"],
                 upload_session_id=session["id"],
@@ -295,11 +397,7 @@ class MediaUploadService:
                 part_count=session["multipart_part_count"] or part_count,
                 upload_concurrency=self.config.r2_upload_concurrency,
                 signed_url_ttl_seconds=self.config.r2_signed_url_ttl_seconds,
-                uploaded_parts=await self.storage.list_multipart_parts(
-                    bucket=session["storage_bucket"],
-                    path=session["storage_path"],
-                    upload_id=session["provider_upload_id"],
-                ),
+                uploaded_parts=uploaded_parts,
             )
         authorization = await self.storage.create_upload_session(
             bucket=session["storage_bucket"],
@@ -363,7 +461,7 @@ class MediaUploadService:
                     "url": await self.storage.create_upload_part_url(
                         bucket=session["storage_bucket"],
                         path=session["storage_path"],
-                        upload_id=session["provider_upload_id"],
+                        upload_id=_multipart_upload_id(session),
                         part_number=part,
                         expires_in=expires_in,
                     ),
@@ -384,7 +482,7 @@ class MediaUploadService:
             "parts": await self.storage.list_multipart_parts(
                 bucket=session["storage_bucket"],
                 path=session["storage_path"],
-                upload_id=session["provider_upload_id"],
+                upload_id=_multipart_upload_id(session),
             ),
         }
 
@@ -392,13 +490,12 @@ class MediaUploadService:
         self, actor: AuthenticatedActor, upload_session_id: UUID
     ) -> dict[str, Any]:
         session = await self.repository.get_session(actor, upload_session_id)
-        if session["upload_protocol"] == "s3_multipart" and session.get(
-            "provider_upload_id"
-        ):
+        upload_id = _multipart_upload_id(session)
+        if session["upload_protocol"] == "s3_multipart" and upload_id:
             await self.storage.abort_multipart_upload(
                 bucket=session["storage_bucket"],
                 path=session["storage_path"],
-                upload_id=session["provider_upload_id"],
+                upload_id=upload_id,
             )
         await self.repository.mark_failed(actor, upload_session_id, code="upload_cancelled")
         return {"uploadSessionId": str(upload_session_id), "status": "cancelled"}
@@ -439,7 +536,8 @@ class MediaUploadService:
             )
             return self.repository._attachment(asset)
         if session["upload_protocol"] == "s3_multipart":
-            if not session.get("provider_upload_id"):
+            upload_id = _multipart_upload_id(session)
+            if not upload_id:
                 raise StorageError(
                     "multipart_upload_expired",
                     "Multipart upload authorization is missing",
@@ -447,7 +545,7 @@ class MediaUploadService:
             listed = await self.storage.list_multipart_parts(
                 bucket=session["storage_bucket"],
                 path=session["storage_path"],
-                upload_id=session["provider_upload_id"],
+                upload_id=upload_id,
             )
             expected_count = int(session["multipart_part_count"] or 0)
             expected_size = int(session["expected_size_bytes"])
@@ -484,7 +582,7 @@ class MediaUploadService:
             metadata = await self.storage.complete_multipart_upload(
                 bucket=session["storage_bucket"],
                 path=session["storage_path"],
-                upload_id=session["provider_upload_id"],
+                upload_id=upload_id,
                 parts=listed,
             )
             if metadata.size_bytes != expected_size:

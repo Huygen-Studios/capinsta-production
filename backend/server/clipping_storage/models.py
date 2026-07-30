@@ -86,7 +86,11 @@ class UploadInstructions:
                 if self.signed_url_ttl_seconds
                 else {}
             ),
-            **({"uploadedParts": self.uploaded_parts} if self.uploaded_parts else {}),
+            **(
+                {"uploadedParts": self.uploaded_parts}
+                if self.protocol == "s3_multipart" or self.uploaded_parts
+                else {}
+            ),
         }
 
 

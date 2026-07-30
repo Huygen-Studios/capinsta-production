@@ -161,16 +161,26 @@ class R2MediaStorage(MediaStorage):
                 Key=path,
                 UploadId=upload_id,
             )
-        except (BotoCoreError, ClientError) as exc:
+        except Exception as exc:
             raise self._error(exc, "multipart_part_failed") from exc
-        return [
-            {
-                "partNumber": int(part["PartNumber"]),
-                "etag": str(part["ETag"]).strip('"'),
-                "size": int(part["Size"]),
-            }
-            for part in response.get("Parts", [])
-        ]
+        parts = (response.get("Parts") or []) if isinstance(response, dict) else []
+        normalized: list[dict[str, int | str]] = []
+        try:
+            for part in parts:
+                part_number = int(part["PartNumber"])
+                etag = str(part["ETag"]).strip('"')
+                size = int(part["Size"])
+                if not 1 <= part_number <= 10_000 or not etag or size < 0:
+                    raise ValueError
+                normalized.append(
+                    {"partNumber": part_number, "etag": etag, "size": size}
+                )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise StorageError(
+                "multipart_part_failed",
+                "Cloudflare R2 returned an invalid multipart response",
+            ) from exc
+        return normalized
 
     async def complete_multipart_upload(
         self, *, bucket: str, path: str, upload_id: str, parts: list[dict[str, int | str]]

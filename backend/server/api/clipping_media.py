@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import current_user
@@ -22,6 +23,7 @@ from ..clipping_storage.services import (
 )
 
 router = APIRouter(prefix="/clipping/media", tags=["clipping-media"])
+logger = logging.getLogger(__name__)
 
 
 class UploadCreateRequest(BaseModel):
@@ -71,8 +73,8 @@ def _services():
     )
 
 
-def _raise_storage(error: StorageError) -> None:
-    status = {
+def _storage_status(error: StorageError) -> int:
+    return {
         "storage_permission_denied": 403,
         "object_not_found": 404,
         "upload_session_not_found": 404,
@@ -87,6 +89,8 @@ def _raise_storage(error: StorageError) -> None:
         "upload_size_mismatch": 413,
         "upload_mime_mismatch": 415,
         "storage_not_configured": 503,
+        "storage_schema_outdated": 503,
+        "storage_persistence_failed": 503,
         "r2_not_configured": 503,
         "r2_bucket_missing": 503,
         "r2_credentials_invalid": 503,
@@ -104,7 +108,35 @@ def _raise_storage(error: StorageError) -> None:
         "object_size_mismatch": 409,
         "signed_url_expired": 410,
     }.get(error.category, 422)
-    raise HTTPException(status_code=status, detail=error.as_dict()) from error
+
+
+def _raise_storage(error: StorageError) -> None:
+    raise HTTPException(status_code=_storage_status(error), detail=error.as_dict()) from error
+
+
+def _request_id(request: Request) -> str:
+    return (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-correlation-id")
+        or str(uuid4())
+    )
+
+
+def _upload_error_response(
+    error: StorageError, *, request_id: str
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=_storage_status(error),
+        content={
+            "detail": {
+                "code": error.category,
+                "message": error.message,
+                "stage": error.details.get("stage", "upload_authorization"),
+                "requestId": request_id,
+            }
+        },
+        headers={"X-Request-ID": request_id},
+    )
 
 
 @router.get("/upload-limits")
@@ -122,6 +154,7 @@ async def create_upload(
     request: Request,
     idempotency_key: str = Header(alias="Idempotency-Key"),
 ):
+    request_id = _request_id(request)
     try:
         upload, _, _ = _services()
         instructions = await upload.create_upload_session(
@@ -132,6 +165,7 @@ async def create_upload(
             idempotency_key=idempotency_key,
             replace_media_asset_id=payload.replaceMediaAssetId,
             expected_revision=payload.expectedRevision,
+            request_id=request_id,
         )
         result = instructions.as_dict()
         if isinstance(upload.storage, LocalMediaStorage):
@@ -140,7 +174,32 @@ async def create_upload(
             )
         return result
     except StorageError as error:
-        _raise_storage(error)
+        logger.warning(
+            "media_upload_create_failed request_id=%s stage=%s exception_type=%s category=%s",
+            request_id,
+            error.details.get("stage", "upload_authorization"),
+            type(error).__name__,
+            error.category,
+        )
+        return _upload_error_response(error, request_id=request_id)
+    except Exception as error:
+        logger.exception(
+            "media_upload_create_failed request_id=%s stage=response_serialization exception_type=%s category=unexpected_error",
+            request_id,
+            type(error).__name__,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": {
+                    "code": "internal_error",
+                    "message": "The upload session could not be created",
+                    "stage": "response_serialization",
+                    "requestId": request_id,
+                }
+            },
+            headers={"X-Request-ID": request_id},
+        )
 
 
 @router.get("/uploads/{upload_session_id}")

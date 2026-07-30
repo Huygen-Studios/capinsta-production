@@ -27,6 +27,10 @@ from ..auth import auth_health_status
 from ..runtime_policy import control_plane_health
 from ..storage_pressure import read_disk_pressure
 from ..transcription_control import active_transcription_config, transcription_database_status
+from ..clipping_persistence.database import DurableDatabase
+from ..clipping_storage.config import MediaStorageConfig
+from ..clipping_storage.errors import StorageError
+from ..clipping_storage.repository import MediaStorageRepository
 
 router = APIRouter(prefix="/health", tags=["health"])
 API_CONTRACT_VERSION = 1
@@ -66,7 +70,7 @@ class ReadinessResponse(BaseModel):
     readinessRoute: str = "/health/ready"
     apiContractVersion: int = API_CONTRACT_VERSION
     capabilities: list[str] = Field(default_factory=lambda: API_CAPABILITIES.copy())
-    latestExpectedMigrationVersion: int = 27
+    latestExpectedMigrationVersion: int = 28
     commit: str | None = None
     dependencies: dict[str, str | bool] = Field(default_factory=dict)
 
@@ -93,13 +97,27 @@ async def readiness_payload() -> ReadinessResponse:
     """Bounded API readiness; optional providers are deliberately excluded."""
     commit = (os.getenv("COMMIT_SHA") or "").strip() or None
     database = await control_plane_health()
-    ready = database["controlPlaneDatabase"] == "healthy"
+    schema = "not_required"
+    try:
+        storage = MediaStorageConfig.from_env()
+        if storage.storage_provider == "r2":
+            await MediaStorageRepository(DurableDatabase()).ensure_r2_schema()
+            schema = "ready"
+    except StorageError as error:
+        schema = error.category
+    ready = (
+        database["controlPlaneDatabase"] == "healthy"
+        and schema in {"not_required", "ready"}
+    )
     return ReadinessResponse(
         status="ok" if ready else "degraded",
         version="5.0.0",
         commit=commit,
         ready=ready,
-        dependencies={"database": database["controlPlaneDatabase"]},
+        dependencies={
+            "database": database["controlPlaneDatabase"],
+            "mediaStorageSchema": schema,
+        },
     )
 
 

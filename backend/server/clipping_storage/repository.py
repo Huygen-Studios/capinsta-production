@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
@@ -22,12 +23,83 @@ def _json(value: Any) -> Any:
     return Jsonb(value) if Jsonb is not None else value
 
 
-def _translate(exc: PersistenceError) -> StorageError:
+R2_UPLOAD_SESSION_COLUMNS = frozenset(
+    {
+        "storage_provider",
+        "previous_storage_provider",
+        "provider_upload_id",
+        "multipart_upload_id",
+        "multipart_part_size_bytes",
+        "multipart_part_count",
+        "multipart_state",
+        "signed_url_expires_at",
+        "aborted_at",
+    }
+)
+R2_UPLOAD_SESSION_CONSTRAINTS = {
+    "media_upload_sessions_storage_provider_check": ("r2",),
+    "media_upload_sessions_protocol_check": ("s3_multipart",),
+    "media_upload_sessions_multipart_check": ("created", "completed", "aborted"),
+}
+
+
+def r2_schema_findings(
+    columns: set[str], constraints: dict[str, str]
+) -> list[str]:
+    findings = [
+        f"missing_column:{name}"
+        for name in sorted(R2_UPLOAD_SESSION_COLUMNS - columns)
+    ]
+    for name, values in R2_UPLOAD_SESSION_CONSTRAINTS.items():
+        definition = constraints.get(name, "").lower()
+        if not definition or any(value not in definition for value in values):
+            findings.append(f"invalid_constraint:{name}")
+    return findings
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    current: BaseException | None = exc
+    while current is not None:
+        state = getattr(current, "sqlstate", None)
+        if state:
+            return str(state)
+        current = current.__cause__
+    return None
+
+
+def _translate(exc: PersistenceError | Exception) -> StorageError:
+    state = _sqlstate(exc)
+    if state in {"42703", "42P01"}:
+        return StorageError(
+            "storage_schema_outdated",
+            "The media database migration is incomplete. Apply migration 0028.",
+            {"stage": "multipart_persistence"},
+        )
+    if state in {"23502", "23514"}:
+        return StorageError(
+            "storage_persistence_failed",
+            "The media upload session could not be recorded",
+            {"stage": "multipart_persistence"},
+        )
+    if state and state.startswith("08"):
+        return StorageError(
+            "storage_provider_unavailable",
+            "The media database is temporarily unavailable",
+            {"stage": "multipart_persistence"},
+        )
+    if not isinstance(exc, PersistenceError):
+        return StorageError(
+            "storage_persistence_failed",
+            "The media upload session could not be recorded",
+            {"stage": "multipart_persistence"},
+        )
     category = {
         "idempotency_conflict": "idempotency_conflict",
         "idempotency_in_progress": "idempotency_in_progress",
         "stale_revision": "stale_revision",
-    }.get(exc.category, "storage_provider_unavailable")
+        "database_unavailable": "storage_provider_unavailable",
+        "transaction_failed": "storage_persistence_failed",
+    }.get(exc.category, "storage_persistence_failed")
     return StorageError(category, exc.message, exc.details)
 
 
@@ -37,6 +109,53 @@ class MediaStorageRepository:
     def __init__(self, database: DurableDatabase) -> None:
         self.database = database
         self.idempotency = IdempotencyRepository(database)
+
+    async def ensure_r2_schema(self) -> None:
+        try:
+            async with self.database.connection() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_schema='public'
+                          AND table_name='media_upload_sessions'
+                        """
+                    )
+                    columns = {str(row["column_name"]) for row in await cursor.fetchall()}
+                    await cursor.execute(
+                        """
+                        SELECT conname,pg_get_constraintdef(oid) AS definition
+                        FROM pg_constraint
+                        WHERE conrelid=to_regclass('public.media_upload_sessions')
+                        """
+                    )
+                    constraints = {
+                        str(row["conname"]): str(row["definition"])
+                        for row in await cursor.fetchall()
+                    }
+        except PersistenceError as exc:
+            raise _translate(exc) from exc
+        if r2_schema_findings(columns, constraints):
+            raise StorageError(
+                "storage_schema_outdated",
+                "The media database migration is incomplete. Apply migration 0028.",
+                {"stage": "schema_readiness"},
+            )
+
+    @asynccontextmanager
+    async def multipart_authorization_lock(
+        self, actor: AuthenticatedActor, session_id: UUID
+    ):
+        try:
+            async with self.database.transaction() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                        (f"{actor.user_id}:{session_id}:r2_authorize",),
+                    )
+                yield
+        except PersistenceError as exc:
+            raise _translate(exc) from exc
 
     @staticmethod
     async def _session(
@@ -317,7 +436,9 @@ class MediaStorageRepository:
                         ),
                     )
                     return dict(await cursor.fetchone())
-        except PersistenceError as exc:
+        except StorageError:
+            raise
+        except Exception as exc:
             raise _translate(exc) from exc
 
     async def bucket_file_size_limit(self, bucket: str) -> int | None:
@@ -345,30 +466,35 @@ class MediaStorageRepository:
         *,
         code: str,
     ) -> None:
-        async with self.database.transaction() as connection:
-            session = await self._session(
-                connection, actor, session_id, lock=True
-            )
-            if session["status"] in {"completed", "failed", "expired", "cancelled"}:
-                return
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    """
-                    UPDATE media_upload_sessions SET status='failed',
-                      failed_at=now(),error=%s,revision=revision+1,updated_at=now()
-                    WHERE id=%s
-                    """,
-                    (_json({"code": code}), session_id),
+        try:
+            async with self.database.transaction() as connection:
+                session = await self._session(
+                    connection, actor, session_id, lock=True
                 )
-                if session["purpose"] == "initial":
+                if session["status"] in {"completed", "failed", "expired", "cancelled"}:
+                    return
+                async with connection.cursor() as cursor:
                     await cursor.execute(
                         """
-                        UPDATE media_assets SET status='failed',
-                          revision=revision+1,updated_at=now()
-                        WHERE id=%s AND owner_user_id=%s
+                        UPDATE media_upload_sessions SET status='failed',
+                          failed_at=now(),error=%s,revision=revision+1,updated_at=now()
+                        WHERE id=%s
                         """,
-                        (session["media_asset_id"], actor.user_id),
+                        (_json({"code": code}), session_id),
                     )
+                    if session["purpose"] == "initial":
+                        await cursor.execute(
+                            """
+                            UPDATE media_assets SET status='failed',
+                              revision=revision+1,updated_at=now()
+                            WHERE id=%s AND owner_user_id=%s
+                            """,
+                            (session["media_asset_id"], actor.user_id),
+                        )
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise _translate(exc) from exc
 
     async def expire_if_due(
         self, actor: AuthenticatedActor, session_id: UUID
@@ -395,8 +521,13 @@ class MediaStorageRepository:
     async def get_session(
         self, actor: AuthenticatedActor, session_id: UUID
     ) -> dict[str, Any]:
-        async with self.database.connection() as connection:
-            return await self._session(connection, actor, session_id)
+        try:
+            async with self.database.connection() as connection:
+                return await self._session(connection, actor, session_id)
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise _translate(exc) from exc
 
     async def get_asset(
         self,
@@ -405,13 +536,18 @@ class MediaStorageRepository:
         *,
         include_deleted: bool = False,
     ) -> dict[str, Any]:
-        async with self.database.connection() as connection:
-            return await self._asset(
-                connection,
-                actor,
-                media_asset_id,
-                include_deleted=include_deleted,
-            )
+        try:
+            async with self.database.connection() as connection:
+                return await self._asset(
+                    connection,
+                    actor,
+                    media_asset_id,
+                    include_deleted=include_deleted,
+                )
+        except StorageError:
+            raise
+        except Exception as exc:
+            raise _translate(exc) from exc
 
     async def complete_verified(
         self,

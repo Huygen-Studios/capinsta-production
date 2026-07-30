@@ -22,6 +22,7 @@ from server.clipping_storage.errors import StorageError
 from server.clipping_storage.provider import media_storage_from_config
 from server.clipping_storage.r2_storage import R2MediaStorage
 from server.clipping_storage.paths import source_object_path
+from server.clipping_storage.repository import r2_schema_findings
 from server.settings import (
     CACHE_DIR,
     DB_PATH,
@@ -286,6 +287,32 @@ def _query_one(connection: Any, query: str, params: tuple[Any, ...] = ()) -> Any
         return cursor.fetchone()
 
 
+def _r2_database_schema_report(connection: Any) -> tuple[dict[str, Any], bool]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema='public' AND table_name='media_upload_sessions'
+            """
+        )
+        columns = {str(row[0]) for row in cursor.fetchall()}
+        cursor.execute(
+            """
+            SELECT conname,pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conrelid=to_regclass('public.media_upload_sessions')
+            """
+        )
+        constraints = {str(row[0]): str(row[1]) for row in cursor.fetchall()}
+    findings = r2_schema_findings(columns, constraints)
+    return {
+        "r2DatabaseSchema": {
+            "ready": not findings,
+            "findings": findings,
+        }
+    }, not findings
+
+
 def _db_report() -> tuple[dict[str, Any], bool]:
     url = _database_url()
     if not url:
@@ -301,6 +328,7 @@ def _db_report() -> tuple[dict[str, Any], bool]:
 
     try:
         with psycopg.connect(url, connect_timeout=5) as connection:
+            r2_schema, r2_schema_ok = _r2_database_schema_report(connection)
             migration_table = bool(
                 _query_one(
                     connection,
@@ -366,6 +394,8 @@ def _db_report() -> tuple[dict[str, Any], bool]:
             )
             if not r2_ok:
                 failures.append("r2_storage_not_configured")
+            if not r2_schema_ok:
+                failures.append("storage_schema_outdated")
             mode_row = _query_one(
                 connection,
                 "SELECT mode FROM site_access_policy WHERE id='global'",
@@ -393,6 +423,7 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                     for name in BUCKETS
                 },
                 "siteAccessMode": mode_row[0] if mode_row else "public",
+                **r2_schema,
             }
             supabase_ok = (
                 not storage_config
@@ -408,6 +439,7 @@ def _db_report() -> tuple[dict[str, Any], bool]:
                 and storage_error is None
                 and supabase_ok
                 and r2_ok
+                and r2_schema_ok
                 and not failures
             )
             return report, ok

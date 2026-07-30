@@ -47,6 +47,29 @@ async def _abort_multipart(storage, bucket: str, path: str, upload_id: str) -> b
     return True
 
 
+async def _cleanup_upload_storage(
+    storage,
+    *,
+    bucket: str,
+    path: str,
+    protocol: str,
+    provider_upload_id: str | None,
+    multipart_upload_id: str | None,
+) -> tuple[bool, bool]:
+    if protocol == "s3_multipart":
+        upload_id = provider_upload_id or multipart_upload_id
+        if not upload_id:
+            logger.warning(
+                "retention_multipart_orphan_reconciliation_required category=missing_provider_upload_id"
+            )
+            return True, False
+        return (
+            await _abort_multipart(storage, bucket, path, str(upload_id)),
+            True,
+        )
+    return await _delete(storage, bucket, path), False
+
+
 async def _expire_source(connection, asset_id: str, cutoff: datetime, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
@@ -111,7 +134,8 @@ async def _expire_upload(connection, session_id: str, config) -> bool:
     async with connection.transaction():
         async with connection.cursor() as cursor:
             await cursor.execute(
-                """SELECT storage_provider,storage_bucket,storage_path,upload_protocol,provider_upload_id
+                """SELECT storage_provider,storage_bucket,storage_path,upload_protocol,
+                  provider_upload_id,multipart_upload_id
                 FROM media_upload_sessions
                 WHERE id=%s::uuid AND expires_at < now()
                   AND status NOT IN ('completed','failed','expired','cancelled')
@@ -122,15 +146,29 @@ async def _expire_upload(connection, session_id: str, config) -> bool:
             if row is None:
                 return False
             storage = media_storage_for_provider(row[0], config)
-            if row[3] == "s3_multipart" and row[4]:
-                if not await _abort_multipart(storage, str(row[1]), str(row[2]), str(row[4])):
-                    return False
-            elif not await _delete(storage, str(row[1]), str(row[2])):
+            cleaned, aborted = await _cleanup_upload_storage(
+                storage,
+                bucket=str(row[1]),
+                path=str(row[2]),
+                protocol=str(row[3]),
+                provider_upload_id=row[4],
+                multipart_upload_id=row[5],
+            )
+            if not cleaned:
                 return False
             await cursor.execute(
-                """UPDATE media_upload_sessions SET status='expired',failed_at=now(),updated_at=now()
+                """UPDATE media_upload_sessions SET status='expired',failed_at=now(),
+                  multipart_state=CASE
+                    WHEN upload_protocol='s3_multipart' AND %s THEN 'aborted'
+                    ELSE multipart_state
+                  END,
+                  aborted_at=CASE
+                    WHEN upload_protocol='s3_multipart' AND %s THEN now()
+                    ELSE aborted_at
+                  END,
+                  updated_at=now()
                 WHERE id=%s::uuid""",
-                (session_id,),
+                (aborted, aborted, session_id),
             )
             return cursor.rowcount == 1
 
