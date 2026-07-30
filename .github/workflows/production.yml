@@ -178,7 +178,7 @@ jobs:
             -e MEDIA_DIR=/app/storage/legacy-caption/media \
             -e EXPORT_DIR=/app/storage/legacy-caption/exports \
             -e CACHE_DIR=/app/storage/legacy-caption/cache \
-            -e DB_PATH=/app/storage/legacy-caption/database.sqlite \
+            -e DB_PATH=/app/storage/database.sqlite \
             "$BACKEND_IMAGE:${GITHUB_SHA}"
           for attempt in $(seq 1 45); do
             docker exec capinsta-backend-caption-smoke curl -fsS http://127.0.0.1:10000/health/ready >/dev/null && break
@@ -192,14 +192,14 @@ jobs:
             http://127.0.0.1:10000/api/media/assets \
             -o /tmp/media-asset.json
           docker exec capinsta-backend-caption-smoke sh -lc \
-            'test -s /app/storage/legacy-caption/database.sqlite && find /app/storage/legacy-caption/media -type f | grep -q .'
+            'test -s /app/storage/database.sqlite && find /app/storage/legacy-caption/media -type f | grep -q .'
           docker restart capinsta-backend-caption-smoke >/dev/null
           for attempt in $(seq 1 45); do
             docker exec capinsta-backend-caption-smoke curl -fsS http://127.0.0.1:10000/health/ready >/dev/null && break
             sleep 2
           done
           docker exec capinsta-backend-caption-smoke sh -lc \
-            'test -s /app/storage/legacy-caption/database.sqlite && find /app/storage/legacy-caption/media -type f | grep -q .'
+            'test -s /app/storage/database.sqlite && find /app/storage/legacy-caption/media -type f | grep -q .'
       - name: Web image smoke
         env:
           DATABASE_URL: postgresql://user:password@db.example.com:5432/postgres
