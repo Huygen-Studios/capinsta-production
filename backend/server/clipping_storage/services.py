@@ -109,8 +109,10 @@ class MediaUploadService:
         return display_name, mime_type
 
     async def upload_limits(self) -> dict[str, Any]:
-        bucket_limit = await self.repository.bucket_file_size_limit(
-            self.config.source_bucket
+        bucket_limit = (
+            await self.repository.bucket_file_size_limit(self.config.source_bucket)
+            if self.config.storage_provider == "supabase"
+            else None
         )
         known_limits = [self.config.maximum_upload_bytes]
         if bucket_limit is not None:
@@ -142,8 +144,10 @@ class MediaUploadService:
         request_id = request_id or "-"
         if self.config.storage_provider == "r2":
             await self.repository.ensure_r2_schema()
-        bucket_limit = await self.repository.bucket_file_size_limit(
-            self.config.source_bucket
+        bucket_limit = (
+            await self.repository.bucket_file_size_limit(self.config.source_bucket)
+            if self.config.storage_provider == "supabase"
+            else None
         )
         display_name, mime_type = self._validate_upload(
             display_name=display_name,
@@ -207,6 +211,8 @@ class MediaUploadService:
             mime_type=mime_type,
             media_kind=_media_kind(mime_type),
             expected_size_bytes=size_bytes,
+            storage_provider=self.config.storage_provider,
+            storage_bucket=self.config.effective_source_bucket,
             storage_path=path,
             upload_protocol=(
                 "s3_multipart" if self.config.storage_provider == "r2" else "tus"

@@ -159,7 +159,7 @@ def test_r2_upload_creation_guards_response_serialization(monkeypatch):
     )
 
     assert response.status_code == 500
-    assert response.json()["detail"]["stage"] == "response_serialization"
+    assert response.json()["detail"]["stage"] == "upload_intent_persistence"
     assert response.json()["detail"]["requestId"] == "safe-request-id"
     assert "object/path" not in response.text
     assert "upload-id" not in response.text

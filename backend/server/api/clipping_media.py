@@ -184,7 +184,7 @@ async def create_upload(
         return _upload_error_response(error, request_id=request_id)
     except Exception as error:
         logger.exception(
-            "media_upload_create_failed request_id=%s stage=response_serialization exception_type=%s category=unexpected_error",
+            "media_upload_create_failed request_id=%s stage=upload_intent_persistence exception_type=%s category=unexpected_error",
             request_id,
             type(error).__name__,
         )
@@ -194,7 +194,7 @@ async def create_upload(
                 "detail": {
                     "code": "internal_error",
                     "message": "The upload session could not be created",
-                    "stage": "response_serialization",
+                    "stage": "upload_intent_persistence",
                     "requestId": request_id,
                 }
             },
