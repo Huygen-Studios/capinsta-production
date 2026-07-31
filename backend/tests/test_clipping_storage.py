@@ -401,11 +401,24 @@ def test_r2_schema_findings_require_live_columns_and_constraints():
         "media_upload_sessions_storage_provider_check": "CHECK storage_provider IN ('supabase','r2','local')",
         "media_upload_sessions_protocol_check": "CHECK upload_protocol IN ('tus','s3_multipart')",
         "media_upload_sessions_multipart_check": "CHECK multipart_state IN ('created','completed','aborted')",
+        "media_upload_sessions_storage_pair_check": "CHECK (length(storage_bucket) > 0)",
     }
     assert not r2_schema_findings(set(R2_UPLOAD_SESSION_COLUMNS), constraints)
     assert r2_schema_findings(
         set(R2_UPLOAD_SESSION_COLUMNS) - {"multipart_upload_id"}, constraints
     ) == ["missing_column:multipart_upload_id"]
+    
+    outdated = dict(constraints)
+    outdated["media_upload_sessions_storage_pair_check"] = "CHECK storage_bucket = 'source-media'"
+    assert "outdated_constraint:media_upload_sessions_storage_pair_check" in r2_schema_findings(
+        set(R2_UPLOAD_SESSION_COLUMNS), outdated
+    )
+    
+    missing = dict(constraints)
+    missing.pop("media_upload_sessions_storage_pair_check")
+    assert "missing_constraint:media_upload_sessions_storage_pair_check" in r2_schema_findings(
+        set(R2_UPLOAD_SESSION_COLUMNS), missing
+    )
 
 
 def test_r2_upload_session_returns_multipart_instructions_and_aborts_unpersisted_failure():

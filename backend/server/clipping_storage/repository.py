@@ -40,6 +40,7 @@ R2_UPLOAD_SESSION_CONSTRAINTS = {
     "media_upload_sessions_storage_provider_check": ("r2",),
     "media_upload_sessions_protocol_check": ("s3_multipart",),
     "media_upload_sessions_multipart_check": ("created", "completed", "aborted"),
+    "media_upload_sessions_storage_pair_check": ("length",),
 }
 
 
@@ -54,6 +55,13 @@ def r2_schema_findings(
         definition = constraints.get(name, "").lower()
         if not definition or any(value not in definition for value in values):
             findings.append(f"invalid_constraint:{name}")
+            
+    pair_check = constraints.get("media_upload_sessions_storage_pair_check", "").lower()
+    if pair_check and "source-media" in pair_check:
+        findings.append("outdated_constraint:media_upload_sessions_storage_pair_check")
+    elif not pair_check:
+        findings.append("missing_constraint:media_upload_sessions_storage_pair_check")
+        
     return findings
 
 
@@ -135,10 +143,14 @@ class MediaStorageRepository:
                     }
         except PersistenceError as exc:
             raise _translate(exc) from exc
-        if r2_schema_findings(columns, constraints):
+        findings = r2_schema_findings(columns, constraints)
+        if findings:
+            message = "The media database migration is incomplete. Apply migration 0028."
+            if any(f.startswith("outdated_constraint:") or f.startswith("missing_constraint:") for f in findings):
+                message = "The media database migration is incomplete. Apply migration 0031."
             raise StorageError(
                 "storage_schema_outdated",
-                "The media database migration is incomplete. Apply migration 0028.",
+                message,
                 {"stage": "schema_readiness"},
             )
 

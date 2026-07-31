@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -12,6 +13,9 @@ try:
 except ImportError:  # pragma: no cover - production requirements install psycopg
     psycopg = None
     dict_row = None
+
+
+logger = logging.getLogger(__name__)
 
 
 def durable_jobs_enabled() -> bool:
@@ -76,11 +80,24 @@ class DurableDatabase:
                 # errors must pass through the transaction unchanged.
                 if not isinstance(exc, psycopg.Error):
                     raise
+                
+                sqlstate = getattr(exc, "sqlstate", None)
+                if sqlstate == "23514":
+                    diag = getattr(exc, "diag", None)
+                    constraint_name = getattr(diag, "constraint_name", None) if diag else None
+                    logger.error(
+                        "Database constraint violation",
+                        extra={
+                            "sqlstate": sqlstate,
+                            "constraint_name": constraint_name,
+                        },
+                    )
+                
                 category = {
                     "23505": "duplicate_entity",
                     "23503": "foreign_key_missing",
                     "42501": "rls_policy_denied",
-                }.get(getattr(exc, "sqlstate", None), "transaction_failed")
+                }.get(sqlstate, "transaction_failed")
                 raise PersistenceError(
                     category,
                     "Durable clipping transaction failed",
