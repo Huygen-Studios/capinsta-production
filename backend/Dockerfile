@@ -66,8 +66,8 @@ COPY --from=clipping-runtime-builder \
   /build/target/release/capinsta-clipping-runtime \
   /usr/local/bin/capinsta-clipping-runtime
 
-RUN apt-get update -qq \
-  && apt-get install -y -qq --no-install-recommends -o=Dpkg::Use-Pty=0 \
+RUN (apt-get update || (sleep 2 && apt-get update)) \
+  && apt-get install -y --fix-missing --no-install-recommends -o Acquire::Retries=3 -o=Dpkg::Use-Pty=0 \
     curl \
     gosu \
     wget \
@@ -86,6 +86,7 @@ RUN python -m pip install --upgrade pip \
   && python -m pip install --upgrade setuptools wheel \
   && python -m pip install -r requirements.txt \
   && if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then python -m pip install -r requirements-stable-ts.txt; else echo "alignment_stack_skipped"; fi \
+  && (apt-get update || true) \
   && python -m playwright install-deps chromium \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
