@@ -569,10 +569,11 @@ app.add_middleware(
     allow_headers=[
         "authorization",
         "content-type",
+        "idempotency-key",
+        "x-idempotency-key",
         "x-upload-offset",
         "x-request-id",
         "x-correlation-id",
-        "x-idempotency-key",
         "accept",
         "origin",
     ],
