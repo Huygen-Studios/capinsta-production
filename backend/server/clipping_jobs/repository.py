@@ -766,6 +766,108 @@ class ProcessingJobLeaseRepository:
                 )
                 return [dict(row) for row in await cursor.fetchall()]
 
+    async def upsert_worker_heartbeat(
+        self,
+        *,
+        worker_id: str,
+        role: str,
+        supported_job_types: tuple[str, ...],
+        build_sha: str = "unknown",
+        active_job_count: int = 0,
+        status: str = "active",
+        claimed_job: bool = False,
+    ) -> None:
+        try:
+            async with self.database.connection() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        INSERT INTO processing_worker_instances (
+                          worker_id, build_sha, role, supported_job_types, started_at,
+                          last_poll_at, last_successful_claim_at, active_job_count, status,
+                          created_at, updated_at
+                        ) VALUES (
+                          %s, %s, %s, %s, now(), now(),
+                          CASE WHEN %s THEN now() ELSE NULL END,
+                          %s, %s, now(), now()
+                        )
+                        ON CONFLICT (worker_id) DO UPDATE SET
+                          build_sha = EXCLUDED.build_sha,
+                          role = EXCLUDED.role,
+                          supported_job_types = EXCLUDED.supported_job_types,
+                          last_poll_at = now(),
+                          last_successful_claim_at = CASE
+                            WHEN %s THEN now()
+                            ELSE processing_worker_instances.last_successful_claim_at
+                          END,
+                          active_job_count = EXCLUDED.active_job_count,
+                          status = EXCLUDED.status,
+                          updated_at = now()
+                        """,
+                        (
+                            worker_id,
+                            build_sha,
+                            role,
+                            list(supported_job_types),
+                            claimed_job,
+                            active_job_count,
+                            status,
+                            claimed_job,
+                        ),
+                    )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("worker_heartbeat_failed worker_id=%s exc=%s", worker_id, exc)
+
+    async def get_worker_capabilities(self) -> dict[str, Any]:
+        try:
+            async with self.database.connection() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        SELECT worker_id, build_sha, role, supported_job_types,
+                               started_at, last_poll_at, last_successful_claim_at,
+                               active_job_count, status,
+                               EXTRACT(EPOCH FROM (now() - last_poll_at)) AS last_poll_age_seconds
+                        FROM processing_worker_instances
+                        WHERE status = 'active' AND last_poll_at >= now() - interval '60 seconds'
+                        """
+                    )
+                    rows = [dict(row) for row in (await cursor.fetchall() or [])]
+
+            supported_all: set[str] = set()
+            roles_active: set[str] = set()
+            min_age: float | None = None
+
+            for r in rows:
+                for j in (r.get("supported_job_types") or []):
+                    supported_all.add(j)
+                roles_active.add(r.get("role", ""))
+                age = float(r.get("last_poll_age_seconds") or 0.0)
+                if min_age is None or age < min_age:
+                    min_age = age
+
+            return {
+                "active_workers": rows,
+                "media_worker_available": "media_probe" in supported_all or "media" in roles_active or "production-media" in [r.get("worker_id") for r in rows],
+                "ai_worker_available": "transcription" in supported_all or "ai" in roles_active or "production-ai" in [r.get("worker_id") for r in rows],
+                "runtime_worker_available": "project_derivation" in supported_all or "runtime" in roles_active or "production-runtime" in [r.get("worker_id") for r in rows],
+                "export_worker_available": "clip_export" in supported_all or "export" in roles_active or "production-export" in [r.get("worker_id") for r in rows],
+                "supported_job_types": sorted(list(supported_all)),
+                "last_heartbeat_age_seconds": min_age if min_age is not None else 999999.0,
+            }
+        except Exception as exc:
+            return {
+                "active_workers": [],
+                "media_worker_available": False,
+                "ai_worker_available": False,
+                "runtime_worker_available": False,
+                "export_worker_available": False,
+                "supported_job_types": [],
+                "last_heartbeat_age_seconds": 999999.0,
+                "error": str(exc),
+            }
+
 
 class ProcessingJobRecoveryService:
     def __init__(

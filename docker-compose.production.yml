@@ -164,6 +164,12 @@ services:
         max-size: 10m
         max-file: "3"
 
+  backend-migrator:
+    <<: *backend-image
+    command: python -m server.production.migrate
+    environment:
+      <<: *backend-env
+
   api:
     <<: *backend-image
     command: uvicorn server.main:app --host 0.0.0.0 --port 10000 --proxy-headers --forwarded-allow-ips=*
@@ -196,6 +202,7 @@ services:
       ENABLE_DURABLE_PROCESSING_WORKER: "true"
       PROCESSING_WORKER_ID: production-media
       PROCESSING_WORKER_MAX_CONCURRENCY: "1"
+      PROCESSING_WORKER_REQUIRED_JOB_TYPES: media_probe,proxy_generation,audio_extraction,thumbnail_generation,waveform_generation
       ENABLE_MEDIA_PROBE_HANDLER: "true"
       ENABLE_MEDIA_VARIANT_HANDLERS: "true"
       MEDIA_VARIANT_JOB_TYPES: proxy_generation,audio_extraction,thumbnail_generation,waveform_generation
@@ -207,6 +214,7 @@ services:
       ENABLE_DURABLE_PROCESSING_WORKER: "true"
       PROCESSING_WORKER_ID: production-ai
       PROCESSING_WORKER_MAX_CONCURRENCY: "1"
+      PROCESSING_WORKER_REQUIRED_JOB_TYPES: transcription,silence_analysis,transcript_analysis,viral_candidate_analysis,smart_reframe
       ENABLE_DURABLE_TRANSCRIPTION_HANDLER: "true"
       ENABLE_TRANSCRIPT_ANALYSIS_HANDLERS: "true"
       ENABLE_TRANSCRIPT_ANALYSIS_PLANNING: "true"
@@ -221,6 +229,7 @@ services:
       ENABLE_DURABLE_PROCESSING_WORKER: "true"
       PROCESSING_WORKER_ID: production-runtime
       PROCESSING_WORKER_MAX_CONCURRENCY: "1"
+      PROCESSING_WORKER_REQUIRED_JOB_TYPES: project_derivation,project_conversion
       ENABLE_CLIPPING_RUST_RUNTIME: "true"
       ENABLE_PROJECT_DERIVATION_HANDLER: "true"
       ENABLE_PROJECT_CONVERSION_HANDLER: "true"
@@ -232,6 +241,7 @@ services:
       ENABLE_DURABLE_PROCESSING_WORKER: "true"
       PROCESSING_WORKER_ID: production-export
       PROCESSING_WORKER_MAX_CONCURRENCY: "1"
+      PROCESSING_WORKER_REQUIRED_JOB_TYPES: clip_export
       ENABLE_CLIPPING_EXPORT_HANDLER: "true"
       ENABLE_CLIPPING_RUST_RUNTIME: "true"
 
@@ -241,10 +251,16 @@ services:
       - sh
       - -c
       - >-
+        counter=0;
         while true; do
-          python -m server.production.cleanup --batch-size 500 &&
-          python -m server.production.account_deletion --batch-size 10;
-          sleep 3600;
+          python -m server.production.clipper_session_cleanup --batch-size 50;
+          if [ $$counter -ge 60 ]; then
+            python -m server.production.cleanup --batch-size 500 &&
+            python -m server.production.account_deletion --batch-size 10;
+            counter=0;
+          fi;
+          counter=$$((counter + 1));
+          sleep 60;
         done
     expose: []
     cpus: 0.5

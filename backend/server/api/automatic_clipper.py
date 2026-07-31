@@ -4,8 +4,10 @@ import os
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from ..auth import current_user
+from ..automatic_clipper.session_service import ClipperSessionService
 from ..automatic_clipper.workflow import AutomaticClipperWorkflowService
 from ..clipping_orchestration.errors import OrchestrationError
 from ..clipping_persistence.database import DurableDatabase
@@ -13,6 +15,10 @@ from ..clipping_persistence.errors import PersistenceError
 from ..clipping_persistence.models import AuthenticatedActor
 
 router = APIRouter(prefix="/clipping/workflows", tags=["automatic-clipper"])
+
+
+class TransferToEditorRequest(BaseModel):
+    clipProjectId: str
 
 
 def _enabled() -> bool:
@@ -40,6 +46,10 @@ def _service() -> AutomaticClipperWorkflowService:
     return AutomaticClipperWorkflowService(DurableDatabase())
 
 
+def _session_service() -> ClipperSessionService:
+    return ClipperSessionService(DurableDatabase())
+
+
 def _raise(error: Exception) -> None:
     if isinstance(error, OrchestrationError):
         raise HTTPException(
@@ -55,7 +65,7 @@ def _raise(error: Exception) -> None:
 @router.get("/{media_asset_id}")
 async def workflow_status(media_asset_id: UUID):
     result = await _service()._snapshot(_actor(), media_asset_id)
-    response = _service()._response(result)
+    response = await _service()._response(result)
     if response["status"] == "not_found":
         raise HTTPException(
             404,
@@ -75,4 +85,30 @@ async def advance_workflow(media_asset_id: UUID):
             )
         return response
     except (OrchestrationError, PersistenceError) as error:
+        _raise(error)
+
+
+@router.post("/{media_asset_id}/heartbeat")
+async def session_heartbeat(media_asset_id: UUID):
+    session = await _session_service().record_heartbeat(_actor(), media_asset_id)
+    return {"status": session.get("status", "active"), "mediaAssetId": str(media_asset_id)}
+
+
+@router.post("/{media_asset_id}/transfer-to-editor")
+async def transfer_to_editor(media_asset_id: UUID, payload: TransferToEditorRequest):
+    session = await _session_service().transfer_to_editor(
+        _actor(), media_asset_id, payload.clipProjectId
+    )
+    return {
+        "status": session.get("status", "transferred_to_editor"),
+        "mediaAssetId": str(media_asset_id),
+        "clipProjectId": payload.clipProjectId,
+    }
+
+
+@router.delete("/{media_asset_id}")
+async def delete_workflow_session(media_asset_id: UUID):
+    try:
+        return await _session_service().delete_session_media(_actor(), media_asset_id)
+    except Exception as error:
         _raise(error)

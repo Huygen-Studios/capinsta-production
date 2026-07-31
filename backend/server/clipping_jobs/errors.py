@@ -23,6 +23,7 @@ JOB_ERROR_CATEGORIES = frozenset(
         "database_temporarily_unavailable",
         "worker_shutting_down",
         "worker_not_configured",
+        "required_handler_missing",
     }
 )
 

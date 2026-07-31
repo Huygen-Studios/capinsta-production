@@ -430,16 +430,39 @@ class ProcessingWorker:
         if not self.config.enabled:
             self.events.emit("worker_disabled", worker_id=self.config.worker_id)
             return
+        if self.config.required_job_types:
+            missing = [
+                j for j in self.config.required_job_types
+                if j not in self.registry.supported_job_types
+            ]
+            if missing:
+                raise JobOrchestrationError(
+                    "required_handler_missing",
+                    f"Worker is missing required handlers: {','.join(missing)}"
+                )
         next_recovery = 0.0
         transient_failures = 0
         self.events.emit(
             "worker_started",
             worker_id=self.config.worker_id,
             status="ready",
+            supported_job_types=",".join(self.registry.supported_job_types),
+            required_job_types=",".join(self.config.required_job_types),
         )
+        worker_role = self.config.worker_id.split("-")[-1] if "-" in self.config.worker_id else "worker"
+        build_sha = os.getenv("BUILD_SHA", os.getenv("CAPINSTA_IMAGE_TAG", "unknown"))
         while not self._stopping.is_set():
             self._active = {task for task in self._active if not task.done()}
             now = time.monotonic()
+            if hasattr(self.repository, "upsert_worker_heartbeat"):
+                await self.repository.upsert_worker_heartbeat(
+                    worker_id=self.config.worker_id,
+                    role=worker_role,
+                    supported_job_types=self.registry.supported_job_types,
+                    build_sha=build_sha,
+                    active_job_count=self.active_job_count,
+                    status="active",
+                )
             if self.recovery is not None and now >= next_recovery:
                 try:
                     result = await self.recovery.run_once()
@@ -491,6 +514,16 @@ class ProcessingWorker:
                 if claim is None:
                     break
                 claimed_any = True
+                if hasattr(self.repository, "upsert_worker_heartbeat"):
+                    await self.repository.upsert_worker_heartbeat(
+                        worker_id=self.config.worker_id,
+                        role=worker_role,
+                        supported_job_types=self.registry.supported_job_types,
+                        build_sha=build_sha,
+                        active_job_count=self.active_job_count,
+                        status="active",
+                        claimed_job=True,
+                    )
                 self.events.emit(
                     "jobs_claimed",
                     job_id=claim.job_id,
@@ -518,6 +551,15 @@ class ProcessingWorker:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
+        if hasattr(self.repository, "upsert_worker_heartbeat"):
+            await self.repository.upsert_worker_heartbeat(
+                worker_id=self.config.worker_id,
+                role=worker_role,
+                supported_job_types=self.registry.supported_job_types,
+                build_sha=build_sha,
+                active_job_count=0,
+                status="stopped",
+            )
         self.events.emit(
             "worker_stopped",
             worker_id=self.config.worker_id,

@@ -485,13 +485,107 @@ def _silero_vad_report() -> tuple[dict[str, Any], bool]:
     return report, ok
 
 
+def _worker_and_clipper_report() -> tuple[dict[str, Any], bool]:
+    db_url = _database_url()
+    if not db_url or psycopg is None:
+        return {
+            "workerAndClipperStatus": {
+                "status": "database_unavailable",
+                "mediaWorkerAvailable": False,
+                "aiWorkerAvailable": False,
+                "runtimeWorkerAvailable": False,
+                "exportWorkerAvailable": False,
+            }
+        }, False
+
+    try:
+        with psycopg.connect(db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT worker_id, build_sha, role, supported_job_types,
+                           EXTRACT(EPOCH FROM (now() - last_poll_at)) AS poll_age_seconds
+                    FROM processing_worker_instances
+                    WHERE status = 'active' AND last_poll_at >= now() - interval '60 seconds'
+                    """
+                )
+                rows = cur.fetchall() or []
+                active_workers = []
+                supported_all: set[str] = set()
+                for r in rows:
+                    w_id, sha, role, job_types, age = r
+                    active_workers.append({"workerId": w_id, "role": role, "pollAgeSeconds": float(age or 0.0)})
+                    if job_types:
+                        for jt in job_types:
+                            supported_all.add(jt)
+
+                cur.execute(
+                    """
+                    SELECT EXTRACT(EPOCH FROM (now() - MIN(created_at))) AS oldest_queued_age
+                    FROM processing_jobs
+                    WHERE status = 'queued'
+                    """
+                )
+                oldest_row = cur.fetchone()
+                oldest_queued_age = float(oldest_row[0]) if oldest_row and oldest_row[0] is not None else 0.0
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*) FROM automatic_clipper_sessions
+                    WHERE deleted_at IS NULL AND status = 'abandon_requested'
+                    """
+                )
+                abandon_row = cur.fetchone()
+                abandon_count = int(abandon_row[0]) if abandon_row else 0
+
+        media_avail = "media_probe" in supported_all or any(w["role"] in {"media", "production-media"} for w in active_workers)
+        ai_avail = "transcription" in supported_all or any(w["role"] in {"ai", "production-ai"} for w in active_workers)
+        runtime_avail = "project_derivation" in supported_all or any(w["role"] in {"runtime", "production-runtime"} for w in active_workers)
+        export_avail = "clip_export" in supported_all or any(w["role"] in {"export", "production-export"} for w in active_workers)
+
+        status_code = "workers_ready"
+        ok = True
+        if not media_avail:
+            status_code = "media_worker_offline"
+            ok = False
+        elif oldest_queued_age > 300:
+            status_code = "queued_media_jobs_stalled"
+            ok = False
+
+        return {
+            "workerAndClipperStatus": {
+                "status": status_code,
+                "mediaWorkerAvailable": media_avail,
+                "aiWorkerAvailable": ai_avail,
+                "runtimeWorkerAvailable": runtime_avail,
+                "exportWorkerAvailable": export_avail,
+                "mediaProbeHandlerRegistered": "media_probe" in supported_all,
+                "requiredVariantHandlersRegistered": all(
+                    h in supported_all for h in ("proxy_generation", "audio_extraction", "thumbnail_generation", "waveform_generation")
+                ),
+                "oldestQueuedJobAgeSeconds": oldest_queued_age,
+                "abandonRequestedSessionsCount": abandon_count,
+                "activeWorkersCount": len(active_workers),
+            }
+        }, ok
+    except Exception as exc:
+        return {
+            "workerAndClipperStatus": {
+                "status": "check_failed",
+                "error": str(exc),
+                "mediaWorkerAvailable": False,
+            }
+        }, False
+
+
 def build_report(*, write_test: bool = False) -> tuple[dict[str, Any], bool]:
     env, env_ok = _safe_env_report()
     db, db_ok = _db_report()
     legacy, legacy_ok = _legacy_caption_report()
     r2, r2_ok = _r2_runtime_report(write_test=write_test)
     silero, silero_ok = _silero_vad_report()
-    ok = env_ok and db_ok and legacy_ok and r2_ok and silero_ok
+    workers, workers_ok = _worker_and_clipper_report()
+    ok = env_ok and db_ok and legacy_ok and r2_ok and silero_ok and workers_ok
     report = {
         "status": "ok" if ok else "missing_setup",
         **env,
@@ -499,6 +593,7 @@ def build_report(*, write_test: bool = False) -> tuple[dict[str, Any], bool]:
         **legacy,
         **r2,
         **silero,
+        **workers,
     }
     return report, ok
 

@@ -46,6 +46,7 @@ def _float(name: str, default: float, minimum: float, maximum: float) -> float:
 class ProcessingWorkerConfig:
     enabled: bool = False
     worker_id: str = ""
+    required_job_types: tuple[str, ...] = ()
     poll_seconds: float = 2.0
     maximum_concurrency: int = 1
     shutdown_grace_seconds: int = 30
@@ -64,9 +65,14 @@ class ProcessingWorkerConfig:
         worker_id = configured_id or (
             f"{socket.gethostname()}-{os.getpid()}-{uuid4().hex[:8]}"
         )
+        raw_required = (os.getenv("PROCESSING_WORKER_REQUIRED_JOB_TYPES") or "").strip()
+        required_job_types = tuple(
+            job.strip() for job in raw_required.split(",") if job.strip()
+        )
         config = cls(
             enabled=_enabled(os.getenv("ENABLE_DURABLE_PROCESSING_WORKER")),
             worker_id=worker_id,
+            required_job_types=required_job_types,
             poll_seconds=_float(
                 "PROCESSING_WORKER_POLL_SECONDS", 2.0, 0.05, 60.0
             ),

@@ -20,6 +20,7 @@ import {
 	advanceWorkflow,
 	cancelExport,
 	createExport,
+	deleteClipperSession,
 	discardClipperUpload,
 	getExport,
 	getExportDownload,
@@ -33,6 +34,8 @@ import {
 	rejectCandidate,
 	requestConversion,
 	selectCandidate,
+	sendSessionHeartbeat,
+	transferSessionToEditor,
 	uploadClipperMedia,
 	type ClipperLayoutStrategy,
 	type ClipperSelection,
@@ -119,15 +122,14 @@ export function ClipperWorkspace() {
 	const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
+	const [deletingSession, setDeletingSession] = useState(false);
+
 	const abortRef = useRef<AbortController | null>(null);
 	const selectedFileRef = useRef<File | null>(null);
 	const pauseRequestedRef = useRef(false);
 
 	const projectId = workflow?.projectId ?? null;
-	const stages = useMemo(
-		() => Object.entries(workflow?.stages ?? {}),
-		[workflow?.stages],
-	);
+	const activeMediaAssetId = workflow?.mediaAssetId ?? null;
 
 	const fail = useCallback((caught: unknown) => {
 		setError(
@@ -142,8 +144,17 @@ export function ClipperWorkspace() {
 		for (let attempt = 0; attempt < 3_600; attempt += 1) {
 			const snapshot = await advanceWorkflow(mediaAssetId);
 			setWorkflow(snapshot);
+
+			// Check for stalled condition
+			const stalledCode = Reflect.get(snapshot, "stalledCode");
+			const stalledMessage = Reflect.get(snapshot, "stalledMessage");
+			if (stalledCode) {
+				setMessage(String(stalledMessage || "Processing stalled waiting for worker."));
+			}
+
 			const failure = stageFailure(snapshot.stages);
 			if (failure) throw new Error(failure);
+
 			if (snapshot.status === "candidate_review" && snapshot.projectId) {
 				setCandidates(await listCandidates(snapshot.projectId));
 				setProjectRevision(snapshot.projectRevision);
@@ -168,6 +179,7 @@ export function ClipperWorkspace() {
 				onProgress: setUploadProgress,
 				signal: abortRef.current.signal,
 			});
+			setUploadProgress(100);
 			window.localStorage.setItem(CLIPPER_MEDIA_STORAGE_KEY, mediaAssetId);
 			setMessage(
 				"Processing, transcribing and finding your strongest moments…",
@@ -176,6 +188,28 @@ export function ClipperWorkspace() {
 		} catch (caught) {
 			if (pauseRequestedRef.current) return;
 			fail(caught);
+		}
+	};
+
+	const handleExplicitCancelAndDelete = async () => {
+		if (!activeMediaAssetId && !window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY)) {
+			setState("upload");
+			return;
+		}
+		const mediaId = activeMediaAssetId || window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
+		if (!mediaId) return;
+
+		setDeletingSession(true);
+		try {
+			await deleteClipperSession(mediaId);
+		} catch (caught) {
+			console.warn("Session deletion request error:", caught);
+		} finally {
+			window.localStorage.removeItem(CLIPPER_MEDIA_STORAGE_KEY);
+			setWorkflow(null);
+			setDeletingSession(false);
+			setState("upload");
+			setMessage("");
 		}
 	};
 
@@ -255,9 +289,10 @@ export function ClipperWorkspace() {
 	};
 
 	const preview = async () => {
-		if (!projectId || projectRevision === null) return;
+		if (!projectId || projectRevision === null || !activeMediaAssetId) return;
 		const previewWindow = window.open("about:blank", "_blank", "noopener");
 		try {
+			await transferSessionToEditor(activeMediaAssetId, projectId);
 			await preparePreview(projectId, projectRevision);
 			const handoff = await prepareHandoff(
 				projectId,
@@ -304,8 +339,9 @@ export function ClipperWorkspace() {
 	};
 
 	const openInCapinsta = async () => {
-		if (!projectId || projectRevision === null) return;
+		if (!projectId || projectRevision === null || !activeMediaAssetId) return;
 		try {
+			await transferSessionToEditor(activeMediaAssetId, projectId);
 			const handoff = await prepareHandoff(
 				projectId,
 				projectRevision,
@@ -317,10 +353,12 @@ export function ClipperWorkspace() {
 		}
 	};
 
+	// Session restoration
 	useEffect(() => {
 		const mediaAssetId = window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
 		if (mediaAssetId) {
 			queueMicrotask(() => {
+				setUploadProgress(100);
 				setState("processing");
 				setMessage("Restoring your private clipping workflow…");
 				void pollWorkflow(mediaAssetId).catch(fail);
@@ -330,6 +368,21 @@ export function ClipperWorkspace() {
 			abortRef.current?.abort();
 		};
 	}, [fail, pollWorkflow]);
+
+	// Session heartbeat timer (every 30s)
+	useEffect(() => {
+		const mediaId = activeMediaAssetId || window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
+		if (!mediaId || state === "upload" || state === "error" || deletingSession) {
+			return;
+		}
+		const timer = setInterval(() => {
+			if (!document.hidden) {
+				void sendSessionHeartbeat(mediaId).catch(() => {});
+			}
+		}, 30_000);
+
+		return () => clearInterval(timer);
+	}, [activeMediaAssetId, state, deletingSession]);
 
 	return (
 		<div className="marketing-theme min-h-screen bg-background bg-grid-paper text-foreground">
@@ -372,36 +425,69 @@ export function ClipperWorkspace() {
 
 				{state === "processing" && (
 					<Card className="mx-auto max-w-3xl border-2">
-						<CardHeader>
+						<CardHeader className="flex flex-row items-center justify-between">
 							<CardTitle>{message || "Processing your video…"}</CardTitle>
+							<Button
+								variant="destructive"
+								size="sm"
+								disabled={deletingSession}
+								onClick={() => void handleExplicitCancelAndDelete()}
+							>
+								{deletingSession ? "Deleting…" : "Cancel & delete video"}
+							</Button>
 						</CardHeader>
 						<CardContent className="space-y-5">
-							{uploadProgress < 100 && <Progress value={uploadProgress} />}
-							{uploadProgress < 100 && (
-								<Button
-									variant="outline"
-									onClick={() => {
-										pauseRequestedRef.current = true;
-										abortRef.current?.abort();
-										setState("paused");
-									}}
-								>
-									Pause upload
-								</Button>
+							{uploadProgress < 100 ? (
+								<>
+									<Progress value={uploadProgress} />
+									<Button
+										variant="outline"
+										onClick={() => {
+											pauseRequestedRef.current = true;
+											abortRef.current?.abort();
+											setState("paused");
+										}}
+									>
+										Pause upload
+									</Button>
+								</>
+							) : (
+								<p className="text-sm font-bold text-green-600">Source uploaded (100%)</p>
 							)}
-							<div className="grid gap-2 sm:grid-cols-2">
-								{stages.map(([name, value]) => (
-									<div key={name} className="rounded-sm border p-3 text-sm">
-										<span className="font-bold capitalize">{name}</span>
-										<span className="float-right text-muted-foreground">
-											{String(
-												typeof value === "object" && value !== null
-													? (Reflect.get(value, "status") ?? "working")
-													: "working",
-											)}
-										</span>
-									</div>
-								))}
+
+							<div className="grid gap-3 sm:grid-cols-2">
+								{workflow?.stages && Object.entries(workflow.stages).map(([name, value]) => {
+									if (name === "variants" && typeof value === "object" && value !== null) {
+										const varObj = value as Record<string, any>;
+										const aggStatus = varObj.status || "working";
+										return (
+											<div key={name} className="sm:col-span-2 rounded-sm border p-4 text-sm bg-muted/20">
+												<div className="flex justify-between font-bold mb-2">
+													<span className="capitalize">Media Variants</span>
+													<span className="capitalize text-primary">{aggStatus}</span>
+												</div>
+												<div className="grid grid-cols-2 gap-2 text-xs">
+													<div>Proxy: <span className="font-semibold">{varObj.proxy?.status || "not_requested"}</span></div>
+													<div>Audio (Required): <span className="font-semibold">{varObj.audio?.status || "not_requested"}</span></div>
+													<div>Thumbnail: <span className="font-semibold">{varObj.thumbnail?.status || "not_requested"}</span></div>
+													<div>Waveform: <span className="font-semibold">{varObj.waveform?.status || "not_requested"}</span></div>
+												</div>
+											</div>
+										);
+									}
+									return (
+										<div key={name} className="rounded-sm border p-3 text-sm">
+											<span className="font-bold capitalize">{name}</span>
+											<span className="float-right font-semibold text-muted-foreground capitalize">
+												{String(
+													typeof value === "object" && value !== null
+														? (Reflect.get(value, "status") ?? "not_requested")
+														: "not_requested",
+												)}
+											</span>
+										</div>
+									);
+								})}
 							</div>
 						</CardContent>
 					</Card>
@@ -414,25 +500,42 @@ export function ClipperWorkspace() {
 						</CardHeader>
 						<CardContent className="space-y-4">
 							<Progress value={uploadProgress} />
-							<Button
-								onClick={() => {
-									const file = selectedFileRef.current;
-									if (file) void upload(file);
-								}}
-							>
-								Resume upload
-							</Button>
+							<div className="flex gap-2">
+								<Button
+									onClick={() => {
+										const file = selectedFileRef.current;
+										if (file) void upload(file);
+									}}
+								>
+									Resume upload
+								</Button>
+								<Button
+									variant="destructive"
+									onClick={() => void handleExplicitCancelAndDelete()}
+								>
+									Cancel & delete video
+								</Button>
+							</div>
 						</CardContent>
 					</Card>
 				)}
 
 				{state === "candidate_review" && (
 					<div className="space-y-5">
-						<div>
-							<h1 className="text-3xl font-black">Ranked moments</h1>
-							<p className="text-muted-foreground">
-								Scores are editorial signals, not guarantees of virality.
-							</p>
+						<div className="flex justify-between items-center">
+							<div>
+								<h1 className="text-3xl font-black">Ranked moments</h1>
+								<p className="text-muted-foreground">
+									Scores are editorial signals, not guarantees of virality.
+								</p>
+							</div>
+							<Button
+								variant="destructive"
+								size="sm"
+								onClick={() => void handleExplicitCancelAndDelete()}
+							>
+								Cancel & delete video
+							</Button>
 						</div>
 						<div className="grid gap-4 md:grid-cols-2">
 							{candidates.length === 0 && (
@@ -729,9 +832,9 @@ export function ClipperWorkspace() {
 							<p>{error}</p>
 							{error.startsWith("Video exceeds the Storage limit") && (
 								<p className="text-sm text-muted-foreground">
-									Admins: Supabase Dashboard â†’ Storage â†’ Settings â†’
-									Global file size limit, then Storage â†’ source-media â†’
-									Edit bucket â†’ File size limit.
+									Admins: Supabase Dashboard → Storage → Settings →
+									Global file size limit, then Storage → source-media →
+									Edit bucket → File size limit.
 								</p>
 							)}
 							<div className="flex gap-2">
@@ -742,7 +845,7 @@ export function ClipperWorkspace() {
 									variant="outline"
 									onClick={async () => {
 										try {
-											await discardClipperUpload(selectedFileRef.current);
+											await handleExplicitCancelAndDelete();
 										} finally {
 											window.localStorage.removeItem(CLIPPER_MEDIA_STORAGE_KEY);
 											window.location.reload();

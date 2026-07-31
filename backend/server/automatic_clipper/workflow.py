@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from server.clipping_jobs.repository import ProcessingJobLeaseRepository
 from server.clipping_orchestration.config import ClippingOrchestrationConfig
 from server.clipping_orchestration.contracts import CanvasInput, CreateProjectRequest
 from server.clipping_orchestration.repository import ClippingOrchestrationRepository
@@ -12,10 +15,20 @@ from server.durable_transcription.planning import TranscriptionPlanningService
 from server.transcript_analysis.planning import TranscriptAnalysisPlanningService
 
 from .repository import AutomaticClipperRepository
+from .session_service import ClipperSessionService
+
+try:
+    from psycopg.types.json import Jsonb
+except ImportError:  # pragma: no cover
+    Jsonb = None
+
+
+def _json(value: Any) -> Any:
+    return Jsonb(value) if Jsonb is not None else value
 
 
 class AutomaticClipperWorkflowService:
-    """Idempotently advances existing Stage 2/3 planners; stores no workflow row."""
+    """Idempotently advances Stage 2/3 planners; manages durable session lifecycle."""
 
     def __init__(self, database: DurableDatabase) -> None:
         self.database = database
@@ -69,13 +82,40 @@ class AutomaticClipperWorkflowService:
         }
 
     @staticmethod
-    def _response(snapshot: dict[str, Any]) -> dict[str, Any]:
+    def _aggregate_variants_status(
+        proxy: dict[str, Any],
+        audio: dict[str, Any],
+        thumbnail: dict[str, Any],
+        waveform: dict[str, Any],
+    ) -> str:
+        statuses = {proxy["status"], audio["status"], thumbnail["status"], waveform["status"]}
+        if statuses == {"not_requested"}:
+            return "not_requested"
+        if audio["status"] in {"failed", "cancelled", "expired"}:
+            return "failed"
+        if any(s in {"claimed", "running", "processing", "uploading", "verifying"} for s in statuses):
+            return "running"
+        if audio["status"] == "succeeded":
+            optional = [proxy["status"], thumbnail["status"], waveform["status"]]
+            if any(s in {"failed", "cancelled", "expired"} for s in optional):
+                return "degraded"
+            return "succeeded"
+        if audio["status"] in {"queued", "retry_wait"}:
+            return "queued"
+        return "working"
+
+    async def _response(
+        self, snapshot: dict[str, Any], worker_caps: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if snapshot.get("notFound"):
             return {"status": "not_found"}
         asset = snapshot["asset"]
         transcript = snapshot["transcript"]
         project = snapshot["project"]
         latest = snapshot["latestJobs"]
+
+        if worker_caps is None:
+            worker_caps = await ProcessingJobLeaseRepository(self.database).get_worker_capabilities()
 
         def job(job_type: str) -> dict[str, Any]:
             value = latest.get(job_type)
@@ -87,34 +127,78 @@ class AutomaticClipperWorkflowService:
                     "stage": value["current_stage"],
                     "failureCode": value["failure_code"],
                     "failureMessage": value["failure_message"],
+                    "createdAt": value["created_at"].isoformat() if value.get("created_at") else None,
                 }
                 if value
                 else {"status": "not_requested"}
             )
 
+        proxy_job = job("proxy_generation")
+        audio_job = job("audio_extraction")
+        thumb_job = job("thumbnail_generation")
+        wave_job = job("waveform_generation")
+
+        variants_aggregate = self._aggregate_variants_status(
+            proxy_job, audio_job, thumb_job, wave_job
+        )
+
+        probe_job = job("media_probe")
+        transcription_job = job("transcription")
+        analysis_job = job("transcript_analysis")
+        candidate_job = job("viral_candidate_analysis")
+
+        # Determine if stalled or worker offline
+        stalled_code: str | None = None
+        stalled_message: str | None = None
+
+        if probe_job["status"] in {"queued", "retry_wait"} and not worker_caps.get("media_worker_available", False):
+            stalled_code = "media_worker_unavailable"
+            stalled_message = "The media-processing worker is offline or does not support media_probe jobs."
+        elif audio_job["status"] in {"queued", "retry_wait"} and not worker_caps.get("media_worker_available", False):
+            stalled_code = "media_worker_unavailable"
+            stalled_message = "The media-processing worker is offline or does not support audio_extraction jobs."
+        elif transcription_job["status"] in {"queued", "retry_wait"} and not worker_caps.get("ai_worker_available", False):
+            stalled_code = "ai_worker_unavailable"
+            stalled_message = "The AI processing worker is offline or does not support transcription jobs."
+
+        overall_status = "processing"
+        if candidate_job["status"] == "succeeded":
+            overall_status = "candidate_review"
+        elif stalled_code is not None:
+            overall_status = "stalled"
+        elif any(
+            j["status"] == "failed"
+            for j in (probe_job, audio_job, transcription_job, candidate_job)
+        ):
+            overall_status = "failed"
+
         return {
-            "status": (
-                "candidate_review"
-                if latest.get("viral_candidate_analysis", {}).get("status")
-                == "succeeded"
-                else "processing"
-            ),
+            "status": overall_status,
+            "stalledCode": stalled_code,
+            "stalledMessage": stalled_message,
             "mediaAssetId": str(asset["id"]),
             "projectId": project["id"] if project else None,
             "projectRevision": project["revision"] if project else None,
             "transcriptId": transcript["id"] if transcript else None,
+            "workerCapabilities": {
+                "mediaWorkerAvailable": worker_caps.get("media_worker_available", False),
+                "aiWorkerAvailable": worker_caps.get("ai_worker_available", False),
+                "runtimeWorkerAvailable": worker_caps.get("runtime_worker_available", False),
+                "exportWorkerAvailable": worker_caps.get("export_worker_available", False),
+            },
             "stages": {
-                "upload": {"status": "completed"},
-                "probe": job("media_probe"),
+                "upload": {"status": "completed", "progress": 100},
+                "probe": probe_job,
                 "variants": {
-                    "proxy": job("proxy_generation"),
-                    "audio": job("audio_extraction"),
-                    "thumbnail": job("thumbnail_generation"),
-                    "waveform": job("waveform_generation"),
+                    "status": variants_aggregate,
+                    "proxy": proxy_job,
+                    "audio": audio_job,
+                    "thumbnail": thumb_job,
+                    "waveform": wave_job,
                 },
-                "transcription": job("transcription"),
-                "analysis": job("transcript_analysis"),
-                "candidates": job("viral_candidate_analysis"),
+                "transcription": transcription_job,
+                "analysis": analysis_job,
+                "candidates": candidate_job,
                 "smartReframe": job("smart_reframe"),
                 "derivation": job("project_derivation"),
                 "conversion": job("project_conversion"),
@@ -125,28 +209,62 @@ class AutomaticClipperWorkflowService:
     async def advance(
         self, actor: AuthenticatedActor, media_asset_id: UUID
     ) -> dict[str, Any]:
+        # Track session heartbeat
+        await ClipperSessionService(self.database).get_or_create_session(actor, media_asset_id)
+        await ClipperSessionService(self.database).record_heartbeat(actor, media_asset_id)
+
         snapshot = await self._snapshot(actor, media_asset_id)
         if snapshot.get("notFound"):
-            return self._response(snapshot)
+            return await self._response(snapshot)
+
         asset = snapshot["asset"]
+        latest = snapshot["latestJobs"]
+
+        # Ensure media_probe job exists if media asset is uploaded but probe job was omitted
+        if "media_probe" not in latest and asset["status"] in {"ready_for_probe", "queued", "upload_completed"}:
+            async with self.database.transaction() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        INSERT INTO processing_jobs (
+                          id, owner_user_id, media_asset_id, job_type, status, input
+                        ) VALUES (%s, %s, %s, 'media_probe', 'queued', %s)
+                        ON CONFLICT (id) DO NOTHING
+                        """,
+                        (
+                            uuid4(),
+                            actor.user_id,
+                            media_asset_id,
+                            _json({
+                                "schemaVersion": 1,
+                                "jobType": "media_probe",
+                                "mediaAssetId": str(media_asset_id),
+                            }),
+                        ),
+                    )
+            snapshot = await self._snapshot(actor, media_asset_id)
+            latest = snapshot["latestJobs"]
+
+        if asset["status"] != "ready":
+            return await self._response(snapshot)
+
         transcript = snapshot["transcript"]
         project = snapshot["project"]
-        if asset["status"] != "ready":
-            return self._response(snapshot)
+
         if transcript is None or transcript["status"] not in {"queued", "transcribing", "normalizing", "ready"}:
             try:
                 await TranscriptionPlanningService(self.database).plan(
                     media_asset_id, language_mode="auto"
                 )
             except Exception as exc:
-                # Not-ready audio is an expected polling state. Other durable
-                # failures remain visible through their jobs and retry policy.
                 if getattr(exc, "category", None) != "invalid_state":
                     raise
             snapshot = await self._snapshot(actor, media_asset_id)
             transcript = snapshot["transcript"]
+
         if transcript is None or transcript["status"] != "ready":
-            return self._response(snapshot)
+            return await self._response(snapshot)
+
         if project is None:
             request = CreateProjectRequest(
                 mediaAssetId=media_asset_id,
@@ -173,6 +291,7 @@ class AutomaticClipperWorkflowService:
             project_id = project_response["projectId"]
         else:
             project_id = project["id"]
+
         await TranscriptAnalysisPlanningService(self.database).plan(
             transcript["id"], include_transcript_review=True, include_silence=True
         )
@@ -182,12 +301,13 @@ class AutomaticClipperWorkflowService:
             latest.get(job_type, {}).get("status") != "succeeded"
             for job_type in ("silence_analysis", "transcript_analysis")
         ):
-            return self._response(snapshot)
+            return await self._response(snapshot)
+
         project = snapshot["project"]
         await AutomaticClipperRepository(self.database).plan_candidates(
             actor, project_id, expected_revision=project["revision"]
         )
-        return self._response(await self._snapshot(actor, media_asset_id))
+        return await self._response(await self._snapshot(actor, media_asset_id))
 
 
 __all__ = ["AutomaticClipperWorkflowService"]

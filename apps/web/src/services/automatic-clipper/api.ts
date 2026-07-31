@@ -1038,3 +1038,38 @@ export async function prepareHandoff(
 		}),
 	);
 }
+
+export async function sendSessionHeartbeat(
+	mediaAssetId: string,
+): Promise<{ status: string }> {
+	return unknownRecordSchema.parse(
+		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}/heartbeat`, {
+			method: "POST",
+		}),
+	) as { status: string };
+}
+
+export async function transferSessionToEditor(
+	mediaAssetId: string,
+	clipProjectId: string,
+): Promise<{ status: string }> {
+	return unknownRecordSchema.parse(
+		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}/transfer-to-editor`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ clipProjectId }),
+		}),
+	) as { status: string };
+}
+
+export async function deleteClipperSession(
+	mediaAssetId: string,
+): Promise<{ status: string }> {
+	return unknownRecordSchema.parse(
+		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}`, {
+			method: "DELETE",
+		}),
+	) as { status: string };
+}
