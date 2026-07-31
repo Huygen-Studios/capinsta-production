@@ -43,14 +43,14 @@ class TranscriptAnalysisPlanningService:
                 await cursor.execute("SELECT * FROM transcripts WHERE id=%s FOR UPDATE", (transcript_id,))
                 transcript_row = await cursor.fetchone()
                 if transcript_row is None:
-                    raise PersistenceError("not_found", "Transcript was not found")
+                    raise PersistenceError("entity_not_found", "Transcript was not found")
                 transcript = dict(transcript_row)
                 if transcript["status"] != "ready" or transcript["deleted_at"] is not None:
                     raise PersistenceError("invalid_state", "Transcript is not ready for analysis")
                 await cursor.execute("SELECT * FROM media_assets WHERE id=%s FOR UPDATE", (transcript["media_asset_id"],))
                 asset_row = await cursor.fetchone()
                 if asset_row is None:
-                    raise PersistenceError("not_found", "Media asset was not found")
+                    raise PersistenceError("entity_not_found", "Media asset was not found")
                 asset = dict(asset_row)
                 if asset["status"] != "ready" or asset["deleted_at"] is not None:
                     raise PersistenceError("invalid_state", "Media asset is not ready for analysis")

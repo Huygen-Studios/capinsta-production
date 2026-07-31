@@ -185,8 +185,17 @@ type UploadedPart = { partNumber: number; etag: string; size?: number };
 type SignedPart = { partNumber: number; url: string; expiresAt: string };
 const CLIPPER_UPLOAD_ATTEMPT_KEY = "capinsta:clipper:upload-attempt-v1";
 
-export function clipperUploadAttemptId(
-	storage: Pick<Storage, "getItem" | "setItem"> = window.localStorage,
+export function beginClipperUploadAttempt(
+	storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = window.localStorage,
+	createId: () => string = () => crypto.randomUUID(),
+): string {
+	const created = createId();
+	storage.setItem(CLIPPER_UPLOAD_ATTEMPT_KEY, created);
+	return created;
+}
+
+export function getActiveClipperUploadAttempt(
+	storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = window.localStorage,
 	createId: () => string = () => crypto.randomUUID(),
 ): string {
 	const existing = storage.getItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
@@ -194,6 +203,25 @@ export function clipperUploadAttemptId(
 	const created = createId();
 	storage.setItem(CLIPPER_UPLOAD_ATTEMPT_KEY, created);
 	return created;
+}
+
+export function finishClipperUploadAttempt(
+	storage: Pick<Storage, "getItem" | "removeItem"> = window.localStorage,
+): void {
+	storage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
+}
+
+export function abandonClipperUploadAttempt(
+	storage: Pick<Storage, "getItem" | "removeItem"> = window.localStorage,
+): void {
+	storage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
+}
+
+export function clipperUploadAttemptId(
+	storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = window.localStorage,
+	createId: () => string = () => crypto.randomUUID(),
+): string {
+	return getActiveClipperUploadAttempt(storage, createId);
 }
 
 function clipperResumeKey(attemptId: string, fingerprint: string): string {
@@ -1069,6 +1097,52 @@ export async function deleteClipperSession(
 ): Promise<{ status: string }> {
 	return unknownRecordSchema.parse(
 		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}`, {
+			method: "DELETE",
+		}),
+	) as { status: string };
+}
+
+export async function createClipperRun(
+	mediaAssetId: string,
+	mode: "new_upload" | "reuse_existing_media" = "new_upload",
+): Promise<{
+	runId: string;
+	mediaAssetId: string;
+	status: string;
+	reused: { probe: boolean; variants: boolean; transcript: boolean };
+}> {
+	return unknownRecordSchema.parse(
+		await json("/clipping/runs", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ mediaAssetId, mode }),
+		}),
+	) as any;
+}
+
+export async function getClipperRun(runId: string): Promise<WorkflowSnapshot> {
+	const value = await json(`/clipping/runs/${encodeURIComponent(runId)}`);
+	return workflowSnapshotSchema.parse(value);
+}
+
+export async function advanceClipperRun(runId: string): Promise<WorkflowSnapshot> {
+	const value = await json(`/clipping/runs/${encodeURIComponent(runId)}/advance`, {
+		method: "POST",
+	});
+	return workflowSnapshotSchema.parse(value);
+}
+
+export async function sendRunHeartbeat(runId: string): Promise<{ status: string }> {
+	return unknownRecordSchema.parse(
+		await json(`/clipping/runs/${encodeURIComponent(runId)}/heartbeat`, {
+			method: "POST",
+		}),
+	) as { status: string };
+}
+
+export async function deleteClipperRun(runId: string): Promise<{ status: string }> {
+	return unknownRecordSchema.parse(
+		await json(`/clipping/runs/${encodeURIComponent(runId)}`, {
 			method: "DELETE",
 		}),
 	) as { status: string };

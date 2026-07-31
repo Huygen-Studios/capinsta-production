@@ -56,7 +56,7 @@ class TranscriptionPlanningService:
                     asset_row = await cursor.fetchone()
                     if asset_row is None:
                         raise PersistenceError(
-                            "not_found", "Media asset was not found"
+                            "entity_not_found", "Media asset was not found"
                         )
                     asset = dict(asset_row)
                     if (

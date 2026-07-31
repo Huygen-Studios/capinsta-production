@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from server.clipping_persistence.database import DurableDatabase
 from server.clipping_persistence.models import AuthenticatedActor
@@ -19,6 +19,197 @@ logger = logging.getLogger(__name__)
 class ClipperSessionService:
     def __init__(self, database: DurableDatabase) -> None:
         self.database = database
+
+    # --- Run-Based Lifecycle Methods ---
+
+    async def create_run(
+        self,
+        actor: AuthenticatedActor,
+        media_asset_id: UUID,
+        *,
+        mode: str = "new_upload",
+    ) -> dict[str, Any]:
+        async with self.database.transaction() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT * FROM media_assets
+                    WHERE id=%s AND owner_user_id=%s AND deleted_at IS NULL
+                    """,
+                    (media_asset_id, actor.user_id),
+                )
+                asset_row = await cursor.fetchone()
+                if asset_row is None:
+                    return {"notFound": True, "mediaAssetId": str(media_asset_id)}
+
+                asset = dict(asset_row)
+                probe_reused = False
+                variants_reused = False
+                transcript_reused = False
+
+                if mode == "reuse_existing_media":
+                    # Check probe
+                    await cursor.execute(
+                        """
+                        SELECT id FROM processing_jobs
+                        WHERE media_asset_id=%s AND job_type='media_probe' AND status='succeeded'
+                        """,
+                        (media_asset_id,),
+                    )
+                    probe_reused = (await cursor.fetchone()) is not None
+
+                    # Check audio variant
+                    await cursor.execute(
+                        """
+                        SELECT id FROM media_variants
+                        WHERE media_asset_id=%s AND variant_type='audio_extract' AND status='ready' AND deleted_at IS NULL
+                        """,
+                        (media_asset_id,),
+                    )
+                    variants_reused = (await cursor.fetchone()) is not None
+
+                    # Check transcript
+                    await cursor.execute(
+                        """
+                        SELECT id FROM transcripts
+                        WHERE media_asset_id=%s AND status='ready' AND deleted_at IS NULL
+                        """,
+                        (media_asset_id,),
+                    )
+                    transcript_row = await cursor.fetchone()
+                    transcript_reused = transcript_row is not None
+                    transcript_id = str(transcript_row["id"]) if transcript_row else None
+                else:
+                    transcript_id = None
+
+                run_id = uuid4()
+                await cursor.execute(
+                    """
+                    INSERT INTO automatic_clipper_runs (
+                      id, owner_user_id, media_asset_id, transcript_id, status, last_heartbeat_at
+                    ) VALUES (%s, %s, %s, %s, 'active', now())
+                    RETURNING *
+                    """,
+                    (run_id, actor.user_id, media_asset_id, transcript_id),
+                )
+                run_row = dict(await cursor.fetchone())
+
+                # Also create/update active session for backwards compatibility
+                await cursor.execute(
+                    """
+                    INSERT INTO automatic_clipper_sessions (
+                      owner_user_id, media_asset_id, status, last_heartbeat_at
+                    ) VALUES (%s, %s, 'active', now())
+                    ON CONFLICT (owner_user_id, media_asset_id) DO UPDATE
+                    SET status='active', last_heartbeat_at=now(), updated_at=now()
+                    """,
+                    (actor.user_id, media_asset_id),
+                )
+
+                return {
+                    "runId": str(run_row["id"]),
+                    "mediaAssetId": str(media_asset_id),
+                    "status": run_row["status"],
+                    "reused": {
+                        "probe": probe_reused,
+                        "variants": variants_reused,
+                        "transcript": transcript_reused,
+                    },
+                }
+
+    async def get_run(
+        self, actor: AuthenticatedActor, run_id: UUID
+    ) -> dict[str, Any] | None:
+        async with self.database.connection() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT * FROM automatic_clipper_runs
+                    WHERE id=%s AND owner_user_id=%s AND deleted_at IS NULL
+                    """,
+                    (run_id, actor.user_id),
+                )
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def record_run_heartbeat(
+        self, actor: AuthenticatedActor, run_id: UUID
+    ) -> dict[str, Any] | None:
+        async with self.database.transaction() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    UPDATE automatic_clipper_runs
+                    SET last_heartbeat_at=now(), updated_at=now()
+                    WHERE id=%s AND owner_user_id=%s AND deleted_at IS NULL
+                    RETURNING *
+                    """,
+                    (run_id, actor.user_id),
+                )
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def delete_run(
+        self, actor: AuthenticatedActor, run_id: UUID
+    ) -> dict[str, Any]:
+        async with self.database.transaction() as connection:
+            async with connection.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT * FROM automatic_clipper_runs
+                    WHERE id=%s AND owner_user_id=%s AND deleted_at IS NULL
+                    FOR UPDATE
+                    """,
+                    (run_id, actor.user_id),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return {"status": "not_found", "runId": str(run_id)}
+
+                run = dict(row)
+                media_asset_id = run["media_asset_id"]
+
+                if run["status"] == "transferred_to_editor":
+                    return {"status": "transferred_and_protected", "runId": str(run_id)}
+
+                # Soft delete this run
+                await cursor.execute(
+                    """
+                    UPDATE automatic_clipper_runs
+                    SET status='deleted', deleted_at=now(), updated_at=now()
+                    WHERE id=%s
+                    """,
+                    (run_id,),
+                )
+
+                # Check if any OTHER active run or editor handoff depends on media_asset_id
+                await cursor.execute(
+                    """
+                    SELECT id FROM automatic_clipper_runs
+                    WHERE media_asset_id=%s AND deleted_at IS NULL AND id!=%s
+                    LIMIT 1
+                    """,
+                    (media_asset_id, run_id),
+                )
+                other_run = await cursor.fetchone()
+
+                await cursor.execute(
+                    """
+                    SELECT id FROM automatic_clipper_sessions
+                    WHERE media_asset_id=%s AND status='transferred_to_editor' AND deleted_at IS NULL
+                    LIMIT 1
+                    """,
+                    (media_asset_id,),
+                )
+                other_handoff = await cursor.fetchone()
+
+        # If no other runs or handoffs reference this media_asset_id, delete shared media from R2
+        if not other_run and not other_handoff:
+            await self.delete_session_media(actor, media_asset_id)
+
+        return {"status": "deleted", "runId": str(run_id), "mediaAssetId": str(media_asset_id)}
+
+    # --- Backwards Compatibility Session Methods ---
 
     async def get_or_create_session(
         self, actor: AuthenticatedActor, media_asset_id: UUID
@@ -82,18 +273,17 @@ class ClipperSessionService:
                     (clip_project_id, media_asset_id, actor.user_id),
                 )
                 row = await cursor.fetchone()
-                if row:
-                    return dict(row)
+
                 await cursor.execute(
                     """
-                    INSERT INTO automatic_clipper_sessions (
-                      owner_user_id, media_asset_id, clip_project_id, status, transferred_at, last_heartbeat_at
-                    ) VALUES (%s, %s, %s, 'transferred_to_editor', now(), now())
-                    RETURNING *
+                    UPDATE automatic_clipper_runs
+                    SET status='transferred_to_editor', clip_project_id=%s,
+                        transferred_at=now(), preserve_until=NULL, updated_at=now()
+                    WHERE media_asset_id=%s AND owner_user_id=%s AND deleted_at IS NULL
                     """,
-                    (actor.user_id, media_asset_id, clip_project_id),
+                    (clip_project_id, media_asset_id, actor.user_id),
                 )
-                return dict(await cursor.fetchone())
+                return dict(row) if row else {"status": "transferred_to_editor", "mediaAssetId": str(media_asset_id)}
 
     async def request_abandonment(
         self, actor: AuthenticatedActor, media_asset_id: UUID

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..auth import current_user
 from ..automatic_clipper.session_service import ClipperSessionService
@@ -14,11 +15,19 @@ from ..clipping_persistence.database import DurableDatabase
 from ..clipping_persistence.errors import PersistenceError
 from ..clipping_persistence.models import AuthenticatedActor
 
-router = APIRouter(prefix="/clipping/workflows", tags=["automatic-clipper"])
+router = APIRouter(tags=["automatic-clipper"])
+logger = logging.getLogger(__name__)
 
 
 class TransferToEditorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     clipProjectId: str
+
+
+class CreateRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mediaAssetId: UUID
+    mode: str = Field(default="new_upload")
 
 
 def _enabled() -> bool:
@@ -56,13 +65,108 @@ def _raise(error: Exception) -> None:
             error.status_code, detail={"code": error.code, "message": error.message}
         ) from error
     if isinstance(error, PersistenceError):
+        status_code = 404 if error.category == "entity_not_found" else 409
         raise HTTPException(
-            409, detail={"code": error.category, "message": error.message}
+            status_code, detail={"code": error.category, "message": error.message}
         ) from error
     raise error
 
 
-@router.get("/{media_asset_id}")
+def _request_id(request: Request) -> str:
+    return (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-correlation-id")
+        or str(uuid4())
+    )
+
+
+# --- Run-based Endpoints ---
+
+@router.post("/clipping/runs", status_code=201)
+async def create_run(payload: CreateRunRequest):
+    res = await _session_service().create_run(
+        _actor(), payload.mediaAssetId, mode=payload.mode
+    )
+    if res.get("notFound"):
+        raise HTTPException(
+            404,
+            detail={"code": "media_not_found", "message": "Media asset was not found"},
+        )
+    return res
+
+
+@router.get("/clipping/runs/{run_id}")
+async def get_run_status(run_id: UUID):
+    run = await _session_service().get_run(_actor(), run_id)
+    if run is None:
+        raise HTTPException(
+            404, detail={"code": "run_not_found", "message": "Clipper run was not found"}
+        )
+    result = await _service()._snapshot(_actor(), run["media_asset_id"], run_id=run_id)
+    return await _service()._response(result)
+
+
+@router.post("/clipping/runs/{run_id}/advance")
+async def advance_run(run_id: UUID, request: Request):
+    req_id = _request_id(request)
+    run = await _session_service().get_run(_actor(), run_id)
+    if run is None:
+        raise HTTPException(
+            404, detail={"code": "run_not_found", "message": "Clipper run was not found"}
+        )
+    try:
+        response = await _service().advance(
+            _actor(), run["media_asset_id"], run_id=run_id
+        )
+        if response["status"] == "not_found":
+            raise HTTPException(
+                404,
+                detail={"code": "media_not_found", "message": "Media was not found"},
+            )
+        return response
+    except HTTPException:
+        raise
+    except (OrchestrationError, PersistenceError) as error:
+        _raise(error)
+    except Exception as exc:
+        logger.exception(
+            "workflow_advance_failed run_id=%s request_id=%s exc_class=%s",
+            run_id,
+            req_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            500,
+            detail={
+                "code": "workflow_advance_failed",
+                "message": "The clipping workflow could not advance.",
+                "stage": "transcription_planning",
+                "requestId": req_id,
+            },
+        )
+
+
+@router.post("/clipping/runs/{run_id}/heartbeat")
+async def run_heartbeat(run_id: UUID):
+    run = await _session_service().record_run_heartbeat(_actor(), run_id)
+    if run is None:
+        raise HTTPException(
+            404, detail={"code": "run_not_found", "message": "Clipper run was not found"}
+        )
+    return {"status": run.get("status", "active"), "runId": str(run_id)}
+
+
+@router.delete("/clipping/runs/{run_id}")
+async def delete_run(run_id: UUID):
+    try:
+        return await _session_service().delete_run(_actor(), run_id)
+    except Exception as error:
+        _raise(error)
+
+
+# --- Legacy / Workflows Endpoints (Compatibility Wrappers) ---
+
+@router.get("/clipping/workflows/{media_asset_id}")
 async def workflow_status(media_asset_id: UUID):
     result = await _service()._snapshot(_actor(), media_asset_id)
     response = await _service()._response(result)
@@ -74,8 +178,9 @@ async def workflow_status(media_asset_id: UUID):
     return response
 
 
-@router.post("/{media_asset_id}/advance")
-async def advance_workflow(media_asset_id: UUID):
+@router.post("/clipping/workflows/{media_asset_id}/advance")
+async def advance_workflow(media_asset_id: UUID, request: Request):
+    req_id = _request_id(request)
     try:
         response = await _service().advance(_actor(), media_asset_id)
         if response["status"] == "not_found":
@@ -84,17 +189,35 @@ async def advance_workflow(media_asset_id: UUID):
                 detail={"code": "media_not_found", "message": "Media was not found"},
             )
         return response
+    except HTTPException:
+        raise
     except (OrchestrationError, PersistenceError) as error:
         _raise(error)
+    except Exception as exc:
+        logger.exception(
+            "workflow_advance_failed media_asset_id=%s request_id=%s exc_class=%s",
+            media_asset_id,
+            req_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            500,
+            detail={
+                "code": "workflow_advance_failed",
+                "message": "The clipping workflow could not advance.",
+                "stage": "transcription_planning",
+                "requestId": req_id,
+            },
+        )
 
 
-@router.post("/{media_asset_id}/heartbeat")
+@router.post("/clipping/workflows/{media_asset_id}/heartbeat")
 async def session_heartbeat(media_asset_id: UUID):
     session = await _session_service().record_heartbeat(_actor(), media_asset_id)
     return {"status": session.get("status", "active"), "mediaAssetId": str(media_asset_id)}
 
 
-@router.post("/{media_asset_id}/transfer-to-editor")
+@router.post("/clipping/workflows/{media_asset_id}/transfer-to-editor")
 async def transfer_to_editor(media_asset_id: UUID, payload: TransferToEditorRequest):
     session = await _session_service().transfer_to_editor(
         _actor(), media_asset_id, payload.clipProjectId
@@ -106,7 +229,7 @@ async def transfer_to_editor(media_asset_id: UUID, payload: TransferToEditorRequ
     }
 
 
-@router.delete("/{media_asset_id}")
+@router.delete("/clipping/workflows/{media_asset_id}")
 async def delete_workflow_session(media_asset_id: UUID):
     try:
         return await _session_service().delete_session_media(_actor(), media_asset_id)

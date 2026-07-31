@@ -17,6 +17,8 @@ PERSISTENCE_ERROR_CATEGORIES = frozenset(
         "invalid_job_progress",
         "idempotency_conflict",
         "idempotency_in_progress",
+        "invalid_state",
+        "conflict",
         "database_unavailable",
         "transaction_failed",
         "rls_policy_denied",

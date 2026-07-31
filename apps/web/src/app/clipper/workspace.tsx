@@ -17,11 +17,17 @@ import {
 } from "@/components/ui/select";
 import { LogoStatic } from "@/components/logo";
 import {
+	advanceClipperRun,
 	advanceWorkflow,
+	beginClipperUploadAttempt,
 	cancelExport,
+	createClipperRun,
 	createExport,
+	deleteClipperRun,
 	deleteClipperSession,
 	discardClipperUpload,
+	finishClipperUploadAttempt,
+	getClipperRun,
 	getExport,
 	getExportDownload,
 	getProjectJob,
@@ -34,6 +40,7 @@ import {
 	rejectCandidate,
 	requestConversion,
 	selectCandidate,
+	sendRunHeartbeat,
 	sendSessionHeartbeat,
 	transferSessionToEditor,
 	uploadClipperMedia,
@@ -120,6 +127,7 @@ export function ClipperWorkspace() {
 	const [exportId, setExportId] = useState<string | null>(null);
 	const [exportProgress, setExportProgress] = useState(0);
 	const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+	const [activeRunId, setActiveRunId] = useState<string | null>(null);
 	const [message, setMessage] = useState("");
 	const [error, setError] = useState("");
 	const [deletingSession, setDeletingSession] = useState(false);
@@ -140,9 +148,9 @@ export function ClipperWorkspace() {
 		setState("error");
 	}, []);
 
-	const pollWorkflow = useCallback(async (mediaAssetId: string) => {
+	const pollRunWorkflow = useCallback(async (runId: string) => {
 		for (let attempt = 0; attempt < 3_600; attempt += 1) {
-			const snapshot = await advanceWorkflow(mediaAssetId);
+			const snapshot = await advanceClipperRun(runId);
 			setWorkflow(snapshot);
 
 			// Check for stalled condition
@@ -173,6 +181,7 @@ export function ClipperWorkspace() {
 		abortRef.current = new AbortController();
 		setState("processing");
 		setMessage("Uploading source video…");
+		beginClipperUploadAttempt();
 		try {
 			const mediaAssetId = await uploadClipperMedia({
 				file,
@@ -180,20 +189,65 @@ export function ClipperWorkspace() {
 				signal: abortRef.current.signal,
 			});
 			setUploadProgress(100);
+			finishClipperUploadAttempt();
 			window.localStorage.setItem(CLIPPER_MEDIA_STORAGE_KEY, mediaAssetId);
 			setMessage(
 				"Processing, transcribing and finding your strongest moments…",
 			);
-			await pollWorkflow(mediaAssetId);
+			const run = await createClipperRun(mediaAssetId, "new_upload");
+			setActiveRunId(run.runId);
+			window.localStorage.setItem("capinsta:clipper:active-run-v1", run.runId);
+			await pollRunWorkflow(run.runId);
 		} catch (caught) {
 			if (pauseRequestedRef.current) return;
 			fail(caught);
 		}
 	};
 
+	const handleCreateAnotherClip = async () => {
+		const mediaId = activeMediaAssetId || window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
+		if (!mediaId) return;
+		setState("processing");
+		setMessage("Analyzing moments for your new clip…");
+		try {
+			const run = await createClipperRun(mediaId, "reuse_existing_media");
+			setActiveRunId(run.runId);
+			window.localStorage.setItem("capinsta:clipper:active-run-v1", run.runId);
+			await pollRunWorkflow(run.runId);
+		} catch (caught) {
+			fail(caught);
+		}
+	};
+
+	const handleStartAnotherVideo = () => {
+		window.localStorage.removeItem("capinsta:clipper:active-run-v1");
+		window.localStorage.removeItem(CLIPPER_MEDIA_STORAGE_KEY);
+		setActiveRunId(null);
+		setWorkflow(null);
+		setCandidates([]);
+		setSelected(null);
+		beginClipperUploadAttempt();
+		setState("upload");
+		setMessage("");
+		setError("");
+	};
+
 	const handleExplicitCancelAndDelete = async () => {
+		if (activeRunId) {
+			setDeletingSession(true);
+			try {
+				await deleteClipperRun(activeRunId);
+			} catch (caught) {
+				console.warn("Run deletion request error:", caught);
+			} finally {
+				handleStartAnotherVideo();
+				setDeletingSession(false);
+			}
+			return;
+		}
+
 		if (!activeMediaAssetId && !window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY)) {
-			setState("upload");
+			handleStartAnotherVideo();
 			return;
 		}
 		const mediaId = activeMediaAssetId || window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
@@ -205,11 +259,8 @@ export function ClipperWorkspace() {
 		} catch (caught) {
 			console.warn("Session deletion request error:", caught);
 		} finally {
-			window.localStorage.removeItem(CLIPPER_MEDIA_STORAGE_KEY);
-			setWorkflow(null);
+			handleStartAnotherVideo();
 			setDeletingSession(false);
-			setState("upload");
-			setMessage("");
 		}
 	};
 
@@ -355,34 +406,53 @@ export function ClipperWorkspace() {
 
 	// Session restoration
 	useEffect(() => {
+		const storedRunId = window.localStorage.getItem("capinsta:clipper:active-run-v1");
 		const mediaAssetId = window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
-		if (mediaAssetId) {
+		if (storedRunId) {
+			queueMicrotask(() => {
+				setUploadProgress(100);
+				setActiveRunId(storedRunId);
+				setState("processing");
+				setMessage("Restoring your private clipping workflow…");
+				void pollRunWorkflow(storedRunId).catch(fail);
+			});
+		} else if (mediaAssetId) {
 			queueMicrotask(() => {
 				setUploadProgress(100);
 				setState("processing");
 				setMessage("Restoring your private clipping workflow…");
-				void pollWorkflow(mediaAssetId).catch(fail);
+				void createClipperRun(mediaAssetId, "reuse_existing_media")
+					.then((run) => {
+						setActiveRunId(run.runId);
+						window.localStorage.setItem("capinsta:clipper:active-run-v1", run.runId);
+						return pollRunWorkflow(run.runId);
+					})
+					.catch(fail);
 			});
 		}
 		return () => {
 			abortRef.current?.abort();
 		};
-	}, [fail, pollWorkflow]);
+	}, [fail, pollRunWorkflow]);
 
-	// Session heartbeat timer (every 30s)
+	// Session/Run heartbeat timer (every 30s)
 	useEffect(() => {
+		const runId = activeRunId || window.localStorage.getItem("capinsta:clipper:active-run-v1");
 		const mediaId = activeMediaAssetId || window.localStorage.getItem(CLIPPER_MEDIA_STORAGE_KEY);
-		if (!mediaId || state === "upload" || state === "error" || deletingSession) {
+		if ((!runId && !mediaId) || state === "upload" || state === "error" || deletingSession) {
 			return;
 		}
 		const timer = setInterval(() => {
 			if (!document.hidden) {
-				void sendSessionHeartbeat(mediaId).catch(() => {});
+				if (runId) {
+					void sendRunHeartbeat(runId);
+				} else if (mediaId) {
+					void sendSessionHeartbeat(mediaId);
+				}
 			}
 		}, 30_000);
-
 		return () => clearInterval(timer);
-	}, [activeMediaAssetId, state, deletingSession]);
+	}, [activeMediaAssetId, activeRunId, deletingSession, state]);
 
 	return (
 		<div className="marketing-theme min-h-screen bg-background bg-grid-paper text-foreground">
@@ -554,10 +624,10 @@ export function ClipperWorkspace() {
 													setState("processing");
 													setMessage("Regenerating ranked moments…");
 													void regenerateCandidates(projectId, projectRevision)
-														.then(
-															() =>
-																workflow && pollWorkflow(workflow.mediaAssetId),
-														)
+														.then(() => {
+															const targetRunId = activeRunId || (workflow as any)?.runId;
+															if (targetRunId) return pollRunWorkflow(targetRunId);
+														})
 														.catch(fail);
 												}
 											}}
@@ -814,6 +884,12 @@ export function ClipperWorkspace() {
 							)}
 							<Button variant="outline" onClick={() => void openInCapinsta()}>
 								Open editable project
+							</Button>
+							<Button variant="outline" onClick={() => void handleCreateAnotherClip()}>
+								Create another clip from this video
+							</Button>
+							<Button variant="outline" onClick={handleStartAnotherVideo}>
+								Start another video
 							</Button>
 						</CardContent>
 					</Card>

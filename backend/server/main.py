@@ -437,6 +437,8 @@ PROTECTED_API_PREFIXES = (
     "/api/v1/clipping/handoffs",
     "/api/capinsta/media",
     "/api/v1/capinsta/media",
+    "/api/clipping/runs",
+    "/api/v1/clipping/runs",
 )
 
 

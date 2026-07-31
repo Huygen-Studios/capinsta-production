@@ -207,8 +207,6 @@ class MediaUploadService:
             mime_type=mime_type,
             media_kind=_media_kind(mime_type),
             expected_size_bytes=size_bytes,
-            storage_provider=self.config.storage_provider,
-            storage_bucket=self.config.source_bucket,
             storage_path=path,
             upload_protocol=(
                 "s3_multipart" if self.config.storage_provider == "r2" else "tus"
@@ -220,14 +218,19 @@ class MediaUploadService:
             maximum_active_uploads=self.config.maximum_active_uploads_per_user,
         )
         if session["status"] == "completed":
-            raise StorageError(
-                "upload_session_completed",
-                "This upload session has already completed",
-            )
-        if session["expires_at"] <= datetime.now(timezone.utc):
-            await self.repository.expire_if_due(actor, session["id"])
-            raise StorageError(
-                "upload_session_expired", "Upload session has expired"
+            return UploadInstructions(
+                media_asset_id=session["media_asset_id"],
+                upload_session_id=session["id"],
+                protocol=session["upload_protocol"],
+                upload_url=None,
+                required_headers={},
+                upload_metadata={},
+                expires_at=session["expires_at"],
+                maximum_size_bytes=session["expected_size_bytes"],
+                source_bucket_maximum_upload_bytes=bucket_limit,
+                effective_known_maximum_upload_bytes=bucket_limit,
+                replayed=True,
+                provider=self.config.storage_provider,
             )
         # Authorization is ephemeral. If the provider is unavailable, retain
         # the durable `created` intent so the same idempotency key can retry
