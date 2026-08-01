@@ -675,7 +675,7 @@ export function Captions() {
 
 			const timingReport = (completedJob.timing_report || {}) as Record<string, unknown>;
 			const fallbackReasons = Array.isArray(timingReport.fallbackReasons)
-				? (timingReport.fallbackReasons as string[])
+				? timingReport.fallbackReasons.filter((reason): reason is string => typeof reason === "string")
 				: [];
 			const isFallback = Boolean(
 				timingReport.pauseDetectionDegraded ||
