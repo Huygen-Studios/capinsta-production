@@ -116,6 +116,7 @@ class SchemaConnection:
                     "media_upload_sessions_storage_provider_check": "CHECK storage_provider IN ('supabase','r2','local')",
                     "media_upload_sessions_protocol_check": "CHECK upload_protocol IN ('tus','s3_multipart')",
                     "media_upload_sessions_multipart_check": "CHECK multipart_state IN ('created','completed','aborted')",
+                    "media_upload_sessions_storage_pair_check": "CHECK (length(storage_bucket) > 0)",
                 }
                 self.rows = list(definitions.items())
 

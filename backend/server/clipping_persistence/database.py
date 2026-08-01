@@ -97,6 +97,8 @@ class DurableDatabase:
                     "23505": "duplicate_entity",
                     "23503": "foreign_key_missing",
                     "42501": "rls_policy_denied",
+                    "42P01": "schema_version_unsupported",
+                    "42703": "schema_version_unsupported",
                 }.get(sqlstate, "transaction_failed")
                 raise PersistenceError(
                     category,

@@ -1,5 +1,6 @@
 /* eslint-disable opencut/prefer-object-params -- Public client helpers mirror their REST route parameters. */
 import { buildCapinstaApiUrl, buildCapinstaHealthUrl } from "@/capinsta/api-url";
+import { CapinstaApiError, readFastApiErrorBody } from "@/capinsta/apiClient";
 import { getCapinstaApiBaseUrl } from "@/capinsta/featureFlags";
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { createClient } from "@/lib/supabase/client";
@@ -45,11 +46,16 @@ export interface ViralCandidate {
 }
 
 export interface WorkflowSnapshot {
-	status: "processing" | "candidate_review";
+	status: "processing" | "candidate_review" | "stalled" | "failed";
+	runId?: string | null;
 	mediaAssetId: string;
 	projectId: string | null;
 	projectRevision: number | null;
 	transcriptId: string | null;
+	failureCode?: string | null;
+	failureMessage?: string | null;
+	stalledCode?: string | null;
+	stalledMessage?: string | null;
 	stages: Record<string, unknown>;
 }
 
@@ -60,11 +66,7 @@ export interface ClipperSelection {
 	framingStrategy: ClipperLayoutStrategy;
 	captionPreset: string;
 	wordSpacing: number;
-	safeZoneProfile:
-		| "shorts-generic-v1"
-		| "tiktok-v1"
-		| "reels-v1"
-		| "youtube-shorts-v1";
+	safeZoneProfile: "shorts-generic-v1" | "tiktok-v1" | "reels-v1" | "youtube-shorts-v1";
 }
 
 const layoutStrategySchema = z.enum([
@@ -77,9 +79,7 @@ const layoutStrategySchema = z.enum([
 	"manual_safe_crop",
 ]);
 
-export function isClipperLayoutStrategy(
-	value: string,
-): value is ClipperLayoutStrategy {
+export function isClipperLayoutStrategy(value: string): value is ClipperLayoutStrategy {
 	return layoutStrategySchema.safeParse(value).success;
 }
 
@@ -115,21 +115,39 @@ export const viralCandidateSchema = z
 	})
 	.strict()
 	.refine(
-		(value) =>
-			value.sourceEndMs > value.sourceStartMs &&
-			value.durationMs === value.sourceEndMs - value.sourceStartMs,
+		(value) => value.sourceEndMs > value.sourceStartMs && value.durationMs === value.sourceEndMs - value.sourceStartMs,
 		"Candidate timing is inconsistent.",
 	);
 
 const workflowSnapshotSchema = z.object({
-	status: z.enum(["processing", "candidate_review"]),
+	status: z.enum(["processing", "candidate_review", "stalled", "failed"]),
+	runId: z.string().nullable().optional(),
 	mediaAssetId: z.string().min(1),
 	projectId: z.string().nullable(),
 	projectRevision: z.number().int().positive().nullable(),
 	transcriptId: z.string().nullable(),
+	failureCode: z.string().nullable().optional(),
+	failureMessage: z.string().nullable().optional(),
+	stalledCode: z.string().nullable().optional(),
+	stalledMessage: z.string().nullable().optional(),
 	stages: z.record(z.string(), z.unknown()),
 });
+
+export function parseWorkflowSnapshot(value: unknown): WorkflowSnapshot {
+	return workflowSnapshotSchema.parse(value);
+}
 const unknownRecordSchema = z.record(z.string(), z.unknown());
+const statusResponseSchema = z.object({ status: z.string() }).passthrough();
+const createRunResponseSchema = z.object({
+	runId: z.string().min(1),
+	mediaAssetId: z.string().min(1),
+	status: z.string(),
+	reused: z.object({
+		probe: z.boolean(),
+		variants: z.boolean(),
+		transcript: z.boolean(),
+	}),
+});
 const uploadInstructionsSchema = z.object({
 	mediaAssetId: z.string().min(1),
 	uploadSessionId: z.string().min(1),
@@ -154,9 +172,7 @@ const uploadInstructionsSchema = z.object({
 	applicationMaximumUploadBytes: z.number().int().positive().optional(),
 	sourceBucketMaximumUploadBytes: z.number().int().positive().nullable().optional(),
 	effectiveKnownMaximumUploadBytes: z.number().int().positive().optional(),
-	limitSource: z
-		.enum(["application", "bucket", "storage-endpoint", "unknown"])
-		.optional(),
+	limitSource: z.enum(["application", "bucket", "storage-endpoint", "unknown"]).optional(),
 });
 const uploadLimitsSchema = z.object({
 	applicationMaximumUploadBytes: z.number().int().positive(),
@@ -184,15 +200,6 @@ type UploadInstructions = {
 type UploadedPart = { partNumber: number; etag: string; size?: number };
 type SignedPart = { partNumber: number; url: string; expiresAt: string };
 const CLIPPER_UPLOAD_ATTEMPT_KEY = "capinsta:clipper:upload-attempt-v1";
-
-export function beginClipperUploadAttempt(
-	storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = window.localStorage,
-	createId: () => string = () => crypto.randomUUID(),
-): string {
-	const created = createId();
-	storage.setItem(CLIPPER_UPLOAD_ATTEMPT_KEY, created);
-	return created;
-}
 
 export function getActiveClipperUploadAttempt(
 	storage: Pick<Storage, "getItem" | "setItem" | "removeItem"> = window.localStorage,
@@ -247,10 +254,7 @@ export function safeR2ResumeInstructions(
 	};
 }
 
-export async function discardClipperUpload(
-	file: File | null | undefined,
-	signal?: AbortSignal,
-): Promise<void> {
+export async function discardClipperUpload(file: File | null | undefined, signal?: AbortSignal): Promise<void> {
 	const attemptId = window.localStorage.getItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
 	if (!file || !attemptId) {
 		window.localStorage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
@@ -259,9 +263,7 @@ export async function discardClipperUpload(
 	const resumeKey = clipperResumeKey(attemptId, await uploadFingerprint(file));
 	let stored: ReturnType<typeof uploadInstructionsSchema.safeParse>;
 	try {
-		stored = uploadInstructionsSchema.safeParse(
-			JSON.parse(window.localStorage.getItem(resumeKey) ?? "null"),
-		);
+		stored = uploadInstructionsSchema.safeParse(JSON.parse(window.localStorage.getItem(resumeKey) ?? "null"));
 	} catch {
 		window.localStorage.removeItem(resumeKey);
 		window.localStorage.removeItem(CLIPPER_UPLOAD_ATTEMPT_KEY);
@@ -291,9 +293,7 @@ const projectJobSchema = z.object({
 	status: z.string(),
 	progress: z.number(),
 	current_stage: z.string().nullable(),
-	output: z
-		.object({ projectRevision: z.number().int().positive().optional() })
-		.optional(),
+	output: z.object({ projectRevision: z.number().int().positive().optional() }).optional(),
 	failure_message: z.string().nullable().optional(),
 });
 const conversionResultSchema = z.object({ jobId: z.string().min(1) });
@@ -330,10 +330,7 @@ async function ensureClipperBackendReady(signal?: AbortSignal) {
 			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
 		);
 	const capabilities = Reflect.get(body, "capabilities");
-	if (
-		Array.isArray(capabilities) &&
-		!capabilities.includes("clipping-media-uploads")
-	) {
+	if (Array.isArray(capabilities) && !capabilities.includes("clipping-media-uploads")) {
 		throw new Error(
 			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
 		);
@@ -351,44 +348,43 @@ async function json(path: string, init?: RequestInit): Promise<unknown> {
 		response = await authenticatedFetch(url, init);
 	} catch (error) {
 		if (init?.signal?.aborted) throw error;
-		throw new Error("The video-processing service is unavailable.");
+		throw new CapinstaApiError("The video-processing service is unavailable.", undefined, {
+			code: "backend_unreachable",
+			stage: "network",
+			endpoint: path,
+		});
 	}
 	const body: unknown = await response.json().catch(() => null);
 	if (!response.ok) {
-		const objectBody = typeof body === "object" && body !== null ? body : null;
-		const detail = objectBody ? Reflect.get(objectBody, "detail") : null;
-		const error = objectBody ? Reflect.get(objectBody, "error") : null;
-		const code =
-			(objectBody ? Reflect.get(objectBody, "code") : null) ??
-			(typeof detail === "object" && detail !== null
-				? Reflect.get(detail, "code")
-				: null) ??
-			(typeof error === "object" && error !== null
-				? Reflect.get(error, "code")
-				: null);
-		const message =
-			code === "backend_unreachable" || response.status >= 500
-				? "The video-processing service is unavailable."
-				: code === "storage_not_configured"
-					? "Clipper Storage is not configured. Apply the Storage migration."
-					: code === "uploads_disabled"
-						? "New uploads are temporarily paused."
-						: response.status === 401
-							? "Your session expired. Sign in again."
-							: response.status === 403
-								? "You do not have permission to use this feature."
-								: response.status === 404
-									? "The deployed web and API versions do not match. Redeploy both services using the same image tag."
-									: typeof detail === "object" && detail !== null
-										? Reflect.get(detail, "message")
-										: detail;
-		throw new Error(
-			typeof message === "string"
-				? message
-				: "The clipper request could not be completed.",
-		);
+		throw clipperApiErrorFromResponse(response, body, path);
 	}
 	return body;
+}
+
+export function clipperApiErrorFromResponse(response: Response, body: unknown, path: string): CapinstaApiError {
+	const parsed =
+		typeof body === "object" && body !== null ? readFastApiErrorBody(Object.fromEntries(Object.entries(body))) : null;
+	const requestId =
+		parsed?.correlationId ??
+		response.headers.get("x-request-id") ??
+		response.headers.get("x-correlation-id") ??
+		undefined;
+	const message = parsed
+		? parsed.code === "storage_schema_outdated"
+			? "The Automatic Clipper database migration is incomplete."
+			: parsed.message
+		: response.status === 404
+			? "The deployed web and API versions do not match. Redeploy both services using the same image tag."
+			: response.status >= 502
+				? "The video-processing service is unavailable."
+				: "The clipper request could not be completed.";
+	return new CapinstaApiError(`${message}${requestId ? ` Diagnostic ID: ${requestId}` : ""}`, response.status, {
+		code: parsed?.code,
+		stage: parsed?.stage,
+		correlationId: requestId,
+		endpoint: path,
+		responseBody: body,
+	});
 }
 
 function encodeTusMetadata(metadata: Record<string, string>): string {
@@ -404,21 +400,11 @@ function encodeTusMetadata(metadata: Record<string, string>): string {
 
 function formatBytes(bytes: number): string {
 	const gib = bytes / 1024 / 1024 / 1024;
-	return gib >= 1
-		? `${gib.toFixed(2)} GiB`
-		: `${(bytes / 1_000_000).toFixed(0)} MB`;
+	return gib >= 1 ? `${gib.toFixed(2)} GiB` : `${(bytes / 1_000_000).toFixed(0)} MB`;
 }
 
 class ClipperUploadLimitError extends Error {
-	constructor({
-		fileSize,
-		limit,
-		requestId,
-	}: {
-		fileSize: number;
-		limit?: number;
-		requestId?: string | null;
-	}) {
+	constructor({ fileSize, limit, requestId }: { fileSize: number; limit?: number; requestId?: string | null }) {
 		super(
 			`Video exceeds the Storage limit. This video is ${formatBytes(fileSize)}${
 				limit ? `, but the known upload limit is ${formatBytes(limit)}` : ""
@@ -431,20 +417,12 @@ class ClipperUploadLimitError extends Error {
 }
 
 async function uploadFingerprint(file: File): Promise<string> {
-	const value = new TextEncoder().encode(
-		`${file.name}\0${file.size}\0${file.lastModified}\0${file.type}`,
-	);
+	const value = new TextEncoder().encode(`${file.name}\0${file.size}\0${file.lastModified}\0${file.type}`);
 	const digest = await crypto.subtle.digest("SHA-256", value);
-	return Array.from(new Uint8Array(digest), (byte) =>
-		byte.toString(16).padStart(2, "0"),
-	).join("");
+	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function patchTusChunk(
-	url: string,
-	init: RequestInit,
-	fetchImpl: typeof fetch = fetch,
-): Promise<Response> {
+async function patchTusChunk(url: string, init: RequestInit, fetchImpl: typeof fetch = fetch): Promise<Response> {
 	const delays = [0, 3_000, 5_000, 10_000, 20_000];
 	let response: Response | null = null;
 	let lastError: unknown;
@@ -457,10 +435,7 @@ async function patchTusChunk(
 			lastError = error;
 			continue;
 		}
-		if (
-			response.ok ||
-			![408, 429, 500, 502, 503, 504].includes(response.status)
-		) {
+		if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status)) {
 			return response;
 		}
 	}
@@ -499,8 +474,7 @@ async function safeTusError(response: Response, fileSize: number): Promise<Error
 	if (response.status === 413) {
 		return new ClipperUploadLimitError({ fileSize, requestId });
 	}
-	const code =
-		typeof body === "object" && body !== null ? Reflect.get(body, "code") : null;
+	const code = typeof body === "object" && body !== null ? Reflect.get(body, "code") : null;
 	return new Error(
 		`The resumable upload could not continue.${
 			typeof code === "string" ? ` (${code})` : ""
@@ -509,9 +483,7 @@ async function safeTusError(response: Response, fileSize: number): Promise<Error
 }
 
 async function getUploadLimits(signal?: AbortSignal) {
-	return uploadLimitsSchema.parse(
-		await json("/clipping/media/upload-limits", { signal }),
-	);
+	return uploadLimitsSchema.parse(await json("/clipping/media/upload-limits", { signal }));
 }
 
 export async function uploadTusForTest({
@@ -567,8 +539,7 @@ export async function uploadTusForTest({
 		});
 		if (!create.ok) throw await safeTusError(create, file.size);
 		const location = create.headers.get("location");
-		if (!location)
-			throw new Error("The upload server did not return a resume URL.");
+		if (!location) throw new Error("The upload server did not return a resume URL.");
 		uploadLocation = new URL(location, instructions.uploadUrl).toString();
 		offset = Number(create.headers.get("upload-offset") ?? 0);
 		if (!Number.isSafeInteger(offset) || offset < 0 || offset > file.size) {
@@ -578,18 +549,22 @@ export async function uploadTusForTest({
 	}
 	while (offset < file.size) {
 		const chunk = file.slice(offset, Math.min(file.size, offset + chunkSize));
-		const response = await patchTusChunk(uploadLocation, {
-			method: "PATCH",
-			headers: {
-				...tusAuthHeaders,
-				...instructions.requiredHeaders,
-				"Tus-Resumable": "1.0.0",
-				"Upload-Offset": String(offset),
-				"Content-Type": "application/offset+octet-stream",
+		const response = await patchTusChunk(
+			uploadLocation,
+			{
+				method: "PATCH",
+				headers: {
+					...tusAuthHeaders,
+					...instructions.requiredHeaders,
+					"Tus-Resumable": "1.0.0",
+					"Upload-Offset": String(offset),
+					"Content-Type": "application/offset+octet-stream",
+				},
+				body: chunk,
+				signal,
 			},
-			body: chunk,
-			signal,
-		}, fetchImpl);
+			fetchImpl,
+		);
 		if (!response.ok) throw await safeTusError(response, file.size);
 		offset = Number(response.headers.get("upload-offset") ?? offset + chunk.size);
 		onProgress(Math.min(100, Math.round((offset / file.size) * 100)));
@@ -730,15 +705,10 @@ export async function uploadR2MultipartForTest({
 						signal,
 					});
 					completed.set(part.partNumber, uploaded);
-					const completedParts = [...completed.values()].sort(
-						(a, b) => a.partNumber - b.partNumber,
-					);
+					const completedParts = [...completed.values()].sort((a, b) => a.partNumber - b.partNumber);
 					onPartComplete?.(completedParts);
 					onProgress(
-						Math.min(
-							100,
-							Math.round((completedBytes(completedParts, file.size, partSize) / file.size) * 100),
-						),
+						Math.min(100, Math.round((completedBytes(completedParts, file.size, partSize) / file.size) * 100)),
 					);
 				}
 			}),
@@ -764,9 +734,7 @@ export async function uploadClipperMedia({
 	const legacyResumeKey = `capinsta:clipper:tus-v1:${fingerprint}`;
 	let instructions: UploadInstructions | null = null;
 	try {
-		const serialized =
-			window.localStorage.getItem(resumeKey) ??
-			window.localStorage.getItem(legacyResumeKey);
+		const serialized = window.localStorage.getItem(resumeKey) ?? window.localStorage.getItem(legacyResumeKey);
 		instructions = JSON.parse(serialized ?? "null");
 		if (serialized) window.localStorage.setItem(resumeKey, serialized);
 		window.localStorage.removeItem(legacyResumeKey);
@@ -808,15 +776,15 @@ export async function uploadClipperMedia({
 				instructions,
 				onProgress,
 				completeUpload: async (uploadedParts) => {
-					await json(
-						`/clipping/media/uploads/${instructions!.uploadSessionId}/complete`,
-						{
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ createProbeJob: true, parts: uploadedParts }),
-							signal,
-						},
-					);
+					await json(`/clipping/media/uploads/${instructions!.uploadSessionId}/complete`, {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							createProbeJob: true,
+							parts: uploadedParts,
+						}),
+						signal,
+					});
 				},
 				onPartComplete: (uploadedParts) => {
 					window.localStorage.setItem(
@@ -843,42 +811,28 @@ export async function uploadClipperMedia({
 	}
 	if (instructions.protocol !== "s3_multipart" && instructions.provider !== "r2") {
 		window.localStorage.setItem(resumeKey, JSON.stringify(instructions));
-		await json(
-			`/clipping/media/uploads/${instructions.uploadSessionId}/complete`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ createProbeJob: true }),
-				signal,
-			},
-		);
+		await json(`/clipping/media/uploads/${instructions.uploadSessionId}/complete`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ createProbeJob: true }),
+			signal,
+		});
 	}
 	window.localStorage.removeItem(resumeKey);
 	return instructions.mediaAssetId;
 }
 
-export async function advanceWorkflow(
-	mediaAssetId: string,
-): Promise<WorkflowSnapshot> {
-	const value = await json(
-		`/clipping/workflows/${encodeURIComponent(mediaAssetId)}/advance`,
-		{
-			method: "POST",
-		},
-	);
+export async function advanceWorkflow(mediaAssetId: string): Promise<WorkflowSnapshot> {
+	const value = await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}/advance`, {
+		method: "POST",
+	});
 	return workflowSnapshotSchema.parse(value);
 }
 
-export async function listCandidates(
-	projectId: string,
-): Promise<ViralCandidate[]> {
+export async function listCandidates(projectId: string): Promise<ViralCandidate[]> {
 	const body = z
 		.object({ items: z.array(viralCandidateSchema) })
-		.parse(
-			await json(
-				`/clipping/projects/${encodeURIComponent(projectId)}/candidates`,
-			),
-		);
+		.parse(await json(`/clipping/projects/${encodeURIComponent(projectId)}/candidates`));
 	return parseCandidates(body.items);
 }
 
@@ -902,11 +856,7 @@ export async function selectCandidate(
 	);
 }
 
-export function rejectCandidate(
-	projectId: string,
-	candidateId: string,
-	expectedRevision: number,
-): Promise<unknown> {
+export function rejectCandidate(projectId: string, candidateId: string, expectedRevision: number): Promise<unknown> {
 	return json(
 		`/clipping/projects/${encodeURIComponent(projectId)}/candidates/${encodeURIComponent(candidateId)}/reject`,
 		{
@@ -925,17 +875,14 @@ export async function regenerateCandidates(
 	expectedRevision: number,
 ): Promise<{ jobId?: string; status: string }> {
 	return queuedJobSchema.parse(
-		await json(
-			`/clipping/projects/${encodeURIComponent(projectId)}/candidates/regenerate`,
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"Idempotency-Key": key("candidate-regenerate"),
-				},
-				body: JSON.stringify({ expectedRevision }),
+		await json(`/clipping/projects/${encodeURIComponent(projectId)}/candidates/regenerate`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Idempotency-Key": key("candidate-regenerate"),
 			},
-		),
+			body: JSON.stringify({ expectedRevision }),
+		}),
 	);
 }
 
@@ -950,18 +897,12 @@ export async function getProjectJob(
 	failure_message?: string | null;
 }> {
 	return projectJobSchema.parse(
-		await json(
-			`/clipping/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`,
-		),
+		await json(`/clipping/projects/${encodeURIComponent(projectId)}/jobs/${encodeURIComponent(jobId)}`),
 	);
 }
 
-export async function getProjectStatus(
-	projectId: string,
-): Promise<Record<string, unknown>> {
-	return unknownRecordSchema.parse(
-		await json(`/clipping/projects/${encodeURIComponent(projectId)}/status`),
-	);
+export async function getProjectStatus(projectId: string): Promise<Record<string, unknown>> {
+	return unknownRecordSchema.parse(await json(`/clipping/projects/${encodeURIComponent(projectId)}/status`));
 }
 
 export async function requestConversion(
@@ -970,28 +911,22 @@ export async function requestConversion(
 	targetProjectId: string,
 ): Promise<{ jobId: string }> {
 	return conversionResultSchema.parse(
-		await json(
-			`/clipping/projects/${encodeURIComponent(projectId)}/conversion`,
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"Idempotency-Key": key("conversion"),
-				},
-				body: JSON.stringify({
-					expectedRevision: revision,
-					targetProjectId,
-					includeCaptions: true,
-				}),
+		await json(`/clipping/projects/${encodeURIComponent(projectId)}/conversion`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"Idempotency-Key": key("conversion"),
 			},
-		),
+			body: JSON.stringify({
+				expectedRevision: revision,
+				targetProjectId,
+				includeCaptions: true,
+			}),
+		}),
 	);
 }
 
-export async function preparePreview(
-	projectId: string,
-	revision: number,
-): Promise<Record<string, unknown>> {
+export async function preparePreview(projectId: string, revision: number): Promise<Record<string, unknown>> {
 	return unknownRecordSchema.parse(
 		await json(`/clipping/projects/${encodeURIComponent(projectId)}/preview`, {
 			method: "POST",
@@ -1004,10 +939,7 @@ export async function preparePreview(
 	);
 }
 
-export async function createExport(
-	projectId: string,
-	revision: number,
-): Promise<{ exportId: string; status: string }> {
+export async function createExport(projectId: string, revision: number): Promise<{ exportId: string; status: string }> {
 	return exportResultSchema.parse(
 		await json(`/clipping/projects/${encodeURIComponent(projectId)}/exports`, {
 			method: "POST",
@@ -1025,12 +957,8 @@ export async function createExport(
 	);
 }
 
-export async function getExport(
-	exportId: string,
-): Promise<Record<string, unknown>> {
-	return unknownRecordSchema.parse(
-		await json(`/clipping/exports/${encodeURIComponent(exportId)}`),
-	);
+export async function getExport(exportId: string): Promise<Record<string, unknown>> {
+	return unknownRecordSchema.parse(await json(`/clipping/exports/${encodeURIComponent(exportId)}`));
 }
 
 export function cancelExport(exportId: string): Promise<unknown> {
@@ -1040,9 +968,7 @@ export function cancelExport(exportId: string): Promise<unknown> {
 }
 
 export async function getExportDownload(exportId: string): Promise<string> {
-	const result = downloadResultSchema.parse(
-		await json(`/clipping/exports/${encodeURIComponent(exportId)}/download`),
-	);
+	const result = downloadResultSchema.parse(await json(`/clipping/exports/${encodeURIComponent(exportId)}/download`));
 	return result.url;
 }
 
@@ -1067,21 +993,19 @@ export async function prepareHandoff(
 	);
 }
 
-export async function sendSessionHeartbeat(
-	mediaAssetId: string,
-): Promise<{ status: string }> {
-	return unknownRecordSchema.parse(
+export async function sendSessionHeartbeat(mediaAssetId: string): Promise<{ status: string }> {
+	return statusResponseSchema.parse(
 		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}/heartbeat`, {
 			method: "POST",
 		}),
-	) as { status: string };
+	);
 }
 
 export async function transferSessionToEditor(
 	mediaAssetId: string,
 	clipProjectId: string,
 ): Promise<{ status: string }> {
-	return unknownRecordSchema.parse(
+	return statusResponseSchema.parse(
 		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}/transfer-to-editor`, {
 			method: "POST",
 			headers: {
@@ -1089,17 +1013,15 @@ export async function transferSessionToEditor(
 			},
 			body: JSON.stringify({ clipProjectId }),
 		}),
-	) as { status: string };
+	);
 }
 
-export async function deleteClipperSession(
-	mediaAssetId: string,
-): Promise<{ status: string }> {
-	return unknownRecordSchema.parse(
+export async function deleteClipperSession(mediaAssetId: string): Promise<{ status: string }> {
+	return statusResponseSchema.parse(
 		await json(`/clipping/workflows/${encodeURIComponent(mediaAssetId)}`, {
 			method: "DELETE",
 		}),
-	) as { status: string };
+	);
 }
 
 export async function createClipperRun(
@@ -1111,39 +1033,39 @@ export async function createClipperRun(
 	status: string;
 	reused: { probe: boolean; variants: boolean; transcript: boolean };
 }> {
-	return unknownRecordSchema.parse(
+	return createRunResponseSchema.parse(
 		await json("/clipping/runs", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ mediaAssetId, mode }),
 		}),
-	) as any;
+	);
 }
 
 export async function getClipperRun(runId: string): Promise<WorkflowSnapshot> {
 	const value = await json(`/clipping/runs/${encodeURIComponent(runId)}`);
-	return workflowSnapshotSchema.parse(value);
+	return parseWorkflowSnapshot(value);
 }
 
 export async function advanceClipperRun(runId: string): Promise<WorkflowSnapshot> {
 	const value = await json(`/clipping/runs/${encodeURIComponent(runId)}/advance`, {
 		method: "POST",
 	});
-	return workflowSnapshotSchema.parse(value);
+	return parseWorkflowSnapshot(value);
 }
 
 export async function sendRunHeartbeat(runId: string): Promise<{ status: string }> {
-	return unknownRecordSchema.parse(
+	return statusResponseSchema.parse(
 		await json(`/clipping/runs/${encodeURIComponent(runId)}/heartbeat`, {
 			method: "POST",
 		}),
-	) as { status: string };
+	);
 }
 
 export async function deleteClipperRun(runId: string): Promise<{ status: string }> {
-	return unknownRecordSchema.parse(
+	return statusResponseSchema.parse(
 		await json(`/clipping/runs/${encodeURIComponent(runId)}`, {
 			method: "DELETE",
 		}),
-	) as { status: string };
+	);
 }

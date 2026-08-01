@@ -100,7 +100,7 @@ class ClipperSessionService:
                     INSERT INTO automatic_clipper_sessions (
                       owner_user_id, media_asset_id, status, last_heartbeat_at
                     ) VALUES (%s, %s, 'active', now())
-                    ON CONFLICT (owner_user_id, media_asset_id) DO UPDATE
+                    ON CONFLICT (media_asset_id) WHERE deleted_at IS NULL DO UPDATE
                     SET status='active', last_heartbeat_at=now(), updated_at=now()
                     """,
                     (actor.user_id, media_asset_id),

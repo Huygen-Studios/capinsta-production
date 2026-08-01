@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -27,7 +28,9 @@ class TransferToEditorRequest(BaseModel):
 class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mediaAssetId: UUID
-    mode: str = Field(default="new_upload")
+    mode: Literal["new_upload", "reuse_existing_media"] = Field(
+        default="new_upload"
+    )
 
 
 def _enabled() -> bool:
@@ -59,15 +62,37 @@ def _session_service() -> ClipperSessionService:
     return ClipperSessionService(DurableDatabase())
 
 
-def _raise(error: Exception) -> None:
+def _raise(
+    error: Exception, *, request_id: str | None = None, stage: str | None = None
+) -> None:
     if isinstance(error, OrchestrationError):
         raise HTTPException(
-            error.status_code, detail={"code": error.code, "message": error.message}
+            error.status_code,
+            detail={
+                "code": error.code,
+                "message": error.message,
+                **({"stage": stage} if stage else {}),
+                **({"requestId": request_id} if request_id else {}),
+            },
         ) from error
     if isinstance(error, PersistenceError):
-        status_code = 404 if error.category == "entity_not_found" else 409
+        status_code = {
+            "entity_not_found": 404,
+            "database_unavailable": 503,
+            "schema_version_unsupported": 503,
+        }.get(error.category, 409)
         raise HTTPException(
-            status_code, detail={"code": error.category, "message": error.message}
+            status_code,
+            detail={
+                "code": error.category,
+                "message": (
+                    "The Automatic Clipper database migration is incomplete."
+                    if error.category == "schema_version_unsupported"
+                    else error.message
+                ),
+                **({"stage": stage} if stage else {}),
+                **({"requestId": request_id} if request_id else {}),
+            },
         ) from error
     raise error
 
@@ -83,16 +108,37 @@ def _request_id(request: Request) -> str:
 # --- Run-based Endpoints ---
 
 @router.post("/clipping/runs", status_code=201)
-async def create_run(payload: CreateRunRequest):
-    res = await _session_service().create_run(
-        _actor(), payload.mediaAssetId, mode=payload.mode
-    )
-    if res.get("notFound"):
-        raise HTTPException(
-            404,
-            detail={"code": "media_not_found", "message": "Media asset was not found"},
+async def create_run(payload: CreateRunRequest, request: Request):
+    req_id = _request_id(request)
+    try:
+        res = await _session_service().create_run(
+            _actor(), payload.mediaAssetId, mode=payload.mode
         )
-    return res
+        if res.get("notFound"):
+            raise HTTPException(
+                404,
+                detail={"code": "media_not_found", "message": "Media asset was not found"},
+            )
+        return res
+    except HTTPException:
+        raise
+    except (OrchestrationError, PersistenceError) as error:
+        _raise(error, request_id=req_id, stage="run_creation")
+    except Exception as exc:
+        logger.exception(
+            "clipper_run_creation_failed request_id=%s exc_class=%s",
+            req_id,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            500,
+            detail={
+                "code": "run_creation_failed",
+                "message": "The clipping run could not be created.",
+                "stage": "run_creation",
+                "requestId": req_id,
+            },
+        ) from exc
 
 
 @router.get("/clipping/runs/{run_id}")
@@ -109,12 +155,13 @@ async def get_run_status(run_id: UUID):
 @router.post("/clipping/runs/{run_id}/advance")
 async def advance_run(run_id: UUID, request: Request):
     req_id = _request_id(request)
-    run = await _session_service().get_run(_actor(), run_id)
-    if run is None:
-        raise HTTPException(
-            404, detail={"code": "run_not_found", "message": "Clipper run was not found"}
-        )
     try:
+        run = await _session_service().get_run(_actor(), run_id)
+        if run is None:
+            raise HTTPException(
+                404,
+                detail={"code": "run_not_found", "message": "Clipper run was not found"},
+            )
         response = await _service().advance(
             _actor(), run["media_asset_id"], run_id=run_id
         )
@@ -127,7 +174,7 @@ async def advance_run(run_id: UUID, request: Request):
     except HTTPException:
         raise
     except (OrchestrationError, PersistenceError) as error:
-        _raise(error)
+        _raise(error, request_id=req_id, stage="workflow_advance")
     except Exception as exc:
         logger.exception(
             "workflow_advance_failed run_id=%s request_id=%s exc_class=%s",
@@ -140,7 +187,7 @@ async def advance_run(run_id: UUID, request: Request):
             detail={
                 "code": "workflow_advance_failed",
                 "message": "The clipping workflow could not advance.",
-                "stage": "transcription_planning",
+                "stage": "workflow_advance",
                 "requestId": req_id,
             },
         )
@@ -205,7 +252,7 @@ async def advance_workflow(media_asset_id: UUID, request: Request):
             detail={
                 "code": "workflow_advance_failed",
                 "message": "The clipping workflow could not advance.",
-                "stage": "transcription_planning",
+                "stage": "workflow_advance",
                 "requestId": req_id,
             },
         )

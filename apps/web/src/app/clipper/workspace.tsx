@@ -1,33 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AccountMenu } from "@/components/auth/account-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LogoStatic } from "@/components/logo";
 import {
 	advanceClipperRun,
-	advanceWorkflow,
-	beginClipperUploadAttempt,
+	abandonClipperUploadAttempt,
 	cancelExport,
 	createClipperRun,
 	createExport,
 	deleteClipperRun,
 	deleteClipperSession,
-	discardClipperUpload,
 	finishClipperUploadAttempt,
-	getClipperRun,
 	getExport,
 	getExportDownload,
 	getProjectJob,
@@ -61,8 +52,7 @@ type WorkspaceState =
 	| "completed"
 	| "error";
 
-const delay = (milliseconds: number) =>
-	new Promise((resolve) => setTimeout(resolve, milliseconds));
+const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const CLIPPER_MEDIA_STORAGE_KEY = "capinsta:clipper:active-media-v1";
 
 function formatTime(milliseconds: number): string {
@@ -70,28 +60,15 @@ function formatTime(milliseconds: number): string {
 	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-function readRecord({
-	value,
-	key,
-}: {
-	value: unknown;
-	key: string;
-}): Record<string, unknown> | null {
+function readRecord({ value, key }: { value: unknown; key: string }): Record<string, unknown> | null {
 	if (typeof value !== "object" || value === null) return null;
 	const field = Reflect.get(value, key);
-	return typeof field === "object" && field !== null
-		? Object.fromEntries(Object.entries(field))
-		: null;
+	return typeof field === "object" && field !== null ? Object.fromEntries(Object.entries(field)) : null;
 }
 
-function isSafeZone(
-	value: string,
-): value is ClipperSelection["safeZoneProfile"] {
+function isSafeZone(value: string): value is ClipperSelection["safeZoneProfile"] {
 	return (
-		value === "shorts-generic-v1" ||
-		value === "tiktok-v1" ||
-		value === "reels-v1" ||
-		value === "youtube-shorts-v1"
+		value === "shorts-generic-v1" || value === "tiktok-v1" || value === "reels-v1" || value === "youtube-shorts-v1"
 	);
 }
 
@@ -119,9 +96,9 @@ export function ClipperWorkspace() {
 	const [layout, setLayout] = useState<ClipperLayoutStrategy>("automatic");
 	const [captionPreset, setCaptionPreset] = useState("word_highlight_box");
 	const [wordSpacing, setWordSpacing] = useState(8);
-	const [safeZone, setSafeZone] = useState<
-		"shorts-generic-v1" | "tiktok-v1" | "reels-v1" | "youtube-shorts-v1"
-	>("shorts-generic-v1");
+	const [safeZone, setSafeZone] = useState<"shorts-generic-v1" | "tiktok-v1" | "reels-v1" | "youtube-shorts-v1">(
+		"shorts-generic-v1",
+	);
 	const [projectRevision, setProjectRevision] = useState<number | null>(null);
 	const [previewReady, setPreviewReady] = useState(false);
 	const [exportId, setExportId] = useState<string | null>(null);
@@ -140,11 +117,7 @@ export function ClipperWorkspace() {
 	const activeMediaAssetId = workflow?.mediaAssetId ?? null;
 
 	const fail = useCallback((caught: unknown) => {
-		setError(
-			caught instanceof Error
-				? caught.message
-				: "The clipper could not continue.",
-		);
+		setError(caught instanceof Error ? caught.message : "The clipper could not continue.");
 		setState("error");
 	}, []);
 
@@ -162,6 +135,9 @@ export function ClipperWorkspace() {
 
 			const failure = stageFailure(snapshot.stages);
 			if (failure) throw new Error(failure);
+			if (snapshot.status === "failed") {
+				throw new Error(snapshot.failureMessage || "The clipping workflow could not continue.");
+			}
 
 			if (snapshot.status === "candidate_review" && snapshot.projectId) {
 				setCandidates(await listCandidates(snapshot.projectId));
@@ -181,7 +157,6 @@ export function ClipperWorkspace() {
 		abortRef.current = new AbortController();
 		setState("processing");
 		setMessage("Uploading source video…");
-		beginClipperUploadAttempt();
 		try {
 			const mediaAssetId = await uploadClipperMedia({
 				file,
@@ -191,9 +166,7 @@ export function ClipperWorkspace() {
 			setUploadProgress(100);
 			finishClipperUploadAttempt();
 			window.localStorage.setItem(CLIPPER_MEDIA_STORAGE_KEY, mediaAssetId);
-			setMessage(
-				"Processing, transcribing and finding your strongest moments…",
-			);
+			setMessage("Processing, transcribing and finding your strongest moments…");
 			const run = await createClipperRun(mediaAssetId, "new_upload");
 			setActiveRunId(run.runId);
 			window.localStorage.setItem("capinsta:clipper:active-run-v1", run.runId);
@@ -226,7 +199,7 @@ export function ClipperWorkspace() {
 		setWorkflow(null);
 		setCandidates([]);
 		setSelected(null);
-		beginClipperUploadAttempt();
+		abandonClipperUploadAttempt();
 		setState("upload");
 		setMessage("");
 		setError("");
@@ -279,9 +252,7 @@ export function ClipperWorkspace() {
 			const job = await getProjectJob(projectId, jobId);
 			if (job.status === "succeeded") return job;
 			if (["failed", "cancelled", "expired"].includes(job.status)) {
-				throw new Error(
-					job.failure_message || `${job.status} job could not finish.`,
-				);
+				throw new Error(job.failure_message || `${job.status} job could not finish.`);
 			}
 			await delay(1_500);
 		}
@@ -296,9 +267,7 @@ export function ClipperWorkspace() {
 			const queued = await selectCandidate(projectId, selected.candidateId, {
 				expectedRevision: projectRevision,
 				hookText,
-				supportingEmojis: emojiText.trim()
-					? emojiText.trim().split(/\s+/).slice(0, 2)
-					: [],
+				supportingEmojis: emojiText.trim() ? emojiText.trim().split(/\s+/).slice(0, 2) : [],
 				framingStrategy: layout,
 				captionPreset,
 				wordSpacing,
@@ -307,8 +276,7 @@ export function ClipperWorkspace() {
 			const selectedRevision = queued.jobId
 				? (await waitForJob(queued.jobId)).output?.projectRevision
 				: queued.projectRevision;
-			if (!selectedRevision)
-				throw new Error("Composition revision is unavailable.");
+			if (!selectedRevision) throw new Error("Composition revision is unavailable.");
 			setProjectRevision(selectedRevision);
 			setMessage("Deriving the editable timeline…");
 			for (let attempt = 0; attempt < 600; attempt += 1) {
@@ -317,8 +285,7 @@ export function ClipperWorkspace() {
 					value: status,
 					key: "derivation",
 				});
-				if (derivation?.status === "succeeded" && derivation.edl === "current")
-					break;
+				if (derivation?.status === "succeeded" && derivation.edl === "current") break;
 				if (derivation?.status === "failed") {
 					throw new Error("Timeline derivation failed.");
 				}
@@ -326,11 +293,7 @@ export function ClipperWorkspace() {
 			}
 			setMessage("Preparing the editable Capinsta project…");
 			const targetProjectId = `clipper-${projectId}`;
-			const conversion = await requestConversion(
-				projectId,
-				selectedRevision,
-				targetProjectId,
-			);
+			const conversion = await requestConversion(projectId, selectedRevision, targetProjectId);
 			await waitForJob(conversion.jobId);
 			setState("preview");
 			setMessage("");
@@ -345,11 +308,7 @@ export function ClipperWorkspace() {
 		try {
 			await transferSessionToEditor(activeMediaAssetId, projectId);
 			await preparePreview(projectId, projectRevision);
-			const handoff = await prepareHandoff(
-				projectId,
-				projectRevision,
-				`clipper-preview-${projectId}`,
-			);
+			const handoff = await prepareHandoff(projectId, projectRevision, `clipper-preview-${projectId}`);
 			if (previewWindow) {
 				previewWindow.location.assign(`/editor/handoff/${handoff.handoffId}`);
 			} else {
@@ -393,11 +352,7 @@ export function ClipperWorkspace() {
 		if (!projectId || projectRevision === null || !activeMediaAssetId) return;
 		try {
 			await transferSessionToEditor(activeMediaAssetId, projectId);
-			const handoff = await prepareHandoff(
-				projectId,
-				projectRevision,
-				`clipper-${projectId}`,
-			);
+			const handoff = await prepareHandoff(projectId, projectRevision, `clipper-${projectId}`);
 			window.location.assign(`/editor/handoff/${handoff.handoffId}`);
 		} catch (caught) {
 			fail(caught);
@@ -463,9 +418,7 @@ export function ClipperWorkspace() {
 					</Link>
 					<div>
 						<p className="font-black">Automatic Clipper</p>
-						<p className="text-xs text-muted-foreground">
-							Private 9:16 Short workflow
-						</p>
+						<p className="text-xs text-muted-foreground">Private 9:16 Short workflow</p>
 					</div>
 				</div>
 				<AccountMenu compact />
@@ -478,8 +431,7 @@ export function ClipperWorkspace() {
 						</CardHeader>
 						<CardContent className="space-y-5">
 							<p className="text-sm text-muted-foreground">
-								Upload MP4, MOV or WebM. Landscape, square and vertical sources
-								are supported.
+								Upload MP4, MOV or WebM. Landscape, square and vertical sources are supported.
 							</p>
 							<Input
 								type="file"
@@ -526,38 +478,47 @@ export function ClipperWorkspace() {
 							)}
 
 							<div className="grid gap-3 sm:grid-cols-2">
-								{workflow?.stages && Object.entries(workflow.stages).map(([name, value]) => {
-									if (name === "variants" && typeof value === "object" && value !== null) {
-										const varObj = value as Record<string, any>;
-										const aggStatus = varObj.status || "working";
+								{workflow?.stages &&
+									Object.entries(workflow.stages).map(([name, value]) => {
+										if (name === "variants" && typeof value === "object" && value !== null) {
+											const aggStatus = Reflect.get(value, "status") || "working";
+											return (
+												<div key={name} className="sm:col-span-2 rounded-sm border p-4 text-sm bg-muted/20">
+													<div className="flex justify-between font-bold mb-2">
+														<span className="capitalize">Media Variants</span>
+														<span className="capitalize text-primary">{aggStatus}</span>
+													</div>
+													<div className="grid grid-cols-2 gap-2 text-xs">
+														{["proxy", "audio", "thumbnail", "waveform"].map((variant) => {
+															const detail = Reflect.get(value, variant);
+															return (
+																<div key={variant}>
+																	{variant === "audio" ? "Audio (Required)" : variant}:{" "}
+																	<span className="font-semibold">
+																		{typeof detail === "object" && detail !== null
+																			? String(Reflect.get(detail, "status") || "not_requested")
+																			: "not_requested"}
+																	</span>
+																</div>
+															);
+														})}
+													</div>
+												</div>
+											);
+										}
 										return (
-											<div key={name} className="sm:col-span-2 rounded-sm border p-4 text-sm bg-muted/20">
-												<div className="flex justify-between font-bold mb-2">
-													<span className="capitalize">Media Variants</span>
-													<span className="capitalize text-primary">{aggStatus}</span>
-												</div>
-												<div className="grid grid-cols-2 gap-2 text-xs">
-													<div>Proxy: <span className="font-semibold">{varObj.proxy?.status || "not_requested"}</span></div>
-													<div>Audio (Required): <span className="font-semibold">{varObj.audio?.status || "not_requested"}</span></div>
-													<div>Thumbnail: <span className="font-semibold">{varObj.thumbnail?.status || "not_requested"}</span></div>
-													<div>Waveform: <span className="font-semibold">{varObj.waveform?.status || "not_requested"}</span></div>
-												</div>
+											<div key={name} className="rounded-sm border p-3 text-sm">
+												<span className="font-bold capitalize">{name}</span>
+												<span className="float-right font-semibold text-muted-foreground capitalize">
+													{String(
+														typeof value === "object" && value !== null
+															? (Reflect.get(value, "status") ?? "not_requested")
+															: "not_requested",
+													)}
+												</span>
 											</div>
 										);
-									}
-									return (
-										<div key={name} className="rounded-sm border p-3 text-sm">
-											<span className="font-bold capitalize">{name}</span>
-											<span className="float-right font-semibold text-muted-foreground capitalize">
-												{String(
-													typeof value === "object" && value !== null
-														? (Reflect.get(value, "status") ?? "not_requested")
-														: "not_requested",
-												)}
-											</span>
-										</div>
-									);
-								})}
+									})}
 							</div>
 						</CardContent>
 					</Card>
@@ -579,10 +540,7 @@ export function ClipperWorkspace() {
 								>
 									Resume upload
 								</Button>
-								<Button
-									variant="destructive"
-									onClick={() => void handleExplicitCancelAndDelete()}
-								>
+								<Button variant="destructive" onClick={() => void handleExplicitCancelAndDelete()}>
 									Cancel & delete video
 								</Button>
 							</div>
@@ -595,15 +553,9 @@ export function ClipperWorkspace() {
 						<div className="flex justify-between items-center">
 							<div>
 								<h1 className="text-3xl font-black">Ranked moments</h1>
-								<p className="text-muted-foreground">
-									Scores are editorial signals, not guarantees of virality.
-								</p>
+								<p className="text-muted-foreground">Scores are editorial signals, not guarantees of virality.</p>
 							</div>
-							<Button
-								variant="destructive"
-								size="sm"
-								onClick={() => void handleExplicitCancelAndDelete()}
-							>
+							<Button variant="destructive" size="sm" onClick={() => void handleExplicitCancelAndDelete()}>
 								Cancel & delete video
 							</Button>
 						</div>
@@ -611,12 +563,9 @@ export function ClipperWorkspace() {
 							{candidates.length === 0 && (
 								<Card className="border-2 md:col-span-2">
 									<CardContent className="space-y-3 pt-6">
-										<p className="font-bold">
-											No suitable self-contained moment was found.
-										</p>
+										<p className="font-bold">No suitable self-contained moment was found.</p>
 										<p className="text-sm text-muted-foreground">
-											You can retry candidate analysis. The clipper will never
-											invent a range or word timing.
+											You can retry candidate analysis. The clipper will never invent a range or word timing.
 										</p>
 										<Button
 											onClick={() => {
@@ -625,7 +574,7 @@ export function ClipperWorkspace() {
 													setMessage("Regenerating ranked moments…");
 													void regenerateCandidates(projectId, projectRevision)
 														.then(() => {
-															const targetRunId = activeRunId || (workflow as any)?.runId;
+															const targetRunId = activeRunId || workflow?.runId;
 															if (targetRunId) return pollRunWorkflow(targetRunId);
 														})
 														.catch(fail);
@@ -649,41 +598,25 @@ export function ClipperWorkspace() {
 									</CardHeader>
 									<CardContent className="space-y-3">
 										<p className="text-sm font-bold">
-											{formatTime(candidate.sourceStartMs)}–
-											{formatTime(candidate.sourceEndMs)}
+											{formatTime(candidate.sourceStartMs)}–{formatTime(candidate.sourceEndMs)}
 											{" · "}
 											{Math.round(candidate.durationMs / 1000)} sec
 										</p>
 										<p className="text-lg font-black">
-											{candidate.hookText}{" "}
-											{candidate.supportingEmojis.join(" ")}
+											{candidate.hookText} {candidate.supportingEmojis.join(" ")}
 										</p>
-										<p className="text-sm">
-											{candidate.transcriptEvidence.excerpt}
-										</p>
-										<p className="text-xs text-muted-foreground">
-											{candidate.reason}
-										</p>
+										<p className="text-sm">{candidate.transcriptEvidence.excerpt}</p>
+										<p className="text-xs text-muted-foreground">{candidate.reason}</p>
 										<div className="flex gap-2">
-											<Button onClick={() => choose(candidate)}>
-												Customize
-											</Button>
+											<Button onClick={() => choose(candidate)}>Customize</Button>
 											<Button
 												variant="outline"
 												onClick={() => {
 													if (projectId && projectRevision !== null) {
-														void rejectCandidate(
-															projectId,
-															candidate.candidateId,
-															projectRevision,
-														).then(
+														void rejectCandidate(projectId, candidate.candidateId, projectRevision).then(
 															() =>
 																setCandidates((items) =>
-																	items.filter(
-																		(item) =>
-																			item.candidateId !==
-																			candidate.candidateId,
-																	),
+																	items.filter((item) => item.candidateId !== candidate.candidateId),
 																),
 															fail,
 														);
@@ -716,14 +649,8 @@ export function ClipperWorkspace() {
 								/>
 							</div>
 							<div className="space-y-2">
-								<Label htmlFor="clipper-emojis">
-									Supporting emojis (max 2)
-								</Label>
-								<Input
-									id="clipper-emojis"
-									value={emojiText}
-									onChange={(event) => setEmojiText(event.target.value)}
-								/>
+								<Label htmlFor="clipper-emojis">Supporting emojis (max 2)</Label>
+								<Input id="clipper-emojis" value={emojiText} onChange={(event) => setEmojiText(event.target.value)} />
 							</div>
 							<div className="space-y-2">
 								<Label>Framing</Label>
@@ -738,24 +665,12 @@ export function ClipperWorkspace() {
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="automatic">Automatic</SelectItem>
-										<SelectItem value="preserve_vertical">
-											Preserve vertical
-										</SelectItem>
-										<SelectItem value="single_subject_crop">
-											Single subject
-										</SelectItem>
-										<SelectItem value="dual_subject_split">
-											Dual subject split
-										</SelectItem>
-										<SelectItem value="speaker_screen_stack">
-											Speaker + screen
-										</SelectItem>
-										<SelectItem value="fit_blurred_background">
-											Fit + blurred background
-										</SelectItem>
-										<SelectItem value="manual_safe_crop">
-											Manual safe crop
-										</SelectItem>
+										<SelectItem value="preserve_vertical">Preserve vertical</SelectItem>
+										<SelectItem value="single_subject_crop">Single subject</SelectItem>
+										<SelectItem value="dual_subject_split">Dual subject split</SelectItem>
+										<SelectItem value="speaker_screen_stack">Speaker + screen</SelectItem>
+										<SelectItem value="fit_blurred_background">Fit + blurred background</SelectItem>
+										<SelectItem value="manual_safe_crop">Manual safe crop</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
@@ -766,12 +681,8 @@ export function ClipperWorkspace() {
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="word_highlight_box">
-											Word highlight box
-										</SelectItem>
-										<SelectItem value="viral_word_highlight">
-											Viral word highlight
-										</SelectItem>
+										<SelectItem value="word_highlight_box">Word highlight box</SelectItem>
+										<SelectItem value="viral_word_highlight">Viral word highlight</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
@@ -783,9 +694,7 @@ export function ClipperWorkspace() {
 									min={-10}
 									max={100}
 									value={wordSpacing}
-									onChange={(event) =>
-										setWordSpacing(Number(event.target.value))
-									}
+									onChange={(event) => setWordSpacing(Number(event.target.value))}
 								/>
 							</div>
 							<div className="space-y-2">
@@ -800,25 +709,16 @@ export function ClipperWorkspace() {
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="shorts-generic-v1">
-											Generic Short
-										</SelectItem>
+										<SelectItem value="shorts-generic-v1">Generic Short</SelectItem>
 										<SelectItem value="tiktok-v1">TikTok</SelectItem>
 										<SelectItem value="reels-v1">Reels</SelectItem>
-										<SelectItem value="youtube-shorts-v1">
-											YouTube Shorts
-										</SelectItem>
+										<SelectItem value="youtube-shorts-v1">YouTube Shorts</SelectItem>
 									</SelectContent>
 								</Select>
 							</div>
 							<div className="flex gap-2 sm:col-span-2">
-								<Button onClick={() => void generateComposition()}>
-									Generate composition
-								</Button>
-								<Button
-									variant="outline"
-									onClick={() => setState("candidate_review")}
-								>
+								<Button onClick={() => void generateComposition()}>Generate composition</Button>
+								<Button variant="outline" onClick={() => setState("candidate_review")}>
 									Back
 								</Button>
 							</div>
@@ -835,14 +735,11 @@ export function ClipperWorkspace() {
 							<p>The 9:16 project is revision-bound, captioned and editable.</p>
 							{previewReady && (
 								<p className="rounded-sm border border-green-600 bg-green-500/10 p-3 text-sm">
-									Revision-bound preview opened in the editable Capinsta
-									workspace.
+									Revision-bound preview opened in the editable Capinsta workspace.
 								</p>
 							)}
 							<div className="flex flex-wrap gap-2">
-								<Button onClick={() => void preview()}>
-									Preview in Capinsta
-								</Button>
+								<Button onClick={() => void preview()}>Preview in Capinsta</Button>
 								<Button onClick={() => void startExport()}>Export MP4</Button>
 								<Button variant="outline" onClick={() => void openInCapinsta()}>
 									Open in Capinsta
@@ -908,15 +805,12 @@ export function ClipperWorkspace() {
 							<p>{error}</p>
 							{error.startsWith("Video exceeds the Storage limit") && (
 								<p className="text-sm text-muted-foreground">
-									Admins: Supabase Dashboard → Storage → Settings →
-									Global file size limit, then Storage → source-media →
-									Edit bucket → File size limit.
+									Admins: Supabase Dashboard → Storage → Settings → Global file size limit, then Storage → source-media
+									→ Edit bucket → File size limit.
 								</p>
 							)}
 							<div className="flex gap-2">
-								<Button onClick={() => window.location.reload()}>
-									Try again
-								</Button>
+								<Button onClick={() => window.location.reload()}>Try again</Button>
 								<Button
 									variant="outline"
 									onClick={async () => {

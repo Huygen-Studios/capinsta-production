@@ -10,6 +10,7 @@ psycopg = pytest.importorskip("psycopg")
 
 from server.automatic_clipper.repository import AutomaticClipperRepository
 from server.automatic_clipper.contracts import CandidateSelectionRequestV1
+from server.automatic_clipper.session_service import ClipperSessionService
 from server.clipping_orchestration.repository import ClippingOrchestrationRepository
 from server.clipping_persistence.database import DurableDatabase
 
@@ -35,6 +36,36 @@ def _prepare():
                 "utf-8"
             )
         )
+        for version in (29, 30):
+            migration = next(
+                (ROOT / "apps/web/migrations").glob(f"{version:04d}_*.sql")
+            )
+            connection.execute(migration.read_text("utf-8"))
+
+
+def test_same_media_supports_multiple_independent_runs():
+    _prepare()
+    actor, asset, _ = _seed()
+    service = ClipperSessionService(DurableDatabase(DATABASE_URL))
+
+    async def concurrent():
+        return await asyncio.gather(
+            service.create_run(actor, asset, mode="reuse_existing_media"),
+            service.create_run(actor, asset, mode="reuse_existing_media"),
+        )
+
+    first, second = _run(concurrent())
+
+    assert first["runId"] != second["runId"]
+    with psycopg.connect(DATABASE_URL) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM automatic_clipper_runs WHERE media_asset_id=%s",
+            (asset,),
+        ).fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT count(*) FROM automatic_clipper_sessions WHERE media_asset_id=%s AND deleted_at IS NULL",
+            (asset,),
+        ).fetchone()[0] == 1
 
 
 def test_candidate_planning_is_concurrent_idempotent_and_revision_bound():

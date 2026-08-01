@@ -1,8 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-type-assertion, opencut/prefer-object-params -- Synthetic File doubles avoid allocating a 480 MB test buffer. */
 import { describe, expect, test } from "bun:test";
 import {
+	abandonClipperUploadAttempt,
 	clipperUploadAttemptId,
+	clipperApiErrorFromResponse,
+	finishClipperUploadAttempt,
 	parseCandidates,
+	parseWorkflowSnapshot,
 	safeR2ResumeInstructions,
 	uploadR2MultipartForTest,
 	uploadTusForTest,
@@ -40,16 +44,65 @@ const candidate = {
 } as const;
 
 describe("automatic clipper API contracts", () => {
+	test("preserves structured workflow failures and diagnostic IDs", () => {
+		const error = clipperApiErrorFromResponse(
+			new Response(null, { status: 500 }),
+			{
+				detail: {
+					code: "workflow_advance_failed",
+					message: "The clipping workflow could not advance.",
+					stage: "transcription_planning",
+					requestId: "req-workflow-1",
+				},
+			},
+			"/clipping/runs/run-1/advance",
+		);
+
+		expect(error.message).toBe("The clipping workflow could not advance. Diagnostic ID: req-workflow-1");
+		expect(error.status).toBe(500);
+		expect(error.diagnostics?.code).toBe("workflow_advance_failed");
+		expect(error.diagnostics?.stage).toBe("transcription_planning");
+	});
+
+	test("accepts normal stalled and failed workflow snapshots", () => {
+		const base = {
+			mediaAssetId: "media-1",
+			projectId: null,
+			projectRevision: null,
+			transcriptId: null,
+			stages: {},
+		};
+		expect(
+			parseWorkflowSnapshot({
+				...base,
+				status: "stalled",
+				stalledCode: "media_worker_unavailable",
+				stalledMessage: "The media-processing worker is offline.",
+			}).status,
+		).toBe("stalled");
+		expect(
+			parseWorkflowSnapshot({
+				...base,
+				status: "failed",
+				failureCode: "transcription_audio_unavailable",
+				failureMessage: "The audio track could not be prepared.",
+			}).status,
+		).toBe("failed");
+	});
+
 	test("keeps retries in one upload attempt and allows a new attempt", () => {
 		const values = new Map<string, string>();
 		const storage = {
 			getItem: (key: string) => values.get(key) ?? null,
 			setItem: (key: string, value: string) => values.set(key, value),
+			removeItem: (key: string) => values.delete(key),
 		};
 		expect(clipperUploadAttemptId(storage, () => "attempt-1")).toBe("attempt-1");
 		expect(clipperUploadAttemptId(storage, () => "attempt-2")).toBe("attempt-1");
-		values.clear();
+		finishClipperUploadAttempt(storage);
 		expect(clipperUploadAttemptId(storage, () => "attempt-2")).toBe("attempt-2");
+		abandonClipperUploadAttempt(storage);
+		expect(clipperUploadAttemptId(storage, () => "attempt-3")).toBe("attempt-3");
 	});
 
 	test("accepts bounded candidates and preserves multi-codepoint emoji", () => {
@@ -83,14 +136,21 @@ describe("automatic clipper API contracts", () => {
 		const requests: RequestInit[] = [];
 		const file = {
 			size: 480_531_086,
-			slice: (start: number, end: number) => ({ size: end - start, start, end }),
+			slice: (start: number, end: number) => ({
+				size: end - start,
+				start,
+				end,
+			}),
 		} as unknown as File;
 		const fetchImpl = async (_url: RequestInfo | URL, init?: RequestInit) => {
 			requests.push(init ?? {});
 			if (init?.method === "POST") {
 				return new Response("", {
 					status: 201,
-					headers: { location: "https://storage.invalid/upload/1", "upload-offset": "0" },
+					headers: {
+						location: "https://storage.invalid/upload/1",
+						"upload-offset": "0",
+					},
 				});
 			}
 			const headers = new Headers(init?.headers);
@@ -135,17 +195,18 @@ describe("automatic clipper API contracts", () => {
 		expect(new Headers(patches[0]?.headers).get("Upload-Offset")).toBe("0");
 		expect((patches[0]?.body as { size: number }).size).toBe(5_000_000);
 		expect((patches.at(-1)?.body as { size: number }).size).toBe(531_086);
-		const uploadedBytes = patches.reduce(
-			(total, request) => total + (request.body as { size: number }).size,
-			0,
-		);
+		const uploadedBytes = patches.reduce((total, request) => total + (request.body as { size: number }).size, 0);
 		expect(uploadedBytes).toBe(480_531_086);
 	});
 
 	test("resumes through HEAD and maps creation 413 safely", async () => {
 		const file = {
 			size: 10_000_001,
-			slice: (start: number, end: number) => ({ size: end - start, start, end }),
+			slice: (start: number, end: number) => ({
+				size: end - start,
+				start,
+				end,
+			}),
 		} as unknown as File;
 		const resumed: RequestInit[] = [];
 		await uploadTusForTest({
@@ -163,7 +224,10 @@ describe("automatic clipper API contracts", () => {
 			fetchImpl: (async (_url, init) => {
 				resumed.push(init ?? {});
 				if (init?.method === "HEAD")
-					return new Response("", { status: 200, headers: { "upload-offset": "5" } });
+					return new Response("", {
+						status: 200,
+						headers: { "upload-offset": "5" },
+					});
 				const headers = new Headers(init?.headers);
 				const offset = Number(headers.get("Upload-Offset"));
 				const bodySize = Number((init?.body as { size?: number } | undefined)?.size ?? 0);
@@ -202,7 +266,11 @@ describe("automatic clipper API contracts", () => {
 		const completedPayloads: unknown[] = [];
 		const file = {
 			size: 12,
-			slice: (start: number, end: number) => ({ size: end - start, start, end }),
+			slice: (start: number, end: number) => ({
+				size: end - start,
+				start,
+				end,
+			}),
 		} as unknown as File;
 
 		const parts = await uploadR2MultipartForTest({
@@ -266,9 +334,7 @@ describe("automatic clipper API contracts", () => {
 		};
 
 		const persisted = JSON.stringify(
-			safeR2ResumeInstructions(unsafeInstructions, [
-				{ partNumber: 1, etag: "etag-1", size: 5 },
-			]),
+			safeR2ResumeInstructions(unsafeInstructions, [{ partNumber: 1, etag: "etag-1", size: 5 }]),
 		);
 
 		expect(persisted).toContain("etag-1");
@@ -281,7 +347,11 @@ describe("automatic clipper API contracts", () => {
 		const attempts: Record<string, number> = {};
 		const file = {
 			size: 6,
-			slice: (start: number, end: number) => ({ size: end - start, start, end }),
+			slice: (start: number, end: number) => ({
+				size: end - start,
+				start,
+				end,
+			}),
 		} as unknown as File;
 
 		const parts = await uploadR2MultipartForTest({
@@ -307,8 +377,7 @@ describe("automatic clipper API contracts", () => {
 			fetchImpl: (async (url) => {
 				const key = String(url);
 				attempts[key] = (attempts[key] ?? 0) + 1;
-				if (key.endsWith("/2") && attempts[key] === 1)
-					return new Response("", { status: 503 });
+				if (key.endsWith("/2") && attempts[key] === 1) return new Response("", { status: 503 });
 				return new Response("", {
 					status: 200,
 					headers: { etag: `"etag-${key.at(-1)}"` },

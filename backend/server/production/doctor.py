@@ -35,7 +35,7 @@ from server.settings import (
     validate_storage_startup,
 )
 
-EXPECTED_MIGRATION = 28
+EXPECTED_MIGRATION = 31
 BUCKETS = ("source-media", "media-variants", "media-exports")
 
 def _database_url() -> str:

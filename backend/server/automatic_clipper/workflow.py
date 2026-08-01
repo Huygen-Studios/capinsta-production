@@ -79,7 +79,7 @@ class AutomaticClipperWorkflowService:
                     if project_row:
                         project = dict(project_row)
 
-                if project is None:
+                if project is None and run is None:
                     await cursor.execute(
                         """SELECT * FROM clip_projects WHERE source_media_asset_id=%s
                         AND owner_user_id=%s AND deleted_at IS NULL
@@ -254,6 +254,7 @@ class AutomaticClipperWorkflowService:
         # Track session/run heartbeat
         session_svc = ClipperSessionService(self.database)
         if run_id:
+            media_asset_id = identifier
             await session_svc.record_run_heartbeat(actor, run_id)
         else:
             # Check if identifier is a run_id

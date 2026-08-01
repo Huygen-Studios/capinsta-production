@@ -205,6 +205,7 @@ services:
       PROCESSING_WORKER_REQUIRED_JOB_TYPES: media_probe,proxy_generation,audio_extraction,thumbnail_generation,waveform_generation
       ENABLE_MEDIA_PROBE_HANDLER: "true"
       ENABLE_MEDIA_VARIANT_HANDLERS: "true"
+      ENABLE_MEDIA_VARIANT_PLANNING: "true"
       MEDIA_VARIANT_JOB_TYPES: proxy_generation,audio_extraction,thumbnail_generation,waveform_generation
 
   worker-ai:
@@ -247,6 +248,8 @@ services:
 
   worker-maintenance:
     <<: *backend-image
+    environment:
+      <<: *backend-env
     command:
       - sh
       - -c
