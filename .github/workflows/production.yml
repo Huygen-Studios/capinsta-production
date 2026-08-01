@@ -80,8 +80,8 @@ jobs:
           python -m pytest -q backend/tests
           (cd apps/web && bun x tsc --noEmit)
           (cd apps/web && bun run lint)
+          bun test apps/web/src/services/automatic-clipper/api.test.ts
           (cd apps/web && bun test \
-            src/services/automatic-clipper/api.test.ts \
             src/services/server-backed-media/access.test.ts \
             src/services/clipping-handoff/import.test.ts \
             src/app/api/capinsta/[...path]/route.test.ts \
