@@ -72,6 +72,9 @@ jobs:
           python -m playwright install --with-deps --only-shell chromium
           sudo apt-get install -y ffmpeg libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
       - name: Focused verification
+        env:
+          CORS_ORIGINS: https://capinsta.huygenstudios.com
+          FRONTEND_URL: https://capinsta.huygenstudios.com
         run: |
           python -m compileall -q backend
           python -m pytest -q backend/tests
