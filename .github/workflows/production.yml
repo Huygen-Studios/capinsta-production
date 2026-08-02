@@ -152,8 +152,8 @@ jobs:
           TRANSCRIPTION_STORAGE_BACKEND: local
           TRANSCRIPTION_TEMP_ROOT: /tmp/capinsta-manual-e2e/transcription
           CAPINSTA_E2E_TRANSCRIPTION: "true"
-          STT_PROVIDER: gemini
-          GEMINI_API_KEY: ci-local-deterministic-provider-key
+          STT_PROVIDER: openai
+          OPENAI_API_KEY: ci-deterministic-key-abcdefghijklmnopqrstuvwxyz
           CAPTION_QUEUE_MODE: local
           TEMP_DIR: /tmp/capinsta-manual-e2e/legacy/tmp
           UPLOAD_DIR: /tmp/capinsta-manual-e2e/legacy/uploads

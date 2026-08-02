@@ -72,7 +72,12 @@ test("five manual clips persist captions and render individual and ZIP exports",
 		await expect(page.getByRole("heading", { name: "Create clips from one video" })).toBeVisible();
 		await page.locator('input[type="file"]').setInputFiles(source);
 		await page.getByRole("button", { name: "Open in editor" }).click();
-		await page.waitForURL(/\/editor\/[^/?]+\?clipBatch=/, { timeout: 240_000 });
+		await Promise.race([
+			page.waitForURL(/\/editor\/[^/?]+\?clipBatch=/, { timeout: 240_000 }),
+			page.getByRole("alert").waitFor({ state: "visible" }).then(async () => {
+				throw new Error((await page.getByRole("alert").textContent()) ?? "Clipper upload failed");
+			}),
+		]);
 		await expect(page.getByTestId("editor-ready")).toBeVisible({ timeout: 120_000 });
 		await expect(page.locator("canvas").first()).toBeVisible();
 		await expect(page.locator('[data-tour="timeline"]')).toBeVisible();
