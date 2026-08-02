@@ -225,13 +225,13 @@ function ClipBatchDockContent() {
 				}
 				if (Reflect.get(derivation, "status") === "failed" || conversion === "failed") throw new Error("The editable clip could not be prepared.");
 				if (!requested && (Reflect.get(derivation, "status") === "succeeded" || Reflect.get(derivation, "edl") === "current")) {
-					await requestConversion(item.childProjectId, item.childProjectRevision, `clipper-item-${item.id}`, false);
+					await requestConversion(item.childProjectId, item.childProjectRevision, item.childProjectId, true);
 					requested = true;
 				}
 				await wait(1_000);
 			}
 			if (!converted) throw new Error("Preparing the editable clip timed out. You can safely retry.");
-			const handoff = await prepareHandoff(item.childProjectId, item.childProjectRevision, `clipper-item-${item.id}`, false);
+			const handoff = await prepareHandoff(item.childProjectId, item.childProjectRevision, item.childProjectId, true);
 			router.push(`/editor/handoff/${handoff.handoffId}?clipBatch=${batch.id}&clipItem=${item.id}`);
 		} catch (error) {
 			setMessage(error instanceof Error ? error.message : `${item.title} could not be opened.`);
