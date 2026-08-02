@@ -744,7 +744,6 @@ export async function uploadClipperMedia({
 		window.localStorage.removeItem(resumeKey);
 		window.localStorage.removeItem(legacyResumeKey);
 	}
-	const tusAuthHeaders = await supabaseTusAuthHeaders();
 	const limits = await getUploadLimits(signal);
 	if (file.size > limits.effectiveKnownMaximumUploadBytes) {
 		window.localStorage.removeItem(resumeKey);
@@ -801,7 +800,10 @@ export async function uploadClipperMedia({
 			instructions = await uploadTusForTest({
 				file,
 				instructions,
-				tusAuthHeaders,
+				tusAuthHeaders:
+					instructions.provider === "supabase"
+						? await supabaseTusAuthHeaders()
+						: {},
 				onProgress,
 				signal,
 			});
