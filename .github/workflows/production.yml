@@ -129,6 +129,7 @@ jobs:
           ENABLE_SERVER_BACKED_EDITOR_MEDIA: "true"
           ENABLE_MEDIA_PROBE_HANDLER: "true"
           MEDIA_PROBE_STORAGE_BACKEND: local
+          MEDIA_PROBE_LOCAL_STORAGE_ROOT: /tmp/capinsta-manual-e2e/storage
           ENABLE_MEDIA_VARIANT_HANDLERS: "true"
           MEDIA_VARIANT_STORAGE_BACKEND: local
           MEDIA_VARIANT_LOCAL_STORAGE_ROOT: /tmp/capinsta-manual-e2e/storage
