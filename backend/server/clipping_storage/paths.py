@@ -30,6 +30,9 @@ _SAFE_EXPORT_PATH = re.compile(
     r"^[0-9a-f-]{36}/[A-Za-z0-9._-]{1,200}/exports/"
     r"r[1-9][0-9]*/[0-9a-f]{16}/[0-9a-f-]{36}\.mp4$"
 )
+_SAFE_BATCH_EXPORT_PATH = re.compile(
+    r"^[0-9a-f-]{36}/clip-batches/[0-9a-f-]{36}/[0-9a-f-]{36}\.zip$"
+)
 
 
 def extension_for_mime(mime_type: str) -> str:
@@ -55,6 +58,7 @@ def validate_object_path(path: str) -> str:
             _SAFE_PATH.fullmatch(path)
             or _SAFE_VARIANT_PATH.fullmatch(path)
             or _SAFE_EXPORT_PATH.fullmatch(path)
+            or _SAFE_BATCH_EXPORT_PATH.fullmatch(path)
         )
     ):
         raise StorageError(
@@ -66,7 +70,10 @@ def validate_object_path(path: str) -> str:
 
 def validate_export_object_path(path: str) -> str:
     validate_object_path(path)
-    if not _SAFE_EXPORT_PATH.fullmatch(path):
+    if not (
+        _SAFE_EXPORT_PATH.fullmatch(path)
+        or _SAFE_BATCH_EXPORT_PATH.fullmatch(path)
+    ):
         raise StorageError(
             "bucket_not_allowed",
             "The object path does not belong to the clipping export bucket",

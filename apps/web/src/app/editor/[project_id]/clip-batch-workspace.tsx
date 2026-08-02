@@ -299,7 +299,11 @@ function ClipBatchDockContent() {
 			<div className="mb-2 flex items-center justify-between"><strong className="text-sm">Clips</strong><div className="flex gap-1"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void deleteBatchAndClips()}>Delete batch</Button><Button size="sm" onClick={() => setModal(true)}>Create clips</Button></div></div>
 			<div className="max-h-56 space-y-2 overflow-auto">
 				{batch.items.map((item, index) => (
-					<ClipItemRow key={item.id} item={item} onOpen={() => void openItem(item)} onCaption={() => void captionItem(item)} onReload={reload} onMove={(delta) => {
+					<ClipItemRow key={item.id} item={item} onOpen={() => void openItem(item)} onCaption={() => void captionItem(item)} onReload={reload} onSelect={async (selected) => {
+						setBusy(true);
+						try { await updateClipBatchItem(batch.id, item.id, { expectedRevision: item.revision, selectedForExport: selected }); await reload(); }
+						finally { setBusy(false); }
+					}} onMove={(delta) => {
 						const ids = batch.items.map((candidate) => candidate.id);
 						const target = index + delta;
 						if (target < 0 || target >= ids.length) return;
@@ -329,7 +333,7 @@ function ClipBatchDockContent() {
 	);
 }
 
-function ClipItemRow({ item, onOpen, onCaption, onReload, onMove }: { item: ClipBatchItemV1; onOpen: () => void; onCaption: () => void; onReload: () => Promise<void>; onMove: (delta: number) => void }) {
+function ClipItemRow({ item, onOpen, onCaption, onReload, onSelect, onMove }: { item: ClipBatchItemV1; onOpen: () => void; onCaption: () => void; onReload: () => Promise<void>; onSelect: (selected: boolean) => Promise<void>; onMove: (delta: number) => void }) {
 	const { batch } = useBatch();
 	const editor = useEditor();
 	const isChildEditor = Boolean(useSearchParams().get("clipItem"));
@@ -365,7 +369,7 @@ function ClipItemRow({ item, onOpen, onCaption, onReload, onMove }: { item: Clip
 	}
 	return (
 		<div className="rounded border p-2 text-xs" data-testid="clip-batch-item" data-clip-item-id={item.id}>
-			<div className="flex items-center gap-1"><Checkbox checked={item.selectedForExport} onCheckedChange={(checked) => void updateClipBatchItem(batch.id, item.id, { expectedRevision: item.revision, selectedForExport: checked === true }).then(onReload)} /><Button variant="ghost" size="sm" onClick={onOpen}>{item.ordinal}</Button><Input aria-label={`Title for clip ${item.ordinal}`} className="h-7 min-w-0" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} /><Button variant="ghost" size="sm" onClick={() => onMove(-1)} aria-label="Move clip up">Up</Button><Button variant="ghost" size="sm" onClick={() => onMove(1)} aria-label="Move clip down">Down</Button></div>
+			<div className="flex items-center gap-1"><Checkbox checked={item.selectedForExport} onCheckedChange={(checked) => void onSelect(checked === true)} /><Button variant="ghost" size="sm" onClick={onOpen}>{item.ordinal}</Button><Input aria-label={`Title for clip ${item.ordinal}`} className="h-7 min-w-0" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} /><Button variant="ghost" size="sm" onClick={() => onMove(-1)} aria-label="Move clip up">Up</Button><Button variant="ghost" size="sm" onClick={() => onMove(1)} aria-label="Move clip down">Down</Button></div>
 			<div className="mt-1 grid grid-cols-2 gap-1"><div><Label htmlFor={`clip-start-${item.id}`}>Start ms</Label><Input id={`clip-start-${item.id}`} className="h-7" type="number" min={0} disabled={Boolean(item.childProjectId)} value={start} onChange={(event) => setStart(Number(event.target.value))} /></div><div><Label htmlFor={`clip-end-${item.id}`}>End ms</Label><Input id={`clip-end-${item.id}`} className="h-7" type="number" min={1} disabled={Boolean(item.childProjectId)} value={end} onChange={(event) => setEnd(Number(event.target.value))} /></div></div>
 			<div className="mt-1 flex items-center justify-between"><span className={invalid ? "text-destructive" : "text-muted-foreground"}>{formatMs(end - start)}{invalid ? " · invalid" : ""} · captions: {item.captionStatus} · heading: {item.headingStatus}</span><div><Button variant="ghost" size="sm" disabled={isChildEditor} onClick={() => { if (previewTimer.current !== null) window.clearTimeout(previewTimer.current); editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: item.sourceStartMs / 1000 }) }); editor.playback.play(); previewTimer.current = window.setTimeout(() => editor.playback.pause(), item.durationMs); }}>Preview</Button><Button variant="ghost" size="sm" disabled={invalid || !title.trim()} onClick={() => void updateClipBatchItem(batch.id, item.id, { expectedRevision: item.revision, title: title.trim(), sourceStartMs: start, sourceEndMs: end }).then(onReload)}>Save</Button>{item.childProjectId ? <><Button variant="ghost" size="sm" onClick={onCaption}>Captions</Button><Button variant="ghost" size="sm" disabled={isChildEditor} onClick={() => void resetEdits()}>Reset edits</Button></> : null}<Button variant="ghost" size="sm" onClick={() => void addClipBatchItem(batch.id, { title: `${item.title} copy`, sourceStartMs: item.sourceStartMs, sourceEndMs: item.sourceEndMs }).then(onReload)}>Duplicate</Button><Button variant="ghost" size="sm" onClick={() => void remove()}>Remove</Button></div></div>
 		</div>

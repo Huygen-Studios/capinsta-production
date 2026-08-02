@@ -16,6 +16,7 @@ from server.clipping_storage.paths import (
     extension_for_mime,
     source_object_path,
     validate_display_filename,
+    validate_export_object_path,
     validate_object_path,
 )
 from server.media_variants.paths import variant_object_path
@@ -150,6 +151,13 @@ def test_unsafe_paths_are_rejected(path):
     with pytest.raises(StorageError) as error:
         validate_object_path(path)
     assert error.value.category == "object_path_invalid"
+
+
+def test_batch_zip_path_is_a_bounded_private_export_path():
+    owner, batch, export = uuid4(), uuid4(), uuid4()
+    assert validate_export_object_path(f"{owner}/clip-batches/{batch}/{export}.zip")
+    with pytest.raises(StorageError):
+        validate_export_object_path(f"{owner}/clip-batches/{batch}/../escape.zip")
 
 
 @pytest.mark.parametrize("name", ["", ".", "..", "../video.mp4", "a/b.mp4"])
