@@ -41,6 +41,15 @@ describe("CSRF origin protection", () => {
 		expect(decision).toEqual({ ok: true });
 	});
 
+	test("allows the configured local development origin when Next normalizes its host", () => {
+		const request = new Request("http://localhost:3000/api/capinsta/api/clipping/media/uploads", {
+			method: "POST",
+			headers: { origin: "http://127.0.0.1:3000" },
+		});
+
+		expect(evaluateCsrfRequest(request, "http://127.0.0.1:3000")).toEqual({ ok: true });
+	});
+
 	test("rejects cross-site fetch metadata before body parsing", () => {
 		const response = requireCsrfProtection(
 			postRequest({
