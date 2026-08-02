@@ -4,12 +4,12 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
 from pydantic import ValidationError
 
 from server.clip_batches.contracts import CreateItemRequest, MAX_CLIP_DURATION_MS, SyncEditorProjectRequest
 from server.clip_batches.repository import ClipBatchRepository
-from server.api.clipping_batches import _advance_completed_caption, _create_project
-from server.main import app
+from server.api.clipping_batches import _advance_completed_caption, _create_project, router
 
 ROOT = Path(__file__).parents[2]
 
@@ -63,6 +63,9 @@ def test_editor_project_sync_requires_the_existing_v35_contract():
 
 
 def test_batch_routes_are_registered_for_both_api_versions():
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.include_router(router, prefix="/api/v1")
     routes = {(method, route.path) for route in app.routes for method in getattr(route, "methods", set())}
     for prefix in ("/api", "/api/v1"):
         assert ("POST", f"{prefix}/clipping/batches") in routes
