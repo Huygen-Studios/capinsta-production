@@ -440,6 +440,8 @@ PROTECTED_API_PREFIXES = (
     "/api/v1/capinsta/media",
     "/api/clipping/runs",
     "/api/v1/clipping/runs",
+    "/api/clipping/batches",
+    "/api/v1/clipping/batches",
 )
 
 

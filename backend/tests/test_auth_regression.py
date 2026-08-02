@@ -331,9 +331,11 @@ def test_v1_protected_routes_use_same_auth_boundary(monkeypatch):
     (
         "/api/clipping/workflows/00000000-0000-0000-0000-000000000001/advance",
         "/api/v1/clipping/workflows/00000000-0000-0000-0000-000000000001/advance",
+        "/api/clipping/batches",
+        "/api/v1/clipping/batches",
     ),
 )
-def test_clipper_workflow_routes_receive_authenticated_user(monkeypatch, path):
+def test_clipper_routes_receive_authenticated_user(monkeypatch, path):
     authenticated = auth.AuthenticatedUser(id=str(uuid.uuid4()))
     monkeypatch.setattr(main, "authenticate_request", lambda unused: authenticated)
 
