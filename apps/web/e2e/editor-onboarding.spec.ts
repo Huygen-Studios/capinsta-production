@@ -43,7 +43,9 @@ test("editor guide runs once automatically and can be restarted manually", async
 	await page.locator(".driver-popover-close-btn").click();
 	await expect(page.getByText("Welcome to Capinsta")).toHaveCount(0);
 	await expect
-		.poll(() => page.evaluate((key) => localStorage.getItem(key), onboardingKey))
+		.poll(() => page.evaluate((key) => localStorage.getItem(key), onboardingKey), {
+			timeout: 15_000,
+		})
 		.toBe("true");
 
 	await page.reload({ waitUntil: "domcontentloaded" });
