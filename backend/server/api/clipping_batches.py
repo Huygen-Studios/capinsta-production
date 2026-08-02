@@ -327,47 +327,47 @@ async def create_batch_caption(batch_id: UUID, body: CaptionRequest, request: Re
         asset = await MediaStorageRepository(database).get_asset(actor, context["batch"]["source_media_asset_id"])
         storage_config = MediaStorageConfig.from_env()
         storage = media_storage_for_provider(asset.get("storage_provider"), storage_config)
-        url = await storage.create_read_url(
+        temp_root = DurableTranscriptionConfig.from_env().temp_root.resolve()
+        temp_root.mkdir(parents=True, exist_ok=True)
+        async with storage.open_probe_source(
             bucket=asset["storage_bucket"],
             path=asset["storage_path"],
             expires_in=min(storage_config.maximum_url_ttl_seconds, 900),
-        )
-        temp_root = DurableTranscriptionConfig.from_env().temp_root.resolve()
-        temp_root.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="clip-caption-", dir=temp_root) as root:
-            audio_path = Path(root) / "selected-range.wav"
-            await asyncio.to_thread(
-                extract_audio,
-                url,
-                str(audio_path),
-                start_ms=item["source_start_ms"],
-                end_ms=item["source_end_ms"],
-            )
-            handle = audio_path.open("rb")
-            upload = UploadFile(
-                file=handle,
-                size=audio_path.stat().st_size,
-                filename="selected-range.wav",
-                headers=Headers({"content-type": "audio/wav"}),
-            )
-            created = await create_job(
-                request=request,
-                languageMode=body.languageMode,
-                target_lang=None,
-                audioLanguage=None,
-                sourceLanguage=None,
-                captionOutput="original",
-                outputLanguage=None,
-                project_id=item["child_project_id"],
-                media_asset_id=None,
-                file=upload,
-                source_in_ms=None,
-                source_out_ms=None,
-                timeline_offset_ms=0,
-                timeline_offset_us=0,
-                timeline_duration_us=(item["source_end_ms"] - item["source_start_ms"]) * 1000,
-                audio_origin="rendered_selection",
-            )
+        ) as source:
+            with tempfile.TemporaryDirectory(prefix="clip-caption-", dir=temp_root) as root:
+                audio_path = Path(root) / "selected-range.wav"
+                await asyncio.to_thread(
+                    extract_audio,
+                    source.value,
+                    str(audio_path),
+                    start_ms=item["source_start_ms"],
+                    end_ms=item["source_end_ms"],
+                )
+                handle = audio_path.open("rb")
+                upload = UploadFile(
+                    file=handle,
+                    size=audio_path.stat().st_size,
+                    filename="selected-range.wav",
+                    headers=Headers({"content-type": "audio/wav"}),
+                )
+                created = await create_job(
+                    request=request,
+                    languageMode=body.languageMode,
+                    target_lang=None,
+                    audioLanguage=None,
+                    sourceLanguage=None,
+                    captionOutput="original",
+                    outputLanguage=None,
+                    project_id=item["child_project_id"],
+                    media_asset_id=None,
+                    file=upload,
+                    source_in_ms=None,
+                    source_out_ms=None,
+                    timeline_offset_ms=0,
+                    timeline_offset_us=0,
+                    timeline_duration_us=(item["source_end_ms"] - item["source_start_ms"]) * 1000,
+                    audio_origin="rendered_selection",
+                )
         await batches.set_caption_job(actor, batch_id, body.itemId, job_id=created.job_id, status="queued")
         return {"job_id": created.job_id, "status": created.status, "replayed": False}
     except (ClipBatchError, PersistenceError, StorageError) as error:

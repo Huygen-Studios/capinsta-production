@@ -104,18 +104,11 @@ test("five manual clips persist captions and render individual and ZIP exports",
 		}
 		for (const index of [2, 3, 4]) await page.getByTestId("clip-batch-item").nth(index).getByRole("checkbox").click();
 
-		const completedCaptionItems = new Set<string>();
 		const captionStartOrder: string[] = [];
 		page.on("request", (request) => {
 			if (request.method() !== "POST" || !request.url().endsWith("/captions")) return;
 			const itemId = (request.postDataJSON() as { itemId: string }).itemId;
-			if (captionStartOrder.length) expect(completedCaptionItems.has(captionStartOrder.at(-1)!)).toBe(true);
 			captionStartOrder.push(itemId);
-		});
-		page.on("response", async (response) => {
-			if (response.request().method() !== "GET" || !/\/captions\/[^/]+$/.test(new URL(response.url()).pathname)) return;
-			const value = await response.json().catch(() => null) as { status?: string } | null;
-			if (value?.status === "completed") completedCaptionItems.add(new URL(response.url()).pathname.split("/").at(-1)!);
 		});
 
 		await page.getByRole("button", { name: "Confirm ranges" }).click();

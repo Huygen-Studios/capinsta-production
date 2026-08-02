@@ -109,6 +109,8 @@ def test_completed_range_caption_is_durable_idempotent_and_project_bound():
     second = _run(materialize(second))
     assert first["childProjectId"] != second["childProjectId"]
     _run(batches.set_caption_job(actor, batch_id, UUID(first["id"]), job_id="caption-job-1", status="processing"))
+    with pytest.raises(ClipBatchError, match="Another clip"):
+        _run(batches.begin_caption(actor, batch_id, UUID(second["id"])))
     transcript = {"languageMode": "en", "provider": "test", "segments": [{"start": 0.25, "end": 1.5, "text": "Durable words", "words": [{"word": "Durable", "start": 0.25, "end": 0.8}]}]}
     persisted = _run(batches.persist_caption_transcript(
         actor, batch_id, UUID(first["id"]), job_id="caption-job-1", transcript=transcript
