@@ -442,6 +442,8 @@ PROTECTED_API_PREFIXES = (
     "/api/v1/clipping/runs",
     "/api/clipping/batches",
     "/api/v1/clipping/batches",
+    "/api/clipping/exports",
+    "/api/v1/clipping/exports",
 )
 
 

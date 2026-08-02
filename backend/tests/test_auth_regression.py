@@ -339,6 +339,8 @@ def test_v1_protected_routes_use_same_auth_boundary(monkeypatch):
         "/api/v1/clipping/workflows/00000000-0000-0000-0000-000000000001/advance",
         "/api/clipping/batches",
         "/api/v1/clipping/batches",
+        "/api/clipping/exports/00000000-0000-0000-0000-000000000001",
+        "/api/v1/clipping/exports/00000000-0000-0000-0000-000000000001",
     ),
 )
 def test_clipper_routes_receive_authenticated_user(monkeypatch, path):
