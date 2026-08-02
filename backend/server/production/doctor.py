@@ -35,7 +35,7 @@ from server.settings import (
     validate_storage_startup,
 )
 
-EXPECTED_MIGRATION = 31
+EXPECTED_MIGRATION = 32
 BUCKETS = ("source-media", "media-variants", "media-exports")
 
 def _database_url() -> str:
@@ -137,6 +137,23 @@ def _legacy_caption_report() -> tuple[dict[str, Any], bool]:
         },
         not failed,
     )
+
+
+def _worker_root_report() -> tuple[dict[str, Any], bool]:
+    defaults = {
+        "AUTOMATIC_CLIPPER_TEMP_ROOT": "/tmp/capinsta-automatic-clipper",
+        "MEDIA_VARIANT_TEMP_ROOT": "/tmp/capinsta-media-variants",
+        "TRANSCRIPTION_TEMP_ROOT": "/tmp/capinsta-transcription",
+        "CLIPPING_EXPORT_TEMP_ROOT": "/tmp/capinsta-clipping-exports",
+    }
+    roots: dict[str, dict[str, Any]] = {}
+    ok = True
+    for name, default in defaults.items():
+        path = Path(os.getenv(name, default))
+        ready = path.is_absolute() and path.exists() and os.access(path, os.W_OK)
+        roots[name] = {"absolute": path.is_absolute(), "writable": ready}
+        ok = ok and ready
+    return {"workerStorageRoots": roots}, ok
 
 
 def _r2_error_code(error: Exception) -> str:
@@ -582,15 +599,17 @@ def build_report(*, write_test: bool = False) -> tuple[dict[str, Any], bool]:
     env, env_ok = _safe_env_report()
     db, db_ok = _db_report()
     legacy, legacy_ok = _legacy_caption_report()
+    roots, roots_ok = _worker_root_report()
     r2, r2_ok = _r2_runtime_report(write_test=write_test)
     silero, silero_ok = _silero_vad_report()
     workers, workers_ok = _worker_and_clipper_report()
-    ok = env_ok and db_ok and legacy_ok and r2_ok and silero_ok and workers_ok
+    ok = env_ok and db_ok and legacy_ok and roots_ok and r2_ok and silero_ok and workers_ok
     report = {
         "status": "ok" if ok else "missing_setup",
         **env,
         **db,
         **legacy,
+        **roots,
         **r2,
         **silero,
         **workers,

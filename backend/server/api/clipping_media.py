@@ -148,6 +148,25 @@ async def upload_limits():
         _raise_storage(error)
 
 
+@router.get("/assets/{media_asset_id}")
+async def media_readiness(media_asset_id: UUID):
+    """Read-only minimum readiness used by the editor-first Clipper."""
+    try:
+        upload, _, _ = _services()
+        asset = await upload.repository.get_asset(_actor(), media_asset_id)
+        return {
+            "mediaAssetId": str(asset["id"]),
+            "status": asset["status"],
+            "durationMs": asset["duration_ms"],
+            "width": asset["width"],
+            "height": asset["height"],
+            "revision": asset["revision"],
+            "ready": asset["status"] == "ready" and bool(asset["duration_ms"]),
+        }
+    except StorageError as error:
+        _raise_storage(error)
+
+
 @router.post("/uploads", status_code=201)
 async def create_upload(
     payload: UploadCreateRequest,

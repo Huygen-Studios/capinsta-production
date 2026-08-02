@@ -197,23 +197,23 @@ async def resolve_media_access(
                     (media_asset_id, asset["revision"]),
                 )
                 proxy = await cursor.fetchone()
-        if proxy is None:
-            raise StorageError(
-                "media_proxy_not_ready",
-                "The editing proxy is not ready",
-            )
+        media = dict(proxy) if proxy is not None else asset
+        if proxy is None and (
+            asset["status"] != "ready"
+            or not asset.get("storage_bucket")
+            or not asset.get("storage_path")
+        ):
+            raise StorageError("media_asset_not_ready", "The source video is not ready")
         ttl = expires_in or storage_config.preview_ttl_seconds
         if ttl > storage_config.maximum_url_ttl_seconds:
             raise StorageError(
                 "signed_url_failed",
                 "Requested signed URL lifetime is outside the allowed range",
             )
-        storage = media_storage_for_provider(
-            proxy.get("storage_provider"), storage_config
-        )
+        storage = media_storage_for_provider(media.get("storage_provider"), storage_config)
         url = await storage.create_read_url(
-            bucket=proxy["storage_bucket"],
-            path=proxy["storage_path"],
+            bucket=media["storage_bucket"],
+            path=media["storage_path"],
             expires_in=ttl,
         )
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
@@ -252,8 +252,8 @@ async def resolve_media_access(
         "accessMode": "signed-url",
         "url": url,
         "expiresAt": expires_at.isoformat(),
-        "mimeType": proxy["mime_type"],
-        "sizeBytes": proxy["size_bytes"],
-        "durationMs": proxy["duration_ms"] or asset["duration_ms"],
-        "variantType": "proxy",
+        "mimeType": media["mime_type"],
+        "sizeBytes": media["size_bytes"],
+        "durationMs": media["duration_ms"] or asset["duration_ms"],
+        "variantType": "proxy" if proxy is not None else "source",
     }

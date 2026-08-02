@@ -262,7 +262,9 @@ def _sanitize_upload_filename(filename: str, ext: str) -> str:
 
 
 def _validate_upload_metadata(file: UploadFile) -> str:
-    match = validate_upload_metadata(file, require_kind="video")
+    match = validate_upload_metadata(file)
+    if match.expected_kind not in {"video", "audio"}:
+        raise HTTPException(status_code=415, detail="Upload a supported video or audio file.")
     return _sanitize_upload_filename(match.original_name, match.suffix)
 
 
@@ -337,7 +339,7 @@ async def _validated_media_metadata_for_job(
     validation_metadata = await validate_media_file_contents(
         Path(file_path),
         original_name=filename,
-        require_video=True,
+        require_video=False,
         mime_type=mime_type,
     )
     if _row_value(media_row, "id"):
@@ -883,7 +885,7 @@ async def create_job(
             validation_metadata = await validate_media_file_contents(
                 Path(temp_file_path),
                 original_name=filename,
-                require_video=True,
+                require_video=False,
                 mime_type=file.content_type,
             )
             timing.mark("media validation", mode="direct_upload")

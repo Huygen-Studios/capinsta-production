@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
 	isCapinstaProjectHandoffEnabled,
@@ -12,6 +12,7 @@ import { bootstrapHandoff } from "@/services/clipping-handoff/bootstrap";
 export default function ProjectHandoffPage() {
 	const params = useParams<{ handoff_id: string }>();
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const started = useRef(false);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
@@ -24,9 +25,14 @@ export default function ProjectHandoffPage() {
 		started.current = true;
 		setError(null);
 		void bootstrapHandoff({ handoffId: params.handoff_id })
-			.then(({ projectId }) =>
-				router.replace(`/editor/${encodeURIComponent(projectId)}`),
-			)
+			.then(({ projectId }) => {
+				const query = new URLSearchParams();
+				for (const name of ["clipBatch", "clipItem"]) {
+					const value = searchParams.get(name);
+					if (value) query.set(name, value);
+				}
+				router.replace(`/editor/${encodeURIComponent(projectId)}${query.size ? `?${query}` : ""}`);
+			})
 			.catch((cause: unknown) => {
 				setError(
 					cause instanceof Error
@@ -34,7 +40,7 @@ export default function ProjectHandoffPage() {
 						: "The project could not be imported.",
 				);
 			});
-	}, [attempt, enabled, params.handoff_id, router]);
+	}, [attempt, enabled, params.handoff_id, router, searchParams]);
 
 	if (!enabled) {
 		return <HandoffError message="Project handoff is not enabled." />;

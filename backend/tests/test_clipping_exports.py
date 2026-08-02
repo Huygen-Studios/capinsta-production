@@ -17,6 +17,7 @@ from server.clipping_exports.contracts import (
 from server.clipping_exports.config import ClippingExportConfig
 from server.clipping_exports.handler import export_object_path
 from server.clipping_exports.renderer import caption_render_input, edl_arguments
+from server.clipping_exports.repository import ClippingExportRepository
 from server.clipping_handoff.contracts import ServerBackedMediaDescriptorV1
 from server.clipping_storage.errors import StorageError
 from server.clipping_storage.local_storage import LocalMediaStorage
@@ -99,6 +100,15 @@ def test_contracts_reject_client_controlled_export_shape_and_bad_identity():
                 "ffmpegArguments": ["-filter_complex", "evil"],
             }
         )
+
+
+def test_synced_editor_caption_documents_satisfy_export_caption_dependency():
+    assert ClippingExportRepository._has_embedded_captions(
+        {"latest_conversion_result": {"project": {"capinstaCaptionDocuments": [{"id": "caption_1"}]}}}
+    )
+    assert not ClippingExportRepository._has_embedded_captions(
+        {"latest_conversion_result": {"project": {"capinstaCaptionDocuments": []}}}
+    )
 
 
 def test_preview_contract_rejects_signed_url_inside_project():

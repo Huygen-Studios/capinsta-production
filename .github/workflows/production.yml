@@ -1,6 +1,8 @@
 name: Production candidate
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -69,7 +71,7 @@ jobs:
           python -m pip install -r backend/requirements.txt
           python -m pip install -r backend/requirements-stable-ts.txt
           python -m pip install pytest==9.1.0
-          python -m playwright install --with-deps --only-shell chromium
+          (cd apps/web && bun x playwright install --with-deps chromium)
           sudo apt-get install -y ffmpeg libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
       - name: Focused verification
         env:
@@ -80,7 +82,10 @@ jobs:
           python -m pytest -q backend/tests
           (cd apps/web && bun x tsc --noEmit)
           (cd apps/web && bun run lint)
+          (cd apps/web && bun x playwright test -c playwright.admin.config.ts \
+            e2e/editor-onboarding.spec.ts e2e/editor-projects-visual.spec.ts)
           bun test apps/web/src/services/automatic-clipper/api.test.ts
+          bun test apps/web/src/services/clip-batches/ranges.test.ts
           (cd apps/web && bun test \
             src/services/server-backed-media/access.test.ts \
             src/services/clipping-handoff/import.test.ts \
@@ -96,6 +101,89 @@ jobs:
         run: |
           python -m pytest -q backend/tests/test_clipping_storage_postgres.py -k r2
           python -m pytest -q backend/tests/test_automatic_clipper_postgres.py -k same_media
+          python -m pytest -q backend/tests/test_clip_batches_postgres.py
+      - name: Editor-first manual Clipper browser E2E
+        env:
+          CLIPPING_PERSISTENCE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capinsta_test
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capinsta_test
+          ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/capinsta_test
+          NODE_ENV: development
+          ENABLE_LOCAL_DEVELOPMENT_ACCESS: "true"
+          CAPINSTA_UI_TEST_AUTH: "true"
+          UI_VERIFICATION: "true"
+          NEXT_PUBLIC_CAPINSTA_E2E: "true"
+          BACKEND_INTERNAL_URL: http://127.0.0.1:8000
+          TRUSTED_PROXY_MODE: none
+          CORS_ORIGINS: http://127.0.0.1:3000
+          FRONTEND_URL: http://127.0.0.1:3000
+          CAPINSTA_BUILD_SHA: ${{ github.sha }}
+          CLIPPING_STORAGE_PROVIDER: local
+          ENABLE_LOCAL_MEDIA_STORAGE: "true"
+          CLIPPING_LOCAL_STORAGE_ROOT: /tmp/capinsta-manual-e2e/storage
+          MEDIA_UPLOAD_PROTOCOL: tus
+          ENABLE_CLIPPING_PROJECT_API: "true"
+          ENABLE_PROJECT_DERIVATION_REQUESTS: "true"
+          ENABLE_PROJECT_CONVERSION_REQUESTS: "true"
+          ENABLE_CAPINSTA_PROJECT_HANDOFF: "true"
+          ENABLE_SERVER_BACKED_EDITOR_MEDIA: "true"
+          ENABLE_MEDIA_PROBE_HANDLER: "true"
+          MEDIA_PROBE_STORAGE_BACKEND: local
+          ENABLE_MEDIA_VARIANT_HANDLERS: "true"
+          MEDIA_VARIANT_STORAGE_BACKEND: local
+          MEDIA_VARIANT_LOCAL_STORAGE_ROOT: /tmp/capinsta-manual-e2e/storage
+          MEDIA_VARIANT_TEMP_ROOT: /tmp/capinsta-manual-e2e/media-variants
+          ENABLE_CLIPPING_RUST_RUNTIME: "true"
+          ENABLE_PROJECT_DERIVATION_HANDLER: "true"
+          ENABLE_PROJECT_CONVERSION_HANDLER: "true"
+          CLIPPING_RUNTIME_BINARY: ${{ github.workspace }}/target/debug/capinsta-clipping-runtime
+          ENABLE_CLIPPING_PREVIEW_API: "true"
+          ENABLE_CLIPPING_EXPORT_API: "true"
+          ENABLE_CLIPPING_EXPORT_HANDLER: "true"
+          CLIPPING_EXPORT_STORAGE_BACKEND: local
+          CLIPPING_EXPORT_LOCAL_STORAGE_ROOT: /tmp/capinsta-manual-e2e/storage
+          CLIPPING_EXPORT_TEMP_ROOT: /tmp/capinsta-manual-e2e/exports
+          RENDER_PAGE_URL: http://127.0.0.1:3000/render
+          CAPINSTA_RENDER_TOKEN_SECRET: local-manual-clipper-render-secret-32
+          PROCESSING_WORKER_POLL_SECONDS: "0.1"
+          PROCESSING_WORKER_MAX_CONCURRENCY: "2"
+          CAPINSTA_E2E_TRANSCRIPTION: "true"
+          STT_PROVIDER: gemini
+          GEMINI_API_KEY: ci-local-deterministic-provider-key
+          CAPTION_QUEUE_MODE: local
+          TEMP_DIR: /tmp/capinsta-manual-e2e/legacy/tmp
+          UPLOAD_DIR: /tmp/capinsta-manual-e2e/legacy/uploads
+          MEDIA_DIR: /tmp/capinsta-manual-e2e/legacy/media
+          EXPORT_DIR: /tmp/capinsta-manual-e2e/legacy/exports
+          CACHE_DIR: /tmp/capinsta-manual-e2e/legacy/cache
+          DB_PATH: /tmp/capinsta-manual-e2e/legacy/database.sqlite
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$PWD/backend:$PWD/backend/tests"
+          rm -rf /tmp/capinsta-manual-e2e
+          mkdir -p "$TEMP_DIR" "$UPLOAD_DIR" "$MEDIA_DIR" "$EXPORT_DIR" "$CACHE_DIR"
+          python backend/tests/manual_clipper_e2e_setup.py
+          cargo build -p clipping-runtime
+          python -m uvicorn server.main:app --host 127.0.0.1 --port 8000 >/tmp/capinsta-manual-api.log 2>&1 &
+          api_pid=$!
+          python -m server.clipping_jobs.worker >/tmp/capinsta-manual-worker.log 2>&1 &
+          worker_pid=$!
+          cleanup() {
+            status=$?
+            kill "$api_pid" "$worker_pid" >/dev/null 2>&1 || true
+            if [ "$status" -ne 0 ]; then
+              tail -n 300 /tmp/capinsta-manual-api.log || true
+              tail -n 300 /tmp/capinsta-manual-worker.log || true
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/health/ready >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health/ready >/dev/null
+          (cd apps/web && CAPINSTA_FULL_CLIPPER_E2E=true bun x playwright test \
+            -c playwright.admin.config.ts e2e/manual-clipper-full.spec.ts)
       - name: Secret scan
         run: >-
           docker run --rm

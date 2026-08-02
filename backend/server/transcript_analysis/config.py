@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,7 +35,7 @@ class TranscriptAnalysisConfig:
     source_download_timeout_seconds: int = 120
     maximum_source_bytes: int = 2_000_000_000
     maximum_stderr_bytes: int = 1_048_576
-    temp_root: Path = Path("data/transcript-analysis-worker")
+    temp_root: Path = Path(tempfile.gettempdir()) / "capinsta-transcript-analysis"
     storage_backend: str = "supabase"
     local_storage_root: str = "data/clipping-storage"
     ffmpeg_path: str = "ffmpeg"
@@ -81,7 +82,12 @@ class TranscriptAnalysisConfig:
             maximum_stderr_bytes=_int(
                 "SILENCE_ANALYSIS_MAX_STDERR_BYTES", 1_048_576, 65_536, 8_388_608
             ),
-            temp_root=Path(os.getenv("TRANSCRIPT_ANALYSIS_TEMP_ROOT", "data/transcript-analysis-worker")),
+            temp_root=Path(
+                os.getenv(
+                    "TRANSCRIPT_ANALYSIS_TEMP_ROOT",
+                    str(Path(tempfile.gettempdir()) / "capinsta-transcript-analysis"),
+                )
+            ),
             storage_backend=backend,
             local_storage_root=os.getenv("CLIPPING_LOCAL_STORAGE_ROOT", "data/clipping-storage"),
             ffmpeg_path=os.getenv("FFMPEG_PATH", "ffmpeg"),

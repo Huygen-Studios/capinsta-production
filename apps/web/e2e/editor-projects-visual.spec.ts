@@ -61,7 +61,7 @@ test("projects and editor render branded dark and light themes", async ({
 
 	await createProject(darkPage);
 	await darkPage.waitForURL(/\/editor\/[^/]+$/, { timeout: 30_000 });
-	await expect(darkPage.getByRole("button", { name: /Export/i })).toBeVisible({
+	await expect(darkPage.getByRole("button", { name: "Export", exact: true })).toBeVisible({
 		timeout: 30_000,
 	});
 	if (await darkPage.getByText("Advertisement layout preview").first().isVisible()) {
@@ -86,7 +86,6 @@ test("projects and editor render branded dark and light themes", async ({
 		.locator("div.group.relative")
 		.filter({ hasText: "Default text" });
 	await textCard.locator("button").click({ force: true });
-	await darkPage.getByRole("button", { name: "Transform" }).click();
 	await expect(
 		darkPage.getByRole("spinbutton", { name: "Position X" }),
 	).toBeVisible({ timeout: 15_000 });
@@ -146,7 +145,7 @@ test("projects and editor render branded dark and light themes", async ({
 	});
 	await createProject(lightPage);
 	await lightPage.waitForURL(/\/editor\/[^/]+$/, { timeout: 30_000 });
-	await expect(lightPage.getByRole("button", { name: /Export/i })).toBeVisible();
+	await expect(lightPage.getByRole("button", { name: "Export", exact: true })).toBeVisible({ timeout: 30_000 });
 	await lightPage.screenshot({
 		path: resolve(screenshotDir, "editor-light-1920x1080-ad-preview.png"),
 	});

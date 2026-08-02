@@ -48,3 +48,10 @@ use private Cloudflare R2 buckets through backend-signed multipart part URLs;
 existing Supabase-backed rows keep `storage_provider='supabase'` and remain
 readable. The browser no longer sends large source-video chunks to Supabase
 Storage when `CLIPPING_STORAGE_PROVIDER=r2`.
+
+Editor-first manual Clipper update (2026-08-02): additive migration `0032`
+introduces owner-scoped clip batches, independent three-minute source ranges,
+child-project materialization, range-only sequential captions, normal editable
+headings, edited-project synchronization, and private selected/all ZIP exports.
+The default `/clipper` route uses this editor-first flow; the existing automatic
+workflow remains at `/clipper/automatic`. No new environment variable is needed.

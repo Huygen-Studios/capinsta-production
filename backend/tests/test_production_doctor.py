@@ -4,6 +4,27 @@ from server.clipping_storage.r2_storage import R2MediaStorage
 from server.clipping_storage.repository import R2_UPLOAD_SESSION_COLUMNS
 
 
+def test_doctor_requires_absolute_writable_worker_roots(monkeypatch, tmp_path):
+    names = (
+        "AUTOMATIC_CLIPPER_TEMP_ROOT",
+        "MEDIA_VARIANT_TEMP_ROOT",
+        "TRANSCRIPTION_TEMP_ROOT",
+        "CLIPPING_EXPORT_TEMP_ROOT",
+    )
+    for name in names:
+        root = tmp_path / name.lower()
+        root.mkdir()
+        monkeypatch.setenv(name, str(root))
+    report, ok = doctor._worker_root_report()
+    assert ok is True
+    assert all(value == {"absolute": True, "writable": True} for value in report["workerStorageRoots"].values())
+
+    monkeypatch.setenv("TRANSCRIPTION_TEMP_ROOT", "data/transcription-worker")
+    report, ok = doctor._worker_root_report()
+    assert ok is False
+    assert report["workerStorageRoots"]["TRANSCRIPTION_TEMP_ROOT"]["absolute"] is False
+
+
 def test_doctor_reports_missing_database_without_secrets(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("ADMIN_DATABASE_URL", raising=False)

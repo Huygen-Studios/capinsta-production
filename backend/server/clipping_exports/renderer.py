@@ -165,6 +165,7 @@ async def render_project(
     workspace: Path,
     maximum_output_bytes: int,
     timeout_seconds: int,
+    include_captions: bool = True,
 ) -> Path:
     has_audio = await source_has_audio(source, context)
     prepared = workspace / "prepared-timeline.mp4"
@@ -188,7 +189,11 @@ async def render_project(
         stop_event=context.shutdown_event,
         progress_callback=progress,
     )
-    captions_json, theme, style_json = caption_render_input(converted_project)
+    captions_json, theme, style_json = (
+        caption_render_input(converted_project)
+        if include_captions
+        else ("[]", "word_highlight_box", "{}")
+    )
     settings = converted_project["settings"]
     canvas = settings["canvasSize"]
     fps_value = settings.get("fps") or {}

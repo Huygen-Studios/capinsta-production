@@ -37,6 +37,7 @@ import {
 	getBookmarkPreviewOverlaySource,
 } from "@/timeline/bookmarks/index";
 import { EditorAdRail, EditorTopAd } from "@/components/adsense/editor-ads";
+import { ClipBatchDock, ClipBatchProvider, ClipRangeLane } from "./clip-batch-workspace";
 
 export default function Editor() {
 	const params = useParams<{ project_id: string }>();
@@ -46,7 +47,7 @@ export default function Editor() {
 		<MobileGate>
 			<EditorProvider projectId={projectId}>
 				<EditorOnboardingProvider>
-					<EditorProjectSession />
+					<ClipBatchProvider><EditorProjectSession /></ClipBatchProvider>
 				</EditorOnboardingProvider>
 			</EditorProvider>
 		</MobileGate>
@@ -225,7 +226,7 @@ function EditorLayout() {
 						maxSize={40}
 						className="min-w-0"
 					>
-						<PropertiesPanel />
+						<div className="flex h-full flex-col overflow-hidden"><ClipBatchDock /><div className="min-h-0 flex-1"><PropertiesPanel /></div></div>
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>
@@ -238,7 +239,7 @@ function EditorLayout() {
 				maxSize={70}
 				className="min-h-0 px-1.5 pb-1.5 pt-1"
 			>
-				<Timeline />
+				<Timeline rangeLane={<ClipRangeLane />} />
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);

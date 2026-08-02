@@ -63,6 +63,36 @@ pub struct ClipRangeV1 {
     #[serde(default)]
     pub metadata: Value,
 }
+pub const MAX_MANUAL_CLIP_DURATION_MS: i64 = 180_000;
+
+/// Validates an output range created by the manual multi-clip workflow.
+pub fn validate_manual_clip_range(
+    range: &ClipRangeV1,
+    source_duration_ms: i64,
+) -> Result<(), ValidationIssue> {
+    if range.source_start_ms < 0 || range.source_end_ms <= range.source_start_ms {
+        return Err(issue(
+            "invalid_range_duration",
+            "range",
+            Some(range.id.clone()),
+        ));
+    }
+    if range.source_end_ms > source_duration_ms {
+        return Err(issue(
+            "range_exceeds_media",
+            "range.sourceEndMs",
+            Some(range.id.clone()),
+        ));
+    }
+    if range.source_end_ms - range.source_start_ms > MAX_MANUAL_CLIP_DURATION_MS {
+        return Err(issue(
+            "range_exceeds_maximum_duration",
+            "range",
+            Some(range.id.clone()),
+        ));
+    }
+    Ok(())
+}
 fn one() -> f64 {
     1.
 }
@@ -318,5 +348,42 @@ mod tests {
         let serialized: ClipProjectV1 =
             serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert_eq!(serialized, p)
+    }
+
+    #[test]
+    fn manual_clip_range_is_positive_bounded_and_may_overlap() {
+        let range = ClipRangeV1 {
+            schema_version: 1,
+            id: "range_1".into(),
+            source_media_id: "media_1".into(),
+            source_start_ms: 10_000,
+            source_end_ms: 190_000,
+            order: 0,
+            playback_rate: 1.0,
+            selection: None,
+            boundary: Default::default(),
+            transition_in: None,
+            transition_out: None,
+            enabled: true,
+            label: None,
+            metadata: Value::Null,
+        };
+        validate_manual_clip_range(&range, 300_000).unwrap();
+        let mut too_long = range.clone();
+        too_long.source_end_ms += 1;
+        assert_eq!(
+            validate_manual_clip_range(&too_long, 300_000)
+                .unwrap_err()
+                .category,
+            "range_exceeds_maximum_duration"
+        );
+        let mut empty = range;
+        empty.source_end_ms = empty.source_start_ms;
+        assert_eq!(
+            validate_manual_clip_range(&empty, 300_000)
+                .unwrap_err()
+                .category,
+            "invalid_range_duration"
+        );
     }
 }

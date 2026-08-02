@@ -116,7 +116,7 @@ const TRACK_ICONS: Record<TimelineTrack["type"], ReactNode> = {
 	),
 };
 
-export function Timeline() {
+export function Timeline({ rangeLane }: { rangeLane?: ReactNode } = {}) {
 	const snappingEnabled = useTimelineStore((s) => s.snappingEnabled);
 	const {
 		selectedElements,
@@ -529,6 +529,7 @@ export function Timeline() {
 								handleRulerTrackingMouseDown={handleRulerMouseDown}
 								handleRulerMouseDown={handlePlayheadRulerMouseDown}
 							/>
+							{rangeLane ? <div style={{ width: `${contentWidth}px` }}>{rangeLane}</div> : null}
 						</div>
 					</div>
 

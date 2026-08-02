@@ -90,7 +90,7 @@ class ClippingExportRepository:
             )
 
     async def _current(
-        self, connection, actor, project_id: str, expected_revision: int
+        self, connection, actor, project_id: str, expected_revision: int, *, include_captions: bool = True
     ):
         async with connection.cursor() as cursor:
             await cursor.execute(
@@ -121,7 +121,7 @@ class ClippingExportRepository:
             raise ClippingExportError(
                 "edl_missing", "A current edit decision list is required", 409
             )
-        if (
+        if include_captions and not self._has_embedded_captions(project) and (
             project["latest_remapped_transcript"] is None
             or project["latest_remapped_transcript_revision"] != current
         ):
@@ -191,6 +191,12 @@ class ClippingExportRepository:
             canonical_hash(project["latest_remapped_transcript"]),
             project["latest_conversion_result_identity"],
         )
+
+    @staticmethod
+    def _has_embedded_captions(project) -> bool:
+        conversion = project.get("latest_conversion_result") or {}
+        converted = conversion.get("project") or {}
+        return bool(converted.get("capinstaCaptionDocuments"))
 
     @staticmethod
     def _attachment(asset):
@@ -296,7 +302,8 @@ class ClippingExportRepository:
             if replay is not None:
                 return {**replay, "replayed": True}
             project, _asset = await self._current(
-                connection, actor, project_id, request.expectedProjectRevision
+                connection, actor, project_id, request.expectedProjectRevision,
+                include_captions=request.options.includeCaptions,
             )
             edl_identity, remapped_identity, conversion_identity = self._identities(
                 project
@@ -342,6 +349,7 @@ class ClippingExportRepository:
                         conversionResultIdentity=conversion_identity,
                         exportSpecHash=spec_hash,
                         requestIdentity=request_identity,
+                        includeCaptions=request.options.includeCaptions,
                     ).model_dump(mode="json")
                     job_idempotency_key = canonical_hash(
                         {
@@ -571,9 +579,7 @@ class ClippingExportRepository:
             )
         identities = (
             project["latest_derivation_result_identity"],
-            canonical_hash(project["latest_remapped_transcript"])
-            if project["latest_remapped_transcript"] is not None
-            else None,
+            canonical_hash(project["latest_remapped_transcript"]),
             project["latest_conversion_result_identity"],
         )
         expected = (
@@ -583,7 +589,11 @@ class ClippingExportRepository:
         )
         if identities != expected or (
             project["latest_edl_revision"] != project["revision"]
-            or project["latest_remapped_transcript_revision"] != project["revision"]
+            or (
+                value.includeCaptions
+                and not ClippingExportRepository._has_embedded_captions(project)
+                and project["latest_remapped_transcript_revision"] != project["revision"]
+            )
             or project["latest_conversion_revision"] != project["revision"]
         ):
             raise ProcessingJobFailure(

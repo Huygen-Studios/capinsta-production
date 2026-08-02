@@ -55,6 +55,7 @@ from .api import (
     captions,
     clipping_handoffs,
     clipping_exports,
+    clipping_batches,
     clipping_media,
     clipping_projects,
     export_jobs,
@@ -596,6 +597,7 @@ app.include_router(automatic_clipper.router, prefix="/api")
 app.include_router(clipping_handoffs.router, prefix="/api")
 app.include_router(clipping_handoffs.media_router, prefix="/api")
 app.include_router(clipping_exports.router, prefix="/api")
+app.include_router(clipping_batches.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(admin.internal_router, prefix="/api")
 app.include_router(production.router, prefix="/api")
@@ -611,6 +613,7 @@ app.include_router(automatic_clipper.router, prefix="/api/v1")
 app.include_router(clipping_handoffs.router, prefix="/api/v1")
 app.include_router(clipping_handoffs.media_router, prefix="/api/v1")
 app.include_router(clipping_exports.router, prefix="/api/v1")
+app.include_router(clipping_batches.router, prefix="/api/v1")
 app.include_router(production.router, prefix="/api/v1")
 
 

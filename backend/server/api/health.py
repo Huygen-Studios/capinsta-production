@@ -42,6 +42,7 @@ API_CAPABILITIES = [
     "captions",
     "jobs",
     "clipping-media-uploads",
+    "clipping-batches",
     "clipping-workflows",
     "clipping-projects",
     "clipping-exports",

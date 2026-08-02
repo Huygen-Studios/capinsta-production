@@ -341,7 +341,7 @@ function key(scope: string): string {
 	return `${scope}:${crypto.randomUUID()}`;
 }
 
-async function json(path: string, init?: RequestInit): Promise<unknown> {
+export async function clipperApiRequest(path: string, init?: RequestInit): Promise<unknown> {
 	const url = endpoint(path);
 	let response: Response;
 	try {
@@ -360,6 +360,8 @@ async function json(path: string, init?: RequestInit): Promise<unknown> {
 	}
 	return body;
 }
+
+const json = clipperApiRequest;
 
 export function clipperApiErrorFromResponse(response: Response, body: unknown, path: string): CapinstaApiError {
 	const parsed =
@@ -819,6 +821,7 @@ export async function uploadClipperMedia({
 		});
 	}
 	window.localStorage.removeItem(resumeKey);
+	finishClipperUploadAttempt();
 	return instructions.mediaAssetId;
 }
 
@@ -909,6 +912,7 @@ export async function requestConversion(
 	projectId: string,
 	revision: number,
 	targetProjectId: string,
+	includeCaptions = true,
 ): Promise<{ jobId: string }> {
 	return conversionResultSchema.parse(
 		await json(`/clipping/projects/${encodeURIComponent(projectId)}/conversion`, {
@@ -920,7 +924,7 @@ export async function requestConversion(
 			body: JSON.stringify({
 				expectedRevision: revision,
 				targetProjectId,
-				includeCaptions: true,
+				includeCaptions,
 			}),
 		}),
 	);
@@ -939,7 +943,7 @@ export async function preparePreview(projectId: string, revision: number): Promi
 	);
 }
 
-export async function createExport(projectId: string, revision: number): Promise<{ exportId: string; status: string }> {
+export async function createExport(projectId: string, revision: number, includeCaptions = true): Promise<{ exportId: string; status: string }> {
 	return exportResultSchema.parse(
 		await json(`/clipping/projects/${encodeURIComponent(projectId)}/exports`, {
 			method: "POST",
@@ -951,7 +955,7 @@ export async function createExport(projectId: string, revision: number): Promise
 				schemaVersion: 1,
 				expectedProjectRevision: revision,
 				preset: "vertical-mp4-v1",
-				options: { includeCaptions: true },
+				options: { includeCaptions },
 			}),
 		}),
 	);
@@ -976,6 +980,7 @@ export async function prepareHandoff(
 	projectId: string,
 	revision: number,
 	targetProjectId: string,
+	includeCaptions = true,
 ): Promise<{ handoffId: string }> {
 	return handoffResultSchema.parse(
 		await json(`/clipping/projects/${encodeURIComponent(projectId)}/handoff`, {
@@ -987,7 +992,7 @@ export async function prepareHandoff(
 			body: JSON.stringify({
 				expectedRevision: revision,
 				targetProjectId,
-				options: { includeCaptions: true },
+				options: { includeCaptions },
 			}),
 		}),
 	);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,7 +42,7 @@ class AutomaticClipperConfig:
         / "assets/mediapipe/blaze_face_short_range-float16-v1.tflite"
     )
     ffmpeg_path: str = "ffmpeg"
-    temp_root: Path = Path("data/automatic-clipper-worker")
+    temp_root: Path = Path(tempfile.gettempdir()) / "capinsta-automatic-clipper"
     storage_backend: str = "supabase"
     local_storage_root: Path = Path("data/clipping-storage")
 
@@ -84,7 +85,7 @@ class AutomaticClipperConfig:
             temp_root=Path(
                 os.getenv(
                     "AUTOMATIC_CLIPPER_TEMP_ROOT",
-                    "data/automatic-clipper-worker",
+                    str(Path(tempfile.gettempdir()) / "capinsta-automatic-clipper"),
                 )
             ),
             storage_backend=os.getenv(

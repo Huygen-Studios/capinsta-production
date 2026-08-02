@@ -127,7 +127,7 @@ export default function ProjectsPage() {
 	}, [editor.project]);
 
 	return (
-		<div className="projects-shell min-h-screen bg-background text-foreground">
+		<div className="projects-shell min-h-screen overflow-x-hidden bg-background text-foreground">
 			<MigrationDialog />
 			<StoragePersistenceDialog />
 			<ChangelogNotification />

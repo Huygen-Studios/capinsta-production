@@ -212,6 +212,7 @@ class ClippingExportJobHandler:
                         workspace=workspace,
                         maximum_output_bytes=self.config.maximum_output_bytes,
                         timeout_seconds=self.config.timeout_seconds,
+                        include_captions=value.includeCaptions,
                     )
                     await self.repository.mark_worker_stage(context, value, "verifying")
                     await context.heartbeat(progress=86, current_stage="verifying")

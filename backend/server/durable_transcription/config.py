@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +38,7 @@ class DurableTranscriptionConfig:
     maximum_provider_response_bytes: int = 64_000_000
     maximum_hotwords: int = 50
     maximum_hotword_length: int = 100
-    temp_root: Path = Path("data/transcription-worker")
+    temp_root: Path = Path(tempfile.gettempdir()) / "capinsta-transcription"
     storage_backend: str = "supabase"
     local_storage_root: str = "data/clipping-storage"
 
@@ -92,7 +93,8 @@ class DurableTranscriptionConfig:
             ),
             temp_root=Path(
                 os.getenv(
-                    "TRANSCRIPTION_TEMP_ROOT", "data/transcription-worker"
+                    "TRANSCRIPTION_TEMP_ROOT",
+                    str(Path(tempfile.gettempdir()) / "capinsta-transcription"),
                 )
             ),
             storage_backend=backend,

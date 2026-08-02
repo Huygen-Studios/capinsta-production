@@ -21,7 +21,7 @@ class PreviewRequestV1(StrictModel):
 
 
 class ExportOptionsV1(StrictModel):
-    includeCaptions: Literal[True] = True
+    includeCaptions: bool = True
 
 
 class ClippingExportRequestV1(StrictModel):
@@ -77,3 +77,4 @@ class ClippingExportJobInputV1(StrictModel):
     conversionResultIdentity: str = Field(pattern=r"^[0-9a-f]{64}$")
     exportSpecHash: str = Field(pattern=r"^[0-9a-f]{64}$")
     requestIdentity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    includeCaptions: bool = True

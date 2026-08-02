@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from ..auth import current_user
 from ..clipping_exports.config import ClippingExportConfig
@@ -177,7 +178,7 @@ async def cancel_export(export_id: UUID):
 
 
 @router.get("/exports/{export_id}/download")
-async def download_export(export_id: UUID):
+async def download_export(export_id: UUID, request: Request):
     config = _config()
     try:
         row = await _repo(config).download_record(_actor(), export_id)
@@ -199,16 +200,37 @@ async def download_export(export_id: UUID):
                 "Stored export no longer matches its record",
                 409,
             )
-        url = await storage.create_download_url(
-            bucket=row["storage_bucket"],
-            path=row["storage_path"],
-            expires_in=config.download_ttl_seconds,
-            filename=f"capinsta-{export_id}.mp4",
+        url = (
+            str(request.base_url).rstrip("/") + f"/api/clipping/exports/{export_id}/content"
+            if isinstance(storage, LocalMediaStorage)
+            else await storage.create_download_url(
+                bucket=row["storage_bucket"],
+                path=row["storage_path"],
+                expires_in=config.download_ttl_seconds,
+                filename=f"capinsta-{export_id}.mp4",
+            )
         )
         return {
             "exportId": str(export_id),
             "url": url,
             "expiresInSeconds": config.download_ttl_seconds,
         }
+    except (ClippingExportError, PersistenceError, StorageError) as error:
+        _raise(error)
+
+
+@router.get("/exports/{export_id}/content")
+async def local_export_content(export_id: UUID):
+    config = _config()
+    if config.storage_backend != "local":
+        raise HTTPException(404, detail={"code": "local_storage_disabled"})
+    try:
+        row = await _repo(config).download_record(_actor(), export_id)
+        storage = LocalMediaStorage(Path(config.local_storage_root))
+        return FileResponse(
+            storage._path(row["storage_bucket"], row["storage_path"]),
+            media_type="video/mp4",
+            filename=f"capinsta-{export_id}.mp4",
+        )
     except (ClippingExportError, PersistenceError, StorageError) as error:
         _raise(error)
