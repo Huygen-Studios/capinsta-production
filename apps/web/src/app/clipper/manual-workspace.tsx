@@ -119,7 +119,7 @@ export function ManualClipperWorkspace() {
 			</header>
 			<div className="mx-auto flex max-w-2xl flex-col gap-4 p-6 pt-16">
 				<Card>
-					<CardHeader><CardTitle>Create clips from one video</CardTitle></CardHeader>
+					<CardHeader><CardTitle role="heading" aria-level={2}>Create clips from one video</CardTitle></CardHeader>
 					<CardContent className="space-y-4">
 						<p className="text-sm text-muted-foreground">Upload once, mark independent ranges in the full editor, then export one or all clips. Automatic analysis and whole-video transcription stay off.</p>
 						<Input type="file" accept="video/*" disabled={busy} onChange={(event) => setFile(event.target.files?.[0] ?? null)} />

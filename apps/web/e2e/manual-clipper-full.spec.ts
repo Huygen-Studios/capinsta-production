@@ -70,6 +70,8 @@ test("five manual clips persist captions and render individual and ZIP exports",
 
 		await page.goto("/clipper");
 		await expect(page.getByRole("heading", { name: "Create clips from one video" })).toBeVisible();
+		const rejectCookies = page.getByRole("button", { name: "Reject non-essential" });
+		if (await rejectCookies.isVisible()) await rejectCookies.click();
 		await page.locator('input[type="file"]').setInputFiles(source);
 		await page.getByRole("button", { name: "Open in editor" }).click();
 		await page.waitForURL(/\/editor\/[^/?]+\?clipBatch=/, { timeout: 240_000 });
