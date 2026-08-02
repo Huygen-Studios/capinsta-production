@@ -31,9 +31,16 @@ def _content_length(request: Request) -> int | None:
 
 
 def _body_limit_for_request(request: Request) -> int | None:
+    path = request.url.path
     if (
-        request.url.path.startswith(("/api/media/assets/chunked/", "/api/v1/media/assets/chunked/"))
+        path.startswith(("/api/media/assets/chunked/", "/api/v1/media/assets/chunked/"))
         and request.method.upper() == "PUT"
+    ):
+        return MEDIA_CHUNK_BODY_BYTES
+    if (
+        path.startswith(("/api/clipping/media/uploads/", "/api/v1/clipping/media/uploads/"))
+        and path.endswith("/tus")
+        and request.method.upper() == "PATCH"
     ):
         return MEDIA_CHUNK_BODY_BYTES
     content_type = request.headers.get("content-type", "")

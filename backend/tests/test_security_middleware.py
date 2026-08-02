@@ -72,3 +72,17 @@ def test_chunked_media_uploads_allow_bounded_binary_parts():
 
     assert decision.allowed is True
     assert decision.limit == 6 * 1024 * 1024
+
+
+def test_local_tus_uploads_allow_bounded_binary_parts():
+    request = TestClient(app).build_request(
+        "PATCH",
+        "/api/clipping/media/uploads/00000000-0000-0000-0000-000000000000/tus",
+        content=b"x" * 5_000_000,
+        headers={"Content-Type": "application/offset+octet-stream"},
+    )
+
+    decision = evaluate_request_body_limit(request)
+
+    assert decision.allowed is True
+    assert decision.limit == 6 * 1024 * 1024
