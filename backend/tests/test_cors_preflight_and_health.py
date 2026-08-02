@@ -57,6 +57,23 @@ def test_options_cors_preflight_supports_both_idempotency_headers():
         assert "idempotency-key" in allow_headers or "x-idempotency-key" in allow_headers
 
 
+@pytest.mark.parametrize("method", ["POST", "HEAD", "PATCH"])
+def test_options_cors_preflight_supports_local_tus_uploads(method):
+    headers = {
+        "Origin": "http://127.0.0.1:3000",
+        "Access-Control-Request-Method": method,
+        "Access-Control-Request-Headers": "apikey,authorization,content-type,tus-resumable,upload-length,upload-metadata,upload-offset",
+    }
+    response = client.options(
+        "/api/clipping/media/uploads/00000000-0000-0000-0000-000000000000/tus",
+        headers=headers,
+    )
+    assert response.status_code in {200, 204}
+    assert response.headers.get("access-control-allow-origin") == "http://127.0.0.1:3000"
+    allow_headers = response.headers.get("access-control-allow-headers", "").lower()
+    assert all(header in allow_headers for header in ("apikey", "tus-resumable", "upload-offset"))
+
+
 def test_options_does_not_require_auth_header():
     # OPTIONS request with NO Authorization header
     headers = {

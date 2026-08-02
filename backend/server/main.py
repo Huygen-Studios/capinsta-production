@@ -568,11 +568,16 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all_origins else allow_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     allow_headers=[
+        "apikey",
         "authorization",
         "content-type",
         "idempotency-key",
+        "tus-resumable",
+        "upload-length",
+        "upload-metadata",
+        "upload-offset",
         "x-idempotency-key",
         "x-upload-offset",
         "x-request-id",
@@ -580,7 +585,7 @@ app.add_middleware(
         "accept",
         "origin",
     ],
-    expose_headers=["x-correlation-id", "x-request-id"],
+    expose_headers=["location", "tus-resumable", "upload-offset", "x-correlation-id", "x-request-id"],
     max_age=600,
 )
 
