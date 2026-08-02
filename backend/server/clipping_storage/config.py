@@ -90,12 +90,6 @@ class MediaStorageConfig:
     r2_max_retry_attempts: int = 5
     r2_verify_tls: bool = True
 
-    @property
-    def effective_source_bucket(self) -> str:
-        if self.storage_provider == "r2":
-            return self.r2_source_bucket
-        return self.source_bucket
-
     @classmethod
     def from_env(cls) -> "MediaStorageConfig":
         local_storage_root = (os.getenv("CLIPPING_LOCAL_STORAGE_ROOT") or "").strip()

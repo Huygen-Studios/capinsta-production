@@ -234,6 +234,45 @@ def test_r2_adapter_creates_signs_and_completes_multipart():
     }
 
 
+@pytest.mark.parametrize(
+    ("bucket", "expected"),
+    [
+        ("source-media", "capinsta-source-media"),
+        ("media-variants", "capinsta-media-variants"),
+        ("media-exports", "capinsta-media-exports"),
+        ("capinsta-source-media", "capinsta-source-media"),
+        ("capinsta-media-variants", "capinsta-media-variants"),
+        ("capinsta-media-exports", "capinsta-media-exports"),
+    ],
+)
+def test_r2_adapter_maps_logical_and_legacy_physical_buckets(bucket, expected):
+    storage = R2MediaStorage(
+        _config(
+            storage_provider="r2",
+            r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+            r2_access_key_id="key",
+            r2_secret_access_key="secret",
+        ),
+        client=_S3Client(),
+    )
+    assert storage._bucket(bucket) == expected
+
+
+def test_r2_adapter_rejects_unmanaged_bucket():
+    storage = R2MediaStorage(
+        _config(
+            storage_provider="r2",
+            r2_endpoint_url="https://account.r2.cloudflarestorage.com",
+            r2_access_key_id="key",
+            r2_secret_access_key="secret",
+        ),
+        client=_S3Client(),
+    )
+    with pytest.raises(StorageError) as error:
+        storage._bucket("attacker-bucket")
+    assert error.value.category == "bucket_not_allowed"
+
+
 @pytest.mark.parametrize("response", [{}, {"Parts": None}])
 def test_r2_list_parts_normalizes_empty_responses(response):
     class Client(_S3Client):

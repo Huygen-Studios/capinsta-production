@@ -66,6 +66,7 @@ class R2MediaStorage(MediaStorage):
             self.config.variants_bucket: self.config.r2_variants_bucket,
             self.config.exports_bucket: self.config.r2_exports_bucket,
         }
+        mapping.update({physical: physical for physical in mapping.values()})
         try:
             return mapping[bucket]
         except KeyError as exc:

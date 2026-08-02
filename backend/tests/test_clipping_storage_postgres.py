@@ -365,23 +365,24 @@ def test_r2_migration_0028_and_atomic_upload_session_creation():
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
             """
-            SELECT storage_provider,provider_upload_id,multipart_upload_id,
+            SELECT storage_provider,storage_bucket,provider_upload_id,multipart_upload_id,
               multipart_part_size_bytes,multipart_part_count,multipart_state,
               signed_url_expires_at,aborted_at
             FROM media_upload_sessions WHERE id=%s
             """,
             (instructions.upload_session_id,),
         ).fetchone()
-    assert row[:6] == (
+    assert row[:7] == (
         "r2",
+        "source-media",
         "provider-upload-1",
         "provider-upload-1",
         33_554_432,
         3,
         "created",
     )
-    assert row[6] is not None
-    assert row[7] is None
+    assert row[7] is not None
+    assert row[8] is None
 
 
 def test_r2_missing_live_column_is_rejected_before_provider_call():

@@ -23,31 +23,6 @@ def test_create_intent_call_site_signature_compliance():
     assert params["storage_bucket"].default is inspect.Parameter.empty
 
 
-def test_media_storage_config_effective_source_bucket():
-    r2_config = MediaStorageConfig(
-        enabled=True,
-        storage_provider="r2",
-        source_bucket="supabase-source",
-        r2_source_bucket="r2-source-bucket-name",
-    )
-    assert r2_config.effective_source_bucket == "r2-source-bucket-name"
-
-    supabase_config = MediaStorageConfig(
-        enabled=True,
-        storage_provider="supabase",
-        source_bucket="supabase-source",
-        r2_source_bucket="r2-source-bucket-name",
-    )
-    assert supabase_config.effective_source_bucket == "supabase-source"
-
-    local_config = MediaStorageConfig(
-        enabled=True,
-        storage_provider="local",
-        source_bucket="source-media",
-    )
-    assert local_config.effective_source_bucket == "source-media"
-
-
 def test_create_upload_session_r2_passes_correct_fields(monkeypatch):
     async def run():
         config = MediaStorageConfig(
@@ -111,7 +86,7 @@ def test_create_upload_session_r2_passes_correct_fields(monkeypatch):
                     "multipart_part_count": 1,
                     "media_asset_id": uuid4(),
                     "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
-                    "storage_bucket": "custom-r2-source",
+                    "storage_bucket": "source-media",
                     "storage_path": "path/video.mp4",
                 }
 
@@ -152,7 +127,7 @@ def test_create_upload_session_r2_passes_correct_fields(monkeypatch):
         assert len(intent_calls) == 1
         call_kwargs = intent_calls[0]
         assert call_kwargs["storage_provider"] == "r2"
-        assert call_kwargs["storage_bucket"] == "custom-r2-source"
+        assert call_kwargs["storage_bucket"] == "source-media"
         assert call_kwargs["upload_protocol"] == "s3_multipart"
 
     asyncio.run(run())

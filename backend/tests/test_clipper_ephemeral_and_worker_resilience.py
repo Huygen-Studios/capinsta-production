@@ -99,3 +99,8 @@ def test_authenticated_actor_identity():
     user_id = str(uuid4())
     actor = AuthenticatedActor.from_verified_user(user_id)
     assert str(actor.user_id) == user_id
+
+
+def test_authenticated_actor_accepts_database_uuid():
+    user_id = uuid4()
+    assert AuthenticatedActor.from_verified_user(user_id).user_id == user_id

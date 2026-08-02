@@ -58,8 +58,10 @@ class AuthenticatedActor:
     is_service_role: bool = False
 
     @classmethod
-    def from_verified_user(cls, user_id: str) -> "AuthenticatedActor":
-        return cls(user_id=UUID(user_id))
+    def from_verified_user(cls, user_id: str | UUID) -> "AuthenticatedActor":
+        return cls(
+            user_id=user_id if isinstance(user_id, UUID) else UUID(user_id)
+        )
 
 
 class JobInputEnvelope(BaseModel):

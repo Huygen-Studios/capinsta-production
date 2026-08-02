@@ -212,7 +212,7 @@ class MediaUploadService:
             media_kind=_media_kind(mime_type),
             expected_size_bytes=size_bytes,
             storage_provider=self.config.storage_provider,
-            storage_bucket=self.config.effective_source_bucket,
+            storage_bucket=self.config.source_bucket,
             storage_path=path,
             upload_protocol=(
                 "s3_multipart" if self.config.storage_provider == "r2" else "tus"
