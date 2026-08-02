@@ -63,6 +63,12 @@ def test_local_auth_bypass_cannot_enable_in_production(monkeypatch):
         auth.authenticate_request(request())
 
 
+def test_local_development_user_id_is_a_contract_valid_uuid():
+    local_user_id = uuid.UUID(auth.LOCAL_DEVELOPMENT_USER_ID)
+    assert local_user_id.version == 4
+    assert local_user_id.variant == uuid.RFC_4122
+
+
 def test_empty_bearer_is_401():
     with pytest.raises(auth.MissingAuthorizationError):
         auth.authenticate_request(request("Bearer "))

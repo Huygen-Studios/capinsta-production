@@ -10,7 +10,7 @@ import psycopg
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "apps" / "web" / "migrations"
-LOCAL_USER_ID = "00000000-0000-0000-0000-000000000001"
+LOCAL_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 BOOTSTRAP = """
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

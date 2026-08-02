@@ -21,7 +21,7 @@ from jwt.exceptions import (
 
 logger = logging.getLogger(__name__)
 ALLOWED_JWT_ALGORITHMS = frozenset({"HS256", "RS256", "ES256"})
-LOCAL_DEVELOPMENT_USER_ID = "00000000-0000-0000-0000-000000000001"
+LOCAL_DEVELOPMENT_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 
 @dataclass(frozen=True)
