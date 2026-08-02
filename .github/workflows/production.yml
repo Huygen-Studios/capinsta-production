@@ -153,6 +153,7 @@ jobs:
           TRANSCRIPTION_STORAGE_BACKEND: local
           TRANSCRIPTION_TEMP_ROOT: /tmp/capinsta-manual-e2e/transcription
           CAPINSTA_E2E_TRANSCRIPTION: "true"
+          ALLOW_STT_PROVIDER_FALLBACK: "true"
           STT_PROVIDER: openai
           OPENAI_API_KEY: ci-deterministic-key-abcdefghijklmnopqrstuvwxyz
           CAPTION_QUEUE_MODE: local
