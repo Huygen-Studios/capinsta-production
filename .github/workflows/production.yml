@@ -148,6 +148,9 @@ jobs:
           PROCESSING_WORKER_POLL_SECONDS: "0.1"
           PROCESSING_WORKER_MAX_CONCURRENCY: "2"
           ENABLE_DURABLE_PROCESSING_WORKER: "true"
+          ENABLE_DURABLE_TRANSCRIPTION_HANDLER: "true"
+          TRANSCRIPTION_STORAGE_BACKEND: local
+          TRANSCRIPTION_TEMP_ROOT: /tmp/capinsta-manual-e2e/transcription
           CAPINSTA_E2E_TRANSCRIPTION: "true"
           STT_PROVIDER: gemini
           GEMINI_API_KEY: ci-local-deterministic-provider-key
@@ -162,7 +165,7 @@ jobs:
           set -euo pipefail
           export PYTHONPATH="$PWD:$PWD/backend:$PWD/backend/tests"
           rm -rf /tmp/capinsta-manual-e2e
-          mkdir -p "$TEMP_DIR" "$UPLOAD_DIR" "$MEDIA_DIR" "$EXPORT_DIR" "$CACHE_DIR"
+          mkdir -p "$TEMP_DIR" "$UPLOAD_DIR" "$MEDIA_DIR" "$EXPORT_DIR" "$CACHE_DIR" "$TRANSCRIPTION_TEMP_ROOT"
           python backend/tests/manual_clipper_e2e_setup.py
           cargo build -p clipping-runtime
           python -m uvicorn server.main:app --host 127.0.0.1 --port 8000 >/tmp/capinsta-manual-api.log 2>&1 &
