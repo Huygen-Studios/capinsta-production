@@ -128,7 +128,10 @@ test("five manual clips persist captions and render individual and ZIP exports",
 			const serialized = JSON.stringify(project);
 			expect(serialized).toContain(created.sourceMediaAssetId);
 			expect(serialized).toContain("Clip");
-			if (index < 2) expect(serialized).toContain("Deterministic caption");
+			if (index < 2) {
+				const transcript = await api<unknown>(page, `/clipping/projects/${item.childProjectId}/transcript`);
+				expect(JSON.stringify(transcript)).toContain("Deterministic caption");
+			}
 		}
 
 		await page.reload();
