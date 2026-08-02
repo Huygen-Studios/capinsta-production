@@ -1,6 +1,4 @@
 import asyncio
-import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -11,6 +9,7 @@ from pydantic import ValidationError
 from server.clip_batches.contracts import CreateItemRequest, MAX_CLIP_DURATION_MS, SyncEditorProjectRequest
 from server.clip_batches.repository import ClipBatchRepository
 from server.api.clipping_batches import _advance_completed_caption, _create_project
+from server.main import app
 
 ROOT = Path(__file__).parents[2]
 
@@ -64,20 +63,16 @@ def test_editor_project_sync_requires_the_existing_v35_contract():
 
 
 def test_batch_routes_are_registered_for_both_api_versions():
-    script = """
-from server.main import app
-routes = {(method, route.path) for route in app.routes for method in getattr(route, 'methods', set())}
-for prefix in ('/api', '/api/v1'):
-    assert ('POST', f'{prefix}/clipping/batches') in routes
-    assert ('GET', f'{prefix}/clipping/batches/{{batch_id}}') in routes
-    assert ('POST', f'{prefix}/clipping/batches/{{batch_id}}/materialize') in routes
-    assert ('POST', f'{prefix}/clipping/batches/{{batch_id}}/captions') in routes
-    assert ('POST', f'{prefix}/clipping/batches/{{batch_id}}/exports') in routes
-    assert ('PUT', f'{prefix}/clipping/batches/{{batch_id}}/items/{{item_id}}/editor-project') in routes
-    assert ('POST', f'{prefix}/clipping/batches/{{batch_id}}/items/{{item_id}}/reset-materialization') in routes
-    assert ('DELETE', f'{prefix}/clipping/batches/{{batch_id}}') in routes
-"""
-    subprocess.run([sys.executable, "-c", script], check=True, cwd=ROOT)
+    paths = app.openapi()["paths"]
+    for prefix in ("/api", "/api/v1"):
+        assert "post" in paths[f"{prefix}/clipping/batches"]
+        assert "get" in paths[f"{prefix}/clipping/batches/{{batch_id}}"]
+        assert "post" in paths[f"{prefix}/clipping/batches/{{batch_id}}/materialize"]
+        assert "post" in paths[f"{prefix}/clipping/batches/{{batch_id}}/captions"]
+        assert "post" in paths[f"{prefix}/clipping/batches/{{batch_id}}/exports"]
+        assert "put" in paths[f"{prefix}/clipping/batches/{{batch_id}}/items/{{item_id}}/editor-project"]
+        assert "post" in paths[f"{prefix}/clipping/batches/{{batch_id}}/items/{{item_id}}/reset-materialization"]
+        assert "delete" in paths[f"{prefix}/clipping/batches/{{batch_id}}"]
 
 
 def test_migration_enforces_owner_rls_and_three_minute_limit():
