@@ -147,6 +147,7 @@ jobs:
           CAPINSTA_RENDER_TOKEN_SECRET: local-manual-clipper-render-secret-32
           PROCESSING_WORKER_POLL_SECONDS: "0.1"
           PROCESSING_WORKER_MAX_CONCURRENCY: "2"
+          ENABLE_DURABLE_PROCESSING_WORKER: "true"
           CAPINSTA_E2E_TRANSCRIPTION: "true"
           STT_PROVIDER: gemini
           GEMINI_API_KEY: ci-local-deterministic-provider-key
