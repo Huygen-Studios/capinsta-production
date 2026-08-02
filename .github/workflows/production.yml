@@ -159,7 +159,7 @@ jobs:
           DB_PATH: /tmp/capinsta-manual-e2e/legacy/database.sqlite
         run: |
           set -euo pipefail
-          export PYTHONPATH="$PWD/backend:$PWD/backend/tests"
+          export PYTHONPATH="$PWD:$PWD/backend:$PWD/backend/tests"
           rm -rf /tmp/capinsta-manual-e2e
           mkdir -p "$TEMP_DIR" "$UPLOAD_DIR" "$MEDIA_DIR" "$EXPORT_DIR" "$CACHE_DIR"
           python backend/tests/manual_clipper_e2e_setup.py
