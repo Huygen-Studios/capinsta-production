@@ -40,6 +40,7 @@ export function ManualClipperWorkspace() {
 	const [message, setMessage] = useState("Choose one source video to begin.");
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [restorableBatch, setRestorableBatch] = useState<ClipBatchV1 | null>(null);
 
 	async function openBatch(batch: ClipBatchV1) {
 		if (!batch.sourceProjectId) throw new Error("The source editor project was not created.");
@@ -72,12 +73,30 @@ export function ManualClipperWorkspace() {
 		const batchId = window.localStorage.getItem(RESTORE_KEY);
 		if (!batchId) return;
 		void getClipBatch(batchId)
-			.then(openBatch)
-			.catch(() => window.localStorage.removeItem(RESTORE_KEY))
-			.finally(() => setBusy(false));
-		// Restoration intentionally runs once.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
+			.then(setRestorableBatch)
+			.catch(() => window.localStorage.removeItem(RESTORE_KEY));
 	}, []);
+
+	async function resumeBatch() {
+		if (!restorableBatch || busy) return;
+		setBusy(true);
+		setError("");
+		try {
+			setMessage("Opening your existing clip project…");
+			await openBatch(restorableBatch);
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : "The clip project could not be opened.");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	function startAnotherVideo() {
+		window.localStorage.removeItem(RESTORE_KEY);
+		setRestorableBatch(null);
+		setError("");
+		setMessage("Choose one source video to begin.");
+	}
 
 	async function start() {
 		if (!file || busy) return;
@@ -118,6 +137,18 @@ export function ManualClipperWorkspace() {
 				<AccountMenu />
 			</header>
 			<div className="mx-auto flex max-w-2xl flex-col gap-4 p-6 pt-16">
+				{restorableBatch ? (
+					<Card>
+						<CardHeader><CardTitle role="heading" aria-level={2}>Continue your clip project</CardTitle></CardHeader>
+						<CardContent className="space-y-3">
+							<p className="text-sm text-muted-foreground">{restorableBatch.title}</p>
+							<div className="grid grid-cols-2 gap-2">
+								<Button disabled={busy} onClick={() => void resumeBatch()}>Resume in editor</Button>
+								<Button variant="outline" disabled={busy} onClick={startAnotherVideo}>Start another video</Button>
+							</div>
+						</CardContent>
+					</Card>
+				) : null}
 				<Card>
 					<CardHeader><CardTitle role="heading" aria-level={2}>Create clips from one video</CardTitle></CardHeader>
 					<CardContent className="space-y-4">

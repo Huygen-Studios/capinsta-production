@@ -298,6 +298,13 @@ function ClipBatchDockContent() {
 		<section className="border-b p-3" aria-label="Clip batch" data-testid="clip-batch-dock">
 			<div className="mb-2 flex items-center justify-between"><strong className="text-sm">Clips</strong><div className="flex gap-1"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void deleteBatchAndClips()}>Delete batch</Button><Button size="sm" onClick={() => setModal(true)}>Create clips</Button></div></div>
 			<div className="max-h-56 space-y-2 overflow-auto">
+				{batch.items.length === 0 ? (
+					<div className="rounded border border-dashed p-4 text-center">
+						<p className="text-sm font-medium">No clip regions yet</p>
+						<p className="mt-1 text-xs text-muted-foreground">Create regions, then drag them directly on the timeline.</p>
+						<Button className="mt-3" size="sm" onClick={() => setModal(true)}>Create your clips</Button>
+					</div>
+				) : null}
 				{batch.items.map((item, index) => (
 					<ClipItemRow key={item.id} item={item} onOpen={() => void openItem(item)} onCaption={() => void captionItem(item)} onReload={reload} onSelect={async (selected) => {
 						setBusy(true);

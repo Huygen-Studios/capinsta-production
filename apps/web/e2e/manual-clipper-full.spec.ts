@@ -81,9 +81,17 @@ test("five manual clips persist captions and render individual and ZIP exports",
 		]);
 		await expect(page.getByTestId("editor-ready")).toBeVisible({ timeout: 120_000 });
 		await expect(page.locator("canvas").first()).toBeVisible();
+		await expect(page.getByText("manual-clipper-source.mp4", { exact: true })).toBeVisible();
 		await expect(page.locator('[data-tour="timeline"]')).toBeVisible();
 		await expect(page.getByTestId("clip-batch-dock")).toBeVisible();
+		await expect(page.getByText("No clip regions yet", { exact: true })).toBeVisible();
 		expect(automaticRequests).toEqual([]);
+		await page.goto("/clipper");
+		await expect(page).toHaveURL(/\/clipper$/);
+		await expect(page.getByRole("heading", { name: "Continue your clip project" })).toBeVisible();
+		await page.getByRole("button", { name: "Resume in editor" }).click();
+		await page.waitForURL(/\/editor\/[^/?]+\?clipBatch=/, { timeout: 240_000 });
+		await expect(page.getByText("manual-clipper-source.mp4", { exact: true })).toBeVisible();
 
 		await page.getByRole("button", { name: "Create clips" }).click();
 		await page.getByLabel("Number of clips").fill("5");

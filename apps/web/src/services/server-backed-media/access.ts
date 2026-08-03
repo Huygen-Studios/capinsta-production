@@ -21,7 +21,7 @@ const mediaAccessSchema: z.ZodType<MediaAccessV1> = z.object({
 	mediaId: z.string().min(1),
 	accessMode: z.literal("signed-url"),
 	url: z.url(),
-	expiresAt: z.iso.datetime(),
+	expiresAt: z.iso.datetime({ offset: true }),
 	mimeType: z.string().nullable(),
 	sizeBytes: z.number().int().nonnegative().nullable(),
 	durationMs: z.number().int().nonnegative(),
@@ -113,7 +113,11 @@ async function defaultFetchAccess(
 		cache: "no-store",
 	});
 	if (!response.ok) throw new Error("media_access_unavailable");
-	return mediaAccessSchema.parse(await response.json());
+	return parseMediaAccessResponse(await response.json());
+}
+
+export function parseMediaAccessResponse(value: unknown): MediaAccessV1 {
+	return mediaAccessSchema.parse(value);
 }
 
 export const serverBackedMediaAccessResolver =

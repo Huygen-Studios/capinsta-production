@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { ServerBackedMediaAccessResolver } from "./access";
+import {
+	parseMediaAccessResponse,
+	ServerBackedMediaAccessResolver,
+} from "./access";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const descriptor = {
@@ -20,6 +23,21 @@ const descriptor = {
 };
 
 describe("server-backed media access", () => {
+	test("accepts the UTC offset emitted by the Python API", () => {
+		expect(
+			parseMediaAccessResponse({
+				mediaAssetId: ID,
+				mediaId: ID,
+				accessMode: "signed-url",
+				url: "https://storage.invalid/object?token=ephemeral",
+				expiresAt: "2026-08-03T12:00:00+00:00",
+				mimeType: "video/mp4",
+				sizeBytes: 3,
+				durationMs: 1000,
+			}).expiresAt,
+		).toBe("2026-08-03T12:00:00+00:00");
+	});
+
 	test("deduplicates access without downloading the media object", async () => {
 		let accessCalls = 0;
 		const resolver = new ServerBackedMediaAccessResolver(async () => {
