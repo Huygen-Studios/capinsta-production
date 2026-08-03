@@ -4,8 +4,8 @@ import os
 from dataclasses import dataclass
 
 
-def _enabled(name: str) -> bool:
-    return os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}
+def _enabled(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _integer(name: str, default: int, low: int, high: int) -> int:
@@ -21,7 +21,7 @@ def _integer(name: str, default: int, low: int, high: int) -> int:
 @dataclass(frozen=True)
 class HandoffConfig:
     enabled: bool = False
-    server_backed_media_enabled: bool = False
+    server_backed_media_enabled: bool = True
     ttl_seconds: int = 900
     maximum_ttl_seconds: int = 3600
     maximum_manifest_bytes: int = 64 * 1024 * 1024
@@ -35,7 +35,7 @@ class HandoffConfig:
         return cls(
             enabled=_enabled("ENABLE_CAPINSTA_PROJECT_HANDOFF"),
             server_backed_media_enabled=_enabled(
-                "ENABLE_SERVER_BACKED_EDITOR_MEDIA"
+                "ENABLE_SERVER_BACKED_EDITOR_MEDIA", "true"
             ),
             ttl_seconds=ttl,
             maximum_ttl_seconds=maximum_ttl,

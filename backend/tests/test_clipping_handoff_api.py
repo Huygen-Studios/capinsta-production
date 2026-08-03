@@ -102,6 +102,41 @@ def test_prepare_uses_verified_actor_and_idempotency(
     assert "token" not in response.json()["openPath"]
 
 
+def test_server_backed_media_defaults_on_for_manual_clipper(
+    monkeypatch, authenticated
+):
+    monkeypatch.setenv("ENABLE_CAPINSTA_PROJECT_HANDOFF", "true")
+    monkeypatch.delenv("ENABLE_SERVER_BACKED_EDITOR_MEDIA", raising=False)
+    repository = FakeRepository()
+    monkeypatch.setattr(
+        clipping_handoffs, "_repository", lambda unused_config: repository
+    )
+
+    response = _request(
+        "POST",
+        "/api/v1/clipping/projects/clip_1/handoff",
+        headers={
+            "Authorization": "Bearer test",
+            "Idempotency-Key": "manual-clipper-handoff-1",
+        },
+        json={"expectedRevision": 1, "targetProjectId": "clip_1"},
+    )
+
+    assert response.status_code == 201
+
+    monkeypatch.setenv("ENABLE_SERVER_BACKED_EDITOR_MEDIA", "false")
+    disabled = _request(
+        "POST",
+        "/api/v1/clipping/projects/clip_1/handoff",
+        headers={
+            "Authorization": "Bearer test",
+            "Idempotency-Key": "manual-clipper-handoff-2",
+        },
+        json={"expectedRevision": 1, "targetProjectId": "clip_1"},
+    )
+    assert disabled.status_code == 404
+
+
 def test_prepare_rejects_missing_or_invalid_idempotency_key(
     monkeypatch, enabled, authenticated
 ):
