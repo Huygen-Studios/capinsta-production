@@ -184,8 +184,9 @@ def test_handoff_requires_clipper_entitlement_and_editor_media_stays_editor_scop
     )
 
 
+@pytest.mark.parametrize("storage_provider", ["supabase", "local"])
 def test_editor_media_access_returns_ready_proxy(
-    monkeypatch, enabled, authenticated
+    monkeypatch, enabled, authenticated, storage_provider
 ):
     media_asset_id = uuid4()
 
@@ -207,6 +208,7 @@ def test_editor_media_access_returns_ready_proxy(
                 "mime_type": "video/mp4",
                 "size_bytes": 123,
                 "duration_ms": 60_000,
+                "storage_provider": storage_provider,
             }
 
     class Connection:
@@ -250,8 +252,10 @@ def test_editor_media_access_returns_ready_proxy(
         "from_env",
         lambda: MediaStorageConfig(
             enabled=True,
+            storage_provider=storage_provider,
             supabase_url="https://example.supabase.co",
             service_role_key="test",
+            local_storage_root="/tmp/capinsta-test-storage",
         ),
     )
 
@@ -263,3 +267,7 @@ def test_editor_media_access_returns_ready_proxy(
     assert response.status_code == 200
     assert response.json()["variantType"] == "proxy"
     assert response.json()["sizeBytes"] == 123
+    if storage_provider == "local":
+        assert response.json()["url"] == (
+            f"http://test/api/clipping/media/{media_asset_id}/local-content"
+        )

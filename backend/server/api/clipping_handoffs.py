@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 from ..auth import current_user
 from ..clipping_handoff.config import HandoffConfig
@@ -156,6 +156,7 @@ async def cancel_handoff(handoff_id: UUID):
 @media_router.post("/{media_asset_id}/access")
 async def resolve_media_access(
     media_asset_id: UUID,
+    request: Request,
     expires_in: int | None = Query(default=None, alias="expiresIn", ge=1),
 ):
     handoff_config = _config()
@@ -210,13 +211,22 @@ async def resolve_media_access(
                 "signed_url_failed",
                 "Requested signed URL lifetime is outside the allowed range",
             )
-        storage = media_storage_for_provider(media.get("storage_provider"), storage_config)
-        url = await storage.create_read_url(
-            bucket=media["storage_bucket"],
-            path=media["storage_path"],
-            expires_in=ttl,
-        )
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+        if media.get("storage_provider") == "local":
+            url = (
+                str(request.base_url).rstrip("/")
+                + f"/api/clipping/media/{media_asset_id}/local-content"
+            )
+            expires_at = datetime.max.replace(tzinfo=timezone.utc)
+        else:
+            storage = media_storage_for_provider(
+                media.get("storage_provider"), storage_config
+            )
+            url = await storage.create_read_url(
+                bucket=media["storage_bucket"],
+                path=media["storage_path"],
+                expires_in=ttl,
+            )
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
     except (StorageError, PersistenceError) as error:
         if isinstance(error, PersistenceError):
             raise HTTPException(
