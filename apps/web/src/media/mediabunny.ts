@@ -28,10 +28,24 @@ const SPEECH_SAMPLE_RATE = 16_000;
 export async function extractSpeechAudioFile({
 	file,
 	sourceName,
+	sourceStartSeconds = 0,
+	sourceEndSeconds = Infinity,
 }: {
 	file: File;
 	sourceName: string;
+	sourceStartSeconds?: number;
+	sourceEndSeconds?: number;
 }): Promise<File> {
+	if (
+		sourceStartSeconds < 0 ||
+		(Number.isFinite(sourceEndSeconds) &&
+			(sourceEndSeconds <= sourceStartSeconds ||
+				sourceEndSeconds - sourceStartSeconds > 180))
+	) {
+		throw new RangeError(
+			"The selected clip must be shorter than three minutes.",
+		);
+	}
 	const input = new Input({
 		source: new BlobSource(file),
 		formats: ALL_FORMATS,
@@ -44,35 +58,51 @@ export async function extractSpeechAudioFile({
 		}
 
 		const sink = new AudioBufferSink(audioTrack);
-		const chunks: AudioBuffer[] = [];
+		const chunks: Float32Array[] = [];
 		let totalSamples = 0;
-		for await (const { buffer } of sink.buffers(0)) {
-			chunks.push(buffer);
-			totalSamples += buffer.length;
+		let sourceSampleRate = 0;
+		for await (const { buffer, timestamp } of sink.buffers(
+			sourceStartSeconds,
+			sourceEndSeconds,
+		)) {
+			sourceSampleRate ||= buffer.sampleRate;
+			if (buffer.sampleRate !== sourceSampleRate)
+				throw new Error(
+					"The selected video uses inconsistent audio sample rates.",
+				);
+			const from = Math.max(
+				0,
+				Math.round((sourceStartSeconds - timestamp) * buffer.sampleRate),
+			);
+			const to = Math.min(
+				buffer.length,
+				Math.round((sourceEndSeconds - timestamp) * buffer.sampleRate),
+			);
+			if (to <= from) continue;
+			const mono = new Float32Array(to - from);
+			for (let sampleIndex = from; sampleIndex < to; sampleIndex++) {
+				let sample = 0;
+				for (
+					let channelIndex = 0;
+					channelIndex < buffer.numberOfChannels;
+					channelIndex++
+				) {
+					sample += buffer.getChannelData(channelIndex)[sampleIndex] ?? 0;
+				}
+				mono[sampleIndex - from] =
+					sample / Math.max(1, buffer.numberOfChannels);
+			}
+			chunks.push(mono);
+			totalSamples += mono.length;
 		}
 		if (chunks.length === 0 || totalSamples === 0) {
 			throw new Error("The selected video audio could not be decoded.");
 		}
 
-		const sourceSampleRate = chunks[0]!.sampleRate;
 		const monoSamples = new Float32Array(totalSamples);
 		let offset = 0;
 		for (const chunk of chunks) {
-			if (chunk.sampleRate !== sourceSampleRate) {
-				throw new Error("The selected video uses inconsistent audio sample rates.");
-			}
-			for (let sampleIndex = 0; sampleIndex < chunk.length; sampleIndex++) {
-				let sample = 0;
-				for (
-					let channelIndex = 0;
-					channelIndex < chunk.numberOfChannels;
-					channelIndex++
-				) {
-					sample += chunk.getChannelData(channelIndex)[sampleIndex] ?? 0;
-				}
-				monoSamples[offset + sampleIndex] =
-					sample / Math.max(1, chunk.numberOfChannels);
-			}
+			monoSamples.set(chunk, offset);
 			offset += chunk.length;
 		}
 
@@ -142,10 +172,7 @@ function resampleMonoPcm({
 	const sourceStep = sourceSampleRate / targetSampleRate;
 	for (let outputIndex = 0; outputIndex < outputLength; outputIndex++) {
 		const sourcePosition = outputIndex * sourceStep;
-		const lowerIndex = Math.min(
-			samples.length - 1,
-			Math.floor(sourcePosition),
-		);
+		const lowerIndex = Math.min(samples.length - 1, Math.floor(sourcePosition));
 		const upperIndex = Math.min(samples.length - 1, lowerIndex + 1);
 		const fraction = sourcePosition - lowerIndex;
 		output[outputIndex] =

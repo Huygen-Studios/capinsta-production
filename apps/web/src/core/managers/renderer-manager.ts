@@ -188,6 +188,7 @@ export class RendererManager {
 			includeAudio,
 			backgroundColor,
 			canvasSize: requestedCanvasSize,
+			localCaptionCarriers,
 		} = options;
 
 		try {
@@ -235,7 +236,9 @@ export class RendererManager {
 			// caption pixels. We still run tracks through buildCapinstaPreviewTracks
 			// so the capinsta carrier TextElements get hidden:true before scene
 			// building (defense in depth — they also suppress in renderTextToContext).
-			const allCapinstaRecords = activeProject.capinstaCaptionDocuments ?? [];
+			const allCapinstaRecords = localCaptionCarriers
+				? []
+				: (activeProject.capinstaCaptionDocuments ?? []);
 			const capinstaRecords = getVisibleCapinstaCaptionRecords({
 				records: allCapinstaRecords,
 				tracks: rawTracks,

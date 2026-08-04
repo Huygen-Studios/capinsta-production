@@ -10,7 +10,7 @@ import {
 } from "../ui/dropdown-menu";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { DeleteProjectDialog } from "@/project/components/delete-project-dialog";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ExportButton } from "./export-button";
 import { EditorGuideButton } from "./editor-guide-button";
 import { EditorHelpButton } from "./editor-help-button";
@@ -38,6 +38,8 @@ import {
 import { AccountMenu } from "@/components/auth/account-menu";
 
 export function EditorHeader() {
+	const searchParams = useSearchParams();
+	const isClippingMode = searchParams.get("mode") === "clipping";
 	return (
 		<header className="flex h-[3.25rem] items-center justify-between border-b border-[var(--editor-border)] bg-[var(--editor-surface)] px-3 pt-0.5">
 			<div className="flex items-center gap-1">
@@ -45,9 +47,10 @@ export function EditorHeader() {
 				<EditableProjectName />
 			</div>
 			<nav className="flex items-center gap-2">
+				<EditorModeToggle />
 				<EditorGuideButton />
 				<FeedbackPopover />
-				<ExportButton />
+				{isClippingMode ? null : <ExportButton />}
 				<EditorHelpButton
 					title={EDITOR_HELP_CONTENT.export.title}
 					description={EDITOR_HELP_CONTENT.export.description}
@@ -56,6 +59,27 @@ export function EditorHeader() {
 				<AccountMenu compact />
 			</nav>
 		</header>
+	);
+}
+
+function EditorModeToggle() {
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const isClippingMode = searchParams.get("mode") === "clipping";
+	return (
+		<Button
+			variant={isClippingMode ? "default" : "outline"}
+			size="sm"
+			onClick={() => {
+				const next = new URLSearchParams(searchParams.toString());
+				if (isClippingMode) next.delete("mode");
+				else next.set("mode", "clipping");
+				router.replace(`${pathname}${next.size ? `?${next}` : ""}`);
+			}}
+		>
+			{isClippingMode ? "Normal editing" : "Create clips"}
+		</Button>
 	);
 }
 
@@ -130,22 +154,22 @@ function ProjectDropdown() {
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
 					<Button variant="ghost" size="icon" className="p-1 rounded-sm size-8">
-							<Image
-								src={LOGOS.mark}
-								alt="Capinsta"
-								width={32}
-								height={32}
-								className="object-contain size-5 dark:hidden"
-							/>
-							<Image
-								src={LOGOS.markLight}
-								alt=""
-								aria-hidden
-								width={32}
-								height={32}
-								className="object-contain size-5 hidden dark:block"
-							/>
-						</Button>
+						<Image
+							src={LOGOS.mark}
+							alt="Capinsta"
+							width={32}
+							height={32}
+							className="object-contain size-5 dark:hidden"
+						/>
+						<Image
+							src={LOGOS.markLight}
+							alt=""
+							aria-hidden
+							width={32}
+							height={32}
+							className="object-contain size-5 hidden dark:block"
+						/>
+					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="z-100 w-44">
 					<DropdownMenuItem
@@ -162,9 +186,8 @@ function ProjectDropdown() {
 					>
 						Shortcuts
 					</DropdownMenuItem>
-
-					</DropdownMenuContent>
-				</DropdownMenu>
+				</DropdownMenuContent>
+			</DropdownMenu>
 			<RenameProjectDialog
 				isOpen={openDialog === "rename"}
 				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "rename" : null)}

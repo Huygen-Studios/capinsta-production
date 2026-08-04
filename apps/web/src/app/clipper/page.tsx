@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireAppPermission } from "@/access/server";
-import { ManualClipperWorkspace } from "./manual-workspace";
+import { LocalClipperEntry } from "./local-entry";
 
 export const metadata = {
 	title: "CapInsta Clipper",
@@ -16,5 +16,5 @@ export default async function ClipperPage() {
 		redirect("/projects");
 	}
 	await requireAppPermission("clipper.access", "/clipper");
-	return <ManualClipperWorkspace />;
+	return <LocalClipperEntry />;
 }

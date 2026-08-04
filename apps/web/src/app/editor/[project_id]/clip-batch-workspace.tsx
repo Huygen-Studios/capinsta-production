@@ -1,451 +1,1058 @@
-/* eslint-disable opencut/prefer-object-params -- Pointer helpers and tiny local callbacks are clearer positionally. */
+/* eslint-disable opencut/prefer-object-params -- Pointer callbacks follow the DOM event API. */
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { CapinstaApiError } from "@/capinsta/apiClient";
+import {
+	createContext,
+	useCallback,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type PointerEvent as ReactPointerEvent,
+	type ReactNode,
+} from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+	Dialog,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useEditor } from "@/editor/use-editor";
-import { mediaTimeFromSeconds } from "@/wasm";
-import { storageService } from "@/services/storage/service";
 import {
-	addClipBatchItem,
-	createClipBatchExport,
-	deleteClipBatch,
-	deleteClipBatchSourceMedia,
-	deleteClipBatchItem,
-	deleteMaterializedClipProject,
-	finalizeClipBatchExport,
-	getClipBatch,
-	getClipBatchExport,
-	getClipBatchExportDownload,
-	getClipCaption,
-	materializeClipBatch,
-	reorderClipBatchItems,
-	resetClipBatchItem,
-	startClipCaption,
-	syncClipEditorProject,
-	updateClipBatch,
-	updateClipBatchItem,
-	type ClipBatchItemV1,
-	type ClipBatchV1,
-} from "@/services/clip-batches/api";
-import { createExport, getExport, getExportDownload, getProjectStatus, prepareHandoff, requestConversion } from "@/services/automatic-clipper/api";
-import { adjustClipRange, initialClipRanges, type ClipRangeAdjustment } from "@/services/clip-batches/ranges";
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { useEditor } from "@/editor/use-editor";
+import type {
+	LocalClipBatchV1,
+	LocalClipItemV1,
+	LocalClipPlatformPresetV1,
+	TProject,
+} from "@/project/types";
+import {
+	activateClip,
+	activateNormalEditor,
+	countElementsOutsideRange,
+	createLocalClipBatch,
+	duplicateLocalClip,
+	orderedClipItems,
+	removeLocalClip,
+	reorderLocalClip,
+	retimeLocalClip,
+	updateLocalClip,
+} from "@/services/clip-batches/local";
+import {
+	generateLocalClipCaptions,
+	removeGeneratedCaptions,
+	type LocalCaptionProgress,
+} from "@/services/clip-batches/local-captions";
+import {
+	createLocalClipZip,
+	downloadBlob,
+} from "@/services/clip-batches/local-export";
+import {
+	adjustClipRange,
+	initialClipRanges,
+	sanitizeClipFilename,
+	type ClipRangeAdjustment,
+} from "@/services/clip-batches/ranges";
+import { downloadBuffer } from "@/export";
+import { ZERO_MEDIA_TIME } from "@/wasm";
 
 type BatchContextValue = {
-	batch: ClipBatchV1;
-	reload: () => Promise<void>;
-	setRange: (item: ClipBatchItemV1, start: number, end: number) => Promise<void>;
+	isClippingMode: boolean;
+	batch: LocalClipBatchV1 | null;
+	createBatch: (options: CreateBatchOptions) => Promise<void>;
+	mutateBatch: (
+		change: (batch: LocalClipBatchV1) => LocalClipBatchV1,
+		activateId?: string,
+	) => Promise<void>;
+	switchClip: (clipId: string) => Promise<void>;
+	setRange: (
+		item: LocalClipItemV1,
+		start: number,
+		end: number,
+	) => Promise<void>;
 };
-const BatchContext = createContext<BatchContextValue | null>(null);
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function useBatch() {
-	const value = useContext(BatchContext);
-	if (!value) throw new Error("Clip batch context is unavailable");
-	return value;
-}
+type CreateBatchOptions = {
+	count: number;
+	maximumClipDurationMs: number;
+	platformPreset: LocalClipPlatformPresetV1;
+	captionsEnabled: boolean;
+	headingsEnabled: boolean;
+};
+
+const BatchContext = createContext<BatchContextValue | null>(null);
 
 export function ClipBatchProvider({ children }: { children: ReactNode }) {
+	const editor = useEditor();
 	const searchParams = useSearchParams();
-	const batchId = searchParams.get("clipBatch");
-	const [batch, setBatch] = useState<ClipBatchV1 | null>(null);
-	const reload = useCallback(async () => {
-		if (batchId) setBatch(await getClipBatch(batchId));
-	}, [batchId]);
-	useEffect(() => {
-		if (batchId) void getClipBatch(batchId).then(setBatch);
-	}, [batchId]);
-
-	const value = useMemo<BatchContextValue | null>(
-		() =>
-			batch
-				? {
-						batch,
-						reload,
-						setRange: async (item, sourceStartMs, sourceEndMs) => {
-							await updateClipBatchItem(batch.id, item.id, { expectedRevision: item.revision, sourceStartMs, sourceEndMs });
-							await reload();
-						},
-					}
-				: null,
-		[batch, reload],
+	const isClippingMode = searchParams.get("mode") === "clipping";
+	const batch = useEditor(
+		(instance) =>
+			instance.project.getActiveOrNull()?.capinstaLocalClipBatch ?? null,
 	);
-	return <BatchContext.Provider value={value}>{children}</BatchContext.Provider>;
+	const reconciledMode = useRef<boolean | null>(null);
+
+	const applyProject = useCallback(
+		async (project: TProject, scope: string) => {
+			editor.playback.pause();
+			editor.project.setActiveProject({ project });
+			editor.scenes.initializeScenes({
+				scenes: project.scenes,
+				currentSceneId: project.currentSceneId,
+			});
+			editor.command.switchScope({ scope });
+			editor.playback.seek({
+				time: project.timelineViewState?.playheadTime ?? ZERO_MEDIA_TIME,
+			});
+			await editor.project.saveCurrentProject();
+		},
+		[editor],
+	);
+
+	useEffect(() => {
+		if (reconciledMode.current === isClippingMode) return;
+		reconciledMode.current = isClippingMode;
+		void (async () => {
+			await editor.project.saveCurrentProject();
+			const project = editor.project.getActive();
+			const currentBatch = project.capinstaLocalClipBatch;
+			if (isClippingMode) {
+				if (currentBatch?.selectedClipId)
+					await applyProject(
+						activateClip(project, currentBatch, currentBatch.selectedClipId),
+						currentBatch.selectedClipId,
+					);
+				else {
+					editor.project.setActiveProject({
+						project: { ...project, capinstaEditorMode: "clipping" },
+					});
+					await editor.project.saveCurrentProject();
+				}
+			} else if (currentBatch) {
+				await applyProject(
+					activateNormalEditor(project, currentBatch),
+					"normal",
+				);
+			} else {
+				editor.command.switchScope({ scope: "normal" });
+			}
+		})();
+	}, [applyProject, editor, isClippingMode]);
+
+	const mutateBatch = useCallback(
+		async (
+			change: (batch: LocalClipBatchV1) => LocalClipBatchV1,
+			activateId?: string,
+		) => {
+			await editor.project.saveCurrentProject();
+			const project = editor.project.getActive();
+			const current = project.capinstaLocalClipBatch;
+			if (!current) return;
+			const next = change(current);
+			if (activateId)
+				await applyProject(activateClip(project, next, activateId), activateId);
+			else {
+				editor.project.setActiveProject({
+					project: { ...project, capinstaLocalClipBatch: next },
+				});
+				await editor.project.saveCurrentProject();
+			}
+		},
+		[applyProject, editor],
+	);
+
+	const createBatch = useCallback(
+		async (options: CreateBatchOptions) => {
+			await editor.project.saveCurrentProject();
+			const project = editor.project.getActive();
+			const source = editor.media
+				.getAssets()
+				.find((asset) => asset.type === "video");
+			if (!source)
+				throw new Error(
+					"Import a local video with the existing Assets picker first.",
+				);
+			const { count, ...batchOptions } = options;
+			const ranges = initialClipRanges({
+				sourceDurationMs: Math.round((source.duration ?? 0) * 1000),
+				count,
+				maximumDurationMs: options.maximumClipDurationMs,
+			});
+			const next = createLocalClipBatch({
+				project,
+				source,
+				ranges,
+				...batchOptions,
+			});
+			if (!next.selectedClipId)
+				throw new Error("No clip ranges could be created.");
+			await applyProject(
+				activateClip(project, next, next.selectedClipId),
+				next.selectedClipId,
+			);
+		},
+		[applyProject, editor],
+	);
+
+	const switchClip = useCallback(
+		async (clipId: string) => mutateBatch((value) => value, clipId),
+		[mutateBatch],
+	);
+
+	const setRange = useCallback(
+		async (item: LocalClipItemV1, start: number, end: number) => {
+			await editor.project.saveCurrentProject();
+			const current = editor.project.getActive().capinstaLocalClipBatch;
+			if (
+				!current ||
+				start < 0 ||
+				end <= start ||
+				end > current.sourceDurationMs ||
+				end - start > current.maximumClipDurationMs
+			) {
+				throw new Error(
+					"The selected clip must be shorter than three minutes and remain inside the source video.",
+				);
+			}
+			const persistedItem = current.items.find(
+				(candidate) => candidate.id === item.id,
+			);
+			if (!persistedItem) throw new Error("Clip could not be found.");
+			const affected = countElementsOutsideRange(persistedItem, start, end);
+			if (
+				affected &&
+				!window.confirm(
+					`${affected} timed element${affected === 1 ? "" : "s"} extend beyond the new range. Clamp them to the new duration?`,
+				)
+			)
+				return;
+			const nextItem = retimeLocalClip(
+				{ ...persistedItem, title: item.title },
+				start,
+				end,
+				current.sourceDurationMs,
+			);
+			await mutateBatch(
+				(value) => updateLocalClip(value, item.id, nextItem),
+				current.selectedClipId === item.id ? item.id : undefined,
+			);
+		},
+		[editor, mutateBatch],
+	);
+
+	const value = useMemo<BatchContextValue>(
+		() => ({
+			isClippingMode,
+			batch,
+			createBatch,
+			mutateBatch,
+			switchClip,
+			setRange,
+		}),
+		[batch, createBatch, isClippingMode, mutateBatch, setRange, switchClip],
+	);
+	return (
+		<BatchContext.Provider value={value}>{children}</BatchContext.Provider>
+	);
 }
 
 export function ClipBatchDock() {
 	const value = useContext(BatchContext);
-	if (!value) return null;
+	if (!value?.isClippingMode) return null;
 	return <ClipBatchDockContent />;
 }
 
 function ClipBatchDockContent() {
-	const router = useRouter();
-	const searchParams = useSearchParams();
 	const editor = useEditor();
-	const { batch, reload } = useBatch();
+	const context = useBatch();
+	const { batch, createBatch, mutateBatch, switchClip } = context;
 	const [modal, setModal] = useState(false);
 	const [count, setCount] = useState(5);
-	const [captions, setCaptions] = useState(batch.captionsEnabled);
-	const [headings, setHeadings] = useState(batch.headingsEnabled);
-	const [platform, setPlatform] = useState<ClipBatchV1["platformPreset"]>(batch.platformPreset);
-	const [maximumDurationSeconds, setMaximumDurationSeconds] = useState(Math.min(60, batch.maximumClipDurationMs / 1000));
-	const [message, setMessage] = useState("");
+	const [maximumDurationSeconds, setMaximumDurationSeconds] = useState(60);
+	const [platformPreset, setPlatformPreset] =
+		useState<LocalClipPlatformPresetV1>("instagram_reels");
+	const [captionsEnabled, setCaptionsEnabled] = useState(false);
+	const [headingsEnabled, setHeadingsEnabled] = useState(false);
 	const [busy, setBusy] = useState(false);
-	const [captioning, setCaptioning] = useState(false);
-	const cancelRemainingCaptions = useRef(false);
+	const [message, setMessage] = useState("");
+	const cancelCaptions = useRef(false);
 
-	async function generateCaption(item: ClipBatchItemV1, index = 0, total = 1) {
-		setMessage(`Generating captions - Clip ${index + 1} of ${total}`);
-		await startClipCaption(batch.id, item.id);
-		for (let attempt = 0; attempt < 600; attempt += 1) {
-			const job = await getClipCaption(batch.id, item.id);
-			if (job.status === "completed") return;
-			if (["failed", "cancelled"].includes(job.status)) throw new Error(`Captions could not be generated for ${item.title}.`);
-			await wait(1_000);
-		}
-		throw new Error(`Caption generation timed out for ${item.title}. You can safely retry.`);
-	}
-
-	async function captionItem(item: ClipBatchItemV1) {
-		if (captioning) return;
-		setCaptioning(true);
-		try {
-			await generateCaption(item);
-			await reload();
-			setMessage(`Captions are ready for ${item.title}.`);
-		} catch (error) {
-			setMessage(error instanceof Error ? error.message : `Captions could not be generated for ${item.title}.`);
-		} finally {
-			setCaptioning(false);
-		}
-	}
-
-	async function createRegions() {
+	async function run(action: () => Promise<void>) {
+		if (busy) return;
 		setBusy(true);
+		setMessage("");
 		try {
-			const maximumClipDurationMs = Math.round(maximumDurationSeconds * 1000);
-			let current = await updateClipBatch(batch.id, { expectedRevision: batch.revision, captionsEnabled: captions, headingsEnabled: headings, platformPreset: platform, maximumClipDurationMs });
-			for (const [index, range] of initialClipRanges({ sourceDurationMs: batch.sourceDurationMs, count, maximumDurationMs: maximumClipDurationMs }).entries()) {
-				await addClipBatchItem(batch.id, { title: `Clip ${index + 1}`, ...range });
-			}
-			current = await getClipBatch(batch.id);
+			await action();
+		} catch (error) {
+			setMessage(
+				error instanceof Error
+					? error.message
+					: "The local operation could not be completed.",
+			);
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function makeBatch() {
+		await run(async () => {
+			await createBatch({
+				count,
+				maximumClipDurationMs: maximumDurationSeconds * 1000,
+				platformPreset,
+				captionsEnabled,
+				headingsEnabled,
+			});
 			setModal(false);
-			await reload();
-			setMessage(`${current.items.length} clip regions created. Adjust them on the timeline.`);
+			setMessage(`${count} local clip ranges created.`);
+		});
+	}
+
+	async function generateOne(item: LocalClipItemV1, index = 0, total = 1) {
+		await switchClip(item.id);
+		const latest =
+			editor.project
+				.getActive()
+				.capinstaLocalClipBatch?.items.find(
+					(candidate) => candidate.id === item.id,
+				) ?? item;
+		if (latest.captionStatus === "completed") {
+			if (
+				!window.confirm(
+					`${latest.title} already has generated captions. Replace them?`,
+				)
+			)
+				return;
+			removeGeneratedCaptions(editor);
+		}
+		const source = editor.media
+			.getAssets()
+			.find((asset) => asset.id === batch?.sourceMediaId);
+		if (!source)
+			throw new Error(
+				"Reconnect the original source video to continue editing.",
+			);
+		const labels: Record<LocalCaptionProgress, string> = {
+			preparing: "Preparing selected audio",
+			uploading: "Uploading selected clip",
+			transcribing: "Transcribing",
+			creating: "Creating editable captions",
+			completed: "Completed",
+		};
+		await mutateBatch((value) =>
+			updateLocalClip(value, item.id, { captionStatus: "preparing" }),
+		);
+		try {
+			await generateLocalClipCaptions({
+				editor,
+				source,
+				item: latest,
+				onProgress: (progress) =>
+					setMessage(
+						`Generating captions — Clip ${index + 1} of ${total}\n${labels[progress]}`,
+					),
+			});
+			await editor.project.saveCurrentProject();
+			await mutateBatch((value) =>
+				updateLocalClip(value, item.id, { captionStatus: "completed" }),
+			);
 		} catch (error) {
-			setMessage(error instanceof Error ? error.message : "The clip regions could not be created.");
-		} finally {
-			setBusy(false);
+			await mutateBatch((value) =>
+				updateLocalClip(value, item.id, { captionStatus: "failed" }),
+			);
+			throw error;
 		}
 	}
 
-	async function materialize() {
-		setBusy(true);
-		setMessage("Creating independent editable clips…");
-		try {
-			await materializeClipBatch(await getClipBatch(batch.id));
-			const current = await getClipBatch(batch.id);
-			await reload();
-			if (current.captionsEnabled) {
-				cancelRemainingCaptions.current = false;
-				setCaptioning(true);
-				const selected = current.items.filter((item) => item.selectedForExport);
-				for (const [index, item] of selected.entries()) {
-					if (cancelRemainingCaptions.current) break;
+	async function generateSelectedCaptions() {
+		if (!batch) return;
+		cancelCaptions.current = false;
+		const selected = orderedClipItems(batch).filter(
+			(item) => item.selectedForExport && item.captionsEnabled,
+		);
+		await run(async () => {
+			for (const [index, item] of selected.entries()) {
+				if (cancelCaptions.current) break;
+				try {
+					await generateOne(item, index, selected.length);
+				} catch (error) {
+					setMessage(
+						error instanceof Error
+							? error.message
+							: `Captions could not be generated for ${item.title}.`,
+					);
+					if (
+						!window.confirm(
+							"Skip this clip and continue with the remaining clips?",
+						)
+					)
+						break;
+				}
+			}
+		});
+	}
+
+	async function renderCurrent(): Promise<ArrayBuffer> {
+		const result = await editor.project.export({
+			options: {
+				exportMode: "full_video",
+				format: "mp4",
+				quality: "balanced",
+				includeAudio: true,
+				localCaptionCarriers: true,
+			},
+		});
+		if (!result.success || !result.buffer)
+			throw new Error(result.error || "The clip could not be rendered.");
+		return result.buffer;
+	}
+
+	async function exportCurrent() {
+		if (!batch?.selectedClipId) return;
+		const item = batch.items.find(
+			(candidate) => candidate.id === batch.selectedClipId,
+		);
+		if (!item) return;
+		await run(async () => {
+			assertValidClip({ batch, item });
+			const buffer = await renderCurrent();
+			downloadBuffer({
+				buffer,
+				filename: `${sanitizeClipFilename(item.title)}.mp4`,
+				mimeType: "video/mp4",
+			});
+			setMessage(`${item.title} exported.`);
+		});
+	}
+
+	async function exportMany(items: LocalClipItemV1[]) {
+		if (!batch || !items.length) return;
+		await run(async () => {
+			for (const item of items) assertValidClip({ batch, item });
+			if (
+				items.reduce(
+					(sum, item) => sum + item.sourceEndMs - item.sourceStartMs,
+					0,
+				) >
+					10 * 60_000 &&
+				!window.confirm(
+					"This batch may use substantial browser memory. Continue?",
+				)
+			)
+				return;
+			await mutateBatch((value) => ({
+				...value,
+				items: value.items.map((item) =>
+					items.some((candidate) => candidate.id === item.id)
+						? { ...item, exportStatus: "waiting" }
+						: item,
+				),
+			}));
+			const failures: string[] = [];
+			const zip = await createLocalClipZip({
+				batch,
+				items,
+				render: async (item, index) => {
+					await switchClip(item.id);
+					await mutateBatch((value) =>
+						updateLocalClip(value, item.id, { exportStatus: "rendering" }),
+					);
+					setMessage(
+						`${item.title} — Rendering (${index + 1}/${items.length})`,
+					);
 					try {
-						await generateCaption(item, index, selected.length);
+						const buffer = await renderCurrent();
+						await mutateBatch((value) =>
+							updateLocalClip(value, item.id, { exportStatus: "complete" }),
+						);
+						return buffer;
 					} catch (error) {
-						setMessage(error instanceof Error ? error.message : `Captions could not be generated for ${item.title}.`);
+						await mutateBatch((value) =>
+							updateLocalClip(value, item.id, { exportStatus: "failed" }),
+						);
+						throw error;
 					}
-				}
-				setCaptioning(false);
-				await reload();
-			}
-			setMessage("Clip projects are ready.");
-		} catch (error) {
-			setMessage(error instanceof Error ? error.message : "The clip projects could not be created.");
-		} finally {
-			setCaptioning(false);
-			setBusy(false);
-		}
+				},
+				onError: (item) => failures.push(item.title),
+				onProgress: (item, _index, status) =>
+					setMessage(
+						`${item.title} — ${status === "rendering" ? "Rendering" : "Complete"}`,
+					),
+			});
+			downloadBlob({ blob: zip, filename: "capinsta-clips.zip" });
+			setMessage(
+				failures.length
+					? `ZIP downloaded. Retry failed clips: ${failures.join(", ")}.`
+					: "ZIP export complete.",
+			);
+		});
 	}
 
-	async function deleteBatchAndClips() {
-		if (!window.confirm("Delete this clip batch and its child clip projects? The shared source video will be preserved.")) return;
-		setBusy(true);
-		try {
-			const projectIds = new Set([
-				...(batch.sourceProjectId ? [batch.sourceProjectId] : []),
-				...batch.items.flatMap((item) => item.childProjectId ? [item.childProjectId] : []),
-			]);
-			for (const projectId of projectIds) {
-				await deleteMaterializedClipProject(projectId);
-				await Promise.all([
-					storageService.deleteProjectMedia({ projectId }),
-					storageService.deleteProject({ id: projectId }),
-				]);
-			}
-			await deleteClipBatch(batch.id);
-			try {
-				await deleteClipBatchSourceMedia(batch.sourceMediaAssetId);
-			} catch (error) {
-				if (!(error instanceof CapinstaApiError) || error.diagnostics?.code !== "media_asset_not_ready") throw error;
-			}
-			window.localStorage.removeItem("capinsta:manual-clip-batch-v1");
-			router.push("/clipper");
-		} catch (error) {
-			setMessage(error instanceof Error ? error.message : "The clip batch could not be deleted.");
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	async function openItem(item: ClipBatchItemV1) {
-		if (!item.childProjectId || !item.childProjectRevision) return;
-		setBusy(true);
-		try {
-			await editor.project.saveCurrentProject();
-			let requested = false;
-			let converted = false;
-			for (let attempt = 0; attempt < 600; attempt += 1) {
-				const status = await getProjectStatus(item.childProjectId);
-				const derivation = Reflect.get(status, "derivation") ?? {};
-				const conversion = Reflect.get(Reflect.get(status, "conversion") ?? {}, "status");
-				if (conversion === "current" || conversion === "succeeded") {
-					converted = true;
-					break;
-				}
-				if (Reflect.get(derivation, "status") === "failed" || conversion === "failed") throw new Error("The editable clip could not be prepared.");
-				if (!requested && (Reflect.get(derivation, "status") === "succeeded" || Reflect.get(derivation, "edl") === "current")) {
-					await requestConversion(item.childProjectId, item.childProjectRevision, item.childProjectId, true);
-					requested = true;
-				}
-				await wait(1_000);
-			}
-			if (!converted) throw new Error("Preparing the editable clip timed out. You can safely retry.");
-			const handoff = await prepareHandoff(item.childProjectId, item.childProjectRevision, item.childProjectId, true);
-			router.push(`/editor/handoff/${handoff.handoffId}?clipBatch=${batch.id}&clipItem=${item.id}`);
-		} catch (error) {
-			setMessage(error instanceof Error ? error.message : `${item.title} could not be opened.`);
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	async function exportItems(items: ClipBatchItemV1[]) {
-		if (!items.length) return setMessage("Select at least one clip to export.");
-		setBusy(true);
-		try {
-			await editor.project.saveCurrentProject();
-			const selectedIds = new Set(items.map((item) => item.id));
-			let current = await getClipBatch(batch.id);
-			items = current.items.filter((item) => selectedIds.has(item.id));
-			for (const item of items) {
-				if (!item.childProjectId) continue;
-				const saved = await storageService.loadProject({ id: item.childProjectId });
-				if (saved?.project.capinstaClippingProvenance?.sourceClipProjectRevision === item.childProjectRevision)
-					await syncClipEditorProject(batch.id, item, saved.project);
-			}
-			current = await getClipBatch(batch.id);
-			items = current.items.filter((item) => selectedIds.has(item.id));
-			await reload();
-			setMessage(`Exporting ${items.length === 1 ? items[0].title : `${items.length} clips`}\u2026`);
-			if (items.length === 1) {
-				const item = items[0];
-				if (!item.childProjectId || !item.childProjectRevision) throw new Error("Confirm this clip before exporting it.");
-				const created = await createExport(item.childProjectId, item.childProjectRevision, item.captionStatus === "completed");
-				for (let attempt = 0; attempt < 7_200; attempt += 1) {
-					const value = await getExport(created.exportId);
-					const status = String(Reflect.get(value, "status"));
-					if (status === "ready") {
-						window.location.assign(await getExportDownload(created.exportId));
-						setMessage("Export ready.");
-						return;
-					}
-					if (["failed", "cancelled", "expired"].includes(status)) throw new Error(`Export ${status}.`);
-					await wait(1_000);
-				}
-				throw new Error("Export timed out. You can safely retry.");
-			}
-			let value = await createClipBatchExport(current, items.map((item) => item.id));
-			for (let attempt = 0; attempt < 7_200 && value.status === "processing"; attempt += 1) {
-				await wait(1_000);
-				value = await getClipBatchExport(batch.id, value.id);
-			}
-			if (value.status === "ready_for_zip") {
-				setMessage("Preparing ZIP\u2026");
-				value = await finalizeClipBatchExport(batch.id, value.id);
-			}
-			if (value.status !== "ready") throw new Error("One or more clips could not be exported.");
-			window.location.assign((await getClipBatchExportDownload(batch.id, value.id)).url);
-			setMessage("Export ready.");
-		} catch (error) {
-			setMessage(error instanceof Error ? error.message : "The clips could not be exported.");
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	return (
-		<section className="border-b p-3" aria-label="Clip batch" data-testid="clip-batch-dock">
-			<div className="mb-2 flex items-center justify-between"><strong className="text-sm">Clips</strong><div className="flex gap-1"><Button variant="ghost" size="sm" disabled={busy} onClick={() => void deleteBatchAndClips()}>Delete batch</Button><Button size="sm" onClick={() => setModal(true)}>Create clips</Button></div></div>
-			<div className="max-h-56 space-y-2 overflow-auto">
-				{batch.items.length === 0 ? (
-					<div className="rounded border border-dashed p-4 text-center">
-						<p className="text-sm font-medium">No clip regions yet</p>
-						<p className="mt-1 text-xs text-muted-foreground">Create regions, then drag them directly on the timeline.</p>
-						<Button className="mt-3" size="sm" onClick={() => setModal(true)}>Create your clips</Button>
-					</div>
+	if (!batch) {
+		return (
+			<section
+				className="border-b p-3"
+				aria-label="Clipping Mode"
+				data-testid="clip-batch-dock"
+			>
+				<strong className="text-sm">Clipping Mode</strong>
+				<p className="mt-1 text-xs text-muted-foreground">
+					Import one local video in Assets, then create independent clip ranges.
+				</p>
+				<Button
+					className="mt-3 w-full"
+					size="sm"
+					onClick={() => setModal(true)}
+				>
+					Create clips
+				</Button>
+				<CreateDialog
+					{...{
+						modal,
+						setModal,
+						count,
+						setCount,
+						maximumDurationSeconds,
+						setMaximumDurationSeconds,
+						platformPreset,
+						setPlatformPreset,
+						captionsEnabled,
+						setCaptionsEnabled,
+						headingsEnabled,
+						setHeadingsEnabled,
+						busy,
+						makeBatch,
+					}}
+				/>
+				{message ? (
+					<p className="mt-2 text-xs text-destructive" role="alert">
+						{message}
+					</p>
 				) : null}
-				{batch.items.map((item, index) => (
-					<ClipItemRow key={item.id} item={item} onOpen={() => void openItem(item)} onCaption={() => void captionItem(item)} onReload={reload} onSelect={async (selected) => {
-						setBusy(true);
-						try { await updateClipBatchItem(batch.id, item.id, { expectedRevision: item.revision, selectedForExport: selected }); await reload(); }
-						finally { setBusy(false); }
-					}} onMove={(delta) => {
-						const ids = batch.items.map((candidate) => candidate.id);
-						const target = index + delta;
-						if (target < 0 || target >= ids.length) return;
-						[ids[index], ids[target]] = [ids[target], ids[index]];
-						void reorderClipBatchItems(batch, ids).then(reload);
-					}} />
+			</section>
+		);
+	}
+
+	const items = orderedClipItems(batch);
+	return (
+		<section
+			className="border-b p-3"
+			aria-label="Clipping Mode"
+			data-testid="clip-batch-dock"
+		>
+			<div className="mb-2 flex items-center justify-between">
+				<strong className="text-sm">Clips</strong>
+				<span className="text-xs text-muted-foreground">Local only</span>
+			</div>
+			<div className="max-h-64 space-y-2 overflow-auto">
+				{items.map((item) => (
+					<ClipItemRow
+						key={item.id}
+						item={item}
+						selected={batch.selectedClipId === item.id}
+						onOpen={() => void run(() => switchClip(item.id))}
+						onCaption={() => void run(() => generateOne(item))}
+						onChange={(patch) =>
+							void run(() =>
+								mutateBatch((value) => updateLocalClip(value, item.id, patch)),
+							)
+						}
+						onMove={(delta) =>
+							void run(() =>
+								mutateBatch((value) => reorderLocalClip(value, item.id, delta)),
+							)
+						}
+						onDuplicate={() =>
+							void run(() =>
+								mutateBatch((value) => duplicateLocalClip(value, item.id)),
+							)
+						}
+						onRemove={() =>
+							void run(() =>
+								mutateBatch(
+									(value) => removeLocalClip(value, item.id),
+									batch.selectedClipId === item.id
+										? batch.clipOrder.find((id) => id !== item.id)
+										: undefined,
+								),
+							)
+						}
+					/>
 				))}
 			</div>
-			{batch.items.length ? <div className="mt-3 grid grid-cols-2 gap-2"><Button disabled={busy} onClick={() => void materialize()}>Confirm ranges</Button><Button variant="outline" disabled={busy} onClick={() => void exportItems(batch.items.filter((item) => item.selectedForExport))}>Export selected</Button><Button variant="outline" disabled={busy} onClick={() => void exportItems(batch.items)}>Export all</Button><Button variant="outline" disabled={busy || !searchParams.get("clipItem")} onClick={() => void exportItems(batch.items.filter((item) => item.id === searchParams.get("clipItem")))}>Export current</Button></div> : null}
-			{captioning ? <Button className="mt-2 w-full" variant="outline" onClick={() => { cancelRemainingCaptions.current = true; setMessage("Finishing the current clip; remaining captions are cancelled."); }}>Cancel remaining captions</Button> : null}
-			{message ? <p className="mt-2 text-xs text-muted-foreground" role="status">{message}</p> : null}
-			<Dialog open={modal} onOpenChange={setModal}>
-				<DialogContent>
-					<DialogHeader><DialogTitle>Create clip regions</DialogTitle></DialogHeader>
-					<div className="space-y-4">
-						<div><Label htmlFor="clip-count">Number of clips</Label><Input id="clip-count" type="number" min={1} max={12} value={count} onChange={(event) => setCount(Math.max(1, Math.min(12, Number(event.target.value))))} /></div>
-						<div><Label htmlFor="clip-maximum-duration">Maximum duration (seconds)</Label><Input id="clip-maximum-duration" type="number" min={1} max={180} value={maximumDurationSeconds} onChange={(event) => setMaximumDurationSeconds(Math.max(1, Math.min(180, Number(event.target.value))))} /></div>
-						<div><Label htmlFor="clip-platform">Platform</Label><Select value={platform} onValueChange={(value) => { const selected = parsePlatform(value); setPlatform(selected); setMaximumDurationSeconds(selected === "custom" ? 180 : 60); }}><SelectTrigger id="clip-platform"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="instagram_reels">Instagram Reels</SelectItem><SelectItem value="youtube_shorts">YouTube Shorts</SelectItem><SelectItem value="tiktok">TikTok</SelectItem><SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
-						<div className="flex items-center gap-2"><Checkbox id="clip-captions" checked={captions} onCheckedChange={(value) => setCaptions(value === true)} /><Label htmlFor="clip-captions">Add captions</Label></div>
-						<div className="flex items-center gap-2"><Checkbox id="clip-headings" checked={headings} onCheckedChange={(value) => setHeadings(value === true)} /><Label htmlFor="clip-headings">Add headings</Label></div>
-						<p className="text-xs text-muted-foreground">Hard maximum: 3:00</p>
-					</div>
-					<DialogFooter><Button disabled={busy} onClick={() => void createRegions()}>Create clip regions</Button></DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<div className="mt-3 grid grid-cols-2 gap-2">
+				<Button size="sm" disabled={busy} onClick={() => void exportCurrent()}>
+					Export current
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={busy}
+					onClick={() =>
+						void exportMany(items.filter((item) => item.selectedForExport))
+					}
+				>
+					Export selected
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={busy}
+					onClick={() => void exportMany(items)}
+				>
+					Export all
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={busy}
+					onClick={() => void generateSelectedCaptions()}
+				>
+					Generate captions
+				</Button>
+			</div>
+			{busy ? (
+				<Button
+					className="mt-2 w-full"
+					variant="outline"
+					size="sm"
+					onClick={() => {
+						cancelCaptions.current = true;
+						editor.project.cancelExport();
+					}}
+				>
+					Cancel remaining
+				</Button>
+			) : null}
+			{message ? (
+				<p
+					className="mt-2 whitespace-pre-line text-xs text-muted-foreground"
+					role="status"
+				>
+					{message}
+				</p>
+			) : null}
 		</section>
 	);
 }
 
-function ClipItemRow({ item, onOpen, onCaption, onReload, onSelect, onMove }: { item: ClipBatchItemV1; onOpen: () => void; onCaption: () => void; onReload: () => Promise<void>; onSelect: (selected: boolean) => Promise<void>; onMove: (delta: number) => void }) {
-	const { batch } = useBatch();
-	const editor = useEditor();
-	const isChildEditor = Boolean(useSearchParams().get("clipItem"));
+function ClipItemRow({
+	item,
+	selected,
+	onOpen,
+	onCaption,
+	onChange,
+	onMove,
+	onDuplicate,
+	onRemove,
+}: {
+	item: LocalClipItemV1;
+	selected: boolean;
+	onOpen: () => void;
+	onCaption: () => void;
+	onChange: (patch: Partial<LocalClipItemV1>) => void;
+	onMove: (delta: number) => void;
+	onDuplicate: () => void;
+	onRemove: () => void;
+}) {
+	const { batch, setRange } = useBatch();
 	const [title, setTitle] = useState(item.title);
 	const [start, setStart] = useState(item.sourceStartMs);
 	const [end, setEnd] = useState(item.sourceEndMs);
-	const previewTimer = useRef<number | null>(null);
-	useEffect(() => () => {
-		if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-	}, []);
-	const invalid = end <= start || end - start > batch.maximumClipDurationMs || end > batch.sourceDurationMs;
-	async function remove() {
-		if (!window.confirm(`Remove ${item.title}${item.childProjectId ? " and its editable project" : ""}?`)) return;
-		const projectId = item.childProjectId;
-		await deleteClipBatchItem(batch.id, item.id);
-		if (projectId) {
-			await Promise.all([
-				storageService.deleteProjectMedia({ projectId }),
-				storageService.deleteProject({ id: projectId }),
-			]);
-		}
-		await onReload();
-	}
-	async function resetEdits() {
-		if (!item.childProjectId || !window.confirm(`Reset ${item.title}? Its edits, headings, captions, and exports will be discarded.`)) return;
-		const projectId = item.childProjectId;
-		await resetClipBatchItem(batch.id, item.id);
-		await Promise.all([
-			storageService.deleteProjectMedia({ projectId }),
-			storageService.deleteProject({ id: projectId }),
-		]);
-		await onReload();
-	}
+	const invalid =
+		!batch ||
+		start < 0 ||
+		end <= start ||
+		end > batch.sourceDurationMs ||
+		end - start > batch.maximumClipDurationMs;
 	return (
-		<div className="rounded border p-2 text-xs" data-testid="clip-batch-item" data-clip-item-id={item.id}>
-			<div className="flex items-center gap-1"><Checkbox checked={item.selectedForExport} onCheckedChange={(checked) => void onSelect(checked === true)} /><Button variant="ghost" size="sm" onClick={onOpen}>{item.ordinal}</Button><Input aria-label={`Title for clip ${item.ordinal}`} className="h-7 min-w-0" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} /><Button variant="ghost" size="sm" onClick={() => onMove(-1)} aria-label="Move clip up">Up</Button><Button variant="ghost" size="sm" onClick={() => onMove(1)} aria-label="Move clip down">Down</Button></div>
-			<div className="mt-1 grid grid-cols-2 gap-1"><div><Label htmlFor={`clip-start-${item.id}`}>Start ms</Label><Input id={`clip-start-${item.id}`} className="h-7" type="number" min={0} disabled={Boolean(item.childProjectId)} value={start} onChange={(event) => setStart(Number(event.target.value))} /></div><div><Label htmlFor={`clip-end-${item.id}`}>End ms</Label><Input id={`clip-end-${item.id}`} className="h-7" type="number" min={1} disabled={Boolean(item.childProjectId)} value={end} onChange={(event) => setEnd(Number(event.target.value))} /></div></div>
-			<div className="mt-1 flex items-center justify-between"><span className={invalid ? "text-destructive" : "text-muted-foreground"}>{formatMs(end - start)}{invalid ? " · invalid" : ""} · captions: {item.captionStatus} · heading: {item.headingStatus}</span><div><Button variant="ghost" size="sm" disabled={isChildEditor} onClick={() => { if (previewTimer.current !== null) window.clearTimeout(previewTimer.current); editor.playback.seek({ time: mediaTimeFromSeconds({ seconds: item.sourceStartMs / 1000 }) }); editor.playback.play(); previewTimer.current = window.setTimeout(() => editor.playback.pause(), item.durationMs); }}>Preview</Button><Button variant="ghost" size="sm" disabled={invalid || !title.trim()} onClick={() => void updateClipBatchItem(batch.id, item.id, { expectedRevision: item.revision, title: title.trim(), sourceStartMs: start, sourceEndMs: end }).then(onReload)}>Save</Button>{item.childProjectId ? <><Button variant="ghost" size="sm" onClick={onCaption}>Captions</Button><Button variant="ghost" size="sm" disabled={isChildEditor} onClick={() => void resetEdits()}>Reset edits</Button></> : null}<Button variant="ghost" size="sm" onClick={() => void addClipBatchItem(batch.id, { title: `${item.title} copy`, sourceStartMs: item.sourceStartMs, sourceEndMs: item.sourceEndMs }).then(onReload)}>Duplicate</Button><Button variant="ghost" size="sm" onClick={() => void remove()}>Remove</Button></div></div>
+		<div
+			className={`rounded border p-2 text-xs ${selected ? "border-primary bg-primary/5" : ""}`}
+			data-testid="clip-batch-item"
+			data-clip-item-id={item.id}
+		>
+			<div className="flex items-center gap-1">
+				<Checkbox
+					checked={item.selectedForExport}
+					onCheckedChange={(value) =>
+						onChange({ selectedForExport: value === true })
+					}
+				/>
+				<Button variant="ghost" size="sm" onClick={onOpen}>
+					{item.ordinal}
+				</Button>
+				<Input
+					aria-label={`Title for clip ${item.ordinal}`}
+					className="h-7 min-w-0"
+					value={title}
+					onChange={(event) => setTitle(event.target.value)}
+				/>
+				<Button
+					variant="ghost"
+					size="sm"
+					aria-label="Move clip up"
+					onClick={() => onMove(-1)}
+				>
+					↑
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					aria-label="Move clip down"
+					onClick={() => onMove(1)}
+				>
+					↓
+				</Button>
+			</div>
+			<div className="mt-1 grid grid-cols-2 gap-1">
+				<Input
+					aria-label={`Start time for clip ${item.ordinal}`}
+					type="number"
+					min={0}
+					value={start}
+					onChange={(event) => setStart(Number(event.target.value))}
+				/>
+				<Input
+					aria-label={`End time for clip ${item.ordinal}`}
+					type="number"
+					min={1}
+					value={end}
+					onChange={(event) => setEnd(Number(event.target.value))}
+				/>
+			</div>
+			<div className="mt-1 flex items-center justify-between">
+				<span
+					className={invalid ? "text-destructive" : "text-muted-foreground"}
+				>
+					{formatMs(end - start)}
+					{invalid ? " · invalid" : ""} · {item.captionStatus}
+					<span className="ml-1">Â· export {item.exportStatus}</span>
+				</span>
+				<div>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={invalid || !title.trim()}
+						onClick={() =>
+							void setRange({ ...item, title: title.trim() }, start, end)
+						}
+					>
+						Save
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={!item.captionsEnabled}
+						onClick={onCaption}
+					>
+						Captions
+					</Button>
+					<Button variant="ghost" size="sm" onClick={onDuplicate}>
+						Duplicate
+					</Button>
+					<Button variant="ghost" size="sm" onClick={onRemove}>
+						Delete
+					</Button>
+				</div>
+			</div>
 		</div>
 	);
 }
 
 export function ClipRangeLane() {
 	const value = useContext(BatchContext);
-	const isChildEditor = Boolean(useSearchParams().get("clipItem"));
-	if (!value || !value.batch.items.length || isChildEditor) return null;
+	if (!value?.isClippingMode || !value.batch?.items.length) return null;
 	return <ClipRangeLaneContent />;
 }
 
 function ClipRangeLaneContent() {
-	const { batch, setRange } = useBatch();
-	const selectedItemId = useSearchParams().get("clipItem");
+	const { batch, setRange, switchClip } = useBatch();
+	if (!batch) return null;
 	return (
-		<div className="h-14 border-y bg-muted/30 px-2 py-1" aria-label="Clip ranges">
-			<div className="relative h-full" data-clip-range-lane data-testid="clip-range-lane">
-				{batch.items.map((item) => <RangeOverlay key={`${item.id}:${item.revision}`} item={item} duration={batch.sourceDurationMs} maximumDuration={batch.maximumClipDurationMs} selected={item.id === selectedItemId} save={setRange} />)}
+		<div
+			className="h-14 border-y bg-muted/30 px-2 py-1"
+			aria-label="Clip ranges"
+		>
+			<div
+				className="relative h-full"
+				data-clip-range-lane
+				data-testid="clip-range-lane"
+			>
+				{orderedClipItems(batch).map((item) => (
+					<RangeOverlay
+						key={`${item.id}:${item.updatedAt}`}
+						item={item}
+						duration={batch.sourceDurationMs}
+						maximumDuration={batch.maximumClipDurationMs}
+						selected={item.id === batch.selectedClipId}
+						save={setRange}
+						select={switchClip}
+					/>
+				))}
 			</div>
 		</div>
 	);
 }
 
-function RangeOverlay({ item, duration, maximumDuration, selected, save }: { item: ClipBatchItemV1; duration: number; maximumDuration: number; selected: boolean; save: BatchContextValue["setRange"] }) {
-	const [range, setLocalRange] = useState({ start: item.sourceStartMs, end: item.sourceEndMs });
+function RangeOverlay({
+	item,
+	duration,
+	maximumDuration,
+	selected,
+	save,
+	select,
+}: {
+	item: LocalClipItemV1;
+	duration: number;
+	maximumDuration: number;
+	selected: boolean;
+	save: BatchContextValue["setRange"];
+	select: BatchContextValue["switchClip"];
+}) {
+	const [range, setLocalRange] = useState({
+		start: item.sourceStartMs,
+		end: item.sourceEndMs,
+	});
 	const left = (range.start / duration) * 100;
 	const width = ((range.end - range.start) / duration) * 100;
-	if (item.childProjectId) return <div data-testid="clip-range" data-clip-item-id={item.id} className={`absolute top-0 h-full min-w-8 rounded border-2 border-primary bg-primary/25 text-[10px] ${selected ? "bg-primary/50" : ""}`} style={{ left: `${left}%`, width: `${width}%` }} title={`${item.title}: reset edits before changing its range`}><span className="flex h-full items-center justify-center truncate px-2">{item.ordinal}</span></div>;
-	function drag(mode: ClipRangeAdjustment, event: ReactPointerEvent<HTMLElement>) {
-		const lane = event.currentTarget.closest<HTMLElement>("[data-clip-range-lane]");
+	function drag(
+		mode: ClipRangeAdjustment,
+		event: ReactPointerEvent<HTMLElement>,
+	) {
+		const lane = event.currentTarget.closest<HTMLElement>(
+			"[data-clip-range-lane]",
+		);
 		if (!lane) return;
 		const originX = event.clientX;
 		const initial = { ...range };
 		let latest = initial;
 		const move = (pointer: PointerEvent) => {
-			const delta = Math.round(((pointer.clientX - originX) / lane.getBoundingClientRect().width) * duration);
-			const adjusted = adjustClipRange({ range: { sourceStartMs: initial.start, sourceEndMs: initial.end }, mode, deltaMs: delta, sourceDurationMs: duration, maximumDurationMs: maximumDuration });
+			const delta = Math.round(
+				((pointer.clientX - originX) / lane.getBoundingClientRect().width) *
+					duration,
+			);
+			const adjusted = adjustClipRange({
+				range: { sourceStartMs: initial.start, sourceEndMs: initial.end },
+				mode,
+				deltaMs: delta,
+				sourceDurationMs: duration,
+				maximumDurationMs: maximumDuration,
+			});
 			latest = { start: adjusted.sourceStartMs, end: adjusted.sourceEndMs };
 			setLocalRange(latest);
 		};
 		const up = () => {
 			window.removeEventListener("pointermove", move);
-			window.removeEventListener("pointerup", up);
-			if (latest.end - latest.start <= maximumDuration) void save(item, latest.start, latest.end);
+			void save(item, latest.start, latest.end);
 		};
 		window.addEventListener("pointermove", move);
 		window.addEventListener("pointerup", up, { once: true });
 	}
-	function keyboard(edge: "start" | "end", delta: number) {
-		const adjusted = adjustClipRange({ range: { sourceStartMs: item.sourceStartMs, sourceEndMs: item.sourceEndMs }, mode: edge, deltaMs: delta, sourceDurationMs: duration, maximumDurationMs: maximumDuration });
+	function keyboard(mode: ClipRangeAdjustment, delta: number) {
+		const adjusted = adjustClipRange({
+			range: {
+				sourceStartMs: item.sourceStartMs,
+				sourceEndMs: item.sourceEndMs,
+			},
+			mode,
+			deltaMs: delta,
+			sourceDurationMs: duration,
+			maximumDurationMs: maximumDuration,
+		});
 		void save(item, adjusted.sourceStartMs, adjusted.sourceEndMs);
 	}
 	return (
-		<div data-testid="clip-range" data-clip-item-id={item.id} className={`absolute top-0 h-full min-w-8 rounded border-2 border-primary bg-primary/25 text-[10px] transition hover:bg-primary/40 focus-within:ring-2 ${selected ? "bg-primary/50" : ""}`} style={{ left: `${left}%`, width: `${width}%` }} title={`${item.title}: ${formatMs(range.start)}–${formatMs(range.end)}`}>
-			<button aria-label={`Adjust ${item.title} start`} className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-primary/60" onPointerDown={(event) => drag("start", event)} onKeyDown={(event) => { if (event.key === "ArrowLeft") keyboard("start", -100); if (event.key === "ArrowRight") keyboard("start", 100); }} />
-			<button className="flex h-full w-full cursor-grab items-center justify-center truncate px-2" onPointerDown={(event) => drag("body", event)}>{item.ordinal}</button>
-			<button aria-label={`Adjust ${item.title} end`} className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-primary/60" onPointerDown={(event) => drag("end", event)} onKeyDown={(event) => { if (event.key === "ArrowLeft") keyboard("end", -100); if (event.key === "ArrowRight") keyboard("end", 100); }} />
+		<div
+			data-testid="clip-range"
+			data-clip-item-id={item.id}
+			className={`absolute top-0 h-full min-w-8 rounded border-2 border-primary bg-primary/25 text-[10px] focus-within:ring-2 ${selected ? "bg-primary/50" : ""}`}
+			style={{ left: `${left}%`, width: `${width}%` }}
+			title={`${item.title}: ${formatMs(range.start)}–${formatMs(range.end)}`}
+		>
+			<button
+				aria-label={`Adjust ${item.title} start`}
+				className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-primary/60"
+				onPointerDown={(event) => drag("start", event)}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft") keyboard("start", -100);
+					if (event.key === "ArrowRight") keyboard("start", 100);
+				}}
+			/>
+			<button
+				className="flex h-full w-full cursor-grab items-center justify-center truncate px-2"
+				onClick={() => void select(item.id)}
+				onPointerDown={(event) => drag("body", event)}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft") keyboard("body", -100);
+					if (event.key === "ArrowRight") keyboard("body", 100);
+				}}
+			>
+				{item.ordinal} · {item.title}
+			</button>
+			<button
+				aria-label={`Adjust ${item.title} end`}
+				className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-primary/60"
+				onPointerDown={(event) => drag("end", event)}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft") keyboard("end", -100);
+					if (event.key === "ArrowRight") keyboard("end", 100);
+				}}
+			/>
 		</div>
 	);
 }
 
-function formatMs(value: number) {
-	const seconds = Math.floor(value / 1000);
-	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}.${String(value % 1000).padStart(3, "0")}`;
+function CreateDialog(props: {
+	modal: boolean;
+	setModal: (value: boolean) => void;
+	count: number;
+	setCount: (value: number) => void;
+	maximumDurationSeconds: number;
+	setMaximumDurationSeconds: (value: number) => void;
+	platformPreset: LocalClipPlatformPresetV1;
+	setPlatformPreset: (value: LocalClipPlatformPresetV1) => void;
+	captionsEnabled: boolean;
+	setCaptionsEnabled: (value: boolean) => void;
+	headingsEnabled: boolean;
+	setHeadingsEnabled: (value: boolean) => void;
+	busy: boolean;
+	makeBatch: () => Promise<void>;
+}) {
+	return (
+		<Dialog open={props.modal} onOpenChange={props.setModal}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Create clip ranges</DialogTitle>
+				</DialogHeader>
+				<div className="space-y-4">
+					<div>
+						<Label htmlFor="clip-count">Number of clips</Label>
+						<Input
+							id="clip-count"
+							type="number"
+							min={1}
+							max={12}
+							value={props.count}
+							onChange={(event) =>
+								props.setCount(
+									Math.max(1, Math.min(12, Number(event.target.value))),
+								)
+							}
+						/>
+					</div>
+					<div>
+						<Label htmlFor="clip-maximum-duration">
+							Maximum duration (seconds)
+						</Label>
+						<Input
+							id="clip-maximum-duration"
+							type="number"
+							min={1}
+							max={180}
+							value={props.maximumDurationSeconds}
+							onChange={(event) =>
+								props.setMaximumDurationSeconds(
+									Math.max(1, Math.min(180, Number(event.target.value))),
+								)
+							}
+						/>
+					</div>
+					<div>
+						<Label htmlFor="clip-platform">Platform / aspect ratio</Label>
+						<Select
+							value={props.platformPreset}
+							onValueChange={(value) =>
+								props.setPlatformPreset(parsePlatform(value))
+							}
+						>
+							<SelectTrigger id="clip-platform">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="instagram_reels">Instagram Reels</SelectItem>
+								<SelectItem value="youtube_shorts">YouTube Shorts</SelectItem>
+								<SelectItem value="tiktok">TikTok</SelectItem>
+								<SelectItem value="custom">Current custom ratio</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className="flex items-center gap-2">
+						<Checkbox
+							id="clip-captions"
+							checked={props.captionsEnabled}
+							onCheckedChange={(value) =>
+								props.setCaptionsEnabled(value === true)
+							}
+						/>
+						<Label htmlFor="clip-captions">Add captions</Label>
+					</div>
+					<div className="flex items-center gap-2">
+						<Checkbox
+							id="clip-headings"
+							checked={props.headingsEnabled}
+							onCheckedChange={(value) =>
+								props.setHeadingsEnabled(value === true)
+							}
+						/>
+						<Label htmlFor="clip-headings">Add heading text</Label>
+					</div>
+					<p className="text-xs text-muted-foreground">
+						Hard maximum: 180 seconds · Browser limit: 12 clips
+					</p>
+				</div>
+				<DialogFooter>
+					<Button disabled={props.busy} onClick={() => void props.makeBatch()}>
+						Create clips
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
 }
 
-function parsePlatform(value: string): ClipBatchV1["platformPreset"] {
-	if (value === "instagram_reels" || value === "youtube_shorts" || value === "tiktok" || value === "custom") return value;
-	return "instagram_reels";
+function useBatch() {
+	const value = useContext(BatchContext);
+	if (!value) throw new Error("Clipping Mode is unavailable.");
+	return value;
+}
+
+function assertValidClip({
+	batch,
+	item,
+}: {
+	batch: LocalClipBatchV1;
+	item: LocalClipItemV1;
+}) {
+	if (
+		item.sourceStartMs < 0 ||
+		item.sourceEndMs <= item.sourceStartMs ||
+		item.sourceEndMs > batch.sourceDurationMs ||
+		item.sourceEndMs - item.sourceStartMs > batch.maximumClipDurationMs ||
+		item.sourceEndMs - item.sourceStartMs > 180_000
+	)
+		throw new Error(`${item.title} has an invalid range.`);
+}
+
+function formatMs(value: number) {
+	const safe = Math.max(0, value);
+	const seconds = Math.floor(safe / 1000);
+	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}.${String(safe % 1000).padStart(3, "0")}`;
+}
+
+function parsePlatform(value: string): LocalClipPlatformPresetV1 {
+	return value === "youtube_shorts" || value === "tiktok" || value === "custom"
+		? value
+		: "instagram_reels";
 }

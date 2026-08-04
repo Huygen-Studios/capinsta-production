@@ -37,7 +37,12 @@ import {
 	getBookmarkPreviewOverlaySource,
 } from "@/timeline/bookmarks/index";
 import { EditorAdRail, EditorTopAd } from "@/components/adsense/editor-ads";
-import { ClipBatchDock, ClipBatchProvider, ClipRangeLane } from "./clip-batch-workspace";
+import {
+	ClipBatchDock,
+	ClipBatchProvider,
+	ClipRangeLane,
+} from "./clip-batch-workspace";
+import { mediaTimeFromSeconds } from "@/wasm";
 
 export default function Editor() {
 	const params = useParams<{ project_id: string }>();
@@ -47,7 +52,9 @@ export default function Editor() {
 		<MobileGate>
 			<EditorProvider projectId={projectId}>
 				<EditorOnboardingProvider>
-					<ClipBatchProvider><EditorProjectSession /></ClipBatchProvider>
+					<ClipBatchProvider>
+						<EditorProjectSession />
+					</ClipBatchProvider>
 				</EditorOnboardingProvider>
 			</EditorProvider>
 		</MobileGate>
@@ -122,6 +129,12 @@ function EditorLayout() {
 		editor.scenes.getActiveSceneOrNull(),
 	);
 	const currentTime = useEditor((editor) => editor.playback.getCurrentTime());
+	const localClipSourceDuration = useEditor((editor) => {
+		const project = editor.project.getActiveOrNull();
+		return project?.capinstaEditorMode === "clipping"
+			? project.capinstaLocalClipBatch?.sourceDurationMs
+			: undefined;
+	});
 	const activeGuide = usePreviewStore((state) => state.activeGuide);
 	const overlays = usePreviewStore((state) => state.overlays);
 	const setOverlayVisibility = usePreviewStore(
@@ -226,7 +239,12 @@ function EditorLayout() {
 						maxSize={40}
 						className="min-w-0"
 					>
-						<div className="flex h-full flex-col overflow-hidden"><ClipBatchDock /><div className="min-h-0 flex-1"><PropertiesPanel /></div></div>
+						<div className="flex h-full flex-col overflow-hidden">
+							<ClipBatchDock />
+							<div className="min-h-0 flex-1">
+								<PropertiesPanel />
+							</div>
+						</div>
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>
@@ -239,7 +257,16 @@ function EditorLayout() {
 				maxSize={70}
 				className="min-h-0 px-1.5 pb-1.5 pt-1"
 			>
-				<Timeline rangeLane={<ClipRangeLane />} />
+				<Timeline
+					rangeLane={<ClipRangeLane />}
+					rangeDuration={
+						localClipSourceDuration
+							? mediaTimeFromSeconds({
+									seconds: localClipSourceDuration / 1000,
+								})
+							: undefined
+					}
+				/>
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);

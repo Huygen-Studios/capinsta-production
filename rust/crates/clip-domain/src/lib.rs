@@ -6,6 +6,8 @@ mod edl;
 pub use edl::*;
 mod transcript_remap;
 pub use transcript_remap::*;
+mod local;
+pub use local::*;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceMediaReferenceV1 {

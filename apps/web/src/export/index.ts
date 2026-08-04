@@ -27,6 +27,8 @@ export interface ExportOptions {
 		width: number;
 		height: number;
 	};
+	/** Render editable caption carrier text in-browser; used by local Clipping Mode. */
+	localCaptionCarriers?: boolean;
 }
 
 export interface ExportResult {

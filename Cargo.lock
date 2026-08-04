@@ -3855,6 +3855,7 @@ version = "0.2.10"
 dependencies = [
  "bridge",
  "captions",
+ "clip-domain",
  "compositor",
  "console_error_panic_hook",
  "effects",

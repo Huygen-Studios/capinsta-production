@@ -1,8 +1,8 @@
 {
 	"version": 1,
-	"errors": 137,
+	"errors": 136,
 	"warnings": 14,
-	"files": 94,
+	"files": 93,
 	"rows": [
 		{
 			"file": "src/actions/registry.ts",
@@ -706,19 +706,6 @@
 					"severity": 1,
 					"line": 252,
 					"column": 30
-				}
-			]
-		},
-		{
-			"file": "src/core/managers/project-manager.ts",
-			"errors": 1,
-			"warnings": 0,
-			"messages": [
-				{
-					"ruleId": "@typescript-eslint/no-unsafe-type-assertion",
-					"severity": 2,
-					"line": 645,
-					"column": 24
 				}
 			]
 		},

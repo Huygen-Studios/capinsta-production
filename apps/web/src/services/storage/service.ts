@@ -218,6 +218,8 @@ class StorageService {
 			capinstaServerMediaAssetVersion: project.capinstaServerMediaAssetVersion,
 			capinstaSourceFingerprint: project.capinstaSourceFingerprint,
 			capinstaClippingProvenance: project.capinstaClippingProvenance,
+			capinstaLocalClipBatch: project.capinstaLocalClipBatch,
+			capinstaEditorMode: project.capinstaEditorMode,
 		};
 
 		await this.projectsAdapter.set({
@@ -351,7 +353,10 @@ class StorageService {
 			serverBackedDescriptor: descriptor,
 			syncStatus: "synced",
 		};
-		await mediaMetadataAdapter.set({ key: descriptor.mediaId, value: metadata });
+		await mediaMetadataAdapter.set({
+			key: descriptor.mediaId,
+			value: metadata,
+		});
 		await browserCacheRegistry.register({
 			id: `media:${projectId}:${descriptor.mediaId}`,
 			projectId,
@@ -423,6 +428,8 @@ class StorageService {
 				serializedProject.capinstaServerMediaAssetVersion,
 			capinstaSourceFingerprint: serializedProject.capinstaSourceFingerprint,
 			capinstaClippingProvenance: serializedProject.capinstaClippingProvenance,
+			capinstaLocalClipBatch: serializedProject.capinstaLocalClipBatch,
+			capinstaEditorMode: serializedProject.capinstaEditorMode,
 		};
 
 		return { project };
@@ -618,8 +625,7 @@ class StorageService {
 		let url: string;
 		if (resolvedServerMedia) {
 			url = resolvedServerMedia.url;
-		} else
-		if (
+		} else if (
 			metadata.type === "image" &&
 			(!restoredFile.type || restoredFile.type === "")
 		) {
