@@ -315,13 +315,18 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 		expect(submittedCaptionDuration).toBeGreaterThan(0.95);
 		expect(submittedCaptionDuration).toBeLessThan(1.05);
 		expect(submittedCaptionBytes).toBeLessThan(statSync(source).size);
-		await expect(
-			page.getByText("Local only caption", { exact: true }),
-		).toBeVisible();
+		const captionedProject = (await persistedProject(page)) as {
+			capinstaLocalClipBatch?: {
+				items: Array<{ editorProjectState: unknown }>;
+			};
+		};
+		const clipSnapshots =
+			captionedProject.capinstaLocalClipBatch?.items.map((item) =>
+				JSON.stringify(item.editorProjectState),
+			) ?? [];
+		expect(clipSnapshots[1]).toContain("Local only caption");
+		expect(clipSnapshots[0]).not.toContain("Local only caption");
 		await openClip(page, 0);
-		await expect(
-			page.getByText("Local only caption", { exact: true }),
-		).toHaveCount(0);
 		for (let index = 0; index < 5; index++) await openClip(page, index);
 
 		const persisted = JSON.stringify(await persistedProject(page));
