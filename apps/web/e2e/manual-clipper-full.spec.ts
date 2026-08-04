@@ -274,7 +274,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 									id: "segment-1",
 									start: 0,
 									end: 0.8,
-									text: "Local only caption",
+									text: "Local caption",
 									words: [
 										{
 											word: "Local",
@@ -324,14 +324,14 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			captionedProject.capinstaLocalClipBatch?.items.map((item) =>
 				JSON.stringify(item.editorProjectState),
 			) ?? [];
-		expect(clipSnapshots[1]).toContain("Local only caption");
-		expect(clipSnapshots[0]).not.toContain("Local only caption");
+		expect(clipSnapshots[1]).toContain("Local caption");
+		expect(clipSnapshots[0]).not.toContain("Local caption");
 		await openClip(page, 0);
 		for (let index = 0; index < 5; index++) await openClip(page, index);
 
 		const persisted = JSON.stringify(await persistedProject(page));
 		expect(persisted).toContain("Clip 1 heading");
-		expect(persisted).toContain("Local only caption");
+		expect(persisted).toContain("Local caption");
 		expect(
 			persisted.match(/local-clipping-source\.mp4/g)?.length,
 		).toBeGreaterThan(0);
