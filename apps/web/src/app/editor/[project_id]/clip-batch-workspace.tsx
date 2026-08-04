@@ -1191,16 +1191,31 @@ function ClipItemRow({
 							Preview clip
 						</Button>
 					</div>
-					<div className="mt-1 flex items-center justify-between">
-						<span
-							className={invalid ? "text-destructive" : "text-muted-foreground"}
-						>
-							{start !== null && end !== null
-								? formatClipTimecode(end - start)
-								: "Invalid timecode"}
-							{invalid ? " · invalid" : ""} · {item.captionStatus}
-							<span className="ml-1">· export {item.exportStatus}</span>
-						</span>
+					<div className="mt-1 flex items-center justify-between text-[10px]">
+						<div className="flex items-center gap-1.5 overflow-hidden">
+							<span
+								className={
+									invalid
+										? "font-medium text-destructive"
+										: "text-muted-foreground"
+								}
+							>
+								{start !== null && end !== null
+									? formatClipTimecode(end - start)
+									: "Invalid timecode"}
+							</span>
+							{invalid ? (
+								<span className="rounded bg-destructive/10 px-1 py-0.5 text-destructive font-medium">
+									Invalid
+								</span>
+							) : null}
+							<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+								Captions: {item.captionStatus}
+							</span>
+							<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+								Export: {item.exportStatus}
+							</span>
+						</div>
 						<div>
 							<Button
 								variant="ghost"

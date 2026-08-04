@@ -6,7 +6,9 @@ mock.module("opencut-wasm", () => ({
 		title.trim().replaceAll(" ", "-"),
 }));
 
-const { buildLocalClipExportQueue } = await import("./local-export");
+const { buildLocalClipExportQueue, createLocalClipZip } = await import(
+	"./local-export"
+);
 
 function batch(): LocalClipBatchV1 {
 	const items = Array.from({ length: 5 }, (_, index) => ({
@@ -16,7 +18,7 @@ function batch(): LocalClipBatchV1 {
 		title: `Clip ${index + 1}`,
 		sourceStartMs: index * 10_000,
 		sourceEndMs: (index + 1) * 10_000,
-		selectedForExport: index > 0,
+		selectedForExport: index > 0, // Clip 1 has selectedForExport = false
 		captionsEnabled: false,
 		headingEnabled: false,
 		captionStatus: "idle",
@@ -55,8 +57,8 @@ function batch(): LocalClipBatchV1 {
 	};
 }
 
-describe("local clip export queue", () => {
-	test("all includes Clip 1 and keeps ID, title, ordinal, and filename aligned", () => {
+describe("local clip export queue & ZIP manifest", () => {
+	test("all includes Clip 1 even when selectedForExport is false and aligns ordinals/filenames", () => {
 		const queue = buildLocalClipExportQueue({ batch: batch(), mode: "all" });
 		expect(queue).toHaveLength(5);
 		expect(queue.map(({ id }) => id)).toEqual([
@@ -66,6 +68,7 @@ describe("local clip export queue", () => {
 			"clip-4",
 			"clip-5",
 		]);
+		expect(queue.map(({ outputOrdinal }) => outputOrdinal)).toEqual([1, 2, 3, 4, 5]);
 		expect(queue.map(({ filename }) => filename)).toEqual([
 			"clip-01-Clip-1.mp4",
 			"clip-02-Clip-2.mp4",
@@ -75,16 +78,42 @@ describe("local clip export queue", () => {
 		]);
 	});
 
-	test("selected and current use their explicit model invariants", () => {
-		expect(
-			buildLocalClipExportQueue({ batch: batch(), mode: "selected" }).map(
-				({ id }) => id,
-			),
-		).toEqual(["clip-2", "clip-3", "clip-4", "clip-5"]);
-		expect(
-			buildLocalClipExportQueue({ batch: batch(), mode: "current" }).map(
-				({ id }) => id,
-			),
-		).toEqual(["clip-1"]);
+	test("selected mode preserves outputOrdinal and title alignment", () => {
+		const queue = buildLocalClipExportQueue({ batch: batch(), mode: "selected" });
+		expect(queue.map(({ id }) => id)).toEqual([
+			"clip-2",
+			"clip-3",
+			"clip-4",
+			"clip-5",
+		]);
+		expect(queue.map(({ outputOrdinal }) => outputOrdinal)).toEqual([2, 3, 4, 5]);
+		expect(queue.map(({ filename }) => filename)).toEqual([
+			"clip-02-Clip-2.mp4",
+			"clip-03-Clip-3.mp4",
+			"clip-04-Clip-4.mp4",
+			"clip-05-Clip-5.mp4",
+		]);
+	});
+
+	test("current mode exports exactly the active clip", () => {
+		const queue = buildLocalClipExportQueue({ batch: batch(), mode: "current" });
+		expect(queue).toHaveLength(1);
+		expect(queue[0]!.id).toBe("clip-1");
+		expect(queue[0]!.outputOrdinal).toBe(1);
+		expect(queue[0]!.filename).toBe("clip-01-Clip-1.mp4");
+	});
+
+	test("createLocalClipZip produces valid zip blob containing 5 MP4s and manifest", async () => {
+		const currentBatch = batch();
+		const items = buildLocalClipExportQueue({ batch: currentBatch, mode: "all" });
+		const zipBlob = await createLocalClipZip({
+			batch: currentBatch,
+			items,
+			render: async (_item, _index) => {
+				return new Uint8Array([0, 0, 0, 0, 104, 100, 108, 114]).buffer;
+			},
+		});
+		expect(zipBlob).toBeDefined();
+		expect(zipBlob.size).toBeGreaterThan(0);
 	});
 });

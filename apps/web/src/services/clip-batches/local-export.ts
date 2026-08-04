@@ -17,19 +17,23 @@ export function buildLocalClipExportQueue({
 	mode: LocalClipExportMode;
 }): LocalClipExportQueueItem[] {
 	const byId = new Map(batch.items.map((item) => [item.id, item]));
-	return batch.clipOrder
+	const orderedItems = batch.clipOrder
 		.map((id) => byId.get(id))
 		.filter((item): item is LocalClipItemV1 => {
 			if (!item) return false;
 			if (mode === "all") return true;
 			if (mode === "current") return item.id === batch.selectedClipId;
 			return item.selectedForExport;
-		})
-		.map((item, index) => ({
+		});
+
+	return orderedItems.map((item) => {
+		const ordinal = item.ordinal;
+		return {
 			...structuredClone(item),
-			outputOrdinal: index + 1,
-			filename: `clip-${String(index + 1).padStart(2, "0")}-${sanitizeClipFilename(item.title)}.mp4`,
-		}));
+			outputOrdinal: ordinal,
+			filename: `clip-${String(ordinal).padStart(2, "0")}-${sanitizeClipFilename(item.title)}.mp4`,
+		};
+	});
 }
 
 export interface LocalClipManifestV1 {
