@@ -1,5 +1,13 @@
 import { MAX_CLIP_DURATION_MS } from "./constants";
-import * as clipWasm from "opencut-wasm";
+import "opencut-wasm";
+import {
+	adjustLocalClipRange,
+	initialLocalClipRanges,
+	localClipToSourceTime,
+	sanitizeLocalClipFilename,
+	sourceToLocalClipTime,
+	// @ts-expect-error wasm-bindgen does not emit declarations for its internal JS shim.
+} from "opencut-wasm/opencut_wasm_bg.js";
 
 export type ClipRange = { sourceStartMs: number; sourceEndMs: number };
 export type ClipRangeAdjustment = "start" | "end" | "body";
@@ -26,7 +34,7 @@ export function initialClipRanges({
 	count: number;
 	maximumDurationMs?: number;
 }) {
-	const value: unknown = clipWasm.initialLocalClipRanges(
+	const value: unknown = initialLocalClipRanges(
 		sourceDurationMs,
 		count,
 		maximumDurationMs,
@@ -50,7 +58,7 @@ export function adjustClipRange({
 	maximumDurationMs?: number;
 }): ClipRange {
 	return parseClipRange(
-		clipWasm.adjustLocalClipRange(
+		adjustLocalClipRange(
 			range.sourceStartMs,
 			range.sourceEndMs,
 			mode,
@@ -68,11 +76,7 @@ export const sourceToClipTime = ({
 	sourceTimeMs: number;
 	range: ClipRange;
 }) =>
-	clipWasm.sourceToLocalClipTime(
-		sourceTimeMs,
-		range.sourceStartMs,
-		range.sourceEndMs,
-	);
+	sourceToLocalClipTime(sourceTimeMs, range.sourceStartMs, range.sourceEndMs);
 
 export const clipToSourceTime = ({
 	clipTimeMs,
@@ -80,12 +84,7 @@ export const clipToSourceTime = ({
 }: {
 	clipTimeMs: number;
 	range: ClipRange;
-}) =>
-	clipWasm.localClipToSourceTime(
-		clipTimeMs,
-		range.sourceStartMs,
-		range.sourceEndMs,
-	);
+}) => localClipToSourceTime(clipTimeMs, range.sourceStartMs, range.sourceEndMs);
 
 export const sanitizeClipFilename = (title: string) =>
-	clipWasm.sanitizeLocalClipFilename(title);
+	sanitizeLocalClipFilename(title);
