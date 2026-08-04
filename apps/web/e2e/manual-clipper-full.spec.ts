@@ -413,7 +413,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 		).toBeVisible();
 		await page.getByRole("button", { name: "Normal editing" }).click();
 		await expect(page.getByTestId("clip-batch-dock")).toHaveCount(0);
-		await page.getByRole("button", { name: "Media" }).click();
+		await page.getByRole("button", { name: "Media", exact: true }).click();
 		await expect(
 			page.getByText("local-clipping-source.mp4", { exact: true }),
 		).toBeVisible();
