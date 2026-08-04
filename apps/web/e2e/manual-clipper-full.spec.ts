@@ -219,9 +219,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			page.getByText("Add a heading", { exact: true }),
 		).toBeVisible();
 		await openClip(page, 0);
-		await expect(
-			page.getByText("Clip 1 heading", { exact: true }),
-		).toBeVisible();
+		await expect(headingField).toHaveValue("Clip 1 heading");
 
 		let submittedCaptionDuration = 0;
 		let submittedCaptionBytes = 0;
