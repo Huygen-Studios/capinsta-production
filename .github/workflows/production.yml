@@ -87,6 +87,7 @@ jobs:
             e2e/editor-onboarding.spec.ts e2e/editor-projects-visual.spec.ts)
           bun test apps/web/src/services/automatic-clipper/api.test.ts
           bun test apps/web/src/services/clip-batches/ranges.test.ts
+          bun test apps/web/src/services/clip-batches/local-export.test.ts
           (cd apps/web && bun test \
             src/services/server-backed-media/access.test.ts \
             src/services/clipping-handoff/import.test.ts \

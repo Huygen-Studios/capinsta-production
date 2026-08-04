@@ -89,3 +89,14 @@ export const clipToSourceTime = ({
 
 export const sanitizeClipFilename = (title: string) =>
 	clipWasm.sanitizeLocalClipFilename(title);
+
+export const formatClipTimecode = (milliseconds: number) =>
+	clipWasm.formatLocalClipTimecode(milliseconds);
+
+export function parseClipTimecode(value: string): number | null {
+	try {
+		return clipWasm.parseLocalClipTimecode(value);
+	} catch {
+		return null;
+	}
+}

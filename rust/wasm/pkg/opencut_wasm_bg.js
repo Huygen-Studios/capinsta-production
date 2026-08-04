@@ -74,6 +74,20 @@ export function canonicalizeCaptionDocument(options) {
 }
 
 /**
+ * @param {number} canvas_width
+ * @param {number} canvas_height
+ * @param {number} character_count
+ * @returns {any}
+ */
+export function defaultLocalClipHeadingLayout(canvas_width, canvas_height, character_count) {
+    const ret = wasm.defaultLocalClipHeadingLayout(canvas_width, canvas_height, character_count);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {any} options
  * @returns {any}
  */
@@ -150,6 +164,29 @@ export function exportCaptionVtt(options) {
 export function floorToFrame(arg0) {
     const ret = wasm.floorToFrame(arg0);
     return ret;
+}
+
+/**
+ * @param {number} milliseconds
+ * @returns {string}
+ */
+export function formatLocalClipTimecode(milliseconds) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.formatLocalClipTimecode(milliseconds);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
 }
 
 /**
@@ -349,6 +386,20 @@ export function mediaTimeToFrame(arg0) {
 export function mediaTimeToSeconds(arg0) {
     const ret = wasm.mediaTimeToSeconds(arg0);
     return ret;
+}
+
+/**
+ * @param {string} value
+ * @returns {number}
+ */
+export function parseLocalClipTimecode(value) {
+    const ptr0 = passStringToWasm0(value, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.parseLocalClipTimecode(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0];
 }
 
 /**
@@ -2611,12 +2662,12 @@ export function __wbg_writeTexture_d42ce6ec94b2c6ca() { return handleError(funct
     arg0.writeTexture(arg1, getArrayU8FromWasm0(arg2, arg3), arg4, arg5);
 }, arguments); }
 export function __wbindgen_cast_0000000000000001(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2532, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2533, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm_bindgen_3a360b6f32878bad___convert__closures_____invoke___wasm_bindgen_3a360b6f32878bad___JsValue__core_9b3796e30d99ddb7___result__Result_____wasm_bindgen_3a360b6f32878bad___JsError___true_);
     return ret;
 }
 export function __wbindgen_cast_0000000000000002(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 452, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 453, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm_bindgen_3a360b6f32878bad___convert__closures_____invoke___wasm_bindgen_3a360b6f32878bad___JsValue______true_);
     return ret;
 }

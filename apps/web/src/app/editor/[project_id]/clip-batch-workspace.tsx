@@ -14,6 +14,16 @@ import {
 } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
@@ -24,6 +34,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PropertiesPanel } from "@/components/editor/panels/properties";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	Select,
 	SelectContent,
@@ -56,17 +68,21 @@ import {
 	type LocalCaptionProgress,
 } from "@/services/clip-batches/local-captions";
 import {
+	buildLocalClipExportQueue,
 	createLocalClipZip,
 	downloadBlob,
+	type LocalClipExportMode,
 } from "@/services/clip-batches/local-export";
 import {
 	adjustClipRange,
+	formatClipTimecode,
 	initialClipRanges,
+	parseClipTimecode,
 	sanitizeClipFilename,
 	type ClipRangeAdjustment,
 } from "@/services/clip-batches/ranges";
 import { downloadBuffer } from "@/export";
-import { ZERO_MEDIA_TIME } from "@/wasm";
+import { mediaTimeToSeconds, ZERO_MEDIA_TIME } from "@/wasm";
 
 type BatchContextValue = {
 	isClippingMode: boolean;
@@ -94,6 +110,13 @@ type CreateBatchOptions = {
 
 const BatchContext = createContext<BatchContextValue | null>(null);
 
+type PendingRangeChange = {
+	item: LocalClipItemV1;
+	start: number;
+	end: number;
+	affected: number;
+};
+
 export function ClipBatchProvider({ children }: { children: ReactNode }) {
 	const editor = useEditor();
 	const searchParams = useSearchParams();
@@ -103,10 +126,14 @@ export function ClipBatchProvider({ children }: { children: ReactNode }) {
 			instance.project.getActiveOrNull()?.capinstaLocalClipBatch ?? null,
 	);
 	const reconciledMode = useRef<boolean | null>(null);
+	const [pendingRange, setPendingRange] = useState<PendingRangeChange | null>(
+		null,
+	);
 
 	const applyProject = useCallback(
 		async (project: TProject, scope: string) => {
 			editor.playback.pause();
+			editor.selection.clearSelection();
 			editor.project.setActiveProject({ project });
 			editor.scenes.initializeScenes({
 				scenes: project.scenes,
@@ -211,8 +238,13 @@ export function ClipBatchProvider({ children }: { children: ReactNode }) {
 		[mutateBatch],
 	);
 
-	const setRange = useCallback(
-		async (item: LocalClipItemV1, start: number, end: number) => {
+	const commitRange = useCallback(
+		async (
+			item: LocalClipItemV1,
+			start: number,
+			end: number,
+			strategy: "clamp" | "trim" = "clamp",
+		) => {
 			await editor.project.saveCurrentProject();
 			const current = editor.project.getActive().capinstaLocalClipBatch;
 			if (
@@ -230,19 +262,12 @@ export function ClipBatchProvider({ children }: { children: ReactNode }) {
 				(candidate) => candidate.id === item.id,
 			);
 			if (!persistedItem) throw new Error("Clip could not be found.");
-			const affected = countElementsOutsideRange(persistedItem, start, end);
-			if (
-				affected &&
-				!window.confirm(
-					`${affected} timed element${affected === 1 ? "" : "s"} extend beyond the new range. Clamp them to the new duration?`,
-				)
-			)
-				return;
 			const nextItem = retimeLocalClip(
 				{ ...persistedItem, title: item.title },
 				start,
 				end,
 				current.sourceDurationMs,
+				strategy,
 			);
 			await mutateBatch(
 				(value) => updateLocalClip(value, item.id, nextItem),
@@ -250,6 +275,25 @@ export function ClipBatchProvider({ children }: { children: ReactNode }) {
 			);
 		},
 		[editor, mutateBatch],
+	);
+
+	const setRange = useCallback(
+		async (item: LocalClipItemV1, start: number, end: number) => {
+			await editor.project.saveCurrentProject();
+			const current = editor.project.getActive().capinstaLocalClipBatch;
+			const persistedItem = current?.items.find(
+				(candidate) => candidate.id === item.id,
+			);
+			if (!current || !persistedItem)
+				throw new Error("Clip could not be found.");
+			const affected = countElementsOutsideRange(persistedItem, start, end);
+			if (affected) {
+				setPendingRange({ item: persistedItem, start, end, affected });
+				return;
+			}
+			await commitRange(item, start, end);
+		},
+		[commitRange, editor],
 	);
 
 	const value = useMemo<BatchContextValue>(
@@ -264,17 +308,76 @@ export function ClipBatchProvider({ children }: { children: ReactNode }) {
 		[batch, createBatch, isClippingMode, mutateBatch, setRange, switchClip],
 	);
 	return (
-		<BatchContext.Provider value={value}>{children}</BatchContext.Provider>
+		<BatchContext.Provider value={value}>
+			{children}
+			<AlertDialog
+				open={Boolean(pendingRange)}
+				onOpenChange={(open) => {
+					if (!open) setPendingRange(null);
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Clip duration changed</AlertDialogTitle>
+						<AlertDialogDescription>
+							{pendingRange?.affected ?? 0} timed element
+							{pendingRange?.affected === 1 ? "" : "s"} extend beyond the new
+							clip duration.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter className="flex-wrap">
+						<AlertDialogCancel>Cancel range change</AlertDialogCancel>
+						<Button
+							variant="outline"
+							onClick={() => {
+								if (pendingRange) void switchClip(pendingRange.item.id);
+								setPendingRange(null);
+							}}
+						>
+							Review affected elements
+						</Button>
+						<Button
+							variant="outline"
+							onClick={() => {
+								if (pendingRange)
+									void commitRange(
+										pendingRange.item,
+										pendingRange.start,
+										pendingRange.end,
+										"trim",
+									);
+								setPendingRange(null);
+							}}
+						>
+							Trim affected elements
+						</Button>
+						<Button
+							onClick={() => {
+								if (pendingRange)
+									void commitRange(
+										pendingRange.item,
+										pendingRange.start,
+										pendingRange.end,
+									);
+								setPendingRange(null);
+							}}
+						>
+							Clamp elements to clip duration
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</BatchContext.Provider>
 	);
 }
 
-export function ClipBatchDock() {
+export function ClipBatchInspector() {
 	const value = useContext(BatchContext);
 	if (!value?.isClippingMode) return null;
-	return <ClipBatchDockContent />;
+	return <ClipBatchInspectorContent />;
 }
 
-function ClipBatchDockContent() {
+function ClipBatchInspectorContent() {
 	const editor = useEditor();
 	const context = useBatch();
 	const { batch, createBatch, mutateBatch, switchClip } = context;
@@ -287,7 +390,30 @@ function ClipBatchDockContent() {
 	const [headingsEnabled, setHeadingsEnabled] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [message, setMessage] = useState("");
+	const [tab, setTab] = useState("clips");
+	const selectedElements = useEditor((value) =>
+		value.selection.getSelectedElements(),
+	);
+	const [confirmation, setConfirmation] = useState<{
+		title: string;
+		description: string;
+		resolve: (accepted: boolean) => void;
+	} | null>(null);
 	const cancelCaptions = useRef(false);
+
+	useEffect(() => {
+		if (!selectedElements.length) return;
+		const frame = requestAnimationFrame(() => setTab("properties"));
+		return () => cancelAnimationFrame(frame);
+	}, [selectedElements]);
+
+	const ask = useCallback(
+		(title: string, description: string) =>
+			new Promise<boolean>((resolve) =>
+				setConfirmation({ title, description, resolve }),
+			),
+		[],
+	);
 
 	async function run(action: () => Promise<void>) {
 		if (busy) return;
@@ -330,9 +456,10 @@ function ClipBatchDockContent() {
 				) ?? item;
 		if (latest.captionStatus === "completed") {
 			if (
-				!window.confirm(
-					`${latest.title} already has generated captions. Replace them?`,
-				)
+				!(await ask(
+					"Replace captions?",
+					`${latest.title} already has generated captions.`,
+				))
 			)
 				return;
 			removeGeneratedCaptions(editor);
@@ -394,9 +521,10 @@ function ClipBatchDockContent() {
 							: `Captions could not be generated for ${item.title}.`,
 					);
 					if (
-						!window.confirm(
+						!(await ask(
+							"Caption generation failed",
 							"Skip this clip and continue with the remaining clips?",
-						)
+						))
 					)
 						break;
 				}
@@ -437,19 +565,25 @@ function ClipBatchDockContent() {
 		});
 	}
 
-	async function exportMany(items: LocalClipItemV1[]) {
-		if (!batch || !items.length) return;
+	async function exportMany(mode: Exclude<LocalClipExportMode, "current">) {
+		if (!batch) return;
 		await run(async () => {
-			for (const item of items) assertValidClip({ batch, item });
+			await editor.project.saveCurrentProject();
+			const latestBatch = editor.project.getActive().capinstaLocalClipBatch;
+			if (!latestBatch) return;
+			const items = buildLocalClipExportQueue({ batch: latestBatch, mode });
+			if (!items.length) throw new Error("Select at least one clip to export.");
+			for (const item of items) assertValidClip({ batch: latestBatch, item });
 			if (
 				items.reduce(
 					(sum, item) => sum + item.sourceEndMs - item.sourceStartMs,
 					0,
 				) >
 					10 * 60_000 &&
-				!window.confirm(
+				!(await ask(
+					"Large batch export",
 					"This batch may use substantial browser memory. Continue?",
-				)
+				))
 			)
 				return;
 			await mutateBatch((value) => ({
@@ -462,7 +596,7 @@ function ClipBatchDockContent() {
 			}));
 			const failures: string[] = [];
 			const zip = await createLocalClipZip({
-				batch,
+				batch: latestBatch,
 				items,
 				render: async (item, index) => {
 					await switchClip(item.id);
@@ -547,104 +681,318 @@ function ClipBatchDockContent() {
 
 	const items = orderedClipItems(batch);
 	return (
-		<section
-			className="border-b p-3"
-			aria-label="Clipping Mode"
-			data-testid="clip-batch-dock"
-		>
-			<div className="mb-2 flex items-center justify-between">
-				<strong className="text-sm">Clips</strong>
-				<span className="text-xs text-muted-foreground">Local only</span>
-			</div>
-			<div className="max-h-64 space-y-2 overflow-auto">
-				{items.map((item) => (
-					<ClipItemRow
-						key={item.id}
-						item={item}
-						selected={batch.selectedClipId === item.id}
-						onOpen={() => void run(() => switchClip(item.id))}
-						onCaption={() => void run(() => generateOne(item))}
-						onChange={(patch) =>
-							void run(() =>
-								mutateBatch((value) => updateLocalClip(value, item.id, patch)),
-							)
-						}
-						onMove={(delta) =>
-							void run(() =>
-								mutateBatch((value) => reorderLocalClip(value, item.id, delta)),
-							)
-						}
-						onDuplicate={() =>
-							void run(() =>
-								mutateBatch((value) => duplicateLocalClip(value, item.id)),
-							)
-						}
-						onRemove={() =>
-							void run(() =>
-								mutateBatch(
-									(value) => removeLocalClip(value, item.id),
-									batch.selectedClipId === item.id
-										? batch.clipOrder.find((id) => id !== item.id)
-										: undefined,
-								),
-							)
-						}
-					/>
-				))}
-			</div>
-			<div className="mt-3 grid grid-cols-2 gap-2">
-				<Button size="sm" disabled={busy} onClick={() => void exportCurrent()}>
-					Export current
-				</Button>
-				<Button
-					size="sm"
-					variant="outline"
-					disabled={busy}
-					onClick={() =>
-						void exportMany(items.filter((item) => item.selectedForExport))
+		<>
+			<Tabs
+				value={tab}
+				onValueChange={setTab}
+				className="flex h-full min-h-0 flex-col"
+				aria-label="Clipping Mode"
+				aria-busy={busy}
+				data-testid="clip-batch-dock"
+			>
+				<div className="flex items-center justify-between border-b px-2 pt-2">
+					<TabsList className="border-0 px-0">
+						<TabsTrigger value="clips">Clips</TabsTrigger>
+						<TabsTrigger value="properties">Properties</TabsTrigger>
+						<TabsTrigger value="captions">Captions</TabsTrigger>
+						<TabsTrigger value="export">Export</TabsTrigger>
+					</TabsList>
+					<span className="pb-2 text-[10px] text-muted-foreground">
+						Local only
+					</span>
+				</div>
+				<TabsContent value="clips" className="min-h-0 flex-1 overflow-auto p-3">
+					<div className="mb-2 flex gap-2">
+						<Button size="sm" variant="outline" onClick={() => setModal(true)}>
+							New batch
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() =>
+								void mutateBatch((value) => ({
+									...value,
+									items: value.items.map((item) => ({
+										...item,
+										selectedForExport: true,
+									})),
+								}))
+							}
+						>
+							Select all
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() =>
+								void mutateBatch((value) => ({
+									...value,
+									items: value.items.map((item) => ({
+										...item,
+										selectedForExport: false,
+									})),
+								}))
+							}
+						>
+							Clear
+						</Button>
+					</div>
+					<div className="space-y-2">
+						{items.map((item) => (
+							<ClipItemRow
+								key={`${item.id}:${item.updatedAt}`}
+								item={item}
+								selected={batch.selectedClipId === item.id}
+								onOpen={() => void run(() => switchClip(item.id))}
+								onCaption={() => {
+									setTab("captions");
+									void run(() => generateOne(item));
+								}}
+								onChange={(patch) =>
+									void run(() =>
+										mutateBatch((value) =>
+											updateLocalClip(value, item.id, patch),
+										),
+									)
+								}
+								onMove={(delta) =>
+									void run(() =>
+										mutateBatch((value) =>
+											reorderLocalClip(value, item.id, delta),
+										),
+									)
+								}
+								onDuplicate={() =>
+									void run(() =>
+										mutateBatch((value) => duplicateLocalClip(value, item.id)),
+									)
+								}
+								onRemove={() =>
+									void run(() =>
+										mutateBatch(
+											(value) => removeLocalClip(value, item.id),
+											batch.selectedClipId === item.id
+												? batch.clipOrder.find((id) => id !== item.id)
+												: undefined,
+										),
+									)
+								}
+							/>
+						))}
+					</div>
+				</TabsContent>
+				<TabsContent
+					value="properties"
+					className="flex min-h-0 flex-1 flex-col overflow-hidden p-0"
+				>
+					<FramingPresets />
+					<div className="min-h-0 flex-1">
+						<PropertiesPanel />
+					</div>
+				</TabsContent>
+				<TabsContent
+					value="captions"
+					className="min-h-0 flex-1 overflow-auto p-3"
+				>
+					<p className="mb-3 text-xs text-muted-foreground">
+						Generate captions here, then select a caption on the timeline to
+						edit its text and style in Properties.
+					</p>
+					<div className="grid grid-cols-2 gap-2">
+						<Button
+							size="sm"
+							disabled={busy || !batch.selectedClipId}
+							onClick={() => {
+								const item = items.find(
+									(candidate) => candidate.id === batch.selectedClipId,
+								);
+								if (item) void run(() => generateOne(item));
+							}}
+						>
+							Generate current
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={busy}
+							onClick={() => void generateSelectedCaptions()}
+						>
+							Generate selected
+						</Button>
+					</div>
+				</TabsContent>
+				<TabsContent
+					value="export"
+					className="min-h-0 flex-1 overflow-auto p-3"
+				>
+					<div className="grid grid-cols-2 gap-2">
+						<Button
+							size="sm"
+							disabled={busy}
+							onClick={() => void exportCurrent()}
+						>
+							Export current
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={busy}
+							onClick={() => void exportMany("selected")}
+						>
+							Export selected
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={busy}
+							onClick={() => void exportMany("all")}
+						>
+							Export all
+						</Button>
+					</div>
+				</TabsContent>
+				<div className="shrink-0 border-t p-2">
+					{busy ? (
+						<Button
+							className="w-full"
+							variant="outline"
+							size="sm"
+							onClick={() => {
+								cancelCaptions.current = true;
+								editor.project.cancelExport();
+							}}
+						>
+							Cancel remaining
+						</Button>
+					) : null}
+					{message ? (
+						<p
+							className="mt-1 whitespace-pre-line text-xs text-muted-foreground"
+							role="status"
+						>
+							{message}
+						</p>
+					) : null}
+				</div>
+			</Tabs>
+			<CreateDialog
+				{...{
+					modal,
+					setModal,
+					count,
+					setCount,
+					maximumDurationSeconds,
+					setMaximumDurationSeconds,
+					platformPreset,
+					setPlatformPreset,
+					captionsEnabled,
+					setCaptionsEnabled,
+					headingsEnabled,
+					setHeadingsEnabled,
+					busy,
+					makeBatch,
+				}}
+			/>
+			<AlertDialog
+				open={Boolean(confirmation)}
+				onOpenChange={(open) => {
+					if (!open && confirmation) {
+						confirmation.resolve(false);
+						setConfirmation(null);
 					}
-				>
-					Export selected
+				}}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>{confirmation?.title}</AlertDialogTitle>
+						<AlertDialogDescription>
+							{confirmation?.description}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={() => {
+								confirmation?.resolve(true);
+								setConfirmation(null);
+							}}
+						>
+							Continue
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
+	);
+}
+
+function FramingPresets() {
+	const editor = useEditor();
+	const project = useEditor((value) => value.project.getActive());
+	const scene = useEditor((value) => value.scenes.getActiveSceneOrNull());
+	const assets = useEditor((value) => value.media.getAssets());
+	const mainTrack = scene?.tracks.main;
+	const video = mainTrack?.elements.find((element) => element.type === "video");
+	const asset = video
+		? assets.find((candidate) => candidate.id === video.mediaId)
+		: null;
+	if (!mainTrack || !video || !asset?.width || !asset.height) return null;
+	const { width: canvasWidth, height: canvasHeight } =
+		project.settings.canvasSize;
+	const contain = Math.min(
+		canvasWidth / asset.width,
+		canvasHeight / asset.height,
+	);
+	const fill =
+		Math.max(canvasWidth / asset.width, canvasHeight / asset.height) / contain;
+	const apply = (scale: number, positionY = 0) =>
+		editor.timeline.updateElements({
+			updates: [
+				{
+					trackId: mainTrack.id,
+					elementId: video.id,
+					patch: {
+						params: {
+							...video.params,
+							"transform.scaleX": scale,
+							"transform.scaleY": scale,
+							"transform.positionX": 0,
+							"transform.positionY": positionY,
+						},
+					},
+				},
+			],
+		});
+	const crop = Math.max(0, asset.height * contain * fill - canvasHeight) / 2;
+	return (
+		<div className="shrink-0 border-b p-2">
+			<p className="mb-1 text-xs font-medium">Video framing</p>
+			<div className="flex flex-wrap gap-1">
+				<Button size="sm" variant="outline" onClick={() => apply(1)}>
+					Fit
+				</Button>
+				<Button size="sm" variant="outline" onClick={() => apply(fill)}>
+					Fill
+				</Button>
+				<Button size="sm" variant="outline" onClick={() => apply(fill)}>
+					Center
+				</Button>
+				<Button size="sm" variant="outline" onClick={() => apply(fill, crop)}>
+					Top
+				</Button>
+				<Button size="sm" variant="outline" onClick={() => apply(fill, -crop)}>
+					Bottom
 				</Button>
 				<Button
 					size="sm"
-					variant="outline"
-					disabled={busy}
-					onClick={() => void exportMany(items)}
+					variant="ghost"
+					disabled
+					title="Use the controls below for custom framing"
 				>
-					Export all
-				</Button>
-				<Button
-					size="sm"
-					variant="outline"
-					disabled={busy}
-					onClick={() => void generateSelectedCaptions()}
-				>
-					Generate captions
+					Custom
 				</Button>
 			</div>
-			{busy ? (
-				<Button
-					className="mt-2 w-full"
-					variant="outline"
-					size="sm"
-					onClick={() => {
-						cancelCaptions.current = true;
-						editor.project.cancelExport();
-					}}
-				>
-					Cancel remaining
-				</Button>
-			) : null}
-			{message ? (
-				<p
-					className="mt-2 whitespace-pre-line text-xs text-muted-foreground"
-					role="status"
-				>
-					{message}
-				</p>
-			) : null}
-		</section>
+		</div>
 	);
 }
 
@@ -667,16 +1015,42 @@ function ClipItemRow({
 	onDuplicate: () => void;
 	onRemove: () => void;
 }) {
+	const editor = useEditor();
+	const playhead = useEditor((value) => value.playback.getCurrentTime());
 	const { batch, setRange } = useBatch();
 	const [title, setTitle] = useState(item.title);
-	const [start, setStart] = useState(item.sourceStartMs);
-	const [end, setEnd] = useState(item.sourceEndMs);
+	const [startText, setStartText] = useState(
+		formatClipTimecode(item.sourceStartMs),
+	);
+	const [endText, setEndText] = useState(formatClipTimecode(item.sourceEndMs));
+	const start = parseClipTimecode(startText);
+	const end = parseClipTimecode(endText);
 	const invalid =
 		!batch ||
+		start === null ||
+		end === null ||
 		start < 0 ||
 		end <= start ||
 		end > batch.sourceDurationMs ||
 		end - start > batch.maximumClipDurationMs;
+	const commit = (nextStartText = startText, nextEndText = endText) => {
+		const nextStart = parseClipTimecode(nextStartText);
+		const nextEnd = parseClipTimecode(nextEndText);
+		if (
+			batch &&
+			nextStart !== null &&
+			nextEnd !== null &&
+			nextStart >= 0 &&
+			nextEnd > nextStart &&
+			nextEnd <= batch.sourceDurationMs &&
+			nextEnd - nextStart <= batch.maximumClipDurationMs
+		)
+			void setRange(
+				{ ...item, title: title.trim() || item.title },
+				nextStart,
+				nextEnd,
+			);
+	};
 	return (
 		<div
 			className={`rounded border p-2 text-xs ${selected ? "border-primary bg-primary/5" : ""}`}
@@ -690,15 +1064,16 @@ function ClipItemRow({
 						onChange({ selectedForExport: value === true })
 					}
 				/>
-				<Button variant="ghost" size="sm" onClick={onOpen}>
-					{item.ordinal}
+				<Button
+					className="min-w-0 flex-1 justify-start"
+					variant="ghost"
+					size="sm"
+					onClick={onOpen}
+				>
+					<span className="truncate">
+						{item.ordinal}. {item.title}
+					</span>
 				</Button>
-				<Input
-					aria-label={`Title for clip ${item.ordinal}`}
-					className="h-7 min-w-0"
-					value={title}
-					onChange={(event) => setTitle(event.target.value)}
-				/>
 				<Button
 					variant="ghost"
 					size="sm"
@@ -716,77 +1091,162 @@ function ClipItemRow({
 					↓
 				</Button>
 			</div>
-			<div className="mt-1 grid grid-cols-2 gap-1">
-				<Input
-					aria-label={`Start time for clip ${item.ordinal}`}
-					type="number"
-					min={0}
-					value={start}
-					onChange={(event) => setStart(Number(event.target.value))}
-				/>
-				<Input
-					aria-label={`End time for clip ${item.ordinal}`}
-					type="number"
-					min={1}
-					value={end}
-					onChange={(event) => setEnd(Number(event.target.value))}
-				/>
+			<div className="mt-1 flex gap-2 text-[10px] text-muted-foreground">
+				<span>{formatClipTimecode(item.sourceEndMs - item.sourceStartMs)}</span>
+				<span>Captions: {item.captionStatus}</span>
+				<span>Export: {item.exportStatus}</span>
 			</div>
-			<div className="mt-1 flex items-center justify-between">
-				<span
-					className={invalid ? "text-destructive" : "text-muted-foreground"}
-				>
-					{formatMs(end - start)}
-					{invalid ? " · invalid" : ""} · {item.captionStatus}
-					<span className="ml-1">Â· export {item.exportStatus}</span>
-				</span>
-				<div>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={invalid || !title.trim()}
-						onClick={() =>
-							void setRange({ ...item, title: title.trim() }, start, end)
-						}
-					>
-						Save
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={!item.captionsEnabled}
-						onClick={onCaption}
-					>
-						Captions
-					</Button>
-					<Button variant="ghost" size="sm" onClick={onDuplicate}>
-						Duplicate
-					</Button>
-					<Button variant="ghost" size="sm" onClick={onRemove}>
-						Delete
-					</Button>
+			{selected ? (
+				<div className="mt-2 space-y-2">
+					<Input
+						aria-label={`Title for clip ${item.ordinal}`}
+						className="h-8"
+						value={title}
+						onChange={(event) => setTitle(event.target.value)}
+						onBlur={() => {
+							if (title.trim() && title.trim() !== item.title)
+								onChange({ title: title.trim() });
+						}}
+					/>
+					<div className="grid grid-cols-2 gap-1">
+						<Input
+							aria-label={`Start time for clip ${item.ordinal}`}
+							value={startText}
+							onChange={(event) => setStartText(event.target.value)}
+							onBlur={(event) => commit(event.currentTarget.value, endText)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter")
+									commit(event.currentTarget.value, endText);
+							}}
+						/>
+						<Input
+							aria-label={`End time for clip ${item.ordinal}`}
+							value={endText}
+							onChange={(event) => setEndText(event.target.value)}
+							onBlur={(event) => commit(startText, event.currentTarget.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter")
+									commit(startText, event.currentTarget.value);
+							}}
+						/>
+					</div>
+					<div className="flex flex-wrap gap-1">
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() =>
+								setStartText(
+									formatClipTimecode(
+										item.sourceStartMs +
+											Math.round(mediaTimeToSeconds({ time: playhead }) * 1000),
+									),
+								)
+							}
+						>
+							Set start at playhead
+						</Button>
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={() =>
+								setEndText(
+									formatClipTimecode(
+										item.sourceStartMs +
+											Math.round(mediaTimeToSeconds({ time: playhead }) * 1000),
+									),
+								)
+							}
+						>
+							Set end at playhead
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() =>
+								setStartText(
+									formatClipTimecode(
+										Math.max(0, (start ?? item.sourceStartMs) - 100),
+									),
+								)
+							}
+						>
+							Start −100 ms
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							onClick={() =>
+								setEndText(formatClipTimecode((end ?? item.sourceEndMs) + 100))
+							}
+						>
+							End +100 ms
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => {
+								editor.playback.seek({ time: ZERO_MEDIA_TIME });
+								editor.playback.play();
+							}}
+						>
+							Preview clip
+						</Button>
+					</div>
+					<div className="mt-1 flex items-center justify-between">
+						<span
+							className={invalid ? "text-destructive" : "text-muted-foreground"}
+						>
+							{start !== null && end !== null
+								? formatClipTimecode(end - start)
+								: "Invalid timecode"}
+							{invalid ? " · invalid" : ""} · {item.captionStatus}
+							<span className="ml-1">· export {item.exportStatus}</span>
+						</span>
+						<div>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={!item.captionsEnabled}
+								onClick={onCaption}
+							>
+								Captions
+							</Button>
+							<Button variant="ghost" size="sm" onClick={onDuplicate}>
+								Duplicate
+							</Button>
+							<Button variant="ghost" size="sm" onClick={onRemove}>
+								Delete
+							</Button>
+						</div>
+					</div>
 				</div>
-			</div>
+			) : null}
 		</div>
 	);
 }
 
-export function ClipRangeLane() {
+export function ClipSourceOverview() {
 	const value = useContext(BatchContext);
 	if (!value?.isClippingMode || !value.batch?.items.length) return null;
-	return <ClipRangeLaneContent />;
+	return <ClipSourceOverviewContent />;
 }
 
-function ClipRangeLaneContent() {
+function ClipSourceOverviewContent() {
 	const { batch, setRange, switchClip } = useBatch();
 	if (!batch) return null;
 	return (
 		<div
-			className="h-14 border-y bg-muted/30 px-2 py-1"
-			aria-label="Clip ranges"
+			className="shrink-0 border-y bg-muted/30 px-2 py-1.5"
+			aria-label="Source Overview"
+			data-testid="clip-source-overview"
 		>
+			<div className="mb-1 flex items-center justify-between text-[10px] text-muted-foreground">
+				<strong className="text-foreground">Source Overview</strong>
+				<span>
+					{formatClipTimecode(0)} – {formatClipTimecode(batch.sourceDurationMs)}
+				</span>
+			</div>
 			<div
-				className="relative h-full"
+				className="relative h-12"
 				data-clip-range-lane
 				data-testid="clip-range-lane"
 			>
@@ -802,6 +1262,29 @@ function ClipRangeLaneContent() {
 					/>
 				))}
 			</div>
+		</div>
+	);
+}
+
+export function ClipTimelineContextBar() {
+	const value = useContext(BatchContext);
+	const item = value?.batch?.items.find(
+		(candidate) => candidate.id === value.batch?.selectedClipId,
+	);
+	if (!value?.isClippingMode || !item) return null;
+	const duration = item.sourceEndMs - item.sourceStartMs;
+	return (
+		<div
+			className="flex shrink-0 items-center justify-between border-b px-3 py-1 text-[10px] text-muted-foreground"
+			data-testid="active-clip-timeline-summary"
+			data-duration-ms={duration}
+		>
+			<strong className="text-foreground">
+				Active Clip Timeline · {item.title}
+			</strong>
+			<span>
+				{formatClipTimecode(0)} → {formatClipTimecode(duration)}
+			</span>
 		</div>
 	);
 }
@@ -877,13 +1360,13 @@ function RangeOverlay({
 		<div
 			data-testid="clip-range"
 			data-clip-item-id={item.id}
-			className={`absolute top-0 h-full min-w-8 rounded border-2 border-primary bg-primary/25 text-[10px] focus-within:ring-2 ${selected ? "bg-primary/50" : ""}`}
+			className={`group absolute top-0 h-full min-w-8 rounded border-2 border-primary bg-primary/25 text-[10px] focus-within:ring-2 hover:bg-primary/40 ${selected ? "bg-primary/50" : ""}`}
 			style={{ left: `${left}%`, width: `${width}%` }}
-			title={`${item.title}: ${formatMs(range.start)}–${formatMs(range.end)}`}
+			title={`${item.title}: ${formatClipTimecode(range.start)}–${formatClipTimecode(range.end)}`}
 		>
 			<button
 				aria-label={`Adjust ${item.title} start`}
-				className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-primary/60"
+				className="absolute inset-y-0 -left-1 z-10 w-4 cursor-ew-resize bg-primary/60 opacity-80 transition-opacity hover:opacity-100"
 				onPointerDown={(event) => drag("start", event)}
 				onKeyDown={(event) => {
 					if (event.key === "ArrowLeft") keyboard("start", -100);
@@ -891,7 +1374,8 @@ function RangeOverlay({
 				}}
 			/>
 			<button
-				className="flex h-full w-full cursor-grab items-center justify-center truncate px-2"
+				aria-label={`Activate and move ${item.title}`}
+				className="flex h-full w-full cursor-grab flex-col items-center justify-center truncate px-3 active:cursor-grabbing"
 				onClick={() => void select(item.id)}
 				onPointerDown={(event) => drag("body", event)}
 				onKeyDown={(event) => {
@@ -899,11 +1383,19 @@ function RangeOverlay({
 					if (event.key === "ArrowRight") keyboard("body", 100);
 				}}
 			>
-				{item.ordinal} · {item.title}
+				<span className="max-w-full truncate">
+					{item.ordinal} · {item.title}
+				</span>
+				{selected ? (
+					<span className="max-w-full truncate opacity-80">
+						{formatClipTimecode(range.start)} – {formatClipTimecode(range.end)}{" "}
+						· {formatClipTimecode(range.end - range.start)}
+					</span>
+				) : null}
 			</button>
 			<button
 				aria-label={`Adjust ${item.title} end`}
-				className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-primary/60"
+				className="absolute inset-y-0 -right-1 z-10 w-4 cursor-ew-resize bg-primary/60 opacity-80 transition-opacity hover:opacity-100"
 				onPointerDown={(event) => drag("end", event)}
 				onKeyDown={(event) => {
 					if (event.key === "ArrowLeft") keyboard("end", -100);
@@ -1043,12 +1535,6 @@ function assertValidClip({
 		item.sourceEndMs - item.sourceStartMs > 180_000
 	)
 		throw new Error(`${item.title} has an invalid range.`);
-}
-
-function formatMs(value: number) {
-	const safe = Math.max(0, value);
-	const seconds = Math.floor(safe / 1000);
-	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}.${String(safe % 1000).padStart(3, "0")}`;
 }
 
 function parsePlatform(value: string): LocalClipPlatformPresetV1 {

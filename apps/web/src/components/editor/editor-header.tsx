@@ -67,19 +67,31 @@ function EditorModeToggle() {
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const isClippingMode = searchParams.get("mode") === "clipping";
+	const navigate = (clipping: boolean) => {
+		const next = new URLSearchParams(searchParams.toString());
+		if (clipping) next.set("mode", "clipping");
+		else next.delete("mode");
+		router.replace(`${pathname}${next.size ? `?${next}` : ""}`);
+	};
 	return (
-		<Button
-			variant={isClippingMode ? "default" : "outline"}
-			size="sm"
-			onClick={() => {
-				const next = new URLSearchParams(searchParams.toString());
-				if (isClippingMode) next.delete("mode");
-				else next.set("mode", "clipping");
-				router.replace(`${pathname}${next.size ? `?${next}` : ""}`);
-			}}
-		>
-			{isClippingMode ? "Normal editing" : "Create clips"}
-		</Button>
+		<div className="flex rounded border p-0.5" aria-label="Editor mode">
+			<Button
+				variant={!isClippingMode ? "default" : "ghost"}
+				size="sm"
+				aria-pressed={!isClippingMode}
+				onClick={() => navigate(false)}
+			>
+				Edit Video
+			</Button>
+			<Button
+				variant={isClippingMode ? "default" : "ghost"}
+				size="sm"
+				aria-pressed={isClippingMode}
+				onClick={() => navigate(true)}
+			>
+				Create Clips
+			</Button>
+		</div>
 	);
 }
 

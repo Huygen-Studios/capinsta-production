@@ -8,6 +8,13 @@ struct Range {
     source_end_ms: i64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HeadingLayout {
+    font_size: i64,
+    position_y: i64,
+}
+
 fn integer(value: f64) -> Result<i64, JsValue> {
     if !value.is_finite()
         || value.fract() != 0.0
@@ -107,4 +114,35 @@ pub fn sanitize_local_clip_filename(title: &str) -> String {
 #[wasm_bindgen(js_name = isSafeLocalClipZipEntry)]
 pub fn is_safe_local_clip_zip_entry(name: &str) -> bool {
     clip_domain::safe_zip_entry(name)
+}
+
+#[wasm_bindgen(js_name = formatLocalClipTimecode)]
+pub fn format_local_clip_timecode(milliseconds: f64) -> Result<String, JsValue> {
+    Ok(clip_domain::format_timecode(integer(milliseconds)?))
+}
+
+#[wasm_bindgen(js_name = parseLocalClipTimecode)]
+pub fn parse_local_clip_timecode(value: &str) -> Result<f64, JsValue> {
+    clip_domain::parse_timecode(value)
+        .map(|milliseconds| milliseconds as f64)
+        .map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = defaultLocalClipHeadingLayout)]
+pub fn default_local_clip_heading_layout(
+    canvas_width: f64,
+    canvas_height: f64,
+    character_count: u32,
+) -> Result<JsValue, JsValue> {
+    let (font_size, position_y) = clip_domain::default_heading_layout(
+        integer(canvas_width)?,
+        integer(canvas_height)?,
+        character_count as usize,
+    )
+    .map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&HeadingLayout {
+        font_size,
+        position_y,
+    })
+    .map_err(|error| JsValue::from_str(&error.to_string()))
 }

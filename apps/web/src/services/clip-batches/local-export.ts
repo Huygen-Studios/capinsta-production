@@ -2,6 +2,36 @@ import { Zip, ZipPassThrough, strToU8 } from "fflate";
 import type { LocalClipBatchV1, LocalClipItemV1 } from "@/project/types";
 import { sanitizeClipFilename } from "./ranges";
 
+export type LocalClipExportMode = "current" | "selected" | "all";
+
+export interface LocalClipExportQueueItem extends LocalClipItemV1 {
+	outputOrdinal: number;
+	filename: string;
+}
+
+export function buildLocalClipExportQueue({
+	batch,
+	mode,
+}: {
+	batch: LocalClipBatchV1;
+	mode: LocalClipExportMode;
+}): LocalClipExportQueueItem[] {
+	const byId = new Map(batch.items.map((item) => [item.id, item]));
+	return batch.clipOrder
+		.map((id) => byId.get(id))
+		.filter((item): item is LocalClipItemV1 => {
+			if (!item) return false;
+			if (mode === "all") return true;
+			if (mode === "current") return item.id === batch.selectedClipId;
+			return item.selectedForExport;
+		})
+		.map((item, index) => ({
+			...structuredClone(item),
+			outputOrdinal: index + 1,
+			filename: `clip-${String(index + 1).padStart(2, "0")}-${sanitizeClipFilename(item.title)}.mp4`,
+		}));
+}
+
 export interface LocalClipManifestV1 {
 	schemaVersion: 1;
 	batchId: string;
@@ -26,7 +56,7 @@ export async function createLocalClipZip({
 	onError,
 }: {
 	batch: LocalClipBatchV1;
-	items: LocalClipItemV1[];
+	items: LocalClipExportQueueItem[];
 	render: (item: LocalClipItemV1, index: number) => Promise<ArrayBuffer>;
 	onProgress?: (
 		item: LocalClipItemV1,
@@ -66,19 +96,18 @@ export async function createLocalClipZip({
 	for (const [index, item] of items.entries()) {
 		onProgress?.(item, index, "rendering");
 		try {
-			const filename = `clip-${String(index + 1).padStart(2, "0")}-${sanitizeClipFilename(item.title)}.mp4`;
 			const buffer = await render(item, index);
-			const file = new ZipPassThrough(filename);
+			const file = new ZipPassThrough(item.filename);
 			zip.add(file);
 			file.push(new Uint8Array(buffer), true);
 			manifest.clips.push({
 				id: item.id,
-				order: index + 1,
+				order: item.outputOrdinal,
 				title: item.title,
 				sourceStartMs: item.sourceStartMs,
 				sourceEndMs: item.sourceEndMs,
 				durationMs: item.sourceEndMs - item.sourceStartMs,
-				filename,
+				filename: item.filename,
 			});
 			onProgress?.(item, index, "complete");
 		} catch (error) {

@@ -46,11 +46,35 @@ function probe(path: string) {
 }
 
 async function openClip(page: Page, index: number) {
+	const clipsTab = page.getByRole("tab", { name: "Clips", exact: true });
+	if (await clipsTab.isVisible()) await clipsTab.click();
 	await page
 		.getByTestId("clip-batch-item")
 		.nth(index)
-		.getByRole("button", { name: String(index + 1), exact: true })
+		.getByRole("button", { name: new RegExp(`^${index + 1}\\.`) })
 		.click();
+	await expect(page.getByTestId("active-clip-timeline-summary")).toContainText(
+		`Clip ${index + 1}`,
+	);
+	await expect(page.getByTestId("clip-batch-dock")).toHaveAttribute(
+		"aria-busy",
+		"false",
+	);
+}
+
+const tc = (milliseconds: number) =>
+	`00:0${Math.floor(milliseconds / 1000)}.${String(milliseconds % 1000).padStart(3, "0")}`;
+
+async function resolveRangeChange(page: Page) {
+	const clamp = page.getByRole("button", {
+		name: "Clamp elements to clip duration",
+	});
+	try {
+		await clamp.waitFor({ state: "visible", timeout: 10_000 });
+		await clamp.click();
+	} catch {
+		// No affected timed elements: the range commits immediately.
+	}
 }
 
 async function persistedProject(page: Page) {
@@ -141,7 +165,13 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			)
 				forbiddenRequests.push(request.url());
 		});
-		page.on("dialog", (dialog) => dialog.accept());
+		const nativeDialogs: string[] = [];
+		const pageErrors: string[] = [];
+		page.on("pageerror", (error) => pageErrors.push(error.message));
+		page.on("dialog", (dialog) => {
+			nativeDialogs.push(dialog.message());
+			void dialog.accept();
+		});
 
 		await page.goto("/clipper");
 		await page.waitForURL(/\/editor\/[^/?]+\?mode=clipping/);
@@ -183,22 +213,40 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			.click();
 		await expect(page.getByTestId("clip-batch-item")).toHaveCount(5);
 		await expect(page.getByTestId("clip-range")).toHaveCount(5);
+		await expect(page.getByTestId("clip-source-overview")).toBeVisible();
+		await expect(
+			page.getByTestId("active-clip-timeline-summary"),
+		).toHaveAttribute("data-duration-ms", /\d+/);
+		for (const name of ["Clips", "Properties", "Captions", "Export"])
+			await expect(page.getByRole("tab", { name, exact: true })).toBeVisible();
 
 		const ranges = [
 			[0, 1_000],
 			[500, 1_500],
 			[1_500, 2_500],
 			[2_500, 3_500],
-			[3_500, 4_500],
 		];
 		for (const [index, [start, end]] of ranges.entries()) {
+			await openClip(page, index);
 			const row = page.getByTestId("clip-batch-item").nth(index);
-			await row
-				.getByLabel(`Start time for clip ${index + 1}`)
-				.fill(String(start));
-			await row.getByLabel(`End time for clip ${index + 1}`).fill(String(end));
-			await row.getByRole("button", { name: "Save" }).click();
-			await expect(row.getByText("0:01.000", { exact: false })).toBeVisible();
+			await row.getByLabel(`Start time for clip ${index + 1}`).fill(tc(start));
+			await row.getByLabel(`Start time for clip ${index + 1}`).blur();
+			await resolveRangeChange(page);
+			expect(pageErrors).toEqual([]);
+			await expect(page.getByTestId("clip-range").nth(index)).toContainText(
+				tc(start),
+				{ timeout: 30_000 },
+			);
+			await row.getByLabel(`End time for clip ${index + 1}`).fill(tc(end));
+			await row.getByLabel(`End time for clip ${index + 1}`).blur();
+			await resolveRangeChange(page);
+			await expect(page.getByTestId("clip-range").nth(index)).toContainText(
+				tc(end),
+				{ timeout: 30_000 },
+			);
+			await expect(
+				row.getByText("00:01.000", { exact: true }).first(),
+			).toBeVisible();
 		}
 		expect(forbiddenRequests).toEqual([]);
 
@@ -219,14 +267,15 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			page.getByText("Add a heading", { exact: true }),
 		).toBeVisible();
 		await openClip(page, 0);
+		await page.getByText("Clip 1 heading", { exact: true }).last().click();
 		await expect(headingField).toHaveValue("Clip 1 heading");
 
 		let submittedCaptionDuration = 0;
 		let submittedCaptionBytes = 0;
-		await page.route("**/api/capinsta/**", async (route) => {
+		await page.route("**/*", async (route) => {
 			const request = route.request();
 			const path = new URL(request.url()).pathname;
-			if (path.endsWith("/health")) {
+			if (request.method() === "GET" && path.includes("/health/ready")) {
 				await route.fulfill({
 					json: {
 						status: "ok",
@@ -307,10 +356,19 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			.nth(1)
 			.getByRole("button", { name: "Captions" })
 			.click();
+		await expect(page.getByRole("status")).toContainText("Completed", {
+			timeout: 120_000,
+		});
+		await expect(page.getByTestId("clip-batch-dock")).toHaveAttribute(
+			"aria-busy",
+			"false",
+		);
+		await page.getByRole("tab", { name: "Clips", exact: true }).click();
 		await expect(
-			page.getByTestId("clip-batch-item").nth(1).getByText("completed", {
-				exact: false,
-			}),
+			page
+				.getByTestId("clip-batch-item")
+				.nth(1)
+				.getByText("Captions: completed", { exact: true }),
 		).toBeVisible({ timeout: 120_000 });
 		expect(submittedCaptionDuration).toBeGreaterThan(0.95);
 		expect(submittedCaptionDuration).toBeLessThan(1.05);
@@ -338,12 +396,14 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 		expect(forbiddenRequests).toEqual([]);
 
 		await openClip(page, 0);
+		await page.getByRole("tab", { name: "Export", exact: true }).click();
 		const currentDownload = page.waitForEvent("download", { timeout: 180_000 });
 		await page.getByRole("button", { name: "Export current" }).click();
 		const currentPath = join(root, "current.mp4");
 		await (await currentDownload).saveAs(currentPath);
 		probe(currentPath);
 
+		await page.getByRole("tab", { name: "Clips", exact: true }).click();
 		for (const index of [2, 3, 4])
 			await page
 				.getByTestId("clip-batch-item")
@@ -353,6 +413,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 		const selectedDownload = page.waitForEvent("download", {
 			timeout: 180_000,
 		});
+		await page.getByRole("tab", { name: "Export", exact: true }).click();
 		await page.getByRole("button", { name: "Export selected" }).click();
 		const selectedZip = join(root, "selected.zip");
 		await (await selectedDownload).saveAs(selectedZip);
@@ -369,6 +430,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			probe(output);
 		}
 
+		await page.getByRole("tab", { name: "Clips", exact: true }).click();
 		for (const index of [2, 3, 4])
 			await page
 				.getByTestId("clip-batch-item")
@@ -376,6 +438,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 				.getByRole("checkbox")
 				.click();
 		const allDownload = page.waitForEvent("download", { timeout: 180_000 });
+		await page.getByRole("tab", { name: "Export", exact: true }).click();
 		await page.getByRole("button", { name: "Export all" }).click();
 		const allZip = join(root, "all.zip");
 		await (await allDownload).saveAs(allZip);
@@ -388,6 +451,13 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 			}>;
 		};
 		expect(allManifest.clips).toHaveLength(5);
+		expect(allManifest.clips.map((clip) => clip.filename)).toEqual([
+			"clip-01-Clip-1.mp4",
+			"clip-02-Clip-2.mp4",
+			"clip-03-Clip-3.mp4",
+			"clip-04-Clip-4.mp4",
+			"clip-05-Clip-5.mp4",
+		]);
 		for (const clip of allManifest.clips) {
 			expect(clip.sourceEndMs - clip.sourceStartMs).toBeLessThanOrEqual(
 				180_000,
@@ -411,19 +481,21 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 		await expect(
 			page.getByText("Local caption", { exact: true }),
 		).toBeVisible();
-		await page.getByRole("button", { name: "Normal editing" }).click();
+		await page.getByRole("button", { name: "Edit Video", exact: true }).click();
 		await expect(page.getByTestId("clip-batch-dock")).toHaveCount(0);
 		await page.getByRole("button", { name: "Media", exact: true }).click();
 		await expect(
 			page.getByText("local-clipping-source.mp4", { exact: true }),
 		).toBeVisible();
 		await expect(
-			page.getByRole("button", { name: "Create clips" }),
+			page.getByRole("button", { name: "Create Clips", exact: true }),
 		).toBeVisible();
+		expect(nativeDialogs).toEqual([]);
 		expect(forbiddenRequests).toEqual([]);
 
 		manualPhase = false;
-		await page.goto("/clipper/automatic");
+		await page.unroute("**/*");
+		await page.goto("/clipper/automatic", { timeout: 120_000 });
 		await expect(
 			page.getByText("Automatic Clipper", { exact: true }),
 		).toBeVisible();

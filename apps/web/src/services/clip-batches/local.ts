@@ -16,6 +16,7 @@ import { buildDefaultScene } from "@/timeline/scenes";
 import type { TextElement, TextTrack, VideoElement } from "@/timeline";
 import { generateUUID } from "@/utils/id";
 import { mediaTime, mediaTimeFromSeconds, ZERO_MEDIA_TIME } from "@/wasm";
+import { defaultLocalClipHeadingLayout } from "opencut-wasm";
 import type { ClipRange } from "./ranges";
 
 export const MAX_LOCAL_CLIP_COUNT = 12;
@@ -298,6 +299,7 @@ export function retimeLocalClip(
 	sourceStartMs: number,
 	sourceEndMs: number,
 	sourceDurationMs: number,
+	strategy: "clamp" | "trim" = "clamp",
 ): LocalClipItemV1 {
 	const state = structuredClone(item.editorProjectState);
 	const duration = mediaTimeFromSeconds({
@@ -313,7 +315,12 @@ export function retimeLocalClip(
 				Object.assign(element, { duration, trimStart, trimEnd });
 		}
 		for (const track of [...scene.tracks.overlay, ...scene.tracks.audio]) {
-			for (const element of track.elements) {
+			for (let index = track.elements.length - 1; index >= 0; index -= 1) {
+				const element = track.elements[index]!;
+				if (strategy === "trim" && element.startTime >= duration) {
+					track.elements.splice(index, 1);
+					continue;
+				}
 				if (element.startTime >= duration)
 					element.startTime = mediaTime({ ticks: Math.max(0, duration - 1) });
 				element.duration = mediaTime({
@@ -384,17 +391,29 @@ function createClipEditorState({
 		} satisfies VideoElement,
 	];
 	if (headingsEnabled) {
+		const headingLayout: unknown = defaultLocalClipHeadingLayout(
+			settings.canvasSize.width,
+			settings.canvasSize.height,
+			"Add a heading".length,
+		);
+		if (!headingLayout || typeof headingLayout !== "object")
+			throw new TypeError("Rust returned an invalid heading layout");
+		const fontSize = Number(Reflect.get(headingLayout, "fontSize"));
+		const positionY = Number(Reflect.get(headingLayout, "positionY"));
+		if (!Number.isFinite(fontSize) || !Number.isFinite(positionY))
+			throw new TypeError("Rust returned an invalid heading layout");
 		const heading = buildTextElement({
 			raw: {
 				name: "Heading",
 				duration,
 				params: {
 					content: "Add a heading",
-					fontSize: 64,
+					fontSize,
 					fontWeight: "bold",
 					textAlign: "center",
 					color: "#ffffff",
-					"transform.positionY": -Math.round(settings.canvasSize.height * 0.3),
+					lineHeight: 1.15,
+					"transform.positionY": positionY,
 				},
 			},
 			startTime: ZERO_MEDIA_TIME,

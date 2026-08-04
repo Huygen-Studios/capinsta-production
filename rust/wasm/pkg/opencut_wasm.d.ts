@@ -108,6 +108,8 @@ export function applyMaskFeather(options: any): OffscreenCanvas;
 
 export function canonicalizeCaptionDocument(options: any): any;
 
+export function defaultLocalClipHeadingLayout(canvas_width: number, canvas_height: number, character_count: number): any;
+
 export function editCaptionPageText(options: any): any;
 
 export function editCaptionPageTiming(options: any): any;
@@ -117,6 +119,8 @@ export function exportCaptionSrt(options: any): string;
 export function exportCaptionVtt(options: any): string;
 
 export function floorToFrame(arg0: FloorToFrameOptions): MediaTime | undefined;
+
+export function formatLocalClipTimecode(milliseconds: number): string;
 
 export function formatTimecode(arg0: FormatTimecodeOptions): string | undefined;
 
@@ -157,6 +161,8 @@ export function mediaTimeSub(arg0: MediaTimeSubOptions): MediaTime;
 export function mediaTimeToFrame(arg0: MediaTimeToFrameOptions): bigint | undefined;
 
 export function mediaTimeToSeconds(arg0: MediaTimeToSecondsOptions): number;
+
+export function parseLocalClipTimecode(value: string): number;
 
 export function parseTimecode(arg0: ParseTimecodeOptions): MediaTime | undefined;
 

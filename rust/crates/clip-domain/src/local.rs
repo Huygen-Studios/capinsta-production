@@ -219,13 +219,71 @@ pub fn sanitize_clip_filename(title: &str) -> String {
     let value: String = title
         .chars()
         .map(|character| match character {
-            '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\0'..='\u{1f}' => '-',
+            '/' | '\\' | '<' | '>' | ':' | '"' | '|' | '?' | '*' | ' ' | '\0'..='\u{1f}' => '-',
             _ => character,
         })
         .collect();
+    let value = value
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
     let value = value.trim_matches([' ', '.', '-']);
     let value = if value.is_empty() { "clip" } else { value };
     value.chars().take(80).collect()
+}
+
+pub fn format_timecode(milliseconds: i64) -> String {
+    let milliseconds = milliseconds.max(0);
+    let total_seconds = milliseconds / 1_000;
+    let hours = total_seconds / 3_600;
+    let minutes = (total_seconds % 3_600) / 60;
+    let seconds = total_seconds % 60;
+    let millis = milliseconds % 1_000;
+    if hours > 0 {
+        format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
+    } else {
+        format!("{minutes:02}:{seconds:02}.{millis:03}")
+    }
+}
+
+pub fn parse_timecode(value: &str) -> Result<i64, &'static str> {
+    let (clock, millis) = value.trim().split_once('.').ok_or("invalid_timecode")?;
+    if millis.len() != 3 || !millis.chars().all(|character| character.is_ascii_digit()) {
+        return Err("invalid_timecode");
+    }
+    let fields = clock
+        .split(':')
+        .map(|field| field.parse::<i64>().map_err(|_| "invalid_timecode"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (hours, minutes, seconds) = match fields.as_slice() {
+        [minutes, seconds] => (0, *minutes, *seconds),
+        [hours, minutes, seconds] if *minutes < 60 => (*hours, *minutes, *seconds),
+        _ => return Err("invalid_timecode"),
+    };
+    if hours < 0 || minutes < 0 || seconds < 0 || seconds >= 60 {
+        return Err("invalid_timecode");
+    }
+    hours
+        .checked_mul(3_600_000)
+        .and_then(|value| value.checked_add(minutes * 60_000))
+        .and_then(|value| value.checked_add(seconds * 1_000))
+        .and_then(|value| value.checked_add(millis.parse::<i64>().ok()?))
+        .ok_or("invalid_timecode")
+}
+
+pub fn default_heading_layout(
+    canvas_width: i64,
+    canvas_height: i64,
+    character_count: usize,
+) -> Result<(i64, i64), &'static str> {
+    if canvas_width <= 0 || canvas_height <= 0 || character_count == 0 {
+        return Err("invalid_heading_layout");
+    }
+    let fit = (canvas_width as f64 * 0.85 / (character_count as f64 * 0.6)).floor() as i64;
+    let font_size = fit.clamp(18, 72);
+    let position_y = -(canvas_height as f64 * 0.28).round() as i64;
+    Ok((font_size, position_y))
 }
 
 pub fn safe_zip_entry(name: &str) -> bool {
@@ -284,5 +342,31 @@ mod tests {
         assert!(safe_zip_entry("clip-01-safe.mp4"));
         assert!(!safe_zip_entry("../escape.mp4"));
         assert!(!safe_zip_entry("folder/escape.mp4"));
+    }
+
+    #[test]
+    fn clip_timecodes_round_trip_without_raw_milliseconds() {
+        assert_eq!(format_timecode(64_518), "01:04.518");
+        assert_eq!(format_timecode(3_664_518), "01:01:04.518");
+        assert_eq!(parse_timecode("01:04.518"), Ok(64_518));
+        assert_eq!(parse_timecode("01:01:04.518"), Ok(3_664_518));
+        assert!(parse_timecode("1:99.000").is_err());
+        assert!(parse_timecode("64518").is_err());
+    }
+
+    #[test]
+    fn default_heading_is_bounded_across_common_aspect_ratios() {
+        for (width, height) in [
+            (1080, 1920),
+            (1080, 1080),
+            (1080, 1350),
+            (1920, 1080),
+            (320, 180),
+        ] {
+            let (font_size, position_y) = default_heading_layout(width, height, 13).unwrap();
+            assert!((18..=72).contains(&font_size));
+            assert!(font_size as f64 * 13.0 * 0.6 <= width as f64 * 0.85 + 1.0);
+            assert!(position_y.abs() + font_size < height / 2);
+        }
     }
 }
