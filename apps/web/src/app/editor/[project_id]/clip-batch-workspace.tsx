@@ -1209,10 +1209,10 @@ function ClipItemRow({
 									Invalid
 								</span>
 							) : null}
-							<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+							<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
 								Captions: {item.captionStatus}
 							</span>
-							<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground capitalize">
+							<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
 								Export: {item.exportStatus}
 							</span>
 						</div>
