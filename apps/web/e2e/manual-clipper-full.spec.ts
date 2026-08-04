@@ -198,7 +198,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 				.fill(String(start));
 			await row.getByLabel(`End time for clip ${index + 1}`).fill(String(end));
 			await row.getByRole("button", { name: "Save" }).click();
-			await expect(row.getByText("00:01.000", { exact: false })).toBeVisible();
+			await expect(row.getByText("0:01.000", { exact: false })).toBeVisible();
 		}
 		expect(forbiddenRequests).toEqual([]);
 
