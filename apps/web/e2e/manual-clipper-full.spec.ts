@@ -87,6 +87,7 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 	page,
 }) => {
 	test.setTimeout(1_200_000);
+	page.setDefaultTimeout(30_000);
 	const root = mkdtempSync(join(tmpdir(), "capinsta-local-clips-"));
 	const source = join(root, "local-clipping-source.mp4");
 	execFileSync("ffmpeg", [
