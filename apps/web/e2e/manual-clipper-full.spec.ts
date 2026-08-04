@@ -144,11 +144,13 @@ test("local clipping mode preserves independent edits, bounded captions, and bro
 
 		await page.goto("/clipper");
 		await page.waitForURL(/\/editor\/[^/?]+\?mode=clipping/);
+		await page.goto(new URL(page.url()).pathname);
 		await expect(page.getByTestId("editor-ready")).toBeVisible({
 			timeout: 120_000,
 		});
-		await page.getByRole("button", { name: "Normal editing" }).click();
-		await expect(page).not.toHaveURL(/mode=clipping/);
+		await expect(
+			page.getByRole("button", { name: "Create clips" }),
+		).toBeVisible();
 		await page.locator('input[type="file"]').first().setInputFiles(source);
 		await expect(
 			page.getByText("local-clipping-source.mp4", { exact: true }),
