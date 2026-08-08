@@ -1,0 +1,31 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic clipboard-redaction test value"
+targetRules = ["generic-api-key"]
+condition = "AND"
+commits = ["3bba7cec23fd8d58f368ed187dc4cb42d137959c"]
+paths = [
+  '''apps/web/src/security/clipboard\.test\.ts''',
+]
+
+[[allowlists]]
+description = "Synthetic render-token signing test values"
+targetRules = ["generic-api-key"]
+condition = "AND"
+commits = ["82a08911b545f5d7a0040d7b58addcd5d1cd36ee"]
+paths = [
+  '''apps/web/src/app/render/render-token\.test\.ts''',
+  '''backend/tests/test_render_authorization\.py''',
+]
+
+[[allowlists]]
+description = "Historical generated Next build manifests"
+targetRules = ["generic-api-key"]
+condition = "AND"
+commits = ["575c294f08fb1bf2b1969b5419104b70f9e89234"]
+paths = [
+  '''frontend/\.next/prerender-manifest\.json''',
+  '''frontend/\.next/server/server-reference-manifest\.json''',
+]

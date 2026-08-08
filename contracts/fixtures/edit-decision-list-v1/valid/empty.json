@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "clipProjectId": "clip_empty",
+  "projectRevision": 1,
+  "sourceMediaId": "media_english",
+  "sourceDurationMs": 3000,
+  "outputDurationMs": 0,
+  "entries": [],
+  "warnings": [
+    {
+      "category": "empty_output",
+      "message": "No enabled ranges contribute to output.",
+      "rangeId": null
+    }
+  ],
+  "metadata": {}
+}

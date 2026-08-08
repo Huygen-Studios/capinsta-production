@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+
+# Environment and local tools
+.env*
+!*.env.example
+.tool-versions
+.cursor/
+.cursorignore
+.vscode/
+
+# JavaScript/Next/Turbo build output
+.turbo/
+.next/
+apps/web/.next/
+frontend/.next/
+.open-next/
+dist/
+build/
+out/
+.content-collections/
+apps/web/.font-cache/
+
+# Rust build output
+target/
+.cargo-tools/
+
+# Python dependencies and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Runtime uploads, exports, and temporary media
+backend/temp/
+backend/exports/
+backend/uploads/
+backend/storage/temp/
+backend/storage/exports/
+backend/storage/uploads/
+storage/
+.local-data/
+.local-tools/
+apps/web/.next-local-clipper/
+apps/web/.next-shared-build/
+!apps/web/src/services/storage/
+!apps/web/src/services/storage/**
+
+# Logs and test output
+*.log
+*.err
+logs/
+test-results/
+playwright-report/
+coverage/
+
+# Font source files (served copy lives in apps/web/public/caption-fonts/)
+fonts/
+!apps/web/src/capinsta/fonts/
+
+# Local-only notes
+rust-migration-notes.md

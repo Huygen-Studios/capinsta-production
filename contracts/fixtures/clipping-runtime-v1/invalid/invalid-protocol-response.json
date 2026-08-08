@@ -1,0 +1,12 @@
+{
+  "protocolVersion": 1,
+  "requestId": "req_invalid_protocol",
+  "ok": false,
+  "result": null,
+  "warnings": [],
+  "error": {
+    "code": "unsupported_protocol_version",
+    "message": "The runtime protocol version is unsupported.",
+    "fieldPath": "protocolVersion"
+  }
+}

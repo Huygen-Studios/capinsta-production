@@ -1,0 +1,56 @@
+.git
+.gitignore
+.dockerignore
+
+# Dependencies and environments
+node_modules
+**/node_modules
+venv
+.venv
+**/venv
+**/.venv
+.env*
+!.env.example
+
+# Build and cache output
+.turbo
+**/.turbo
+.next
+**/.next
+.open-next
+target
+**/target
+dist
+**/dist
+build
+**/build
+out
+**/out
+__pycache__
+**/__pycache__
+.pytest_cache
+**/.pytest_cache
+apps/web/.font-cache
+
+# Runtime media and logs
+backend/temp
+backend/exports
+backend/uploads
+backend/storage/temp
+backend/storage/exports
+backend/storage/uploads
+logs
+*.log
+*.err
+
+# Tests and local tooling
+test-results
+playwright-report
+coverage
+.cursor
+.vscode
+diffs
+docs
+agent-transcripts
+mcps
+terminals

@@ -1,0 +1,94 @@
+import type { MediaType } from "@/media/types";
+import type {
+	TProject,
+	TProjectMetadata,
+	TTimelineViewState,
+} from "@/project/types";
+import type { TScene } from "@/timeline";
+import type { ServerBackedMediaDescriptorV1 } from "@capinsta/transcript-contract";
+
+export interface StorageAdapter<T> {
+	get(key: string): Promise<T | null>;
+	set(args: { key: string; value: T }): Promise<void>;
+	remove(key: string): Promise<void>;
+	list(): Promise<string[]>;
+	clear(): Promise<void>;
+}
+
+export interface MediaAssetData {
+	id: string;
+	name: string;
+	type: MediaType;
+	mimeType?: string;
+	size: number;
+	lastModified: number;
+	width?: number;
+	height?: number;
+	duration?: number;
+	fps?: number;
+	hasAudio?: boolean;
+	extractedAudioAssetId?: string;
+	audioExtractionStatus?: "idle" | "extracting" | "ready" | "error";
+	sourceMediaHash?: string;
+	sourceAssetId?: string;
+	ephemeral?: boolean;
+	thumbnailUrl?: string;
+	serverAssetId?: string;
+	serverDownloadUrl?: string;
+	serverBackedDescriptor?: ServerBackedMediaDescriptorV1;
+	syncStatus?: "local" | "uploading" | "synced" | "failed";
+	syncError?: string;
+}
+
+export interface ProjectHandoffImportRecordV1 {
+	schemaVersion: 1;
+	projectId: string;
+	handoffId: string;
+	conversionResultIdentity: string;
+	status: "importing" | "imported";
+}
+
+export interface LegacyBrowserStorageRecoveryResult {
+	scannedProjects: number;
+	verifiedBackendAssets: number;
+	removedBrowserDuplicates: number;
+	requiresReimportProjects: string[];
+	estimatedReclaimableBytes: number;
+	reclaimedBytes: number;
+	errors: Array<{ projectId: string; assetId?: string; message: string }>;
+}
+
+export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SerializedProjectMetadata = Omit<
+	TProjectMetadata,
+	"createdAt" | "updatedAt"
+> & {
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type SerializedProject = Omit<TProject, "metadata" | "scenes"> & {
+	metadata: SerializedProjectMetadata;
+	scenes: SerializedScene[];
+	timelineViewState?: TTimelineViewState;
+};
+
+export interface StorageConfig {
+	projectsDb: string;
+	mediaDb: string;
+	version: number;
+}
+
+// TypeScript type augmentation to add async iterator methods to FileSystemDirectoryHandle
+// These methods are part of the File System Access API spec but may not be in all type definitions
+declare global {
+	interface FileSystemDirectoryHandle {
+		keys(): AsyncIterableIterator<string>;
+		values(): AsyncIterableIterator<FileSystemHandle>;
+		entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+	}
+}

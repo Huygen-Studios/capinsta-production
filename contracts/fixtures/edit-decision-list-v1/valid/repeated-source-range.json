@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "clipProjectId": "clip_repeat",
+  "projectRevision": 1,
+  "sourceMediaId": "media_english",
+  "sourceDurationMs": 3000,
+  "outputDurationMs": 2400,
+  "entries": [
+    {
+      "id": "edl_repeat_a",
+      "rangeId": "repeat_a",
+      "order": 0,
+      "sourceMediaId": "media_english",
+      "sourceStartMs": 0,
+      "sourceEndMs": 1200,
+      "sourceDurationMs": 1200,
+      "outputStartMs": 0,
+      "outputEndMs": 1200,
+      "outputDurationMs": 1200,
+      "playbackRate": 1.0,
+      "transitionIn": null,
+      "transitionOut": null,
+      "metadata": {}
+    },
+    {
+      "id": "edl_repeat_b",
+      "rangeId": "repeat_b",
+      "order": 1,
+      "sourceMediaId": "media_english",
+      "sourceStartMs": 0,
+      "sourceEndMs": 1200,
+      "sourceDurationMs": 1200,
+      "outputStartMs": 1200,
+      "outputEndMs": 2400,
+      "outputDurationMs": 1200,
+      "playbackRate": 1.0,
+      "transitionIn": null,
+      "transitionOut": null,
+      "metadata": {}
+    }
+  ],
+  "warnings": [],
+  "metadata": {}
+}

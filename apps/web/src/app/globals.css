@@ -1,0 +1,785 @@
+@import "tailwindcss";
+
+/*
+ * Bundled for deterministic editable hook emoji in both interactive preview
+ * and Chromium export. Licensed under OFL-1.1; see public/emoji-fonts.
+ */
+@font-face {
+	font-family: "Noto Color Emoji";
+	src: url("/emoji-fonts/NotoColorEmoji.ttf") format("truetype");
+	font-style: normal;
+	font-weight: 400;
+	font-display: block;
+}
+
+/* Custom variant for dark mode */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Plugins */
+@plugin "@tailwindcss/typography";
+@plugin "tailwindcss-animate";
+
+:root {
+  --cap-black: var(--neo-black);
+  --neo-green: #B7FF22;
+  --neo-pink: #FF90E8;
+  --neo-blue: #91A7FF;
+  --neo-teal: #2EC4B6;
+  --neo-yellow: #FFD166;
+  --neo-coral: #FF7058;
+  --neo-lavender: #B5A7FF;
+  --neo-black: #0A0A0A;
+  --app-bg: #EEECE5;
+  --surface: #FFFDF7;
+  --surface-raised: #FFFFFF;
+  --surface-muted: #E3E1DA;
+  --panel-bg: #F7F5EE;
+  --text-primary: #111111;
+  --text-secondary: #5D5A54;
+  --border-strong: #111111;
+  --shadow-strong: #111111;
+  --input-bg: #FFFFFF;
+  --cap-paper: var(--app-bg);
+  --cap-purple-dark: var(--surface-raised);
+  --cap-purple-bright: var(--neo-blue);
+  --cap-yellow: var(--neo-yellow);
+  --cap-purple-950: var(--app-bg);
+  --cap-purple-800: var(--surface-raised);
+  --cap-purple-600: var(--neo-blue);
+  --cap-purple-400: var(--neo-lavender);
+  --cap-purple-200: var(--surface-muted);
+  --cap-pink: var(--neo-pink);
+  --cap-muted: var(--surface-muted);
+  --cap-success: var(--neo-teal);
+  --cap-destructive: var(--neo-coral);
+  --cap-focus: var(--neo-green);
+  --cap-outline: var(--border-strong);
+  --cap-shadow-color: var(--shadow-strong);
+  --cap-marketing-surface: var(--surface);
+  --cap-marketing-muted: var(--panel-bg);
+  --cap-marketing-text-muted: var(--text-secondary);
+  --cap-border: 2px solid var(--cap-outline);
+  --cap-shadow: 4px 4px 0 var(--cap-shadow-color);
+  --cap-shadow-lg: 6px 6px 0 var(--cap-shadow-color);
+  --radius-none: 0px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 6px;
+  --neo-shadow-sm: 2px 2px 0 var(--shadow-strong);
+  --neo-shadow: 4px 4px 0 var(--shadow-strong);
+  --neo-shadow-accent: 4px 4px 0 var(--neo-green);
+  --background: var(--app-bg);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-hover: var(--surface-muted);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--neo-green);
+  --primary-foreground: var(--neo-black);
+  --secondary: var(--surface);
+  --secondary-border: var(--border-strong);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --destructive: var(--neo-coral);
+  --destructive-foreground: var(--neo-black);
+  --constructive: var(--neo-teal);
+  --constructive-foreground: var(--neo-black);
+  --caution: var(--neo-yellow);
+  --caution-foreground: var(--neo-black);
+  --border: var(--border-strong);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
+  --chart-1: var(--neo-blue);
+  --chart-2: var(--neo-teal);
+  --chart-3: var(--neo-yellow);
+  --chart-4: var(--neo-pink);
+  --chart-5: var(--neo-coral);
+  --sidebar-background: var(--panel-bg);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--neo-green);
+  --sidebar-primary-foreground: var(--neo-black);
+  --sidebar-accent: var(--surface-muted);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-strong);
+  --sidebar-ring: var(--neo-green);
+  --sidebar: var(--panel-bg);
+}
+
+.panel {
+  --background: var(--panel-bg);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --primary-foreground: var(--neo-black);
+  --secondary: var(--surface);
+  --secondary-border: var(--border-strong);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --destructive-foreground: var(--neo-black);
+  --constructive-foreground: var(--neo-black);
+  --border: var(--border-strong);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
+}
+
+.dark {
+  --app-bg: #242423;
+  --surface: #2D2D2B;
+  --surface-raised: #353533;
+  --surface-muted: #1D1D1C;
+  --panel-bg: #292927;
+  --card-dark: #090909;
+  --text-primary: #F7F3EA;
+  --text-secondary: #BBB7AE;
+  --border-strong: #090909;
+  --border-on-black: #575752;
+  --shadow-light: #F4F0E7;
+  --shadow-strong: var(--shadow-light);
+  --input-bg: #1A1A19;
+  --cap-paper: var(--app-bg);
+  --cap-outline: var(--border-strong);
+  --cap-shadow-color: var(--shadow-light);
+  --cap-marketing-surface: var(--surface);
+  --cap-marketing-muted: var(--surface-muted);
+  --cap-marketing-text-muted: var(--text-secondary);
+  --background: var(--app-bg);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-hover: var(--surface-muted);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--neo-green);
+  --primary-foreground: var(--neo-black);
+  --secondary: var(--surface);
+  --secondary-border: var(--border-on-black);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --destructive: var(--neo-coral);
+  --destructive-foreground: var(--neo-black);
+  --constructive: var(--neo-teal);
+  --constructive-foreground: var(--neo-black);
+  --caution: var(--neo-yellow);
+  --caution-foreground: var(--neo-black);
+  --border: var(--border-on-black);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
+  --sidebar-background: var(--surface-muted);
+  --sidebar-foreground: var(--text-primary);
+  --sidebar-primary: var(--neo-green);
+  --sidebar-primary-foreground: var(--neo-black);
+  --sidebar-accent: var(--surface);
+  --sidebar-accent-foreground: var(--text-primary);
+  --sidebar-border: var(--border-on-black);
+  --sidebar-ring: var(--neo-green);
+  --sidebar: var(--surface-muted);
+}
+
+.dark .panel {
+  --background: var(--surface);
+  --foreground: var(--text-primary);
+  --card: var(--surface);
+  --card-foreground: var(--text-primary);
+  --secondary: var(--surface-muted);
+  --secondary-border: var(--border-on-black);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-muted);
+  --muted-foreground: var(--text-secondary);
+  --accent: var(--neo-pink);
+  --accent-foreground: var(--neo-black);
+  --border: var(--border-on-black);
+  --input: var(--input-bg);
+  --ring: var(--neo-green);
+}
+
+@layer base {
+  /*
+    The default border color has changed to `currentcolor` in Tailwind CSS v4,
+    so we've added these compatibility styles to make sure everything still
+    looks the same as it did with Tailwind CSS v3.
+
+    If we ever want to remove these styles, we need to add an explicit border
+    color utility to any element that depends on these defaults.
+  */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+  /* Other default base styles */
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Prevent back/forward swipe */
+    overscroll-behavior-x: contain;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-inter), sans-serif;
+    letter-spacing: 0;
+  }
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-radius: 0;
+    accent-color: var(--primary);
+  }
+  input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    accent-color: var(--primary);
+  }
+  ::selection {
+    @apply bg-primary/35 selection:text-primary-foreground;
+  }
+}
+
+@theme inline {
+  /* Responsive breakpoints */
+  --breakpoint-xs: 30rem;
+
+  /* Typography */
+  --font-sans: var(--font-inter), sans-serif;
+  --font-display: var(--font-inter), sans-serif;
+
+  /* Font sizes */
+  --text-xs: 0.72rem;
+  --text-sm: 0.79rem;
+  --text-base: 0.92rem;
+  --text-base--line-height: calc(1.5 / 0.95);
+  --text-xs--line-height: calc(1 / 0.8);
+
+  /* Border radius */
+  --radius-lg: var(--radius-md);
+  --radius-md: var(--radius-sm);
+  --radius-sm: var(--radius-xs);
+
+  /* Palette mapped to root design tokens */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-hover: var(--popover-hover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-border: var(--secondary-border);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-constructive: var(--constructive);
+  --color-constructive-foreground: var(--constructive-foreground);
+
+  --color-caution: var(--caution);
+  --color-caution-foreground: var(--caution-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Chart colors */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Sidebar */
+  --color-sidebar: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Animations */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+@layer components {
+  .marketing-theme {
+    background: var(--cap-paper);
+    color: var(--foreground);
+    font-family: var(--font-inter), sans-serif;
+    --background: var(--cap-paper);
+    --foreground: var(--text-primary);
+    --card: var(--cap-marketing-surface);
+    --card-foreground: var(--text-primary);
+    --popover: var(--cap-marketing-surface);
+    --popover-foreground: var(--text-primary);
+    --muted: var(--cap-marketing-muted);
+    --muted-foreground: var(--cap-marketing-text-muted);
+    --accent: var(--cap-marketing-muted);
+    --border: var(--cap-outline);
+  }
+
+  .cap-brutal-card {
+    border: var(--cap-border);
+    border-radius: var(--radius-sm);
+    background: var(--cap-marketing-surface);
+    box-shadow: var(--cap-shadow);
+  }
+
+  .cap-focus {
+    outline: 3px solid transparent;
+    outline-offset: 3px;
+  }
+
+  .cap-focus:focus-visible {
+    outline-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+
+  .marketing-header {
+    border-color: var(--cap-outline);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    color: var(--foreground);
+  }
+
+  .dark .marketing-theme .text-black\/65,
+  .dark .marketing-theme .text-black\/60,
+  .dark .marketing-theme .text-black\/70 {
+    color: var(--cap-marketing-text-muted);
+  }
+
+  .dark .marketing-theme .bg-white {
+    background-color: var(--cap-marketing-surface);
+  }
+
+  .dark .marketing-theme .border-black {
+    border-color: var(--cap-outline);
+  }
+
+  .marketing-theme .how-it-works .text-muted-foreground {
+    color: var(--muted-foreground) !important;
+  }
+
+  .editor-shell {
+    --editor-page: #f0eee6;
+    --editor-bg: #f0eee6;
+    --editor-surface: #e6e3da;
+    --editor-surface-raised: #f7f4eb;
+    --editor-surface-inset: #d8d5cc;
+    --editor-canvas-chrome: #f4f1e8;
+    --editor-popover: #f7f4eb;
+    --editor-border: #77786f;
+    --editor-border-subtle: #b8b5aa;
+    --editor-border-strong: #1d1f1a;
+    --editor-text: #15170f;
+    --editor-muted: #5e6158;
+    --editor-accent: var(--neo-green);
+    --editor-accent-text: #15170f;
+    --editor-danger: #b42318;
+    --editor-shadow: #15170f;
+    --editor-focus: var(--neo-green);
+    --editor-radius: 6px;
+    --control-height: 34px;
+    --background: var(--editor-page);
+    --foreground: var(--editor-text);
+    --card: var(--editor-surface);
+    --card-foreground: var(--editor-text);
+    --popover: var(--editor-popover);
+    --popover-foreground: var(--editor-text);
+    --muted: var(--editor-surface-inset);
+    --muted-foreground: var(--editor-muted);
+    --border: var(--editor-border);
+    --input: var(--editor-surface-raised);
+    --ring: var(--editor-focus);
+    background: var(--editor-page);
+    color: var(--editor-text);
+  }
+
+  .dark .editor-shell {
+    --editor-page: #232421;
+    --editor-bg: #232421;
+    --editor-surface: #2b2c29;
+    --editor-surface-raised: #343632;
+    --editor-surface-inset: #1f201d;
+    --editor-canvas-chrome: #252622;
+    --editor-popover: #343632;
+    --editor-border: #555850;
+    --editor-border-subtle: #3d403a;
+    --editor-border-strong: #7a7d73;
+    --editor-text: #f1f0e9;
+    --editor-muted: #aaa9a2;
+    --editor-accent: var(--neo-green);
+    --editor-accent-text: #15170f;
+    --editor-danger: #ff7058;
+    --editor-shadow: rgba(10, 10, 10, 0.92);
+    --editor-focus: var(--neo-green);
+    --background: var(--editor-page);
+    --foreground: var(--editor-text);
+    --card: var(--editor-surface);
+    --card-foreground: var(--editor-text);
+    --popover: var(--editor-popover);
+    --popover-foreground: var(--editor-text);
+    --muted: var(--editor-surface-inset);
+    --muted-foreground: var(--editor-muted);
+    --border: var(--editor-border);
+    --input: var(--editor-surface-inset);
+    --ring: var(--editor-focus);
+  }
+
+  .projects-shell {
+    background-color: var(--background);
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--border) 34%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--border) 34%, transparent) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .projects-shell .project-card {
+    box-shadow: 4px 4px 0 var(--shadow-strong);
+  }
+
+  .dark .projects-shell .project-card {
+    box-shadow: 4px 4px 0 var(--shadow-light);
+  }
+
+  .editor-shell .panel {
+    border: 1px solid var(--editor-border);
+    border-radius: var(--radius-sm);
+    background: var(--editor-surface);
+    box-shadow: none;
+  }
+
+  .editor-shell .editor-panel {
+    background: var(--editor-surface);
+  }
+
+  .editor-shell :is(.bg-card, .bg-background, .bg-popover, .bg-muted) {
+    color: var(--editor-text);
+  }
+
+  .editor-shell :is(.panel, .editor-panel, [data-radix-scroll-area-viewport]) {
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .editor-shell :is(header, aside, [data-panel], .editor-panel) {
+    border-color: var(--editor-border);
+  }
+
+  .editor-shell :is(button, [role="button"], input, textarea, select, [data-slot="select-trigger"]) {
+    border-radius: var(--radius-sm);
+  }
+
+  .editor-shell :is(button, [role="button"]) {
+    border-width: 1px;
+  }
+
+  .editor-shell :is(input, textarea, select, [data-slot="select-trigger"]) {
+    border-width: 1px;
+    background: var(--input);
+  }
+
+  .admin-shell {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  .editor-shell :is(button, [role="button"]):hover {
+    border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+  }
+
+  .editor-shell :is([data-state="active"], [aria-selected="true"], [data-selected="true"]) {
+    border-color: var(--primary);
+  }
+
+  .editor-shell [data-timeline-element="true"],
+  .editor-shell [data-capinsta-caption-clip="true"] {
+    border-radius: var(--radius-xs) !important;
+  }
+
+  .editor-shell [data-timeline-element-selected="true"] {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 2px var(--primary), 3px 3px 0 var(--shadow-strong) !important;
+  }
+
+  .editor-shell [data-slot="slider-track"] {
+    border: 1px solid var(--border);
+  }
+
+  .editor-shell [data-slot="slider-range"] {
+    background: var(--primary);
+  }
+
+  .editor-shell [data-slot="slider-thumb"] {
+    border: 2px solid var(--primary);
+    background: var(--background);
+  }
+
+  .editor-shell button:focus-visible,
+  .editor-shell input:focus-visible,
+  .editor-shell textarea:focus-visible,
+  .editor-shell [role="button"]:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+
+  .editor-shell input,
+  .editor-shell [role="spinbutton"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .adsense-region,
+  .adsense-placeholder {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    color: var(--muted-foreground);
+  }
+
+  .adsense-placeholder {
+    display: grid;
+    place-content: center;
+    gap: .2rem;
+    text-align: center;
+    font-size: .72rem;
+  }
+
+  .adsense-placeholder small {
+    opacity: .7;
+  }
+
+  .adsense-label {
+    display: block;
+    padding: .25rem .5rem;
+    text-align: center;
+    font-size: .62rem;
+    color: var(--muted-foreground);
+  }
+
+  .projects-shell {
+    min-height: 100svh;
+    background-color: var(--background);
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--primary) 4%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in srgb, var(--primary) 4%, transparent) 1px, transparent 1px);
+    background-size: 36px 36px;
+  }
+
+  .projects-shell .project-card {
+    content-visibility: auto;
+    contain-intrinsic-size: 280px;
+  }
+
+  .editor-top-ad,
+  .editor-ad-rail {
+    display: none;
+  }
+
+  .editor-workspace-with-ads {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 1600px) and (min-height: 900px) {
+    .editor-top-ad:has(.adsense-region),
+    .editor-top-ad:has(.adsense-placeholder) {
+      display: block;
+      max-height: 90px;
+      padding: 0 1rem;
+    }
+  }
+
+  @media (min-width: 1720px) and (min-height: 850px) {
+    .editor-workspace-with-ads:has(.editor-ad-rail .adsense-region),
+    .editor-workspace-with-ads:has(.editor-ad-rail .adsense-placeholder) {
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 1rem;
+      padding-right: 1rem;
+    }
+
+    .editor-ad-rail:has(.adsense-region),
+    .editor-ad-rail:has(.adsense-placeholder) {
+      display: block;
+      width: 320px;
+      padding-top: 150px;
+    }
+
+    .editor-ad-rail .adsense-region,
+    .editor-ad-rail .adsense-placeholder {
+      position: sticky;
+      top: 5rem;
+      width: 300px;
+      margin-inline: auto;
+    }
+  }
+
+  .preset-word {
+    display: inline-block;
+    border: 2px solid #111;
+    padding: .35rem .55rem;
+    color: #111;
+    font-weight: 900;
+    font-size: clamp(.72rem, 1.2vw, 1rem);
+    line-height: 1;
+    text-transform: uppercase;
+    box-shadow: 3px 3px 0 #111;
+  }
+  .preset-word-0 { background: var(--cap-yellow); border-radius: .4rem; }
+  .preset-word-1 { background: var(--neo-blue); color: var(--neo-black); transform: rotate(-2deg); }
+  .preset-word-2 { background: rgba(17,17,17,.78); color: white; border-color: white; box-shadow: none; letter-spacing: .08em; }
+  .preset-word-3 { background: #bde0ff; border-radius: 999px; }
+  .preset-word-4 { background: var(--neo-pink); color: var(--neo-black); font-size: clamp(.8rem, 1.5vw, 1.2rem); transform: rotate(2deg); }
+  .preset-word-5 { background: white; letter-spacing: -.04em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketing-theme *,
+  .marketing-theme *::before,
+  .marketing-theme *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@utility scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility scrollbar-x-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar:horizontal {
+    display: none;
+  }
+}
+
+@utility scrollbar-y-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar:vertical {
+    display: none;
+  }
+}
+
+@utility scrollbar-thin {
+  &::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ---- Capinsta brand tokens + Neubrutalist landing utilities ---- */
+@theme inline {
+  --color-brand: var(--neo-green);
+  --color-brand-foreground: var(--neo-black);
+  --color-brand-strong: var(--neo-teal);
+  --color-ink: var(--neo-black);
+}
+
+/* Hard offset shadow used on cards/buttons in the landing surface. */
+@utility shadow-brut {
+  box-shadow: 4px 4px 0 0 var(--color-ink);
+}
+@utility shadow-brut-sm {
+  box-shadow: 2px 2px 0 0 var(--color-ink);
+}
+@utility shadow-brut-lg {
+  box-shadow: 8px 8px 0 0 var(--color-ink);
+}
+@utility shadow-brand-brut {
+  box-shadow: 4px 4px 0 0 var(--color-brand);
+}
+
+/* Thin grid paper texture for premium landing surfaces (CSS only, no asset). */
+@utility bg-grid-paper {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-ink) 6%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-ink) 6%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

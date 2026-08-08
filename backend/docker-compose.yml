@@ -1,0 +1,39 @@
+services:
+  huygen-caps:
+    build:
+      # The production backend image also builds the Next.js /render artifact,
+      # so its Docker build context must be the monorepo root.
+      context: ..
+      dockerfile: backend/Dockerfile
+    ports:
+      - "10000:10000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 10000
+      TEMP_DIR: /tmp/huygen-caps
+      UPLOAD_DIR: /tmp/huygen-caps/uploads
+      EXPORT_DIR: /tmp/huygen-caps/exports
+      MEDIA_DIR: /tmp/huygen-caps/media
+      DB_PATH: /tmp/huygen-caps/database.sqlite
+      CAPINSTA_MODEL_CACHE_DIR: /data/capinsta/model-cache
+      XDG_CACHE_HOME: /data/capinsta/model-cache/xdg
+      HF_HOME: /data/capinsta/model-cache/huggingface
+      TORCH_HOME: /data/capinsta/model-cache/torch
+      WHISPER_CACHE_DIR: /data/capinsta/model-cache/whisper
+      STABLE_TS_CACHE_DIR: /data/capinsta/model-cache/stable-ts
+      STABLE_TS_MAX_CONCURRENCY: 1
+    volumes:
+      - capinsta_runtime:/tmp/huygen-caps
+      - capinsta_model_cache:/data/capinsta/model-cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  capinsta_runtime:
+  capinsta_model_cache:

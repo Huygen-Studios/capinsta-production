@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://capinsta.dev/contracts/clip-batch-v1.schema.json",
+  "title": "ClipBatchV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "ownerUserId", "sourceMediaAssetId", "sourceMediaRevision", "sourceDurationMs", "sourceProjectId", "title", "status", "platformPreset", "captionsEnabled", "headingsEnabled", "captionPreset", "maximumClipDurationMs", "createdAt", "updatedAt", "revision", "items"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "format": "uuid" },
+    "ownerUserId": { "type": "string", "format": "uuid" },
+    "sourceMediaAssetId": { "type": "string", "format": "uuid" },
+    "sourceMediaRevision": { "type": "integer", "minimum": 1 },
+    "sourceDurationMs": { "type": "integer", "minimum": 1 },
+    "sourceProjectId": { "type": ["string", "null"] },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "status": { "enum": ["draft", "materializing", "ready", "exporting", "completed", "failed", "cancelled"] },
+    "platformPreset": { "enum": ["instagram_reels", "youtube_shorts", "tiktok", "custom"] },
+    "captionsEnabled": { "type": "boolean" },
+    "headingsEnabled": { "type": "boolean" },
+    "captionPreset": { "type": ["string", "null"] },
+    "maximumClipDurationMs": { "type": "integer", "minimum": 1, "maximum": 180000 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "id", "batchId", "ordinal", "title", "sourceStartMs", "sourceEndMs", "durationMs", "status", "selectedForExport", "childProjectId", "childProjectRevision", "captionStatus", "captionJobId", "headingStatus", "exportStatus", "createdAt", "updatedAt", "revision"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "id": { "type": "string", "format": "uuid" },
+        "batchId": { "type": "string", "format": "uuid" },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sourceStartMs": { "type": "integer", "minimum": 0 },
+        "sourceEndMs": { "type": "integer", "minimum": 1 },
+        "durationMs": { "type": "integer", "minimum": 1, "maximum": 180000 },
+        "status": { "enum": ["draft", "materializing", "ready", "failed", "cancelled"] },
+        "selectedForExport": { "type": "boolean" },
+        "childProjectId": { "type": ["string", "null"] },
+        "childProjectRevision": { "type": ["integer", "null"], "minimum": 1 },
+        "captionStatus": { "enum": ["not_requested", "queued", "processing", "completed", "failed", "cancelled"] },
+        "captionJobId": { "type": ["string", "null"] },
+        "headingStatus": { "type": "string" },
+        "exportStatus": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "input": {
+    "schemaVersion": 1,
+    "clipProject": {
+      "schemaVersion": 1,
+      "clipProjectId": "clip_project_001",
+      "workspaceId": null,
+      "name": "Synthetic clip",
+      "sourceMedia": {
+        "mediaId": "media_001",
+        "durationMs": 60000,
+        "sourceType": "uploaded",
+        "displayName": "sample.mp4",
+        "mimeType": "video/mp4",
+        "storageKey": "portable/media_001",
+        "checksum": null,
+        "metadata": {}
+      },
+      "transcriptId": "tr_english",
+      "transcriptRevision": 1,
+      "ranges": [],
+      "canvas": {
+        "aspectRatio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "background": "#000000",
+        "safeArea": null,
+        "metadata": {}
+      },
+      "captionTrack": {
+        "captionTrackId": "captions_001",
+        "transcriptId": "tr_english",
+        "stylePresetId": "word_highlight_box",
+        "enabled": true,
+        "metadata": {}
+      },
+      "settings": {
+        "defaultPreRollMs": 100,
+        "defaultPostRollMs": 150,
+        "snapToWords": true,
+        "snapToSegments": true,
+        "preserveBreathingRoom": true,
+        "metadata": {}
+      },
+      "status": "draft",
+      "revision": 1,
+      "metadata": {},
+      "createdAt": "2026-07-24T12:00:00Z",
+      "updatedAt": "2026-07-24T12:00:00Z"
+    },
+    "editDecisionList": {
+      "schemaVersion": 1,
+      "clipProjectId": "clip_project_001",
+      "projectRevision": 1,
+      "sourceMediaId": "media_001",
+      "sourceDurationMs": 60000,
+      "outputDurationMs": 0,
+      "entries": [],
+      "warnings": [
+        {
+          "category": "empty_output",
+          "message": "No enabled ranges contribute to output.",
+          "rangeId": null
+        }
+      ],
+      "metadata": {}
+    },
+    "remappedTranscript": null,
+    "targetProjectId": "project_fixture",
+    "targetProjectVersion": 35,
+    "options": {
+      "includeCaptions": true,
+      "preserveDisabledRanges": false,
+      "createSeparateTracks": false,
+      "unsupportedFeaturePolicy": "warn"
+    },
+    "metadata": {
+      "fixture": true
+    }
+  },
+  "result": {
+    "mapping": {
+      "capinstaMediaId": "media_001",
+      "captionMappings": [],
+      "rangeMappings": [],
+      "sourceMediaId": "media_001"
+    },
+    "mediaReference": {
+      "displayName": "sample.mp4",
+      "durationMs": 60000,
+      "mediaId": "media_001",
+      "mimeType": "video/mp4",
+      "requiresMediaAttachment": true,
+      "sourceAssetId": "media_001"
+    },
+    "metadata": {
+      "fixture": true
+    },
+    "project": {
+      "capinstaClippingProvenance": {
+        "conversionSchemaVersion": 1,
+        "sourceApplication": "clipper",
+        "sourceClipProjectId": "clip_project_001",
+        "sourceClipProjectRevision": 1,
+        "sourceTranscriptId": "tr_english"
+      },
+      "currentSceneId": "project_fixture__main_scene",
+      "metadata": {
+        "createdAt": "2026-07-24T12:00:00Z",
+        "duration": 0,
+        "id": "project_fixture",
+        "name": "Synthetic clip",
+        "updatedAt": "2026-07-24T12:00:00Z"
+      },
+      "scenes": [
+        {
+          "bookmarks": [],
+          "createdAt": "2026-07-24T12:00:00Z",
+          "id": "project_fixture__main_scene",
+          "isMain": true,
+          "name": "Main scene",
+          "tracks": {
+            "audio": [],
+            "main": {
+              "elements": [],
+              "hidden": false,
+              "id": "project_fixture__video",
+              "muted": false,
+              "name": "Main",
+              "type": "video"
+            },
+            "overlay": []
+          },
+          "updatedAt": "2026-07-24T12:00:00Z"
+        }
+      ],
+      "settings": {
+        "background": {
+          "color": "#000000",
+          "type": "color"
+        },
+        "canvasSize": {
+          "height": 1920,
+          "width": 1080
+        },
+        "canvasSizeMode": "preset",
+        "fps": {
+          "denominator": 1,
+          "numerator": 30
+        },
+        "lastCustomCanvasSize": null,
+        "originalCanvasSize": null
+      },
+      "timelineViewState": {
+        "playheadTime": 0,
+        "scrollLeft": 0.0,
+        "zoomLevel": 1.0
+      },
+      "version": 35
+    },
+    "schemaVersion": 1,
+    "sourceClipProjectId": "clip_project_001",
+    "sourceClipProjectRevision": 1,
+    "targetProjectId": "project_fixture",
+    "warnings": [
+      {
+        "captionOccurrenceId": null,
+        "category": "project_field_defaulted",
+        "clipProjectId": "clip_project_001",
+        "edlEntryId": null,
+        "fieldPath": "project.settings.fps",
+        "message": "project frame rate defaulted to 30 fps because ClipProjectV1 has no frame-rate field",
+        "projectRevision": 1,
+        "rangeId": null,
+        "severity": "warning",
+        "targetProjectId": "project_fixture",
+        "timelineElementId": null,
+        "timingValues": {}
+      }
+    ]
+  }
+}

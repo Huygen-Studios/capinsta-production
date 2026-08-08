@@ -1,0 +1,129 @@
+.driver-popover.editor-tour-popover {
+	max-width: min(380px, calc(100vw - 32px));
+	padding: 15px 17px 14px;
+	border: 1px solid color-mix(in srgb, var(--editor-border, #555850) 86%, transparent);
+	border-radius: var(--editor-radius, 6px);
+	background: color-mix(in srgb, var(--editor-surface-raised, #343632) 96%, transparent);
+	box-shadow: 3px 3px 0 color-mix(in srgb, var(--editor-accent, #b8ff1c) 28%, transparent);
+	color: var(--editor-text, #f1f0e9);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-title {
+	max-width: calc(100% - 28px);
+	margin: 0 0 8px;
+	color: var(--editor-text, #f1f0e9);
+	font-size: 15px;
+	font-weight: 800;
+	line-height: 1.25;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-description {
+	color: var(--editor-muted, #aaa9a2);
+	font-size: 13px;
+	line-height: 1.48;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-close-btn {
+	top: 10px;
+	right: 10px;
+	width: 24px;
+	height: 24px;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	color: var(--editor-muted, #aaa9a2);
+	font-size: 18px;
+	line-height: 1;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-close-btn:hover,
+.driver-popover.editor-tour-popover .driver-popover-close-btn:focus-visible {
+	border-color: var(--editor-border, #555850);
+	background: var(--editor-surface, #2b2c29);
+	color: var(--editor-text, #f1f0e9);
+	outline: none;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-footer {
+	margin-top: 12px;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-progress-text {
+	color: color-mix(in srgb, var(--editor-muted, #aaa9a2) 82%, transparent);
+	font-size: 12px;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-navigation-btns {
+	gap: 8px;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-prev-btn,
+.driver-popover.editor-tour-popover .driver-popover-next-btn {
+	min-height: 32px;
+	border: 1px solid var(--editor-border, #555850);
+	border-radius: 4px;
+	padding: 0 11px;
+	font-size: 13px;
+	font-weight: 700;
+	line-height: 1;
+	text-shadow: none;
+	transition:
+		background-color 140ms ease,
+		border-color 140ms ease,
+		color 140ms ease;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-prev-btn {
+	background: var(--editor-surface, #2b2c29);
+	color: var(--editor-text, #f1f0e9);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-next-btn {
+	border-color: var(--editor-accent, #b8ff1c);
+	background: var(--editor-accent, #b8ff1c);
+	color: var(--editor-accent-text, #15170f);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-prev-btn:hover,
+.driver-popover.editor-tour-popover .driver-popover-prev-btn:focus-visible {
+	border-color: color-mix(in srgb, var(--editor-accent, #b8ff1c) 58%, var(--editor-border, #555850));
+	background: var(--editor-surface-raised, #343632);
+	color: var(--editor-text, #f1f0e9);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-next-btn:hover,
+.driver-popover.editor-tour-popover .driver-popover-next-btn:focus-visible {
+	background: color-mix(in srgb, var(--editor-accent, #b8ff1c) 86%, white);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-prev-btn:focus-visible,
+.driver-popover.editor-tour-popover .driver-popover-next-btn:focus-visible {
+	outline: 2px solid var(--editor-accent, #b8ff1c);
+	outline-offset: 2px;
+}
+
+.driver-popover.editor-tour-popover .driver-popover-arrow-side-left {
+	border-left-color: var(--editor-surface-raised, #343632);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-arrow-side-right {
+	border-right-color: var(--editor-surface-raised, #343632);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-arrow-side-top {
+	border-top-color: var(--editor-surface-raised, #343632);
+}
+
+.driver-popover.editor-tour-popover .driver-popover-arrow-side-bottom {
+	border-bottom-color: var(--editor-surface-raised, #343632);
+}
+
+.driver-stage-no-animation,
+.driver-stage {
+	border-radius: var(--editor-radius, 6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.driver-popover.editor-tour-popover * {
+		transition-duration: 0.001ms !important;
+	}
+}

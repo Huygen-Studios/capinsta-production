@@ -1,0 +1,643 @@
+/* eslint-disable opencut/prefer-object-params, @typescript-eslint/no-unsafe-type-assertion -- Fetch response boundaries and Error constructors require narrow adapter casts. */
+import type {
+	CapinstaApiSegment,
+	CapinstaApiWord,
+	CapinstaHealthResponse,
+	CapinstaJobCreateResponse,
+	CapinstaJobDetailResponse,
+	CapinstaTranscriptNormalizeInput,
+	StartCapinstaCaptionJobInput,
+} from "./apiTypes";
+import type { CapinstaCaptionOutput, CapinstaLanguageMode, CapinstaTimingSource, CapinstaTranscriptV1 } from "./types";
+import { validateCapinstaTranscriptV1 } from "./adapter";
+import { CAPINSTA_PRESET_IDS } from "./styles/presetRegistry";
+import type { CapinstaCaptionPresetId } from "./styles/styleTypes";
+import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
+import { CapinstaResponseFormatError, readJsonApiResponse } from "./api-response";
+import { buildCapinstaApiUrl, buildCapinstaHealthUrl } from "./api-url";
+
+export class CapinstaApiError extends Error {
+	constructor(
+		message: string,
+		readonly status?: number,
+		readonly diagnostics?: {
+			code?: string;
+			stage?: string;
+			correlationId?: string;
+			endpoint?: string;
+			responseBody?: unknown;
+		},
+	) {
+		super(message);
+		this.name = "CapinstaApiError";
+	}
+}
+
+function readStringField({ value, field }: { value: unknown; field: string }): string | undefined {
+	if (typeof value !== "object" || value === null || !(field in value)) {
+		return undefined;
+	}
+	const fieldValue = Reflect.get(value, field);
+	return typeof fieldValue === "string" ? fieldValue : undefined;
+}
+
+export function readFastApiErrorBody(body: Record<string, unknown>): {
+	message: string;
+	code?: string;
+	stage?: string;
+	correlationId?: string;
+} {
+	const detail = body.detail;
+	const error = body.error;
+	const detailMessage =
+		typeof detail === "string"
+			? detail
+			: (readStringField({ value: detail, field: "message" }) ??
+				readStringField({ value: detail, field: "error" }) ??
+				readStringField({ value: detail, field: "detail" }));
+	const errorMessage =
+		typeof error === "string"
+			? error
+			: (readStringField({ value: error, field: "message" }) ??
+				readStringField({ value: error, field: "detail" }) ??
+				readStringField({ value: error, field: "error" }));
+	return {
+		message:
+			detailMessage ??
+			errorMessage ??
+			readStringField({ value: body, field: "message" }) ??
+			readStringField({ value: body, field: "error" }) ??
+			"Capinsta request failed.",
+		code:
+			readStringField({ value: body, field: "code" }) ??
+			readStringField({ value: error, field: "code" }) ??
+			readStringField({ value: detail, field: "code" }),
+		stage:
+			readStringField({ value: body, field: "stage" }) ??
+			readStringField({ value: error, field: "stage" }) ??
+			readStringField({ value: detail, field: "stage" }),
+		correlationId:
+			readStringField({ value: body, field: "correlationId" }) ??
+			readStringField({ value: body, field: "diagnosticId" }) ??
+			readStringField({ value: detail, field: "requestId" }) ??
+			readStringField({ value: error, field: "requestId" }) ??
+			readStringField({ value: error, field: "correlationId" }) ??
+			readStringField({ value: error, field: "diagnosticId" }) ??
+			readStringField({ value: detail, field: "correlationId" }) ??
+			readStringField({ value: detail, field: "diagnosticId" }),
+	};
+}
+
+async function readJsonResponse<T>({ response, endpoint }: { response: Response; endpoint: string }): Promise<T> {
+	let body: Record<string, unknown>;
+	try {
+		body = await readJsonApiResponse<Record<string, unknown>>({
+			response,
+			endpoint,
+		});
+	} catch (error) {
+		if (error instanceof CapinstaResponseFormatError) {
+			throw new CapinstaApiError(
+				response.status === 404
+					? "The deployed web and API versions do not match. Redeploy both services using the same image tag."
+					: "The video-processing service is temporarily unavailable.",
+				response.status,
+				{ code: "backend_unavailable", endpoint },
+			);
+		}
+		throw error;
+	}
+	if (!response.ok) {
+		const parsedError = readFastApiErrorBody(body);
+		const correlationId = parsedError.correlationId ?? response.headers.get("x-correlation-id") ?? undefined;
+		console.warn("[Capinsta captions] API request failed", {
+			endpoint,
+			status: response.status,
+			code: parsedError.code,
+			stage: parsedError.stage,
+			correlationId,
+			responseBody: body,
+		});
+		throw new CapinstaApiError(parsedError.message, response.status, {
+			code: parsedError.code,
+			stage: parsedError.stage,
+			correlationId,
+			endpoint,
+			responseBody: body,
+		});
+	}
+	return body as T;
+}
+
+async function safeAuthenticatedFetch(endpoint: string, init: RequestInit, fetchImpl: typeof fetch) {
+	try {
+		return await authenticatedFetch(endpoint, init, fetchImpl);
+	} catch (error) {
+		if (init.signal?.aborted) throw error;
+		throw new CapinstaApiError("The video-processing service is temporarily unavailable.", undefined, {
+			code: "backend_unreachable",
+			stage: "network",
+			endpoint,
+		});
+	}
+}
+
+export async function checkCapinstaHealth({
+	baseUrl,
+	fetchImpl = fetch,
+	signal,
+	requiredCapabilities = [],
+}: {
+	baseUrl: string;
+	fetchImpl?: typeof fetch;
+	signal?: AbortSignal;
+	requiredCapabilities?: string[];
+}): Promise<CapinstaHealthResponse> {
+	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
+	const endpoint = buildCapinstaHealthUrl({ baseUrl });
+	let response: Response;
+	try {
+		response = await fetchImpl(endpoint, { signal });
+	} catch (error) {
+		if (signal?.aborted) throw error;
+		throw new CapinstaApiError("The video-processing service is temporarily unavailable.", undefined, {
+			code: "backend_unreachable",
+			stage: "health",
+			endpoint,
+		});
+	}
+	const health = await readJsonResponse<CapinstaHealthResponse>({
+		response,
+		endpoint,
+	});
+	if (typeof health.apiContractVersion === "number" && health.apiContractVersion !== 1) {
+		throw new CapinstaApiError(
+			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+			503,
+			{ code: "api_contract_mismatch", stage: "health", endpoint },
+		);
+	}
+	const capabilities = new Set(health.capabilities ?? []);
+	if (
+		requiredCapabilities.length > 0 &&
+		health.capabilities &&
+		requiredCapabilities.some((capability) => !capabilities.has(capability))
+	) {
+		throw new CapinstaApiError(
+			"The web and processing services are running different releases. Redeploy both services using the same image tag.",
+			503,
+			{ code: "api_capability_missing", stage: "health", endpoint },
+		);
+	}
+	return health;
+}
+
+export async function startCapinstaCaptionJob({
+	baseUrl,
+	file,
+	mediaAssetId,
+	projectId,
+	languageMode,
+	captionOutput = "original",
+	timelineOffsetUs = 0,
+	timelineDurationUs,
+	audioOrigin = "source_media",
+	fetchImpl = fetch,
+	signal,
+}: StartCapinstaCaptionJobInput & {
+	fetchImpl?: typeof fetch;
+	signal?: AbortSignal;
+}): Promise<CapinstaJobCreateResponse> {
+	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
+	const formData = new FormData();
+	formData.append("audioLanguage", languageMode);
+	formData.append("captionOutput", captionOutput);
+	formData.append("project_id", projectId);
+	formData.append("timeline_offset_us", String(Math.round(timelineOffsetUs)));
+	if (timelineDurationUs !== undefined) {
+		formData.append("timeline_duration_us", String(Math.round(timelineDurationUs)));
+	}
+	formData.append("audio_origin", audioOrigin);
+	if (mediaAssetId) formData.append("media_asset_id", mediaAssetId);
+	else if (file instanceof Blob) {
+		if (file.size <= 0) {
+			throw new CapinstaApiError("Caption media is empty. Re-import the video and try again.");
+		}
+		formData.append("file", file, file.name || "caption-video.mp4");
+	} else {
+		throw new CapinstaApiError("Caption media is unavailable. Re-import the video and try again.");
+	}
+	const endpoint = buildCapinstaApiUrl({ baseUrl, path: "/jobs" });
+	console.debug("[Capinsta captions] Upload request", {
+		endpoint,
+		hasFile: Boolean(file),
+		fileName: file?.name,
+		fileType: file?.type,
+		fileSize: file?.size,
+		mediaAssetId,
+		projectId,
+		languageMode,
+		captionOutput,
+	});
+
+	const response = await safeAuthenticatedFetch(
+		endpoint,
+		{
+			method: "POST",
+			body: formData,
+			signal,
+		},
+		fetchImpl,
+	);
+	const job = await readJsonResponse<CapinstaJobCreateResponse>({
+		response,
+		endpoint,
+	});
+	console.debug("[Capinsta captions] Job creation response", job);
+	return job;
+}
+
+export async function getCapinstaJob({
+	baseUrl,
+	jobId,
+	fetchImpl = fetch,
+	signal,
+}: {
+	baseUrl: string;
+	jobId: string;
+	fetchImpl?: typeof fetch;
+	signal?: AbortSignal;
+}): Promise<CapinstaJobDetailResponse> {
+	const endpoint = buildCapinstaApiUrl({ baseUrl, path: `/jobs/${jobId}` });
+	const response = await safeAuthenticatedFetch(
+		endpoint,
+		{
+			signal,
+		},
+		fetchImpl,
+	);
+	const job = await readJsonResponse<CapinstaJobDetailResponse>({
+		response,
+		endpoint,
+	});
+	console.debug("[Capinsta captions] Job detail response", {
+		jobId,
+		status: job.status,
+		progress: job.progress,
+		error: job.error,
+		hasTranscript: Boolean(job.transcript),
+		segmentCount: job.transcript?.segments?.length ?? job.segments?.length ?? 0,
+	});
+	return job;
+}
+
+export async function cancelCapinstaJob({
+	baseUrl,
+	jobId,
+	fetchImpl = fetch,
+}: {
+	baseUrl: string;
+	jobId: string;
+	fetchImpl?: typeof fetch;
+}): Promise<CapinstaJobCreateResponse> {
+	const endpoint = buildCapinstaApiUrl({
+		baseUrl,
+		path: `/jobs/${jobId}/cancel`,
+	});
+	const response = await safeAuthenticatedFetch(
+		endpoint,
+		{
+			method: "POST",
+		},
+		fetchImpl,
+	);
+	return readJsonResponse<CapinstaJobCreateResponse>({ response, endpoint });
+}
+
+function normalizeLanguageMode(value: string | undefined): CapinstaLanguageMode {
+	if (
+		value === "auto" ||
+		value === "english" ||
+		value === "hindi" ||
+		value === "telugu" ||
+		value === "hinglish" ||
+		value === "telgish" ||
+		value === "auto_mixed_indian"
+	) {
+		return value;
+	}
+	if (value === "tenglish" || value === "teluglish" || value === "te-en") {
+		return "telgish";
+	}
+	if (process.env.NODE_ENV === "development" && value) {
+		console.warn(`[Capinsta captions] Unsupported stored language "${value}" normalized to auto.`);
+	}
+	return "auto";
+}
+
+function normalizeCaptionOutput(value: string | undefined): CapinstaCaptionOutput {
+	if (
+		value === "original" ||
+		value === "english" ||
+		value === "hindi" ||
+		value === "telugu" ||
+		value === "hinglish" ||
+		value === "telgish"
+	) {
+		return value;
+	}
+	if (value === "tenglish" || value === "teluglish" || value === "te-en") {
+		return "telgish";
+	}
+	return "original";
+}
+
+function normalizeTimingSource(value: string | undefined): CapinstaTimingSource {
+	if (
+		value === "provider" ||
+		value === "whisperx" ||
+		value === "stable_ts" ||
+		value === "vad_adjusted" ||
+		value === "manual" ||
+		value === "estimated"
+	) {
+		return value;
+	}
+	return "estimated";
+}
+
+function finiteNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+export async function sendCapinstaProjectHeartbeat({
+	baseUrl,
+	jobId,
+	fetchImpl = fetch,
+	signal,
+}: {
+	baseUrl: string;
+	jobId: string;
+	fetchImpl?: typeof fetch;
+	signal?: AbortSignal;
+}): Promise<{ job_id: string; last_seen_at: string; expires_at: string }> {
+	if (!baseUrl) throw new CapinstaApiError("Capinsta backend URL is missing");
+	const endpoint = buildCapinstaApiUrl({
+		baseUrl,
+		path: `/jobs/${jobId}/heartbeat`,
+	});
+	const response = await safeAuthenticatedFetch(
+		endpoint,
+		{
+			method: "POST",
+			signal,
+		},
+		fetchImpl,
+	);
+	return readJsonResponse({ response, endpoint });
+}
+
+function wordText(word: CapinstaApiWord): string {
+	return (word.word || word.text || word.displayedWord || word.displayWord || word.originalWord || "").trim();
+}
+
+function validTimedWords(words: CapinstaApiWord[] | undefined): CapinstaApiWord[] {
+	return (words ?? []).filter((word) => {
+		const start = finiteNumber(word.start);
+		const end = finiteNumber(word.end);
+		return Boolean(wordText(word)) && start !== undefined && end !== undefined && end > start;
+	});
+}
+
+function segmentWords(segments: CapinstaApiSegment[]): CapinstaApiWord[] {
+	return segments.flatMap((segment) =>
+		(segment.words ?? []).map((word) => ({
+			...word,
+			start: finiteNumber(word.start) ?? segment.start,
+			end: finiteNumber(word.end) ?? segment.end,
+		})),
+	);
+}
+
+function segmentIndexForWord({
+	segments,
+	start,
+	end,
+}: {
+	segments: CapinstaApiSegment[];
+	start: number;
+	end: number;
+}): number {
+	if (segments.length === 0) return 0;
+	const midpoint = start + (end - start) / 2;
+	const containingIndex = segments.findIndex((segment) => midpoint >= segment.start && midpoint < segment.end);
+	if (containingIndex >= 0) return containingIndex;
+
+	let nearestIndex = 0;
+	let nearestDistance = Number.POSITIVE_INFINITY;
+	segments.forEach((segment, index) => {
+		const distance =
+			midpoint < segment.start ? segment.start - midpoint : midpoint > segment.end ? midpoint - segment.end : 0;
+		if (distance < nearestDistance) {
+			nearestDistance = distance;
+			nearestIndex = index;
+		}
+	});
+	return nearestIndex;
+}
+
+function normalizePresetId(value: string | undefined): CapinstaCaptionPresetId {
+	return CAPINSTA_PRESET_IDS.includes(value as CapinstaCaptionPresetId)
+		? (value as CapinstaCaptionPresetId)
+		: "word_highlight_box";
+}
+
+export function normalizeCapinstaJobToTranscript({
+	job,
+	sourceAsset,
+}: CapinstaTranscriptNormalizeInput): CapinstaTranscriptV1 {
+	const segments = job.transcript?.segments ?? job.segments ?? [];
+	const canonicalAlignedWords = validTimedWords(job.transcript?.alignedWords);
+	const fallbackSegmentWords = validTimedWords(segmentWords(segments));
+	const usesCanonicalAlignedWords = canonicalAlignedWords.length > 0;
+	const sourceWords = usesCanonicalAlignedWords ? canonicalAlignedWords : fallbackSegmentWords;
+	const validPhraseSegments = segments.filter((segment) => {
+		const start = finiteNumber(segment.start);
+		const end = finiteNumber(segment.end);
+		return Boolean(segment.text?.trim()) && start !== undefined && end !== undefined && end > start;
+	});
+	if (sourceWords.length === 0 && validPhraseSegments.length === 0) {
+		console.error("Capinsta job validation failed!", JSON.stringify({
+			segments: job.segments,
+			transcriptSegments: job.transcript?.segments,
+			canonicalAlignedWords: canonicalAlignedWords,
+			fallbackSegmentWords: fallbackSegmentWords,
+		}, null, 2));
+		throw new CapinstaApiError("Capinsta job completed without timed caption words or phrase cues");
+	}
+
+	const clipShells =
+		validPhraseSegments.length > 0
+			? validPhraseSegments.map((segment, index) => ({
+					id: segment.id || `capinsta-source-clip-${index + 1}`,
+					start: segment.start,
+					end: segment.end,
+					text: segment.text,
+					disableActiveWordHighlighting: Boolean(segment.disableActiveWordHighlighting),
+					timingNeedsReview: Boolean(segment.timingNeedsReview || segment.timingReviewRequired),
+				}))
+			: [
+					{
+						id: "capinsta-source-clip-1",
+						start: finiteNumber(sourceWords[0]?.start) ?? 0,
+						end: finiteNumber(sourceWords[sourceWords.length - 1]?.end) ?? 0.01,
+						text: sourceWords.map(wordText).join(" "),
+						disableActiveWordHighlighting: false,
+						timingNeedsReview: false,
+					},
+				];
+	const clipWordIds = clipShells.map(() => [] as string[]);
+	const words: CapinstaTranscriptV1["words"] = sourceWords
+		.map((word, wordIndex) => {
+			const text = wordText(word);
+			const start = finiteNumber(word.start);
+			const end = finiteNumber(word.end);
+			if (!text || start === undefined || end === undefined || end <= start) return null;
+			const clipIndex = segmentIndexForWord({
+				segments: validPhraseSegments,
+				start,
+				end,
+			});
+			const clipId = clipShells[clipIndex]?.id ?? clipShells[0]!.id;
+			const wordId = `capinsta-aligned-word-${wordIndex + 1}`;
+			clipWordIds[clipIndex]?.push(wordId);
+			const timingWarning = word.timingWarning || word.timing_warning;
+			return {
+				id: wordId,
+				text,
+				displayedText: word.displayedWord || word.displayWord || text,
+				start,
+				end,
+				confidence: finiteNumber(word.confidence),
+				score: finiteNumber(word.score),
+				provider: word.provider,
+				timingSource: normalizeTimingSource(word.timingSource || word.timing_source),
+				originalText: word.originalWord,
+				spokenText: word.spokenWord,
+				timingSourceDetail: word.timingSourceDetail || word.timing_source || word.timingSource || timingWarning,
+				timingWarning,
+				timingNeedsReview: Boolean(word.timingNeedsReview || word.timingReviewRequired),
+				timingRepair: word.timingRepair || word.timing_repair,
+				captionClipId: clipId,
+				disableActiveWordHighlighting: Boolean(word.disableActiveWordHighlighting),
+			};
+		})
+		.filter((word): word is NonNullable<typeof word> => word !== null);
+	const wordById = new Map(words.map((word) => [word.id, word]));
+	const clips: CapinstaTranscriptV1["clips"] = clipShells.map((clip, clipIndex) => {
+		const wordIds = clipWordIds[clipIndex] ?? [];
+		return {
+			...clip,
+			wordIds,
+			timingNeedsReview:
+				wordIds.some((wordId) => wordById.get(wordId)?.timingNeedsReview) || Boolean(clip.timingNeedsReview),
+			disableActiveWordHighlighting:
+				Boolean(clip.disableActiveWordHighlighting) ||
+				wordIds.length === 0 ||
+				wordIds.some((wordId) => Boolean(wordById.get(wordId)?.disableActiveWordHighlighting)),
+		};
+	});
+
+	if (process.env.NODE_ENV === "development") {
+		console.debug("[Capinsta captions] Canonical timing source", {
+			source: usesCanonicalAlignedWords ? "transcript.alignedWords" : "segments",
+			alignedWordsCount: canonicalAlignedWords.length,
+			segmentWordCount: fallbackSegmentWords.length,
+			phraseCueCount: validPhraseSegments.length,
+			first30AlignedWords: sourceWords.slice(0, 30).map((word) => ({
+				word: wordText(word),
+				start: word.start,
+				end: word.end,
+				timing_source: word.timingSourceDetail || word.timing_source || word.timingSource,
+			})),
+		});
+	}
+
+	const providerValue = job.transcript?.provider;
+	const provider =
+		typeof providerValue === "string"
+			? { name: providerValue }
+			: {
+					name: providerValue?.name || "unknown",
+					model: providerValue?.model,
+					fallback: providerValue?.fallback,
+					fallbackFrom: providerValue?.fallbackFrom,
+				};
+	const maxEnd = Math.max(...clips.map((clip) => clip.end));
+	const timingAudio = job.transcript?.metadata?.audio;
+	const durationSeconds =
+		(timingAudio?.timelineDurationUs ? timingAudio.timelineDurationUs / 1_000_000 : undefined) ||
+		sourceAsset.durationSeconds ||
+		finiteNumber(timingAudio?.duration) ||
+		maxEnd;
+	const silenceGaps =
+		job.transcript?.metadata?.timing?.vad?.silenceGaps?.filter(
+			(gap) => Number.isFinite(gap.start) && Number.isFinite(gap.end) && gap.end > gap.start,
+		) ?? [];
+	const speechSegments =
+		job.transcript?.metadata?.timing?.vad?.speechSegments?.filter(
+			(segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start,
+		) ?? [];
+
+	return validateCapinstaTranscriptV1({
+		version: "capinsta.transcript.v1",
+		source: {
+			assetId: sourceAsset.assetId,
+			assetName: sourceAsset.assetName,
+			durationSeconds,
+			mimeType: sourceAsset.mimeType,
+		},
+		languageMode: normalizeLanguageMode(job.languageMode || job.target_lang),
+		sourceLanguage: normalizeLanguageMode(job.transcript?.sourceLanguage),
+		detectedLanguage: normalizeLanguageMode(job.transcript?.detectedLanguage),
+		outputLanguage: normalizeCaptionOutput(job.transcript?.outputLanguage),
+		transformation:
+			job.transcript?.transformation === "translation" ||
+			job.transcript?.transformation === "transliteration" ||
+			job.transcript?.transformation === "script_conversion"
+				? job.transcript.transformation
+				: "none",
+		provider,
+		clips,
+		words,
+		stylePreset: {
+			id: normalizePresetId(job.transcript?.metadata?.stylePreset?.id as string | undefined),
+			name: "Word Highlight Box",
+			renderer: "word_highlight_box",
+			styleConfig: job.transcript?.metadata?.stylePreset,
+			chunkingConfig: {
+				targetWordsPerCaption: 2,
+				maxWordsPerCaption: 5,
+				minWordsPerCaption: 1,
+				maxCharsPerCaption: 30,
+				minCaptionDuration: 0.18,
+				avoidSingleWordCaptions: false,
+			},
+		},
+		manualEdits: {
+			notes: [`Generated from Capinsta job ${job.job_id}.`],
+		},
+		timing: {
+			sourceOfTruth: words.length > 0 ? "words" : "clips",
+			generatedAt: job.completed_at || new Date().toISOString(),
+			audioDurationSeconds: durationSeconds,
+			timelineOffsetUs: timingAudio?.timelineOffsetUs,
+			timelineOffsetSeconds: timingAudio?.timelineOffsetUs ? timingAudio.timelineOffsetUs / 1_000_000 : 0,
+			audioOrigin: timingAudio?.origin,
+			silenceGaps,
+			speechSegments,
+			report: job.transcript?.metadata?.timing?.report,
+			sync: job.transcript?.metadata?.sync,
+		},
+	});
+}

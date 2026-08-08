@@ -1,0 +1,496 @@
+{
+  "input": {
+    "schemaVersion": 1,
+    "clipProject": {
+      "schemaVersion": 1,
+      "clipProjectId": "clip_project_001",
+      "workspaceId": null,
+      "name": "Synthetic clip",
+      "sourceMedia": {
+        "mediaId": "media_001",
+        "durationMs": 60000,
+        "sourceType": "uploaded",
+        "displayName": "sample.mp4",
+        "mimeType": "video/mp4",
+        "storageKey": "portable/media_001",
+        "checksum": null,
+        "metadata": {}
+      },
+      "transcriptId": "tr_english",
+      "transcriptRevision": 1,
+      "ranges": [
+        {
+          "schemaVersion": 1,
+          "id": "range_001",
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "sourceEndMs": 31000,
+          "order": 0,
+          "playbackRate": 1.0,
+          "selection": {
+            "transcriptId": "tr_english",
+            "transcriptRevision": 1,
+            "startWordId": null,
+            "endWordId": null,
+            "startSegmentId": null,
+            "endSegmentId": null
+          },
+          "boundary": {
+            "preRollMs": 100,
+            "postRollMs": 150,
+            "startAdjustedManually": false,
+            "endAdjustedManually": false
+          },
+          "transitionIn": null,
+          "transitionOut": null,
+          "enabled": true,
+          "label": null,
+          "metadata": {}
+        }
+      ],
+      "canvas": {
+        "aspectRatio": "9:16",
+        "width": 1080,
+        "height": 1920,
+        "background": "#000000",
+        "safeArea": null,
+        "metadata": {}
+      },
+      "captionTrack": {
+        "captionTrackId": "captions_001",
+        "transcriptId": "tr_english",
+        "stylePresetId": "word_highlight_box",
+        "enabled": true,
+        "metadata": {}
+      },
+      "settings": {
+        "defaultPreRollMs": 100,
+        "defaultPostRollMs": 150,
+        "snapToWords": true,
+        "snapToSegments": true,
+        "preserveBreathingRoom": true,
+        "metadata": {}
+      },
+      "status": "draft",
+      "revision": 1,
+      "metadata": {},
+      "createdAt": "2026-07-24T12:00:00Z",
+      "updatedAt": "2026-07-24T12:00:00Z"
+    },
+    "editDecisionList": {
+      "schemaVersion": 1,
+      "clipProjectId": "clip_project_001",
+      "projectRevision": 1,
+      "sourceMediaId": "media_001",
+      "sourceDurationMs": 60000,
+      "outputDurationMs": 19000,
+      "entries": [
+        {
+          "id": "edl_range_001",
+          "rangeId": "range_001",
+          "order": 0,
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "sourceEndMs": 31000,
+          "sourceDurationMs": 19000,
+          "outputStartMs": 0,
+          "outputEndMs": 19000,
+          "outputDurationMs": 19000,
+          "playbackRate": 1.0,
+          "transitionIn": null,
+          "transitionOut": null,
+          "metadata": {}
+        }
+      ],
+      "warnings": [],
+      "metadata": {}
+    },
+    "remappedTranscript": {
+      "schemaVersion": 1,
+      "sourceTranscriptId": "tr_english",
+      "clipProjectId": "clip_project_001",
+      "projectRevision": 1,
+      "sourceMediaId": "media_001",
+      "outputDurationMs": 19000,
+      "segments": [
+        {
+          "occurrenceId": "range_001__seg_001",
+          "sourceSegmentId": "seg_001",
+          "rangeId": "range_001",
+          "text": "hello",
+          "originalText": "hello",
+          "originalSourceStartMs": 12000,
+          "originalSourceEndMs": 31000,
+          "effectiveSourceStartMs": 12000,
+          "effectiveSourceEndMs": 31000,
+          "outputStartMs": 0,
+          "outputEndMs": 19000,
+          "wordOccurrenceIds": [
+            "range_001__word_001"
+          ],
+          "speakerId": "speaker_001",
+          "language": "en",
+          "confidence": 0.93,
+          "timingSource": "provider",
+          "metadata": {}
+        }
+      ],
+      "words": [
+        {
+          "occurrenceId": "range_001__word_001",
+          "sourceWordId": "word_001",
+          "sourceSegmentId": "seg_001",
+          "rangeId": "range_001",
+          "text": "hello",
+          "originalText": "hello",
+          "originalSourceStartMs": 12000,
+          "originalSourceEndMs": 31000,
+          "effectiveSourceStartMs": 12000,
+          "effectiveSourceEndMs": 31000,
+          "outputStartMs": 0,
+          "outputEndMs": 19000,
+          "speakerId": "speaker_001",
+          "language": "en",
+          "confidence": 0.93,
+          "timingSource": "provider",
+          "isFiller": false,
+          "isLowConfidence": false,
+          "metadata": {}
+        }
+      ],
+      "warnings": [],
+      "metadata": {}
+    },
+    "targetProjectId": "project_fixture",
+    "targetProjectVersion": 35,
+    "options": {
+      "includeCaptions": true,
+      "preserveDisabledRanges": false,
+      "createSeparateTracks": false,
+      "unsupportedFeaturePolicy": "warn"
+    },
+    "metadata": {
+      "fixture": true
+    }
+  },
+  "result": {
+    "mapping": {
+      "capinstaMediaId": "media_001",
+      "captionMappings": [
+        {
+          "captionElementId": "project_fixture__caption_segment__range_001__seg_001__element",
+          "captionWordIds": [
+            "project_fixture__caption_word__range_001__word_001"
+          ],
+          "segmentOccurrenceId": "range_001__seg_001",
+          "sourceWordOccurrenceIds": [
+            "range_001__word_001"
+          ]
+        }
+      ],
+      "rangeMappings": [
+        {
+          "edlEntryId": "edl_range_001",
+          "order": 0,
+          "outputDurationMs": 19000,
+          "playbackRate": 1.0,
+          "rangeId": "range_001",
+          "sourceDurationMs": 19000,
+          "sourceEndMs": 31000,
+          "sourceMediaId": "media_001",
+          "sourceStartMs": 12000,
+          "timelineElementIds": [
+            "project_fixture__range__range_001__video"
+          ],
+          "timelineEndMs": 19000,
+          "timelineStartMs": 0,
+          "trackIds": [
+            "project_fixture__video"
+          ]
+        }
+      ],
+      "sourceMediaId": "media_001"
+    },
+    "mediaReference": {
+      "displayName": "sample.mp4",
+      "durationMs": 60000,
+      "mediaId": "media_001",
+      "mimeType": "video/mp4",
+      "requiresMediaAttachment": true,
+      "sourceAssetId": "media_001"
+    },
+    "metadata": {
+      "fixture": true
+    },
+    "project": {
+      "capinstaCaptionDocuments": [
+        {
+          "document": {
+            "canonicalTiming": {
+              "diagnostics": {
+                "counters": {},
+                "decodedDurationUs": 19000000,
+                "estimatedWordCount": 0,
+                "forcedAlignedWordCount": 0,
+                "maximumTimingDriftUs": 0,
+                "normalizedSampleCount": 0,
+                "providerDurationUs": 19000000,
+                "providerWordCount": 1,
+                "repairedWordCount": 0,
+                "timelineOffsetUs": 0,
+                "vadSilenceDurationUs": 0,
+                "vadSpeechDurationUs": 0,
+                "validationFailures": []
+              },
+              "mediaDurationUs": 19000000,
+              "pages": [
+                {
+                  "activeWordEffectsEnabled": true,
+                  "displayTextOverride": "hello",
+                  "endUs": 19000000,
+                  "id": "project_fixture__caption_segment__range_001__seg_001",
+                  "startUs": 0,
+                  "wordIds": [
+                    "project_fixture__caption_word__range_001__word_001"
+                  ]
+                }
+              ],
+              "timelineOffsetUs": 0,
+              "vadRegions": [],
+              "version": "capinsta.caption.v2",
+              "words": [
+                {
+                  "confidence": 0.93,
+                  "displayText": "hello",
+                  "endUs": 19000000,
+                  "id": "project_fixture__caption_word__range_001__word_001",
+                  "language": "en",
+                  "speakerId": "speaker_001",
+                  "spokenText": "hello",
+                  "startUs": 0,
+                  "timingNeedsReview": false,
+                  "timingSource": "provider"
+                }
+              ]
+            },
+            "clips": [
+              {
+                "editable": true,
+                "end": 19.0,
+                "id": "project_fixture__caption_segment__range_001__seg_001",
+                "manualEdit": {
+                  "originalEnd": 31.0,
+                  "originalStart": 12.0,
+                  "originalText": "hello"
+                },
+                "manuallyEdited": false,
+                "selected": false,
+                "sourceClipId": "range_001__seg_001",
+                "start": 0.0,
+                "stylePresetId": "word_highlight_box",
+                "text": "hello",
+                "timingNeedsReview": false,
+                "timingSource": "provider",
+                "trackId": "project_fixture__captions",
+                "wordIds": [
+                  "project_fixture__caption_word__range_001__word_001"
+                ]
+              }
+            ],
+            "durationSeconds": 19.0,
+            "id": "project_fixture__caption_document",
+            "languageMode": "english",
+            "manualEdits": {},
+            "sourceTranscriptRef": {
+              "provider": "canonical-v2",
+              "sourceAssetId": "media_001",
+              "sourceAssetName": "sample.mp4",
+              "version": "capinsta.transcript.v1"
+            },
+            "stylePresetId": "word_highlight_box",
+            "timing": {
+              "audioDurationSeconds": 19.0,
+              "audioOrigin": "rendered_timeline",
+              "generatedAt": "2026-07-24T12:00:00Z",
+              "sourceOfTruth": "words",
+              "timelineOffsetSeconds": 0,
+              "timelineOffsetUs": 0
+            },
+            "trackId": "project_fixture__captions",
+            "words": [
+              {
+                "confidence": 0.93,
+                "displayedText": "hello",
+                "end": 19.0,
+                "id": "project_fixture__caption_word__range_001__word_001",
+                "languageHint": "english",
+                "originalText": "hello",
+                "sourceWordId": "range_001__word_001",
+                "start": 0.0,
+                "text": "hello",
+                "timingNeedsReview": false,
+                "timingSource": "provider",
+                "timingSourceDetail": "TranscriptDocumentV2:provider"
+              }
+            ]
+          },
+          "importedAt": "2026-07-24T12:00:00Z",
+          "openCutTrackId": "project_fixture__captions"
+        }
+      ],
+      "capinstaClippingProvenance": {
+        "conversionSchemaVersion": 1,
+        "sourceApplication": "clipper",
+        "sourceClipProjectId": "clip_project_001",
+        "sourceClipProjectRevision": 1,
+        "sourceTranscriptId": "tr_english"
+      },
+      "currentSceneId": "project_fixture__main_scene",
+      "metadata": {
+        "createdAt": "2026-07-24T12:00:00Z",
+        "duration": 2280000,
+        "id": "project_fixture",
+        "name": "Synthetic clip",
+        "updatedAt": "2026-07-24T12:00:00Z"
+      },
+      "scenes": [
+        {
+          "bookmarks": [],
+          "createdAt": "2026-07-24T12:00:00Z",
+          "id": "project_fixture__main_scene",
+          "isMain": true,
+          "name": "Main scene",
+          "tracks": {
+            "audio": [],
+            "main": {
+              "elements": [
+                {
+                  "clippingEdlEntryId": "edl_range_001",
+                  "clippingRangeId": "range_001",
+                  "duration": 2280000,
+                  "hidden": false,
+                  "id": "project_fixture__range__range_001__video",
+                  "isSourceAudioEnabled": true,
+                  "mediaId": "media_001",
+                  "name": "Clip 1",
+                  "params": {
+                    "blendMode": "normal",
+                    "opacity": 1,
+                    "transform.positionX": 0,
+                    "transform.positionY": 0,
+                    "transform.rotate": 0,
+                    "transform.scaleX": 1,
+                    "transform.scaleY": 1,
+                    "volume": 0
+                  },
+                  "sourceAssetId": "media_001",
+                  "sourceDuration": 7200000,
+                  "startTime": 0,
+                  "trimEnd": 3480000,
+                  "trimStart": 1440000,
+                  "type": "video"
+                }
+              ],
+              "hidden": false,
+              "id": "project_fixture__video",
+              "muted": false,
+              "name": "Main",
+              "type": "video"
+            },
+            "overlay": [
+              {
+                "elements": [
+                  {
+                    "capinstaClipId": "project_fixture__caption_segment__range_001__seg_001",
+                    "capinstaDocumentId": "project_fixture__caption_document",
+                    "duration": 2280000,
+                    "id": "project_fixture__caption_segment__range_001__seg_001__element",
+                    "name": "Caption 1",
+                    "params": {
+                      "background.color": "#000000",
+                      "background.cornerRadius": 0,
+                      "background.enabled": false,
+                      "background.offsetX": 0,
+                      "background.offsetY": 0,
+                      "background.paddingX": 30,
+                      "background.paddingY": 42,
+                      "blendMode": "normal",
+                      "color": "#ffffff",
+                      "content": "hello",
+                      "fontFamily": "Arial",
+                      "fontSize": 15,
+                      "fontStyle": "normal",
+                      "fontWeight": "normal",
+                      "letterSpacing": 0,
+                      "lineHeight": 1.2,
+                      "opacity": 1,
+                      "textAlign": "center",
+                      "textDecoration": "none",
+                      "transform.positionX": 0,
+                      "transform.positionY": 0,
+                      "transform.rotate": 0,
+                      "transform.scaleX": 1,
+                      "transform.scaleY": 1
+                    },
+                    "startTime": 0,
+                    "trimEnd": 0,
+                    "trimStart": 0,
+                    "type": "text"
+                  }
+                ],
+                "hidden": false,
+                "id": "project_fixture__captions",
+                "name": "Captions",
+                "type": "text"
+              }
+            ]
+          },
+          "updatedAt": "2026-07-24T12:00:00Z"
+        }
+      ],
+      "settings": {
+        "background": {
+          "color": "#000000",
+          "type": "color"
+        },
+        "canvasSize": {
+          "height": 1920,
+          "width": 1080
+        },
+        "canvasSizeMode": "preset",
+        "fps": {
+          "denominator": 1,
+          "numerator": 30
+        },
+        "lastCustomCanvasSize": null,
+        "originalCanvasSize": null
+      },
+      "timelineViewState": {
+        "playheadTime": 0,
+        "scrollLeft": 0.0,
+        "zoomLevel": 1.0
+      },
+      "version": 35
+    },
+    "schemaVersion": 1,
+    "sourceClipProjectId": "clip_project_001",
+    "sourceClipProjectRevision": 1,
+    "targetProjectId": "project_fixture",
+    "warnings": [
+      {
+        "captionOccurrenceId": null,
+        "category": "project_field_defaulted",
+        "clipProjectId": "clip_project_001",
+        "edlEntryId": null,
+        "fieldPath": "project.settings.fps",
+        "message": "project frame rate defaulted to 30 fps because ClipProjectV1 has no frame-rate field",
+        "projectRevision": 1,
+        "rangeId": null,
+        "severity": "warning",
+        "targetProjectId": "project_fixture",
+        "timelineElementId": null,
+        "timingValues": {}
+      }
+    ]
+  }
+}

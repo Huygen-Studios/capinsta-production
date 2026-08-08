@@ -1,0 +1,322 @@
+"use client";
+
+import { Button } from "../ui/button";
+import { useRef, useState } from "react";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
+import { DeleteProjectDialog } from "@/project/components/delete-project-dialog";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ExportButton } from "./export-button";
+import { EditorGuideButton } from "./editor-guide-button";
+import { EditorHelpButton } from "./editor-help-button";
+import { EDITOR_HELP_CONTENT } from "./editor-help-content";
+import { FeedbackPopover } from "@/feedback/components/feedback-popover";
+import { ThemeToggle } from "../theme-toggle";
+import { LOGOS } from "@/site/brand";
+import { toast } from "sonner";
+import { useEditor } from "@/editor/use-editor";
+import { CommandIcon, Logout05Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ShortcutsDialog } from "@/actions/components/shortcuts-dialog";
+import Image from "next/image";
+import { cn } from "@/utils/ui";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { AccountMenu } from "@/components/auth/account-menu";
+
+export function EditorHeader() {
+	const searchParams = useSearchParams();
+	const isClippingMode = searchParams.get("mode") === "clipping";
+	return (
+		<header className="flex h-[3.25rem] items-center justify-between border-b border-[var(--editor-border)] bg-[var(--editor-surface)] px-3 pt-0.5">
+			<div className="flex items-center gap-1">
+				<ProjectDropdown />
+				<EditableProjectName />
+			</div>
+			<nav className="flex items-center gap-2">
+				<EditorModeToggle />
+				<EditorGuideButton />
+				<FeedbackPopover />
+				{isClippingMode ? null : <ExportButton />}
+				<EditorHelpButton
+					title={EDITOR_HELP_CONTENT.export.title}
+					description={EDITOR_HELP_CONTENT.export.description}
+				/>
+				<ThemeToggle />
+				<AccountMenu compact />
+			</nav>
+		</header>
+	);
+}
+
+function EditorModeToggle() {
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+	const isClippingMode = searchParams.get("mode") === "clipping";
+	const navigate = (clipping: boolean) => {
+		const next = new URLSearchParams(searchParams.toString());
+		if (clipping) next.set("mode", "clipping");
+		else next.delete("mode");
+		router.replace(`${pathname}${next.size ? `?${next}` : ""}`);
+	};
+	return (
+		<div className="flex rounded border p-0.5" aria-label="Editor mode">
+			<Button
+				variant={!isClippingMode ? "default" : "ghost"}
+				size="sm"
+				aria-pressed={!isClippingMode}
+				onClick={() => navigate(false)}
+			>
+				Edit Video
+			</Button>
+			<Button
+				variant={isClippingMode ? "default" : "ghost"}
+				size="sm"
+				aria-pressed={isClippingMode}
+				onClick={() => navigate(true)}
+			>
+				Create Clips
+			</Button>
+		</div>
+	);
+}
+
+function ProjectDropdown() {
+	const [openDialog, setOpenDialog] = useState<
+		"delete" | "rename" | "shortcuts" | "leave" | null
+	>(null);
+	const [isExiting, setIsExiting] = useState(false);
+	const [isDeleting, setIsDeleting] = useState(false);
+	const router = useRouter();
+	const editor = useEditor();
+	const activeProject = useEditor((e) => e.project.getActive());
+
+	const handleExit = async () => {
+		if (isExiting) return;
+		setIsExiting(true);
+
+		try {
+			await editor.project.prepareExit();
+			editor.project.closeProject();
+		} catch (error) {
+			console.error("Failed to prepare project exit:", error);
+		} finally {
+			editor.project.closeProject();
+			router.push("/projects");
+		}
+	};
+
+	const handleSaveProjectName = async (newName: string) => {
+		if (
+			activeProject &&
+			newName.trim() &&
+			newName !== activeProject.metadata.name
+		) {
+			try {
+				await editor.project.renameProject({
+					id: activeProject.metadata.id,
+					name: newName.trim(),
+				});
+			} catch (error) {
+				toast.error("Failed to rename project", {
+					description:
+						error instanceof Error ? error.message : "Please try again",
+				});
+			} finally {
+				setOpenDialog(null);
+			}
+		}
+	};
+
+	const handleDeleteProject = async () => {
+		if (!activeProject || isDeleting) return;
+		setIsDeleting(true);
+		try {
+			await editor.project.deleteProjects({
+				ids: [activeProject.metadata.id],
+			});
+			setOpenDialog(null);
+			router.push("/projects");
+		} catch (error) {
+			toast.error("Failed to delete project", {
+				description:
+					error instanceof Error ? error.message : "Please try again",
+			});
+		} finally {
+			setIsDeleting(false);
+		}
+	};
+
+	return (
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button variant="ghost" size="icon" className="p-1 rounded-sm size-8">
+						<Image
+							src={LOGOS.mark}
+							alt="Capinsta"
+							width={32}
+							height={32}
+							className="object-contain size-5 dark:hidden"
+						/>
+						<Image
+							src={LOGOS.markLight}
+							alt=""
+							aria-hidden
+							width={32}
+							height={32}
+							className="object-contain size-5 hidden dark:block"
+						/>
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="start" className="z-100 w-44">
+					<DropdownMenuItem
+						onClick={() => setOpenDialog("leave")}
+						disabled={isExiting}
+						icon={<HugeiconsIcon icon={Logout05Icon} />}
+					>
+						Exit project
+					</DropdownMenuItem>
+
+					<DropdownMenuItem
+						onClick={() => setOpenDialog("shortcuts")}
+						icon={<HugeiconsIcon icon={CommandIcon} />}
+					>
+						Shortcuts
+					</DropdownMenuItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			<RenameProjectDialog
+				isOpen={openDialog === "rename"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "rename" : null)}
+				onConfirm={(newName) => handleSaveProjectName(newName)}
+				projectName={activeProject?.metadata.name || ""}
+			/>
+			<DeleteProjectDialog
+				isOpen={openDialog === "delete"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "delete" : null)}
+				onConfirm={handleDeleteProject}
+				projectNames={[activeProject?.metadata.name || ""]}
+				isDeleting={isDeleting}
+			/>
+			<ShortcutsDialog
+				isOpen={openDialog === "shortcuts"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "shortcuts" : null)}
+			/>
+			<AlertDialog
+				open={openDialog === "leave"}
+				onOpenChange={(isOpen) => setOpenDialog(isOpen ? "leave" : null)}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Leave project?</AlertDialogTitle>
+						<AlertDialogDescription>
+							Your project will remain active for 15 minutes after you leave. If
+							you do not return within 15 minutes, Capinsta will automatically
+							delete the uploaded video, captions, and generated export files
+							because this service is currently free and storage is limited.
+							Download your export before leaving.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Stay in editor</AlertDialogCancel>
+						<AlertDialogAction onClick={() => void handleExit()}>
+							Leave project
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</>
+	);
+}
+
+function EditableProjectName() {
+	const editor = useEditor();
+	const activeProject = useEditor((e) => e.project.getActive());
+	const [isEditing, setIsEditing] = useState(false);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const originalNameRef = useRef("");
+
+	const projectName = activeProject?.metadata.name || "";
+
+	const startEditing = () => {
+		if (isEditing) return;
+		originalNameRef.current = projectName;
+		setIsEditing(true);
+
+		requestAnimationFrame(() => {
+			inputRef.current?.select();
+		});
+	};
+
+	const saveEdit = async () => {
+		if (!inputRef.current || !activeProject) return;
+		const newName = inputRef.current.value.trim();
+		setIsEditing(false);
+
+		if (!newName) {
+			inputRef.current.value = originalNameRef.current;
+			return;
+		}
+
+		if (newName !== originalNameRef.current) {
+			try {
+				await editor.project.renameProject({
+					id: activeProject.metadata.id,
+					name: newName,
+				});
+			} catch (error) {
+				toast.error("Failed to rename project", {
+					description:
+						error instanceof Error ? error.message : "Please try again",
+				});
+			}
+		}
+	};
+
+	const handleKeyDown = (event: React.KeyboardEvent) => {
+		if (event.key === "Enter") {
+			event.preventDefault();
+			inputRef.current?.blur();
+		} else if (event.key === "Escape") {
+			event.preventDefault();
+			if (inputRef.current) {
+				inputRef.current.value = originalNameRef.current;
+				inputRef.current.setSelectionRange(0, 0);
+			}
+			setIsEditing(false);
+			inputRef.current?.blur();
+		}
+	};
+
+	return (
+		<input
+			ref={inputRef}
+			type="text"
+			defaultValue={projectName}
+			readOnly={!isEditing}
+			onClick={startEditing}
+			onBlur={saveEdit}
+			onKeyDown={handleKeyDown}
+			style={{ fieldSizing: "content" }}
+			className={cn(
+				"text-[0.9rem] h-8 px-2 py-1 rounded-sm bg-transparent outline-none cursor-pointer hover:bg-accent hover:text-accent-foreground",
+				isEditing && "ring-1 ring-ring cursor-text hover:bg-transparent",
+			)}
+		/>
+	);
+}

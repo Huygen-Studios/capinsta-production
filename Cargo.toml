@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/desktop",
+    "rust/crates/time",
+    "rust/crates/captions",
+    "rust/crates/transcript-domain",
+    "rust/crates/clip-domain",
+    "rust/crates/shorts-domain",
+    "rust/crates/project-bridge",
+    "rust/crates/clipping-runtime",
+    "rust/crates/bridge",
+    "rust/crates/effects",
+    "rust/crates/gpu",
+    "rust/crates/masks",
+    "rust/crates/paper-fold",
+    "rust/wasm", "rust/crates/compositor",
+]

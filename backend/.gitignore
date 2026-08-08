@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+venv/
+.venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+.next/
+.next-dev/
+out/
+.turbo/
+*.tsbuildinfo
+.vercel/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime storage and generated media
+storage/
+uploads/
+exports/
+temp/
+tmp/
+logs/
+*.log
+*.jsonl
+*.sqlite
+*.db
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+!tests/fixtures/transcription-test.wav
+*.mp3
+*.srt
+*.ass
+*.vtt
+
+# Test/build output
+coverage/
+benchmark-results/
+.artifacts/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+

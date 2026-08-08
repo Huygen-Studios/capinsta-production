@@ -1,0 +1,164 @@
+import { describe, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+	getAdminTranscriptionConfiguration,
+	listAdminTranscriptionConfigurations,
+	transcriptionPipelineOptionsColumnExists,
+} from "./transcription-config-db";
+import { DEFAULT_PIPELINE_OPTIONS, TRANSCRIPTION_PROVIDER_CATALOG, mergePipelineOptions } from "@/transcription/provider-catalog";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function readAdminControlsSource() {
+	const rootPath = join(process.cwd(), "apps/web/src/components/admin/admin-transcription-controls.tsx");
+	const appPath = join(process.cwd(), "src/components/admin/admin-transcription-controls.tsx");
+	return readFileSync(existsSync(rootPath) ? rootPath : appPath, "utf8");
+}
+
+function legacyConfigRow(overrides: Record<string, unknown> = {}) {
+	return {
+		id: "11111111-1111-1111-1111-111111111111",
+		provider: "sarvam",
+		model: "saaras:v3",
+		providerOptions: { mode: "transcribe" },
+		timestampStrategy: "native_word_timestamps",
+		strictProvider: true,
+		status: "active",
+		version: 7,
+		testStatus: "passed",
+		testedAt: new Date("2026-06-24T00:00:00.000Z"),
+		testedBy: null,
+		testErrorCode: null,
+		testLatencyMs: 120,
+		activatedAt: new Date("2026-06-24T00:01:00.000Z"),
+		activatedBy: null,
+		activationReason: "production verification",
+		createdAt: new Date("2026-06-24T00:00:00.000Z"),
+		updatedAt: new Date("2026-06-24T00:02:00.000Z"),
+		...overrides,
+	};
+}
+
+describe("admin transcription configuration db compatibility", () => {
+	test("detects when pipeline_options is missing", async () => {
+		const executor = {
+			async execute() {
+				return [{ exists: false }];
+			},
+		};
+
+		await expect(transcriptionPipelineOptionsColumnExists(executor)).resolves.toBe(
+			false,
+		);
+	});
+
+	test("lists legacy configurations with default pipeline options", async () => {
+		let calls = 0;
+		const executor = {
+			async execute() {
+				calls += 1;
+				if (calls === 1) return [{ exists: false }];
+				return [legacyConfigRow({ pipelineOptions: null })];
+			},
+		};
+
+		const [config] = await listAdminTranscriptionConfigurations(executor);
+
+		expect(config.provider).toBe("sarvam");
+		expect(config.pipelineOptions.timingSourcePolicy).toBe("native_then_forced");
+		expect(
+			isRecord(config.pipelineOptions.quality)
+				? config.pipelineOptions.quality.maximumEstimatedWordRatio
+				: undefined,
+		).toBeUndefined();
+	});
+
+	test("loads malformed legacy pipeline options without crashing", async () => {
+		let calls = 0;
+		const executor = {
+			async execute() {
+				calls += 1;
+				if (calls === 1) return [{ exists: true }];
+				return [legacyConfigRow({ pipelineOptions: "not-json-object" })];
+			},
+		};
+
+		const config = await getAdminTranscriptionConfiguration(
+			executor,
+			"11111111-1111-1111-1111-111111111111",
+		);
+
+		expect(config?.pipelineOptions.timingSourcePolicy).toBe(
+			"native_then_forced",
+		);
+	});
+
+	test("deep merges partial pipeline option edits", () => {
+		const merged = mergePipelineOptions(
+			DEFAULT_PIPELINE_OPTIONS,
+			{
+				timingSourcePolicy: "native_required",
+				captionChunking: { maxWords: 3 },
+				autoSync: { enabled: true, maxShiftSeconds: 0.5 },
+				quality: { allowEstimatedWords: true, maximumEstimatedWordRatio: 0.2 },
+				__proto__: { polluted: true },
+			},
+		);
+
+		expect(merged.timingSourcePolicy).toBe("native_required");
+		const captionChunking = merged.captionChunking;
+		const autoSync = merged.autoSync;
+		expect(isRecord(captionChunking) ? captionChunking.maxWords : undefined).toBe(3);
+		expect(isRecord(captionChunking) ? captionChunking.maxCharacters : undefined).toBe(28);
+		expect(isRecord(autoSync) ? autoSync.enabled : undefined).toBe(true);
+		expect(isRecord(autoSync) ? autoSync.minScore : undefined).toBe(0.58);
+		const quality = merged.quality;
+		expect(isRecord(quality) ? quality.allowEstimatedWords : undefined).toBe(true);
+		expect(isRecord(quality) ? quality.maximumEstimatedWordRatio : undefined).toBe(0.2);
+		expect(Object.prototype).not.toHaveProperty("polluted");
+	});
+
+	test("frontend defaults do not define a maximum estimated ratio", () => {
+		const quality = DEFAULT_PIPELINE_OPTIONS.quality;
+
+		expect("maximumEstimatedWordRatio" in quality).toBe(false);
+	});
+
+	test("admin UI does not expose maximum estimated ratio as an active control", () => {
+		const source = readAdminControlsSource();
+
+		expect(source).not.toContain("Maximum estimated word ratio");
+		expect(source).not.toContain("quality\", \"maximumEstimatedWordRatio\"");
+		expect(source).not.toContain("MAXIMUM_ESTIMATED_WORD_RATIO");
+		expect(source).not.toContain("ALLOW_ESTIMATED_WORDS");
+		expect(source).not.toContain("Allow estimated words");
+		expect(source).toContain("Estimated timing telemetry only");
+	});
+
+	test("admin UI exposes pasteable timing parameters with the short-form preset", () => {
+		const source = readAdminControlsSource();
+
+		expect(source).toContain("Paste Parameters");
+		expect(source).toContain("TIMING_FIX_PRESET");
+		expect(source).toContain("VAD_TARGET_SECONDS=8");
+		expect(source).toContain("STABLE_TS_MODEL=small");
+		expect(source).not.toContain("MAXIMUM_ESTIMATED_WORD_RATIO=0.15");
+		expect(source).not.toContain("ALLOW_ESTIMATED_WORDS=true");
+		expect(source).toContain("Apply pasted values");
+	});
+
+	test("Gemini catalog entries require real local alignment", () => {
+		const geminiEntries = TRANSCRIPTION_PROVIDER_CATALOG.filter(
+			(entry) => entry.provider === "gemini",
+		);
+
+		expect(geminiEntries.length).toBeGreaterThan(0);
+		for (const entry of geminiEntries) {
+			expect(entry.timestampStrategy).toBe("local_forced_alignment");
+			expect(entry.localAlignmentRequired).toBe(true);
+		}
+	});
+});

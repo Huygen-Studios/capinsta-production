@@ -1,0 +1,66 @@
+services:
+  - type: web
+    name: huygen-caps
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STT_PROVIDER
+        value: auto
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "500"
+      - key: CAPTION_DURATION_LIMIT_SECONDS
+        value: "180"
+      - key: MAX_CONCURRENT_EXPORTS
+        value: "1"
+      - key: MAX_EXPORT_DURATION_SECONDS
+        value: "300"
+      - key: EXPORT_RENDER_SAFE_MODE
+        value: "true"
+      - key: EXPORT_MAX_LONG_EDGE
+        value: "1920"
+      - key: EXPORT_MAX_FPS
+        value: "60"
+      - key: EXPORT_SAFE_QUALITY
+        value: standard
+      - key: EXPORT_FFMPEG_THREADS
+        value: "2"
+      - key: TEMP_DIR
+        value: /tmp/huygen-caps
+      - key: UPLOAD_DIR
+        value: /tmp/huygen-caps/uploads
+      - key: EXPORT_DIR
+        value: /tmp/huygen-caps/exports
+      - key: MEDIA_DIR
+        value: /tmp/huygen-caps/media
+      - key: DB_PATH
+        value: /tmp/huygen-caps/database.sqlite
+      - key: RUNTIME_CLEANUP_HOURS
+        value: "24"
+      - key: CORS_ORIGINS
+        value: https://huygen-caps.onrender.com
+      - key: ALIGNMENT_PROVIDER
+        value: auto
+      - key: ENABLE_WHISPERX
+        value: "false"
+      - key: ENABLE_STABLE_TS
+        value: "false"
+      - key: REFINE_NATIVE_WORD_TIMING_WITH_STABLE_TS
+        value: "false"
+      - key: STABLE_TS_SEMAPHORE_TIMEOUT_SECONDS
+        value: "10"
+      - key: ENABLE_SILERO_VAD
+        value: "true"
+      - key: PAUSE_SPLIT_THRESHOLD
+        value: "0.30"
+      - key: DEFAULT_GLOBAL_CAPTION_OFFSET
+        value: "0"
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

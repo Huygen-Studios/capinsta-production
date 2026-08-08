@@ -1,0 +1,304 @@
+"use client";
+
+import { memo, useCallback, useMemo } from "react";
+import {
+	Section,
+	SectionContent,
+	SectionHeader,
+	SectionTitle,
+} from "@/components/section";
+import { ColorPickerContent } from "@/components/ui/color-picker";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
+import {
+	BACKGROUND_BLUR_INTENSITY_PRESETS,
+	DEFAULT_BACKGROUND_BLUR_INTENSITY,
+} from "@/background/blur";
+import { DEFAULT_BACKGROUND_COLOR } from "@/background/color";
+import { patternCraftGradients } from "@/data/colors/pattern-craft";
+import { colors } from "@/data/colors/solid";
+import { syntaxUIGradients } from "@/data/colors/syntax-ui";
+import { useEditor } from "@/editor/use-editor";
+import { cn } from "@/utils/ui";
+
+const CUSTOM_COLOR_SWATCH_BACKGROUND =
+	"conic-gradient(from 180deg at 50% 50%, #ff5e5e 0deg, #ffb35e 55deg, #fff26b 110deg, #6bff8f 165deg, #5ee7ff 220deg, #6f7cff 275deg, #d76bff 330deg, #ff5e9b 360deg)";
+
+const BlurPreview = memo(
+	({
+		blur,
+		isSelected,
+		onSelect,
+	}: {
+		blur: { label: string; value: number };
+		isSelected: boolean;
+		onSelect: () => void;
+	}) => {
+		return (
+			<button
+				className={cn(
+					"relative aspect-square size-20 cursor-pointer overflow-hidden rounded-sm border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)] hover:border-primary",
+					isSelected && "border-primary bg-[var(--editor-surface-raised)]",
+				)}
+				onClick={onSelect}
+				type="button"
+				aria-label={`Select ${blur.label} blur`}
+			>
+				<div
+					className="absolute -inset-3 bg-[linear-gradient(135deg,#2563eb,#a855f7_50%,#f97316)]"
+					style={{ filter: `blur(${Math.max(blur.value / 5, 0)}px)` }}
+				/>
+				<div className="absolute right-1 bottom-1 left-1 text-center">
+					<span className="rounded bg-black/50 px-1 text-xs text-white">
+						{blur.label}
+					</span>
+				</div>
+			</button>
+		);
+	},
+);
+
+BlurPreview.displayName = "BlurPreview";
+
+const BackgroundPreviews = memo(
+	({
+		backgrounds,
+		currentBackgroundColor,
+		isColorBackground,
+		onSelect,
+		useBackgroundColor = false,
+	}: {
+		backgrounds: readonly string[];
+		currentBackgroundColor: string;
+		isColorBackground: boolean;
+		onSelect: (bg: string) => void;
+		useBackgroundColor?: boolean;
+	}) => {
+		return useMemo(
+			() =>
+				backgrounds.map((bg) => (
+					<button
+						key={bg}
+						className={cn(
+							"aspect-square size-20 cursor-pointer rounded-sm border border-[var(--editor-border-subtle)] hover:border-primary",
+							isColorBackground &&
+								bg.toLowerCase() === currentBackgroundColor.toLowerCase() &&
+								"border-primary",
+						)}
+						style={
+							useBackgroundColor
+								? { backgroundColor: bg }
+								: {
+										background: bg,
+										backgroundSize: "cover",
+										backgroundPosition: "center",
+										backgroundRepeat: "no-repeat",
+									}
+						}
+						onClick={() => onSelect(bg)}
+						type="button"
+						aria-label={`Select background ${bg}`}
+					/>
+				)),
+			[
+				backgrounds,
+				isColorBackground,
+				currentBackgroundColor,
+				onSelect,
+				useBackgroundColor,
+			],
+		);
+	},
+);
+
+BackgroundPreviews.displayName = "BackgroundPreviews";
+
+function CustomColorPreview({
+	currentBackgroundColor,
+	isSelected,
+	onPreview,
+	onCommit,
+}: {
+	currentBackgroundColor: string;
+	isSelected: boolean;
+	onPreview: (color: string) => void;
+	onCommit: (color: string) => void;
+}) {
+	return (
+		<Popover>
+			<PopoverTrigger asChild>
+				<button
+					className={cn(
+						"relative aspect-square size-20 cursor-pointer overflow-hidden rounded-sm border border-[var(--editor-border-subtle)] hover:border-primary",
+						isSelected && "border-primary",
+					)}
+					type="button"
+					aria-label="Pick a custom background color"
+				>
+					<span
+						className="absolute inset-0"
+						style={{ background: CUSTOM_COLOR_SWATCH_BACKGROUND }}
+					/>
+					<span
+						className="absolute right-1 bottom-1 size-5 rounded-sm border border-white/70 shadow-sm"
+						style={{ backgroundColor: currentBackgroundColor }}
+					/>
+				</button>
+			</PopoverTrigger>
+			<ColorPickerContent
+				value={currentBackgroundColor.replace(/^#/, "").toUpperCase()}
+				onChange={(color) => onPreview(`#${color}`)}
+				onChangeEnd={(color) => onCommit(`#${color}`)}
+			/>
+		</Popover>
+	);
+}
+
+const COLOR_SECTIONS = [
+	{
+		id: "colors",
+		title: "Colors",
+		backgrounds: colors,
+		useBackgroundColor: true,
+		showCustomPicker: true,
+	},
+	{
+		id: "pattern-craft",
+		title: "Pattern craft",
+		backgrounds: patternCraftGradients,
+		showCustomPicker: false,
+	},
+	{
+		id: "syntax-ui",
+		title: "Syntax UI",
+		backgrounds: syntaxUIGradients,
+		showCustomPicker: false,
+	},
+] as const;
+
+export function BackgroundContent() {
+	const editor = useEditor();
+	const activeProject = useEditor((e) => e.project.getActive());
+
+	const handleBlurSelect = useCallback(
+		async (blurIntensity: number) => {
+			await editor.project.updateSettings({
+				settings: { background: { type: "blur", blurIntensity } },
+			});
+		},
+		[editor.project],
+	);
+
+	const previewBackgroundColor = useCallback(
+		async (color: string) => {
+			await editor.project.updateSettings({
+				settings: { background: { type: "color", color } },
+				pushHistory: false,
+			});
+		},
+		[editor.project],
+	);
+
+	const commitBackgroundColor = useCallback(
+		async (color: string) => {
+			await editor.project.updateSettings({
+				settings: { background: { type: "color", color } },
+				pushHistory: true,
+			});
+		},
+		[editor.project],
+	);
+
+	const isBlurBackground = activeProject.settings.background.type === "blur";
+	const isColorBackground = activeProject.settings.background.type === "color";
+	const projectBackground = activeProject.settings.background;
+
+	const currentBlurIntensity = projectBackground.type === "blur"
+		? projectBackground.blurIntensity
+		: DEFAULT_BACKGROUND_BLUR_INTENSITY;
+
+	const currentBackgroundColor = projectBackground.type === "color"
+		? projectBackground.color
+		: DEFAULT_BACKGROUND_COLOR;
+
+	const hasPresetColorMatch = colors.some(
+		(color) => color.toLowerCase() === currentBackgroundColor.toLowerCase(),
+	);
+
+	const handlePresetColorSelect = useCallback(
+		(color: string) => {
+			void commitBackgroundColor(color);
+		},
+		[commitBackgroundColor],
+	);
+
+	const blurPreviews = useMemo(
+		() =>
+			BACKGROUND_BLUR_INTENSITY_PRESETS.map((blur) => (
+				<BlurPreview
+					key={blur.value}
+					blur={blur}
+					isSelected={isBlurBackground && currentBlurIntensity === blur.value}
+					onSelect={() => handleBlurSelect(blur.value)}
+				/>
+			)),
+		[isBlurBackground, currentBlurIntensity, handleBlurSelect],
+	);
+
+	return (
+		<div className="flex flex-col gap-2 px-2 py-2" data-tour="background-customization">
+			<Section
+				collapsible
+				defaultOpen={true}
+				sectionKey="background-blur"
+				showTopBorder={false}
+				showBottomBorder={false}
+				className="rounded-[var(--editor-radius)] border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)]"
+			>
+				<SectionHeader>
+					<SectionTitle>Blur</SectionTitle>
+				</SectionHeader>
+				<SectionContent>
+					<div className="flex flex-wrap gap-2">{blurPreviews}</div>
+				</SectionContent>
+			</Section>
+			{COLOR_SECTIONS.map((section) => (
+				<Section
+					key={section.id}
+					collapsible
+					defaultOpen={false}
+					sectionKey={`settings:background-${section.id}`}
+					showTopBorder={false}
+					showBottomBorder={false}
+					className="rounded-[var(--editor-radius)] border border-[var(--editor-border-subtle)] bg-[var(--editor-surface)]"
+				>
+					<SectionHeader>
+						<SectionTitle>{section.title}</SectionTitle>
+					</SectionHeader>
+					<SectionContent>
+						<div className="flex flex-wrap gap-2">
+							{section.showCustomPicker ? (
+								<CustomColorPreview
+									currentBackgroundColor={currentBackgroundColor}
+									isSelected={isColorBackground && !hasPresetColorMatch}
+									onPreview={previewBackgroundColor}
+									onCommit={commitBackgroundColor}
+								/>
+							) : null}
+							<BackgroundPreviews
+								backgrounds={section.backgrounds}
+								currentBackgroundColor={currentBackgroundColor}
+								isColorBackground={isColorBackground}
+								onSelect={handlePresetColorSelect}
+								useBackgroundColor={
+									"useBackgroundColor" in section
+										? section.useBackgroundColor
+										: false
+								}
+							/>
+						</div>
+					</SectionContent>
+				</Section>
+			))}
+		</div>
+	);
+}

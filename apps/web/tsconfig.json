@@ -1,0 +1,43 @@
+{
+	"compilerOptions": {
+		"target": "ES2017",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"allowJs": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"noEmit": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"types": ["bun", "node"],
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"incremental": true,
+		"plugins": [
+			{
+				"name": "next"
+			}
+		],
+		"paths": {
+			"@/*": ["./src/*"],
+			"@capinsta/transcript-contract": [
+				"../../packages/transcript-contract/src/index.ts"
+			],
+			"content-collections": ["./.content-collections/generated"]
+		},
+		"forceConsistentCasingInFileNames": true
+	},
+	"include": [
+		"**/*.ts",
+		"**/*.tsx",
+		"apps/web/.next/types/**/*.ts",
+		"next-env.d.ts",
+		".next/types/**/*.ts",
+		"src/types/**/*.d.ts",
+		"../../use-frame-cache.ts",
+		"src/stores/timeline-store.ts",
+		".next/dev/types/**/*.ts"
+	],
+	"exclude": ["node_modules", "**/*.test.ts", "**/*.test.tsx", "**/__tests__/**"]
+}
