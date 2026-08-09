@@ -1,0 +1,3 @@
+# Optional automatic-clipping computer-vision stack.
+# The normal caption/editor backend does not import this dependency.
+mediapipe==0.10.21

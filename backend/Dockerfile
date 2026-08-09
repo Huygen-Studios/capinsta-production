@@ -3,7 +3,9 @@
 #
 # The backend intentionally does not compile Next.js. The isolated Remotion
 # exporter is bundled here for durable workers; the API never invokes it.
-FROM rust:1.88-slim-bookworm AS clipping-runtime-builder
+ARG INSTALL_CLIPPING_STACK=false
+
+FROM rust:1.88-slim-bookworm AS clipping-runtime-true
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
@@ -44,9 +46,18 @@ RUN bun install --frozen-lockfile --production --filter @capinsta/remotion-expor
 
 FROM node:22-bookworm-slim AS node-runtime
 
-FROM python:3.11-slim AS app
+FROM node-runtime AS clipping-runtime-false
+RUN mkdir -p /build/out \
+  && printf '%s\n' '#!/bin/sh' 'echo "clipping runtime is not installed in this image" >&2' 'exit 78' \
+    > /build/out/capinsta-clipping-runtime \
+  && chmod +x /build/out/capinsta-clipping-runtime
+
+FROM clipping-runtime-${INSTALL_CLIPPING_STACK} AS clipping-runtime-selected
+
+FROM python:3.11-slim-bookworm AS app
 
 ARG INSTALL_ALIGNMENT_STACK=false
+ARG INSTALL_CLIPPING_STACK=false
 
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
@@ -93,7 +104,7 @@ ENV CAPINSTA_REMOTION_TEMP_ROOT=/tmp/capinsta-remotion-export
 
 WORKDIR /app
 
-COPY --from=clipping-runtime-builder \
+COPY --from=clipping-runtime-selected \
   /build/out/capinsta-clipping-runtime \
   /usr/local/bin/capinsta-clipping-runtime
 COPY --from=node-runtime /usr/local/ /usr/local/
@@ -124,12 +135,10 @@ RUN (apt-get update || (sleep 2 && apt-get update)) \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
   && echo "backend_system_packages_installed"
 
-COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
-RUN --mount=type=cache,id=capinsta-pip-cache,target=/root/.cache/pip \
-  export PIP_NO_CACHE_DIR=0 \
-  && python -m pip install --upgrade pip \
-  && python -m pip install --upgrade setuptools wheel \
-  && python -m pip install -r requirements.txt \
+COPY backend/requirements.txt backend/requirements-clipping.txt backend/requirements-stable-ts.txt ./
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+  && python -m pip install --no-cache-dir --prefer-binary -r requirements.txt \
+  && if [ "$INSTALL_CLIPPING_STACK" = "true" ]; then python -m pip install --no-cache-dir --prefer-binary -r requirements-clipping.txt; else echo "clipping_python_stack_skipped"; fi \
   && if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then python -m pip install -r requirements-stable-ts.txt; else echo "alignment_stack_skipped"; fi \
   && (apt-get update || true) \
   && python -m playwright install-deps chromium \
@@ -159,10 +168,14 @@ COPY backend/docker-entrypoint.sh /usr/local/bin/capinsta-backend-entrypoint
 RUN chmod +x /usr/local/bin/capinsta-backend-entrypoint
 
 RUN if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then ENABLE_SILERO_VAD=true python -m ai_pipeline.tools.silero_vad_smoke; else echo "silero_vad_smoke_skipped"; fi
-RUN printf '%s' '{"protocolVersion":1,"requestId":"docker_health","operation":"health","payload":{},"options":{}}' \
-  | capinsta-clipping-runtime >/tmp/clipping-runtime-health.json \
-  && grep -q '"ok":true' /tmp/clipping-runtime-health.json \
-  && rm /tmp/clipping-runtime-health.json
+RUN if [ "$INSTALL_CLIPPING_STACK" = "true" ]; then \
+    printf '%s' '{"protocolVersion":1,"requestId":"docker_health","operation":"health","payload":{},"options":{}}' \
+      | capinsta-clipping-runtime >/tmp/clipping-runtime-health.json \
+    && grep -q '"ok":true' /tmp/clipping-runtime-health.json \
+    && rm /tmp/clipping-runtime-health.json; \
+  else \
+    echo "clipping_runtime_smoke_skipped"; \
+  fi
 
 RUN du -sh /app /usr/local /ms-playwright 2>/dev/null || true
 

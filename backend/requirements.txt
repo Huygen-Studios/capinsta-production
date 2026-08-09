@@ -1,25 +1,24 @@
 # === Production AI/API pipeline ===
-groq
-openai
-pydub
+groq==1.6.0
+openai==2.53.0
+pydub==0.25.1
 audioop-lts; python_version >= "3.13"
-requests
-boto3
-google-genai
-indic-transliteration
-pyspellchecker
-soundfile
-numpy
-mediapipe==0.10.21
-langdetect
+requests==2.34.2
+boto3==1.43.67
+google-genai==2.17.0
+indic-transliteration==2.3.82
+pyspellchecker==0.9.0
+soundfile==0.14.0
+numpy==1.26.4
+langdetect==1.0.9
 
 # === Backend (Full Stack - NEW) ===
-fastapi
-uvicorn[standard]
-aiosqlite
-python-multipart
-aiofiles
-python-dotenv
-playwright
-PyJWT[crypto]
-psycopg[binary]
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+aiosqlite==0.22.1
+python-multipart==0.0.32
+aiofiles==25.1.0
+python-dotenv==1.2.2
+playwright==1.62.0
+PyJWT[crypto]==2.13.0
+psycopg[binary]==3.3.4
