@@ -11,8 +11,13 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY rust/ ./rust/
 COPY apps/desktop/ ./apps/desktop/
-RUN cargo build --locked --release -p clipping-runtime \
-  && strip target/release/capinsta-clipping-runtime
+RUN --mount=type=cache,id=capinsta-cargo-registry,target=/usr/local/cargo/registry \
+  --mount=type=cache,id=capinsta-cargo-git,target=/usr/local/cargo/git \
+  --mount=type=cache,id=capinsta-cargo-target,target=/build/target \
+  cargo build --locked --release -p clipping-runtime \
+  && strip target/release/capinsta-clipping-runtime \
+  && mkdir -p /build/out \
+  && cp target/release/capinsta-clipping-runtime /build/out/capinsta-clipping-runtime
 
 FROM python:3.11-slim AS app
 
@@ -63,7 +68,7 @@ ENV REQUIRE_SILERO_VAD=false
 WORKDIR /app
 
 COPY --from=clipping-runtime-builder \
-  /build/target/release/capinsta-clipping-runtime \
+  /build/out/capinsta-clipping-runtime \
   /usr/local/bin/capinsta-clipping-runtime
 
 RUN (apt-get update || (sleep 2 && apt-get update)) \
@@ -82,7 +87,9 @@ RUN (apt-get update || (sleep 2 && apt-get update)) \
   && echo "backend_system_packages_installed"
 
 COPY backend/requirements.txt backend/requirements-stable-ts.txt ./
-RUN python -m pip install --upgrade pip \
+RUN --mount=type=cache,id=capinsta-pip-cache,target=/root/.cache/pip \
+  export PIP_NO_CACHE_DIR=0 \
+  && python -m pip install --upgrade pip \
   && python -m pip install --upgrade setuptools wheel \
   && python -m pip install -r requirements.txt \
   && if [ "$INSTALL_ALIGNMENT_STACK" = "true" ]; then python -m pip install -r requirements-stable-ts.txt; else echo "alignment_stack_skipped"; fi \

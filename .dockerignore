@@ -1,6 +1,7 @@
 .git
 .gitignore
 .dockerignore
+.github
 
 # Dependencies and environments
 node_modules
@@ -54,3 +55,10 @@ docs
 agent-transcripts
 mcps
 terminals
+
+# Repo-only material not used by Docker builds.
+frontend
+capinsta-original-source
+tests
+notes
+script

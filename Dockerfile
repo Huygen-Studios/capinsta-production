@@ -1,3 +1,12 @@
+# CapInsta web image only.
+#
+# Backend/API deployments must use:
+#   Base Directory: /
+#   Dockerfile Location: /backend/Dockerfile
+#
+# If a backend Coolify app builds this root Dockerfile, it will compile the
+# Next.js frontend and deploys can take 50+ minutes on the KVM2 host.
+
 # ---- Stage 1: Builder (Bun install + Node Next.js build) ----
 # Bun handles `bun install --frozen-lockfile` (reproducible, workspace-aware).
 # Node runs `next build`. Installing Node in this same stage avoids copying a
