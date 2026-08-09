@@ -31,4 +31,53 @@ for path in "$root" "${TEMP_DIR:-$root/tmp}" "${UPLOAD_DIR:-$root/uploads}" "${M
   esac
 done
 
-exec gosu capinsta "$@"
+if [ "${CAPINSTA_RUN_MIGRATIONS_ON_STARTUP:-true}" = "true" ]; then
+  gosu capinsta python -m server.production.migrate
+fi
+
+if [ "${CAPINSTA_EXPORT_ENGINE:-}" != "remotion_hybrid" ]; then
+  exec gosu capinsta "$@"
+fi
+
+# The normal editor exporter is intentionally isolated from the clipping/media
+# worker fleet even though both reuse the same durable job runner.
+gosu capinsta env \
+  ENABLE_DURABLE_PROCESSING_WORKER=true \
+  ENABLE_EDITOR_EXPORT_HANDLER=true \
+  PROCESSING_WORKER_ID="${EDITOR_EXPORT_WORKER_ID:-production-editor-export}" \
+  PROCESSING_WORKER_REQUIRED_JOB_TYPES=editor_export \
+  ENABLE_MEDIA_PROBE_HANDLER=false \
+  ENABLE_MEDIA_VARIANT_HANDLERS=false \
+  ENABLE_DURABLE_TRANSCRIPTION_HANDLER=false \
+  ENABLE_TRANSCRIPT_ANALYSIS_HANDLERS=false \
+  ENABLE_VIRAL_CANDIDATE_ANALYSIS=false \
+  ENABLE_SMART_REFRAME=false \
+  ENABLE_PROJECT_DERIVATION_HANDLER=false \
+  ENABLE_PROJECT_CONVERSION_HANDLER=false \
+  ENABLE_CLIPPING_EXPORT_HANDLER=false \
+  python -m server.clipping_jobs.worker &
+worker_pid=$!
+
+gosu capinsta "$@" &
+api_pid=$!
+
+shutdown() {
+  trap - EXIT INT TERM
+  kill -TERM "$api_pid" "$worker_pid" 2>/dev/null || true
+  wait "$api_pid" 2>/dev/null || true
+  wait "$worker_pid" 2>/dev/null || true
+}
+trap shutdown EXIT INT TERM
+
+while kill -0 "$api_pid" 2>/dev/null && kill -0 "$worker_pid" 2>/dev/null; do
+  sleep 1
+done
+
+status=0
+if ! kill -0 "$worker_pid" 2>/dev/null; then
+  wait "$worker_pid" || status=$?
+  echo "editor export worker exited with status $status" >&2
+else
+  wait "$api_pid" || status=$?
+fi
+exit "$status"
