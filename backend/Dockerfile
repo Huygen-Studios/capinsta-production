@@ -139,7 +139,6 @@ RUN --mount=type=cache,id=capinsta-pip-cache,target=/root/.cache/pip \
   && find /usr/local/lib/python3.11 -type d \( -name '__pycache__' -o -name 'tests' -o -name 'test' \) -prune -exec rm -rf '{}' + \
   && find /usr/local/lib/python3.11 -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.a' \) -delete \
   && rm -rf \
-    /root/.cache \
     /tmp/* \
     /usr/local/lib/python3.11/site-packages/torch/include \
     /usr/local/lib/python3.11/site-packages/torch/share \
