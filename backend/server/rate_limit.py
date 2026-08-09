@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -12,6 +13,10 @@ from fastapi import HTTPException, Request
 
 from .auth import AuthenticatedUser
 from .api_versioning import canonical_api_path
+from .runtime_policy import is_admin
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -86,6 +91,14 @@ def _consume(rule: RateLimitRule, key: str) -> tuple[bool, int]:
 async def enforce_api_rate_limit(request: Request, user: AuthenticatedUser) -> None:
     rule = _route_rule(request)
     if rule is None:
+        return
+    if await is_admin(user.id):
+        logger.info(
+            "rate_limit_bypass user_id=%s method=%s path=%s reason=active_admin",
+            user.id,
+            request.method,
+            canonical_api_path(request.url.path),
+        )
         return
     if not _configured():
         if os.getenv("NODE_ENV") == "production":

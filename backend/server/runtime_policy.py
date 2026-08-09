@@ -194,11 +194,11 @@ async def _rest_effective_app_permissions(user_id: str) -> set[str]:
     return {str(row.get("key")) for row in permissions if row.get("key")}
 
 
-async def _rest_is_super_admin(user_id: str) -> bool:
+async def _rest_admin_role_keys(user_id: str) -> set[str]:
     memberships = await _rest_rows(
         "admin_role_members",
         {
-            "select": "role_id,expires_at",
+            "select": "role_id",
             "user_id": f"eq.{user_id}",
             "active": "eq.true",
         },
@@ -206,15 +206,19 @@ async def _rest_is_super_admin(user_id: str) -> bool:
     role_ids = [
         str(row.get("role_id"))
         for row in memberships
-        if row.get("role_id") and _not_expired(row.get("expires_at"))
+        if row.get("role_id")
     ]
     if not role_ids:
-        return False
+        return set()
     roles = await _rest_rows(
         "admin_roles",
-        {"select": "id,key", "id": _in_filter(role_ids), "key": "eq.super_admin"},
+        {"select": "id,key", "id": _in_filter(role_ids)},
     )
-    return bool(roles)
+    return {str(row.get("key")) for row in roles if row.get("key")}
+
+
+async def _rest_is_super_admin(user_id: str) -> bool:
+    return "super_admin" in await _rest_admin_role_keys(user_id)
 
 
 async def _query_one(query: str, params: tuple = ()):
@@ -389,6 +393,30 @@ async def is_super_admin(user_id: str) -> bool:
         WHERE m.user_id = %s::uuid
           AND m.active = true
           AND r.key = 'super_admin'
+          AND p.account_status = 'active'
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    return row is not None
+
+
+async def is_admin(user_id: str) -> bool:
+    """Return whether an active user has any active administrative role."""
+    if _rest_control_plane_enabled():
+        profile = await _rest_profile(user_id, "account_status")
+        if not profile or profile.get("account_status") != "active":
+            return False
+        return bool(await _rest_admin_role_keys(user_id))
+
+    row = await _query_one(
+        """
+        SELECT 1
+        FROM admin_role_members m
+        JOIN admin_roles r ON r.id = m.role_id
+        JOIN profiles p ON p.user_id = m.user_id
+        WHERE m.user_id = %s::uuid
+          AND m.active = true
           AND p.account_status = 'active'
         LIMIT 1
         """,
