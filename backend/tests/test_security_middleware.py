@@ -1,5 +1,8 @@
 from fastapi.testclient import TestClient
+from starlette.formparsers import MultiPartParser
+from starlette.requests import Request
 
+from server.settings import MAX_FORM_BODY_BYTES
 from server.main import app
 from server.request_limits import evaluate_request_body_limit
 
@@ -58,6 +61,12 @@ def test_multipart_uploads_use_upload_body_limit_not_json_limit():
 
     assert decision.allowed is True
     assert decision.limit and decision.limit > 2 * 1024 * 1024
+
+
+def test_multipart_text_parts_can_exceed_starlette_default_one_megabyte():
+    assert MultiPartParser.__init__.__kwdefaults__["max_part_size"] == MAX_FORM_BODY_BYTES
+    assert Request.form.__kwdefaults__["max_part_size"] == MAX_FORM_BODY_BYTES
+    assert Request._get_form.__kwdefaults__["max_part_size"] == MAX_FORM_BODY_BYTES
 
 
 def test_chunked_media_uploads_allow_bounded_binary_parts():

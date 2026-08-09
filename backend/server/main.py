@@ -42,6 +42,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartParser
+from starlette.requests import Request as StarletteRequest
 from contextlib import asynccontextmanager
 import shutil
 import uuid
@@ -65,7 +67,7 @@ from .api import (
     production,
     projects,
 )
-from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, DB_PATH, validate_storage_startup
+from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, DB_PATH, MAX_FORM_BODY_BYTES, validate_storage_startup
 from .auth import (
     AuthBoundaryError,
     authenticate_request,
@@ -94,6 +96,21 @@ from .api_versioning import canonical_api_path
 from .request_limits import evaluate_request_body_limit
 
 logger = logging.getLogger(__name__)
+
+
+def _patch_multipart_part_size_limit() -> None:
+    """Allow large caption/composition form fields through FastAPI's parser."""
+    for func in (
+        MultiPartParser.__init__,
+        StarletteRequest.form,
+        StarletteRequest._get_form,
+    ):
+        defaults = getattr(func, "__kwdefaults__", None)
+        if isinstance(defaults, dict) and "max_part_size" in defaults:
+            defaults["max_part_size"] = MAX_FORM_BODY_BYTES
+
+
+_patch_multipart_part_size_limit()
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
