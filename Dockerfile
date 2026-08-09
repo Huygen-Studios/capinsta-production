@@ -23,6 +23,7 @@ COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
+COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
 COPY packages/transcript-contract/ packages/transcript-contract/
 # The workspace depends on opencut-wasm via file:rust/wasm/pkg. Bun resolves
 # local packages during install, so the generated package must already exist in
@@ -118,6 +119,7 @@ COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
+COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
 COPY packages/transcript-contract/ packages/transcript-contract/
 COPY rust/wasm/pkg/ rust/wasm/pkg/
 
