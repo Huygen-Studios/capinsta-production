@@ -688,6 +688,18 @@ async def main_async() -> int:
             "processing_worker_clipping_export_registered preset=%s",
             export_preset,
         )
+    from server.editor_exports import register_editor_exports_if_enabled
+
+    editor_export_engine = await register_editor_exports_if_enabled(registry)
+    if editor_export_engine is not None:
+        logger.info(
+            "processing_worker_editor_export_registered buildSHA=%s workerId=%s "
+            "supportedJobTypes=%s exportEngineVersion=%s",
+            os.getenv("BUILD_SHA", os.getenv("CAPINSTA_IMAGE_TAG", "unknown")),
+            config.worker_id,
+            ",".join(registry.supported_job_types),
+            editor_export_engine,
+        )
     recovery = ProcessingJobRecoveryService(
         repository,
         backoff=RetryBackoff(

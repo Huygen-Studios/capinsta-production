@@ -31,6 +31,14 @@ export type CaptionTheme =
   | "mrbeast_style"
   | "apple_cinematic"
   | "modern_minimalist_lockup"
+  | "skyline_italic"
+  | "ember_focus"
+  | "citrus_signature"
+  | "volt_matrix"
+  | "ivory_signature"
+  | "cobalt_script"
+  | "mint_ink"
+  | "monument"
   | "viral_word_highlight"
   | "minimal"
   | "viral_shorts"
@@ -620,6 +628,14 @@ export const CAPTION_THEMES: Record<CaptionTheme, CaptionStyle> = {
     shadow: "none",
     animation: "slide-up",
   },
+  skyline_italic: { fontSize: 112, fontFamily: "Tactic, Inter, sans-serif", color: "#2898F8", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
+  ember_focus: { fontSize: 112, fontFamily: "Montserrat, Inter, sans-serif", color: "#F8A828", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
+  citrus_signature: { fontSize: 112, fontFamily: "Poppins, Inter, sans-serif", color: "#FFF4DF", backgroundColor: "#F86808", bold: true, outline: false, position: "center", animation: "slide-up" },
+  volt_matrix: { fontSize: 112, fontFamily: "Tactic, Inter, sans-serif", color: "#08F818", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
+  ivory_signature: { fontSize: 112, fontFamily: "Poppins, Inter, sans-serif", color: "#F7F3E8", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
+  cobalt_script: { fontSize: 112, fontFamily: "Poppins, Inter, sans-serif", color: "#0868F8", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
+  mint_ink: { fontSize: 112, fontFamily: "Poppins, Inter, sans-serif", color: "#68F898", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
+  monument: { fontSize: 112, fontFamily: "Montserrat, Inter, sans-serif", color: "#FFFFFF", backgroundColor: "transparent", bold: true, outline: false, position: "center", animation: "slide-up" },
   viral_word_highlight: {
     fontSize: 64,
     fontFamily: "'Inter', 'Arial Black', sans-serif",

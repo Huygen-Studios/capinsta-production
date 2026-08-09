@@ -83,6 +83,7 @@ jobs:
           python -m pytest -q backend/tests
           (cd apps/web && bun x tsc --noEmit)
           (cd apps/web && bun run lint)
+          (cd apps/remotion-exporter && bun run typecheck && bun test src)
           (cd apps/web && bun x playwright test -c playwright.admin.config.ts \
             e2e/editor-onboarding.spec.ts e2e/editor-projects-visual.spec.ts)
           bun test apps/web/src/services/automatic-clipper/api.test.ts
@@ -280,7 +281,7 @@ jobs:
       - name: Backend image smoke
         run: |
           docker run --rm "$BACKEND_IMAGE:${GITHUB_SHA}" \
-            sh -c "ffmpeg -version >/dev/null && ffprobe -version >/dev/null && printf '%s' '{\"protocolVersion\":1,\"requestId\":\"ci\",\"operation\":\"health\",\"payload\":{},\"options\":{}}' | capinsta-clipping-runtime | grep -q '\"ok\":true'"
+            sh -c "node --version >/dev/null && ffmpeg -version >/dev/null && ffprobe -version >/dev/null && test -f /app/apps/remotion-exporter/.cache/hybrid-run.mjs && test -d /app/apps/remotion-exporter/.cache/bundle && test -x /app/apps/remotion-exporter/node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell && printf '%s' '{\"protocolVersion\":1,\"requestId\":\"ci\",\"operation\":\"health\",\"payload\":{},\"options\":{}}' | capinsta-clipping-runtime | grep -q '\"ok\":true'"
       - name: Legacy caption storage smoke
         run: |
           docker volume create capinsta-caption-smoke

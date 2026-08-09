@@ -9,6 +9,9 @@ x-backend-image: &backend-image
   environment: &backend-env
     NODE_ENV: production
     LOG_LEVEL: INFO
+    BUILD_SHA: ${CAPINSTA_IMAGE_TAG:?Set CAPINSTA_IMAGE_TAG}
+    CAPINSTA_IMAGE_TAG: ${CAPINSTA_IMAGE_TAG:?Set CAPINSTA_IMAGE_TAG}
+    CAPINSTA_EXPORT_ENGINE: ${CAPINSTA_EXPORT_ENGINE:-remotion_hybrid}
     ADMIN_DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
     DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
     SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
@@ -242,9 +245,13 @@ services:
       ENABLE_DURABLE_PROCESSING_WORKER: "true"
       PROCESSING_WORKER_ID: production-export
       PROCESSING_WORKER_MAX_CONCURRENCY: "1"
-      PROCESSING_WORKER_REQUIRED_JOB_TYPES: clip_export
+      PROCESSING_WORKER_REQUIRED_JOB_TYPES: clip_export,editor_export
       ENABLE_CLIPPING_EXPORT_HANDLER: "true"
+      ENABLE_EDITOR_EXPORT_HANDLER: "true"
       ENABLE_CLIPPING_RUST_RUNTIME: "true"
+      CAPINSTA_REMOTION_TEMP_ROOT: /tmp/capinsta-remotion-export
+    cpus: 1.5
+    mem_limit: 4g
 
   worker-maintenance:
     <<: *backend-image

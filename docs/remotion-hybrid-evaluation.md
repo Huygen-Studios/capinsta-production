@@ -4,9 +4,86 @@ Date: 2026-08-09. Status: isolated prototype only. Production APIs, workers, dep
 
 ## Recommendation
 
-**KEEP PROTOTYPING**
+**KEEP OPTIMIZING**
 
-The hybrid architecture is correct and substantially faster than full-frame Remotion, but the accepted 180-second run still took 378.733s. That beats the prior full-frame runs by 36.4%-46.6%, but remains slower than the approximately 288s historical legacy result and spends 177.730s in FFmpeg. Production integration should wait for Linux/worker measurements, FFmpeg EDL throughput work, private-media validation, and a stronger sparse-overlay policy.
+The hybrid architecture remains correct, but the constrained Linux container run is not fast enough for production worker integration. The accepted two-CPU configuration took 564.049s for a representative 180-second export, versus the approximately 288s historical legacy result. Production integration should wait for further overlay/compositing optimization and a real cloud KVM2 confirmation.
+
+## Linux container and FFmpeg optimization phase
+
+This phase used Docker Desktop's Linux engine with `--cpus=2`, `--memory=4g`, and one export job at a time. It validates the Linux image and cgroup behavior, but it is not a claim of testing on a real cloud KVM2 host; that final infrastructure check remains open.
+
+### Image and hot path
+
+- image: `capinsta-remotion-hybrid:linux-kvm2`, 414,583,204 bytes
+- pinned build runtime: Bun 1.3.14; hot-path runtime: Node 22.23.2
+- Remotion packages: 4.0.507; FFmpeg: Debian 5.1.9
+- initial clean build: 336.488s; cold Docker Desktop startup: 7.090s
+- Chromium Headless Shell, fonts, the Remotion browser bundle, and compiled CLI are baked into the image
+- runtime performs no package installation, browser download, or Remotion bundle build
+- Docker dependency/browser layers are separated from source layers so source-only rebuilds reuse them
+- `--benchmark` fails closed unless `CAPINSTA_ENV=benchmark` and `CAPINSTA_BENCHMARK_ROOT` are set; inherited production credentials remain rejected
+
+### 30-second x264 matrix, video without overlay
+
+All rows use exact input seeking, two container CPUs, a 4GiB limit, H.264/yuv420p, and AAC.
+
+| Preset | Threads | FFmpeg s | Peak MiB | Output MB |
+|---|---:|---:|---:|---:|
+| faster | auto | 60.681 | 633.1 | 21.82 |
+| faster | 1 | 50.842 | 373.0 | 21.70 |
+| faster | 2 | 41.810 | 423.2 | 21.70 |
+| veryfast | auto | 31.013 | 570.7 | 19.77 |
+| veryfast | 1 | 42.595 | 312.0 | 19.64 |
+| **veryfast** | **2** | **23.600** | **360.7** | **19.64** |
+| superfast | auto | 22.410 | 528.2 | 42.19 |
+| superfast | 1 | 21.803 | 261.8 | 41.89 |
+| superfast | 2 | 24.595 | 316.4 | 41.89 |
+
+`superfast` saved at most 1.8s while more than doubling output size, so it was rejected. Auto threads consumed more memory, and one thread left CPU capacity unused. The selected encoder setting is `veryfast`, two threads.
+
+### Representative 30-second rows
+
+| Case | Remotion concurrency | Overlay s | FFmpeg s | Total s | Peak MiB |
+|---|---:|---:|---:|---:|---:|
+| solid + no overlay | 1 | 0 | 11.385 | 11.529 | 313.9 |
+| video + ordinary | 1 | 101.362 | 46.193 | 161.849 | 820.2 |
+| video + ordinary | **2** | **50.533** | **39.819** | **107.162** | **828.3** |
+
+Concurrency 2 nearly halved browser overlay time without meaningful memory growth and is selected. Concurrency above 2 was intentionally not profiled because the worker has two CPUs. The no-caption bypass did not launch Remotion and emitted zero overlay files. The optional premium Linux row was not run because the shared preset TypeScript contract currently excludes the premium fixture IDs; the existing premium evidence remains Windows-only.
+
+### FFmpeg native profile
+
+FFmpeg `-benchmark` and `-progress pipe:1` metrics are captured in every result, including user CPU, system CPU, real time, max RSS, frame, FPS, speed, and output time. On the preserved 900-frame ordinary overlay sequence:
+
+- source decode + cover scale/crop to null: 5.665s real, 141,428KiB max RSS
+- PNG RGBA decode to null: 5.192s real, 136,900KiB max RSS
+- source decode/scale + PNG decode + straight-alpha overlay to null: 27.879s real, 257,968KiB max RSS
+- complete overlay FFmpeg stage: 49.228s real, 465,772KiB max RSS
+
+PNG decoding itself is only about 5.2s. The approximately 17s incremental filter cost is alpha compositing and pixel-format conversion; final encode/audio/mux account for roughly another 21s. A new streaming system or alternate alpha codec is therefore not justified by this profile. The already-measured ProRes 4444 path remains slower and larger. Independent input cursors remain in the graph. On a four-cut/repeated-range EDL, explicit per-input seeking reduced FFmpeg from 42.128s to 30.564s (27.4%) with byte-identical output size.
+
+### Correctness, resources, and contention
+
+- Linux alpha audit passed on black, white, saturated pink, and dark blue; worst PSNR was 43.90dB, with explicit `rgba` + `alpha=straight`
+- every measured MP4 passed FFprobe for H.264, yuv420p, 1080x1920, 30 FPS, exact frame count/duration, and AAC
+- cgroup v2 `memory.peak` and `cpu.stat` now cover the whole container rather than only the Node parent
+- a separate 0.25-CPU mock health service remained responsive during a two-CPU export: 75 requests, zero failures, 59.9ms p95; the single 1.307s maximum was an isolated startup outlier
+- the contended export completed in 29.696s versus the best isolated 23.897s, so co-residency has a measurable cost but did not starve the service
+
+### Selected 180-second Linux result
+
+- configuration: two CPUs, 4GiB, export job concurrency 1, Remotion concurrency 2, full-rate PNG, x264 `veryfast`, x264 threads 2, exact input seeking
+- frames/duration: 5,400 / 180.000s
+- select composition: 0.727s
+- overlay render: 298.296s
+- FFmpeg: 252.512s wall; 476.284s user CPU; 13.759s system CPU; 914,284KiB FFmpeg max RSS
+- total: 564.049s
+- full-container peak: 1,536.87MiB; average quota CPU utilization: 86.4%
+- overlay: 350,812,769 bytes across 5,400 PNG files
+- final MP4: 92,518,802 bytes; H.264/yuv420p/AAC; verification passed
+- output: `apps/remotion-exporter/artifacts/linux-kvm2/representative-180s.mp4`
+
+The 4GiB limit has ample memory headroom, so a 3.5GiB limit should also be safe for this fixture. The result is nevertheless 1.96x the historical legacy time. The exact phase recommendation is therefore **KEEP OPTIMIZING**.
 
 ## 1. Hybrid architecture
 

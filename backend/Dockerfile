@@ -1,10 +1,8 @@
 # Build context: repository root
 # Coolify: Base Directory=/, Dockerfile Location=/backend/Dockerfile
 #
-# The backend intentionally does not compile Next.js. Headless export uses the
-# independently deployed frontend /render route configured by RENDER_PAGE_URL
-# or FRONTEND_URL. This keeps API deployments small and prevents frontend build
-# OOM/timeouts from taking down backend releases.
+# The backend intentionally does not compile Next.js. The isolated Remotion
+# exporter is bundled here for durable workers; the API never invokes it.
 FROM rust:1.88-slim-bookworm AS clipping-runtime-builder
 
 WORKDIR /build
@@ -18,6 +16,33 @@ RUN --mount=type=cache,id=capinsta-cargo-registry,target=/usr/local/cargo/regist
   && strip target/release/capinsta-clipping-runtime \
   && mkdir -p /build/out \
   && cp target/release/capinsta-clipping-runtime /build/out/capinsta-clipping-runtime
+
+FROM oven/bun:1.3.14 AS remotion-builder
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
+COPY packages/transcript-contract/package.json packages/transcript-contract/package.json
+RUN bun install --frozen-lockfile --filter @capinsta/remotion-exporter
+COPY apps/remotion-exporter apps/remotion-exporter
+COPY apps/web/src apps/web/src
+COPY apps/web/tsconfig.json apps/web/tsconfig.json
+COPY apps/web/public/caption-fonts apps/web/public/caption-fonts
+COPY packages/transcript-contract packages/transcript-contract
+WORKDIR /app/apps/remotion-exporter
+RUN bunx remotion browser ensure \
+  && bun run bundle \
+  && bun build src/hybrid-export.ts --target=node --packages=external --outfile=.cache/hybrid-run.mjs
+
+FROM oven/bun:1.3.14 AS remotion-runtime-deps
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
+COPY packages/transcript-contract/package.json packages/transcript-contract/package.json
+RUN bun install --frozen-lockfile --production --filter @capinsta/remotion-exporter
+
+FROM node:22-bookworm-slim AS node-runtime
 
 FROM python:3.11-slim AS app
 
@@ -46,8 +71,6 @@ ENV DISK_REJECT_UPLOAD_FREE_BYTES=268435456
 ENV DISK_CRITICAL_FREE_BYTES=134217728
 ENV MAX_CONCURRENT_EXPORTS=1
 ENV MAX_EXPORT_DURATION_SECONDS=300
-ENV MAX_CONCURRENT_EXPORTS=1
-ENV MAX_EXPORT_DURATION_SECONDS=300
 ENV EXPORT_RENDER_SAFE_MODE=true
 ENV EXPORT_MAX_LONG_EDGE=1920
 ENV EXPORT_MAX_FPS=30
@@ -64,12 +87,21 @@ ENV STABLE_TS_CACHE_DIR=/data/capinsta/model-cache/stable-ts
 ENV STABLE_TS_MAX_CONCURRENCY=1
 ENV ENABLE_SILERO_VAD=true
 ENV REQUIRE_SILERO_VAD=false
+ENV CAPINSTA_EXPORT_ENGINE=remotion_hybrid
+ENV CAPINSTA_REMOTION_RUNTIME=/app/apps/remotion-exporter/.cache/hybrid-run.mjs
+ENV CAPINSTA_REMOTION_TEMP_ROOT=/tmp/capinsta-remotion-export
 
 WORKDIR /app
 
 COPY --from=clipping-runtime-builder \
   /build/out/capinsta-clipping-runtime \
   /usr/local/bin/capinsta-clipping-runtime
+COPY --from=node-runtime /usr/local/ /usr/local/
+COPY --from=remotion-runtime-deps /app/node_modules /app/node_modules
+COPY --from=remotion-runtime-deps /app/apps/remotion-exporter/node_modules /app/apps/remotion-exporter/node_modules
+COPY --from=remotion-builder /app/apps/remotion-exporter/node_modules/.remotion /app/apps/remotion-exporter/node_modules/.remotion
+COPY --from=remotion-builder /app/apps/remotion-exporter/.cache /app/apps/remotion-exporter/.cache
+COPY --from=remotion-builder /app/apps/remotion-exporter/package.json /app/apps/remotion-exporter/package.json
 
 RUN (apt-get update || (sleep 2 && apt-get update)) \
   && apt-get install -y --fix-missing --no-install-recommends -o Acquire::Retries=3 -o=Dpkg::Use-Pty=0 \
@@ -82,6 +114,12 @@ RUN (apt-get update || (sleep 2 && apt-get update)) \
     libglib2.0-0 \
     libgomp1 \
     libsndfile1 \
+    fonts-dejavu-core \
+    libasound2 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 \
+    libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libgtk-3-0 libnspr4 libnss3 \
+    libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libx11-xcb1 libxcb1 \
+    libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+    libxrender1 libxshmfence1 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
   && echo "backend_system_packages_installed"
@@ -131,8 +169,8 @@ RUN du -sh /app /usr/local /ms-playwright 2>/dev/null || true
 
 RUN groupadd --system --gid 10001 capinsta \
   && useradd --system --uid 10001 --gid capinsta --home-dir /app capinsta \
-  && mkdir -p /tmp/huygen-caps /app/storage/legacy-caption \
-  && chown -R capinsta:capinsta /tmp/huygen-caps /app/storage /data/capinsta
+    && mkdir -p /tmp/huygen-caps /tmp/capinsta-remotion-export /app/storage/legacy-caption \
+    && chown -R capinsta:capinsta /tmp/huygen-caps /tmp/capinsta-remotion-export /app/storage /data/capinsta
 
 USER root
 

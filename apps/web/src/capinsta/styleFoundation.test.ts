@@ -236,7 +236,7 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 };
 
 describe("Capinsta style foundation", () => {
-	test("registers the six Capinsta caption presets", () => {
+	test("registers the Capinsta caption presets", () => {
 		expect(CAPINSTA_CAPTION_PRESETS.map((preset) => preset.id)).toEqual([
 			"word_highlight_box",
 			"attention_punch",
@@ -244,11 +244,19 @@ describe("Capinsta style foundation", () => {
 			"kinetic_fade",
 			"mrbeast_style",
 			"modern_minimalist_lockup",
+			"skyline_italic",
+			"ember_focus",
+			"citrus_signature",
+			"volt_matrix",
+			"ivory_signature",
+			"cobalt_script",
+			"mint_ink",
+			"monument",
 		]);
 	});
 
-	test("six preset values match the extracted original Capinsta registry", () => {
-		for (const preset of CAPINSTA_CAPTION_PRESETS) {
+	test("original preset values match the extracted original registry", () => {
+		for (const preset of CAPINSTA_CAPTION_PRESETS.slice(0, 6)) {
 			const expected = ORIGINAL_PRESET_EXPECTATIONS[preset.id];
 
 			expect(preset.name).toBe(expected.name);

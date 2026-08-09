@@ -170,6 +170,31 @@ Workers expose no ports and use concurrency one. The proxy routes API traffic
 through the web service. Run a cleanup dry-run and an internal 30–60 minute
 upload before changing the admission flags.
 
+## Editor export worker
+
+Editor exports are queued in `processing_jobs`; the API only validates and
+enqueues them. The dedicated export worker runs both Clipper exports and the
+Remotion hybrid editor exporter from the same immutable backend image as the
+API. Keep these production values on that worker:
+
+```text
+CAPINSTA_EXPORT_ENGINE=remotion_hybrid
+ENABLE_EDITOR_EXPORT_HANDLER=true
+PROCESSING_WORKER_REQUIRED_JOB_TYPES=clip_export,editor_export
+PROCESSING_WORKER_MAX_CONCURRENCY=1
+CAPINSTA_REMOTION_TEMP_ROOT=/tmp/capinsta-remotion-export
+```
+
+Apply migration `0033_editor_export_jobs.sql` before starting the new worker.
+Deploy one commit-SHA image to the API and all workers, then verify a normal
+video export, a caption export, a solid-background export, and cancellation.
+The completed file remains available through the existing scoped download URL.
+
+To roll back new editor jobs without changing the API contract, set
+`CAPINSTA_EXPORT_ENGINE=legacy` on the API and export worker and restart both.
+Already-running Remotion jobs finish on the worker that claimed them; do not
+delete `processing_jobs` rows or the shared legacy-caption volume.
+
 Rollback:
 
 ```text

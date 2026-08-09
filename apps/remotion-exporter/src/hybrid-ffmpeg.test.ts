@@ -43,4 +43,14 @@ describe("hybrid FFmpeg plan", () => {
 		expect(args.filter((value) => value === "-i")).toHaveLength(1);
 		expect(args.join(" ")).not.toContain("[0:a]");
 	});
+
+	test("input seeking keeps exact range duration and rebases filters", () => {
+		const later = { ...props, timeline: { edl: { ...props.timeline.edl, entries: [{ ...props.timeline.edl.entries[0]!, sourceStartMs: 5000, sourceEndMs: 6000 }] } } };
+		const args = buildHybridFfmpegArgs({ props: later, base: { type: "video" }, sourceFiles: new Map([["s", "source.mp4"]]), overlay: { type: "none" }, output: "out.mp4", seekInputs: true, threads: 2, preset: "faster" });
+		const command = args.join(" ");
+		expect(command).toContain("-ss 5.000000 -t 1.000000 -i source.mp4");
+		expect(command).toContain("trim=start=0.000000:end=1.000000");
+		expect(command).toContain("-preset faster");
+		expect(command).toContain("-threads 2");
+	});
 });

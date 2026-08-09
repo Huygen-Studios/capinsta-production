@@ -1,16 +1,32 @@
-FROM oven/bun:1.3.14 AS build
+FROM oven/bun:1.3.14 AS dependencies
 WORKDIR /app
-
-COPY . .
+COPY package.json bun.lock ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
+COPY packages/transcript-contract/package.json packages/transcript-contract/package.json
 RUN bun install --frozen-lockfile --filter @capinsta/remotion-exporter
-RUN bun run --cwd apps/remotion-exporter bundle
-RUN bun build apps/remotion-exporter/src/render.ts --target=node --packages=external --outfile=apps/remotion-exporter/.cache/render-run.mjs
+
+FROM dependencies AS build
 WORKDIR /app/apps/remotion-exporter
 RUN bunx remotion browser ensure
+WORKDIR /app
+COPY apps/remotion-exporter apps/remotion-exporter
+COPY apps/web/src apps/web/src
+COPY apps/web/tsconfig.json apps/web/tsconfig.json
+COPY apps/web/public/caption-fonts apps/web/public/caption-fonts
+COPY packages/transcript-contract packages/transcript-contract
+WORKDIR /app/apps/remotion-exporter
+RUN bun run bundle
+RUN bun build src/hybrid-export.ts --target=node --packages=external --outfile=.cache/hybrid-run.mjs \
+    && bun build src/alpha-audit.ts --target=node --packages=external --outfile=.cache/alpha-audit-run.mjs \
+    && bun build src/solid-color-audit.ts --target=node --packages=external --outfile=.cache/solid-color-audit-run.mjs
 
 FROM oven/bun:1.3.14 AS runtime-deps
 WORKDIR /app
-COPY . .
+COPY package.json bun.lock ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
+COPY packages/transcript-contract/package.json packages/transcript-contract/package.json
 RUN bun install --frozen-lockfile --production --filter @capinsta/remotion-exporter
 
 FROM node:22-bookworm-slim
@@ -33,4 +49,4 @@ COPY --from=runtime-deps /app/apps/remotion-exporter/node_modules /app/apps/remo
 COPY --from=build /app/apps/remotion-exporter/node_modules/.remotion /app/apps/remotion-exporter/node_modules/.remotion
 COPY --from=build /app/apps/remotion-exporter/.cache /app/apps/remotion-exporter/.cache
 
-ENTRYPOINT ["node", "apps/remotion-exporter/.cache/render-run.mjs"]
+ENTRYPOINT ["node", "apps/remotion-exporter/.cache/hybrid-run.mjs"]

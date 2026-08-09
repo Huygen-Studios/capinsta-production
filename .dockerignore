@@ -32,6 +32,11 @@ __pycache__
 .pytest_cache
 **/.pytest_cache
 apps/web/.font-cache
+apps/remotion-exporter/.cache
+apps/remotion-exporter/artifacts
+apps/remotion-exporter/benchmark-results
+apps/remotion-exporter/fixtures/generated
+.codex-tmp
 
 # Runtime media and logs
 backend/temp

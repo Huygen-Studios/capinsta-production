@@ -142,7 +142,7 @@ export function toOriginalCaption({
 		text: clip.text,
 		originalText: clip.manualEdit?.originalText || clip.text,
 		lang: document.languageMode,
-		theme: resolvedStyle.presetId,
+		theme: resolvedStyle.presetId as Caption["theme"],
 		words,
 		manuallyEdited: clip.manuallyEdited,
 		timingNeedsReview: clip.timingNeedsReview,

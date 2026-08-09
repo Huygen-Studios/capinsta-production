@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import re
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field, replace
@@ -43,6 +44,8 @@ from .jobs import _public_export_stage, _resolve_export_dimensions, resolve_job_
 from .media_assets import get_owned_media_asset, resolve_owned_media_asset_file
 from ..auth import current_user, get_owned_job
 from ..operational_mirror import mirror_export_job
+from ..clipping_persistence.database import DurableDatabase
+from ..editor_exports import cancel_editor_exports, enqueue_editor_export
 from ..pagination import pagination_payload, parse_cursor_page, should_return_paginated_response
 from ..runtime_policy import enforce_export_quota, require_feature
 from ..storage_paths import path_inside, public_download_name, resolve_existing_file_inside, safe_identifier
@@ -446,25 +449,8 @@ async def _load_recent_jobs_from_db(user_id: str, limit: int = 50) -> list[Expor
 
 
 async def recover_orphaned_export_jobs() -> int:
-    """Mark queued/running exports as failed after a process restart."""
-    now = _utc_now()
-    message = "Export worker restarted before this MP4 finished. Please start the export again."
-    async with aiosqlite.connect(str(DB_PATH)) as db:
-        cursor = await db.execute(
-            """
-            UPDATE export_jobs
-            SET status = 'failed',
-                stage = 'worker_restart',
-                progress = -1,
-                message = ?,
-                error = ?,
-                updated_at = ?
-            WHERE status IN ('queued', 'running')
-            """,
-            (message, message, now),
-        )
-        await db.commit()
-        return cursor.rowcount or 0
+    """Durable exports survive API restarts and are recovered by processing_jobs."""
+    return 0
 
 
 def _export_download_url(export_job_id: str) -> str:
@@ -1158,21 +1144,61 @@ async def start_export_job(
         export_fps,
         caption_chunks_count,
     )
-    task = asyncio.create_task(_run_export_job(export_job_id, request))
-    _export_tasks[export_job_id] = task
-    task.add_done_callback(lambda _: _export_tasks.pop(export_job_id, None))
+    try:
+        durable_input = await enqueue_editor_export(
+            database=DurableDatabase(),
+            export_job_id=export_job_id,
+            owner_user_id=current_user().id,
+            request=request,
+        )
+    except Exception as exc:
+        logger.exception(
+            "export_job_enqueue_failed export_job_id=%s source_job_id=%s",
+            export_job_id,
+            source_job_id,
+        )
+        failed = await _set_job(
+            export_job_id,
+            status="failed",
+            stage="enqueue",
+            progress=-1,
+            message="The durable export queue is unavailable. Please retry.",
+            error="EXPORT_QUEUE_UNAVAILABLE",
+        )
+        await _broadcast_progress(failed)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "EXPORT_QUEUE_UNAVAILABLE",
+                "message": "The durable export queue is unavailable. Please retry.",
+            },
+        ) from exc
 
     return {
         "success": True,
         "jobId": export_job_id,
         "statusUrl": f"/api/export/jobs/{export_job_id}",
-        "message": "Export started",
+        "message": "Export queued",
         "correlationId": queued_job.correlation_id,
+        "engine": durable_input.engine,
     }
 
 
 async def cancel_project_exports(project_id: str) -> list[str]:
-    cancelled_ids: list[str] = []
+    rows: list[tuple[str, str]] = []
+    try:
+        async with aiosqlite.connect(str(DB_PATH)) as db:
+            cursor = await db.execute(
+                "SELECT id,user_id FROM export_jobs WHERE project_id=? AND status IN ('queued','running')",
+                (project_id,),
+            )
+            rows = await cursor.fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):
+            raise
+    cancelled_ids = [str(row[0]) for row in rows]
+    owner_ids = {str(row[1]) for row in rows}
+    memory_jobs: list[ExportJobStatus] = []
     tasks: list[asyncio.Task[None]] = []
     async with _jobs_lock:
         for job in _jobs.values():
@@ -1184,19 +1210,69 @@ async def cancel_project_exports(project_id: str) -> list[str]:
             job.message = "Cancelled because the project was deleted."
             job.error = "project_deleted"
             job.updated_at = _utc_now()
-            cancelled_ids.append(job.id)
+            memory_jobs.append(job)
+            if job.id not in cancelled_ids:
+                cancelled_ids.append(job.id)
             task = _export_tasks.get(job.id)
             if task and not task.done():
                 tasks.append(task)
-    for export_id in cancelled_ids:
-        job = _jobs.get(export_id)
-        if job:
-            await _persist_job(job)
+    for job in memory_jobs:
+        await _persist_job(job)
+    for export_id in [str(row[0]) for row in rows]:
+        async with aiosqlite.connect(str(DB_PATH)) as db:
+            await db.execute(
+                """
+                UPDATE export_jobs SET status='cancelled',stage='cancelled',progress=-1,
+                  message='Cancelled because the project was deleted.',error='project_deleted',
+                  updated_at=? WHERE id=? AND status IN ('queued','running')
+                """,
+                (_utc_now(), export_id),
+            )
+            await db.commit()
+        await mirror_export_job(export_id)
+    for owner_id in owner_ids:
+        await cancel_editor_exports(
+            database=DurableDatabase(),
+            export_job_ids=[str(row[0]) for row in rows if str(row[1]) == owner_id],
+            owner_user_id=owner_id,
+        )
     for task in tasks:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     return cancelled_ids
+
+
+@router.delete("/{export_job_id}")
+async def cancel_export_job(
+    export_job_id: str, db: aiosqlite.Connection = Depends(get_db)
+):
+    user_id = current_user().id
+    cursor = await db.execute(
+        "SELECT status FROM export_jobs WHERE id=? AND user_id=?",
+        (export_job_id, user_id),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if row["status"] in {"completed", "failed", "cancelled", "expired"}:
+        return {"success": True, "jobId": export_job_id, "status": row["status"]}
+    await cancel_editor_exports(
+        database=DurableDatabase(),
+        export_job_ids=[export_job_id],
+        owner_user_id=user_id,
+    )
+    await db.execute(
+        """
+        UPDATE export_jobs SET status='cancelled',stage='cancelled',progress=-1,
+          message='Export cancelled.',error='EXPORT_CANCELLED',updated_at=?
+        WHERE id=? AND user_id=?
+        """,
+        (_utc_now(), export_job_id, user_id),
+    )
+    await db.commit()
+    await mirror_export_job(export_job_id)
+    return {"success": True, "jobId": export_job_id, "status": "cancelled"}
 
 
 @router.get("")
@@ -1325,15 +1401,5 @@ async def get_export_job(
     job = await _load_job_from_db(export_job_id, user_id)
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found")
-
-    if job.status in {"queued", "running"}:
-        message = "Export worker restarted before this MP4 finished. Please start the export again."
-        job.status = "failed"
-        job.stage = "worker_restart"
-        job.progress = -1
-        job.message = message
-        job.error = message
-        job.updated_at = _utc_now()
-        await _persist_job(job)
 
     return job.to_public_dict()

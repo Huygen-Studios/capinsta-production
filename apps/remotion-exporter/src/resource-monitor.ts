@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { cpus } from "node:os";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
@@ -6,7 +7,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export type ResourceUsageSummary = {
-	coverage: "process-tree" | "node-process-only";
+	coverage: "process-tree" | "container-cgroup" | "node-process-only";
 	sampleCount: number;
 	peakWorkingSetBytes: number;
 	peakWorkingSetMiB: number;
@@ -14,7 +15,7 @@ export type ResourceUsageSummary = {
 	averageHostCpuPercent: number | null;
 };
 
-type Sample = { at: number; workingSetBytes: number; cpuSeconds: number };
+type Sample = { at: number; workingSetBytes: number; cpuSeconds: number; cpuCapacity: number };
 
 const windowsScript = (rootPid: number) => `
 $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize,KernelModeTime,UserModeTime)
@@ -32,14 +33,32 @@ $cpu100ns = (($selected | Measure-Object -Property KernelModeTime -Sum).Sum + ($
 @{workingSetBytes=[double]$working;cpuSeconds=[double]$cpu100ns/10000000} | ConvertTo-Json -Compress
 `;
 
-async function takeSample(): Promise<{ workingSetBytes: number; cpuSeconds: number; coverage: ResourceUsageSummary["coverage"] }> {
+async function takeSample(): Promise<{ workingSetBytes: number; cpuSeconds: number; cpuCapacity: number; coverage: ResourceUsageSummary["coverage"] }> {
 	if (process.platform === "win32") {
 		const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", windowsScript(process.pid)], { timeout: 15_000, maxBuffer: 1024 * 1024 });
 		const parsed = JSON.parse(stdout.trim()) as { workingSetBytes: number; cpuSeconds: number };
-		return { ...parsed, coverage: "process-tree" };
+		return { ...parsed, cpuCapacity: Math.max(1, cpus().length), coverage: "process-tree" };
+	}
+	if (process.platform === "linux") {
+		try {
+			const [peak, cpuStat, cpuMax] = await Promise.all([
+				readFile("/sys/fs/cgroup/memory.peak", "utf8"),
+				readFile("/sys/fs/cgroup/cpu.stat", "utf8"),
+				readFile("/sys/fs/cgroup/cpu.max", "utf8"),
+			]);
+			const usage = /^usage_usec\s+(\d+)$/m.exec(cpuStat);
+			const [quota, period] = cpuMax.trim().split(/\s+/);
+			const cpuCapacity = quota === "max" ? cpus().length : Number(quota) / Number(period);
+			const workingSetBytes = Number(peak.trim());
+			if (Number.isFinite(workingSetBytes) && usage && Number.isFinite(cpuCapacity)) {
+				return { workingSetBytes, cpuSeconds: Number(usage[1]) / 1_000_000, cpuCapacity: Math.max(1, cpuCapacity), coverage: "container-cgroup" };
+			}
+		} catch {
+			// Fall through when the process is not running in a cgroup v2 container.
+		}
 	}
 	const usage = process.resourceUsage();
-	return { workingSetBytes: process.memoryUsage().rss, cpuSeconds: (usage.userCPUTime + usage.systemCPUTime) / 1_000_000, coverage: "node-process-only" };
+	return { workingSetBytes: process.memoryUsage().rss, cpuSeconds: (usage.userCPUTime + usage.systemCPUTime) / 1_000_000, cpuCapacity: Math.max(1, cpus().length), coverage: "node-process-only" };
 }
 
 export class ResourceMonitor {
@@ -59,7 +78,7 @@ export class ResourceMonitor {
 			try {
 				const sample = await takeSample();
 				this.#coverage = sample.coverage;
-				this.#samples.push({ at: performance.now(), workingSetBytes: sample.workingSetBytes, cpuSeconds: sample.cpuSeconds });
+				this.#samples.push({ at: performance.now(), workingSetBytes: sample.workingSetBytes, cpuSeconds: sample.cpuSeconds, cpuCapacity: sample.cpuCapacity });
 			} catch {
 				// Resource telemetry is diagnostic; rendering and output verification remain authoritative.
 			} finally {
@@ -74,16 +93,15 @@ export class ResourceMonitor {
 		this.#timer = null;
 		if (this.#sampling) await this.#sampling;
 		await this.#sample();
-		const logicalCpuCount = Math.max(1, cpus().length);
 		const cpuRates = this.#samples.slice(1).map((sample, index) => {
 			const previous = this.#samples[index];
 			const elapsedSeconds = (sample.at - previous.at) / 1000;
-			return elapsedSeconds > 0 ? Math.max(0, ((sample.cpuSeconds - previous.cpuSeconds) / elapsedSeconds / logicalCpuCount) * 100) : 0;
+			return elapsedSeconds > 0 ? Math.max(0, ((sample.cpuSeconds - previous.cpuSeconds) / elapsedSeconds / sample.cpuCapacity) * 100) : 0;
 		});
 		const first = this.#samples[0];
 		const last = this.#samples.at(-1);
 		const elapsedSeconds = first && last ? (last.at - first.at) / 1000 : 0;
-		const average = first && last && elapsedSeconds > 0 ? Math.max(0, ((last.cpuSeconds - first.cpuSeconds) / elapsedSeconds / logicalCpuCount) * 100) : null;
+		const average = first && last && elapsedSeconds > 0 ? Math.max(0, ((last.cpuSeconds - first.cpuSeconds) / elapsedSeconds / last.cpuCapacity) * 100) : null;
 		const rawPeakHostCpuPercent = cpuRates.length ? Math.max(...cpuRates) : null;
 		const peakWorkingSetBytes = Math.max(0, ...this.#samples.map((sample) => sample.workingSetBytes));
 		return {

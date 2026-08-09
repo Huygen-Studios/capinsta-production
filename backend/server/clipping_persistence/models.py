@@ -29,6 +29,7 @@ JobType = Literal[
     "highlight_analysis",
     "clip_export",
     "caption_export",
+    "editor_export",
     "project_derivation",
     "project_conversion",
 ]
@@ -105,6 +106,16 @@ class ClipExportJobInput(JobInputEnvelope):
     expectedRevision: int = Field(ge=1)
 
 
+class EditorExportJobInput(JobInputEnvelope):
+    jobType: Literal["editor_export"]
+    exportJobId: UUID
+    ownerUserId: UUID
+    engine: Literal["remotion_hybrid", "legacy"]
+    engineVersion: Literal["remotion-hybrid-v1"]
+    buildSha: str
+    snapshot: dict[str, Any]
+
+
 class ProjectConversionJobInput(JobInputEnvelope):
     jobType: Literal["project_conversion"]
     clipProjectId: str
@@ -176,6 +187,7 @@ TypedJobInput = Annotated[
     Union[
         TranscriptionJobInput,
         ClipExportJobInput,
+        EditorExportJobInput,
         ProjectConversionJobInput,
         ProjectDerivationJobInput,
         MediaProbeJobInput,

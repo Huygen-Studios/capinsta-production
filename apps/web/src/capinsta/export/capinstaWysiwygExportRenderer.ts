@@ -774,7 +774,17 @@ export function renderCapinstaWysiwygExportCaption({
 			strategy: "apple_cinematic",
 		});
 	}
-	if (presetId === "modern_minimalist_lockup") {
+	if ([
+		"modern_minimalist_lockup",
+		"skyline_italic",
+		"ember_focus",
+		"citrus_signature",
+		"volt_matrix",
+		"ivory_signature",
+		"cobalt_script",
+		"mint_ink",
+		"monument",
+	].includes(presetId)) {
 		return drawEditorialLockupCaption({
 			ctx,
 			renderData,

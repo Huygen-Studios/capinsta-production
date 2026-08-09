@@ -1076,7 +1076,7 @@ function renderModernMinimalistLockup(
         ...positionStyle,
         height: `${layoutSafety.maxHeightPercent}%`,
       }}
-      data-caption-theme="modern_minimalist_lockup"
+      data-caption-theme={activeCaption.theme}
     >
       <div
         style={{
@@ -1345,7 +1345,17 @@ export default function CaptionRenderer({
     return renderAppleCinematic(activeCaption, currentTime, fps, scale, styleConfig, canvasSize);
   }
 
-  if (activeCaption.theme === "modern_minimalist_lockup") {
+  if ([
+    "modern_minimalist_lockup",
+    "skyline_italic",
+    "ember_focus",
+    "citrus_signature",
+    "volt_matrix",
+    "ivory_signature",
+    "cobalt_script",
+    "mint_ink",
+    "monument",
+  ].includes(activeCaption.theme)) {
     return renderModernMinimalistLockup(activeCaption, currentTime, fps, scale, styleConfig, canvasSize);
   }
 

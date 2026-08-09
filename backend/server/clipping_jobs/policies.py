@@ -166,6 +166,7 @@ DEFAULT_JOB_POLICIES: dict[str, JobTypePolicy] = {
     ),
     "clip_export": JobTypePolicy(3, 7200, 120, 30, 10),
     "caption_export": JobTypePolicy(3, 7200, 120, 30, 10),
+    "editor_export": JobTypePolicy(2, 7200, 120, 30, 10),
     "project_conversion": JobTypePolicy(2, 300, 90, 30, 15),
     "project_derivation": JobTypePolicy(2, 300, 90, 30, 15),
 }

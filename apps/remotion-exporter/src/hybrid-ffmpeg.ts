@@ -36,24 +36,29 @@ export function buildHybridFfmpegArgs({
 	overlay,
 	output,
 	preset = "veryfast",
+	threads = null,
+	seekInputs = false,
 }: {
 	props: CapInstaRemotionPropsV1;
 	base: HybridBaseVisual;
 	sourceFiles: ReadonlyMap<string, string>;
 	overlay: OverlayTransport;
 	output: string;
-	preset?: "veryfast" | "superfast";
+	preset?: "faster" | "veryfast" | "superfast";
+	threads?: 1 | 2 | null;
+	seekInputs?: boolean;
 }): string[] {
 	const { width, height, fps } = props.export;
 	const durationSeconds = props.timeline.edl.outputDurationMs / 1000;
 	const frames = Math.max(1, Math.round(durationSeconds * fps));
-	const args = ["-hide_banner", "-y"];
+	const args = ["-hide_banner", "-benchmark", "-progress", "pipe:1", "-nostats", "-y"];
 	let inputCount = 0;
 	const entryInputIndexes = props.timeline.edl.entries.map((entry) => {
 		const source = props.media.sources.find((candidate) => candidate.id === entry.sourceMediaId)!;
 		if (base.type === "solidColor" && (!source.hasAudio || source.muted)) return null;
 		const path = sourceFiles.get(entry.sourceMediaId);
 		if (!path) throw new Error(`Missing local source file ${entry.sourceMediaId}`);
+		if (seekInputs) args.push("-ss", seconds(entry.sourceStartMs), "-t", seconds(entry.sourceEndMs - entry.sourceStartMs));
 		args.push("-i", path);
 		return inputCount++;
 	});
@@ -80,7 +85,7 @@ export function buildHybridFfmpegArgs({
 			if (input === null) throw new Error(`Video base requires source ${entry.sourceMediaId}`);
 			const label = `v${index}`;
 			filters.push(
-				`[${input}:v]trim=start=${seconds(entry.sourceStartMs)}:end=${seconds(entry.sourceEndMs)},setpts=(PTS-STARTPTS)/${entry.playbackRate.toFixed(8)},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[${label}]`,
+				`[${input}:v]trim=start=${seconds(seekInputs ? 0 : entry.sourceStartMs)}:end=${seconds(seekInputs ? entry.sourceEndMs - entry.sourceStartMs : entry.sourceEndMs)},setpts=(PTS-STARTPTS)/${entry.playbackRate.toFixed(8)},scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1[${label}]`,
 			);
 			return `[${label}]`;
 		});
@@ -107,7 +112,7 @@ export function buildHybridFfmpegArgs({
 				const input = entryInputIndexes[index];
 				if (input === null) throw new Error(`Audio input missing for source ${entry.sourceMediaId}`);
 				const chain = atempoChain(entry.playbackRate);
-				filters.push(`[${input}:a]atrim=start=${seconds(entry.sourceStartMs)}:end=${seconds(entry.sourceEndMs)},asetpts=PTS-STARTPTS${chain.length ? `,${chain.join(",")}` : ""}[${label}]`);
+				filters.push(`[${input}:a]atrim=start=${seconds(seekInputs ? 0 : entry.sourceStartMs)}:end=${seconds(seekInputs ? entry.sourceEndMs - entry.sourceStartMs : entry.sourceEndMs)},asetpts=PTS-STARTPTS${chain.length ? `,${chain.join(",")}` : ""}[${label}]`);
 			} else {
 				filters.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${seconds(entry.outputDurationMs)}[${label}]`);
 			}
@@ -131,6 +136,7 @@ export function buildHybridFfmpegArgs({
 		"-frames:v", String(frames), "-r", String(fps),
 		"-c:v", "libx264", "-preset", preset, "-crf", String(({ fast: 28, draft: 28, standard: 23, balanced: 23, high: 18, best: 16 })[props.export.quality]), "-pix_fmt", "yuv420p",
 	);
+	if (threads !== null) args.push("-threads", String(threads));
 	if (audioLabel) args.push("-c:a", "aac", "-b:a", "192k");
 	args.push("-movflags", "+faststart", output);
 	return args;

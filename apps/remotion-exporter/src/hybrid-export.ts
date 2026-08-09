@@ -18,9 +18,19 @@ import { APP_DIR, BUNDLE_DIR, GENERATED_DIR } from "./paths";
 import { verifyOutput, type OutputVerification } from "./verify";
 import { ResourceMonitor, type ResourceUsageSummary } from "./resource-monitor";
 import { planOrdinaryHeldOverlay } from "./sparse-overlay";
+import { assertSafeBenchmarkEnvironment } from "./benchmark-environment";
 
 export type HybridOverlayTransport = "png" | "prores";
 export type HybridOverlayMode = "full-rate" | "ordinary-held-sparse";
+export type X264Preset = "faster" | "veryfast" | "superfast";
+
+export type FfmpegMetrics = {
+	userCpuSeconds: number | null;
+	systemCpuSeconds: number | null;
+	realSeconds: number | null;
+	maxRssKiB: number | null;
+	progress: { frame: number; fps: number; speed: number; outTimeSeconds: number };
+};
 
 export type HybridExportResult = {
 	output: string;
@@ -32,6 +42,8 @@ export type HybridExportResult = {
 	overlayBytes: number;
 	overlayFileCount: number;
 	overlayStates: number;
+	settings: { concurrency: number; x264Preset: X264Preset; x264Threads: 1 | 2 | "auto"; seekInputs: boolean };
+	ffmpeg: FfmpegMetrics;
 	resources: ResourceUsageSummary;
 	verification: OutputVerification;
 };
@@ -40,16 +52,48 @@ function hasOverlay(props: CapInstaRemotionPropsV1) {
 	return Boolean(props.captions?.document.clips.length);
 }
 
-function runFfmpeg(args: string[], setChild: (child: ChildProcess | null) => void) {
-	return new Promise<void>((resolvePromise, reject) => {
-		const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+function runFfmpeg(args: string[], setChild: (child: ChildProcess | null) => void, durationSeconds: number) {
+	return new Promise<FfmpegMetrics>((resolvePromise, reject) => {
+		const child = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
 		setChild(child);
 		let stderr = "";
+		let progressBuffer = "";
+		let lastReportedProgress = -1;
+		const progress = { frame: 0, fps: 0, speed: 0, outTimeSeconds: 0 };
+		child.stdout?.on("data", (chunk) => {
+			progressBuffer += String(chunk);
+			const lines = progressBuffer.split(/\r?\n/);
+			progressBuffer = lines.pop() ?? "";
+			for (const line of lines) {
+				const [key, value] = line.split("=", 2);
+				if (key === "frame") progress.frame = Number(value) || progress.frame;
+				else if (key === "fps") progress.fps = Number(value) || progress.fps;
+				else if (key === "speed") progress.speed = Number(value?.replace("x", "")) || progress.speed;
+				else if (key === "out_time_us") progress.outTimeSeconds = (Number(value) || 0) / 1_000_000;
+				if (key === "progress" || key === "out_time_us") {
+					const percent = Math.max(55, Math.min(94, 55 + Math.floor((Math.min(durationSeconds, progress.outTimeSeconds) / Math.max(0.001, durationSeconds)) * 39)));
+					if (percent >= lastReportedProgress + 5) {
+						lastReportedProgress = percent;
+						console.log(JSON.stringify({ event: "hybrid_progress", stage: "encoding", progress: percent, message: `Encoding video ${Math.round(progress.outTimeSeconds)}s / ${Math.round(durationSeconds)}s` }));
+					}
+				}
+			}
+		});
 		child.stderr?.on("data", (chunk) => { stderr = `${stderr}${chunk}`.slice(-16_000); });
 		child.once("error", reject);
 		child.once("exit", (code, signal) => {
 			setChild(null);
-			if (code === 0) resolvePromise();
+			if (code === 0) {
+				const benchmark = /bench:\s+utime=([0-9.]+)s\s+stime=([0-9.]+)s\s+rtime=([0-9.]+)s/.exec(stderr);
+				const rss = /maxrss=([0-9]+)k?i?B/i.exec(stderr);
+				resolvePromise({
+					userCpuSeconds: benchmark ? Number(benchmark[1]) : null,
+					systemCpuSeconds: benchmark ? Number(benchmark[2]) : null,
+					realSeconds: benchmark ? Number(benchmark[3]) : null,
+					maxRssKiB: rss ? Number(rss[1]) : null,
+					progress,
+				});
+			}
 			else reject(new Error(`ffmpeg exited ${code ?? signal}: ${stderr}`));
 		});
 	});
@@ -64,6 +108,9 @@ export async function exportHybrid({
 	overlayTransport = "png",
 	overlayMode = "full-rate",
 	concurrency = 1,
+	x264Preset = "veryfast",
+	x264Threads = "auto",
+	seekInputs = false,
 	keepOverlay = false,
 	signal,
 }: {
@@ -75,6 +122,9 @@ export async function exportHybrid({
 	overlayTransport?: HybridOverlayTransport;
 	overlayMode?: HybridOverlayMode;
 	concurrency?: number;
+	x264Preset?: X264Preset;
+	x264Threads?: 1 | 2 | "auto";
+	seekInputs?: boolean;
 	keepOverlay?: boolean;
 	signal?: AbortSignal;
 }): Promise<HybridExportResult> {
@@ -110,6 +160,7 @@ export async function exportHybrid({
 	let resources: ResourceUsageSummary | null = null;
 	try {
 		if (overlayRequired) {
+			console.log(JSON.stringify({ event: "hybrid_progress", stage: "rendering_captions", progress: 10, message: "Starting Remotion caption render" }));
 			browser = await openBrowser("chrome", { logLevel: "warn", chromiumOptions: { enableMultiProcessOnLinux: true } });
 			const selectStarted = performance.now();
 			const composition = await selectComposition({ serveUrl, id: REMOTION_OVERLAY_COMPOSITION_ID, inputProps: props, puppeteerInstance: browser, logLevel: "warn" });
@@ -117,6 +168,7 @@ export async function exportHybrid({
 			const overlayStarted = performance.now();
 			if (overlayTransport === "png") {
 				const sparsePlan = overlayMode === "ordinary-held-sparse" ? planOrdinaryHeldOverlay(props) : null;
+				let lastOverlayProgress = 9;
 				const statesDirectory = sparsePlan ? resolve(temporaryDirectory, "states") : temporaryDirectory;
 				await mkdir(statesDirectory, { recursive: true });
 				await renderFrames({
@@ -125,7 +177,14 @@ export async function exportHybrid({
 					frames: sparsePlan?.renderFrames,
 					concurrency, puppeteerInstance: browser, cancelSignal, muted: true, logLevel: "warn",
 					onStart: ({ frameCount, resolvedConcurrency }) => console.log(JSON.stringify({ event: "hybrid_overlay_start", frameCount, resolvedConcurrency, transport: "png" })),
-					onFrameUpdate: () => undefined,
+					onFrameUpdate: (frame) => {
+						const frameCount = metadataForProps(props).durationInFrames;
+						const progress = Math.min(54, 10 + Math.floor(((frame + 1) / Math.max(1, frameCount)) * 44));
+						if (progress >= lastOverlayProgress + 5) {
+							lastOverlayProgress = progress;
+							console.log(JSON.stringify({ event: "hybrid_progress", stage: "rendering_captions", progress, message: `Rendering captions ${frame + 1} / ${frameCount}` }));
+						}
+					},
 				});
 				const { durationInFrames } = metadataForProps(props);
 				overlayFileCount = sparsePlan?.renderFrames.length ?? durationInFrames;
@@ -158,8 +217,10 @@ export async function exportHybrid({
 		}
 
 		const ffmpegStarted = performance.now();
-		await runFfmpeg(buildHybridFfmpegArgs({ props, base, sourceFiles, overlay: transport, output }), (active) => { child = active; });
+		console.log(JSON.stringify({ event: "hybrid_progress", stage: "composing_video", progress: 55, message: "Composing video with FFmpeg" }));
+		const ffmpeg = await runFfmpeg(buildHybridFfmpegArgs({ props, base, sourceFiles, overlay: transport, output, preset: x264Preset, threads: x264Threads === "auto" ? null : x264Threads, seekInputs }), (active) => { child = active; }, metadataForProps(props).durationInFrames / props.export.fps);
 		const ffmpegSeconds = (performance.now() - ffmpegStarted) / 1000;
+		console.log(JSON.stringify({ event: "hybrid_progress", stage: "verifying", progress: 95, message: "Verifying final MP4" }));
 		const verification = await verifyOutput(output, props);
 		resources = await resourceMonitor.stop();
 		const result: HybridExportResult = {
@@ -172,6 +233,8 @@ export async function exportHybrid({
 			overlayBytes,
 			overlayFileCount,
 			overlayStates: overlayFileCount,
+			settings: { concurrency, x264Preset, x264Threads, seekInputs },
+			ffmpeg,
 			resources,
 			verification,
 		};
@@ -197,10 +260,17 @@ async function main() {
 		base: { type: "string", default: "video" }, color: { type: "string", default: "#000000" },
 		transport: { type: "string", default: "png" }, concurrency: { type: "string", default: "1" }, keepOverlay: { type: "boolean", default: false },
 		sparse: { type: "boolean", default: false },
+		preset: { type: "string", default: "veryfast" }, threads: { type: "string", default: "auto" }, seekInputs: { type: "boolean", default: false },
+		source: { type: "string" }, sources: { type: "string" },
+		benchmark: { type: "boolean", default: false },
 	} });
 	if (!values.props || !values.output) throw new Error("Usage: bun run hybrid --props <json> --output <mp4> [--base video|solidColor]");
+	if (values.benchmark) assertSafeBenchmarkEnvironment();
 	const props = validateRemotionProps(JSON.parse(await readFile(resolve(values.props), "utf8")));
-	const sourceFiles = new Map(props.media.sources.map((source) => [source.id, resolve(GENERATED_DIR, basename(new URL(source.url, "http://localhost").pathname))]));
+	if (values.source && values.sources) throw new Error("Use either --source or --sources");
+	if (values.source && props.media.sources.length !== 1) throw new Error("--source supports exactly one media source in this isolated CLI");
+	const explicitSources = values.sources ? JSON.parse(await readFile(resolve(values.sources), "utf8")) as Record<string, string> : {};
+	const sourceFiles = new Map(props.media.sources.map((source) => [source.id, values.source ? resolve(values.source) : explicitSources[source.id] ? resolve(explicitSources[source.id]) : resolve(GENERATED_DIR, basename(new URL(source.url, "http://localhost").pathname))]));
 	await exportHybrid({
 		props,
 		base: values.base === "solidColor" ? { type: "solidColor", color: values.color } : { type: "video" },
@@ -210,11 +280,20 @@ async function main() {
 		overlayTransport: values.transport === "prores" ? "prores" : "png",
 		overlayMode: values.sparse ? "ordinary-held-sparse" : "full-rate",
 		concurrency: Number(values.concurrency) || 1,
+		x264Preset: values.preset === "faster" ? "faster" : values.preset === "superfast" ? "superfast" : "veryfast",
+		x264Threads: values.threads === "1" ? 1 : values.threads === "2" ? 2 : "auto",
+		seekInputs: values.seekInputs,
 		keepOverlay: values.keepOverlay,
 	});
 }
 
 if (import.meta.main) main().catch((error) => {
-	console.error(JSON.stringify({ event: "hybrid_export_error", message: error instanceof Error ? error.message : String(error) }));
+	const message = error instanceof Error ? error.message : String(error);
+	const code = message.includes("OUTPUT_INVALID")
+		? "EXPORT_OUTPUT_INVALID"
+		: message.startsWith("ffmpeg exited")
+			? "EXPORT_FFMPEG_FAILED"
+			: "EXPORT_REMOTION_FAILED";
+	console.error(JSON.stringify({ event: "hybrid_export_error", code, message }));
 	process.exitCode = 1;
 });
