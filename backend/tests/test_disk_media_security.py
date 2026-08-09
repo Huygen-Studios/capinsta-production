@@ -508,8 +508,11 @@ def test_upload_magic_mismatch_is_rejected(tmp_path: Path):
     assert error.value.detail["code"] == "upload_magic_mismatch"
 
 
-def test_caption_job_upload_metadata_accepts_range_audio():
-    assert jobs_api._validate_upload_metadata(UploadStub("voice.mp3", "audio/mpeg")) == "voice.mp3"
+def test_caption_job_upload_metadata_requires_video():
+    with pytest.raises(HTTPException) as error:
+        jobs_api._validate_upload_metadata(UploadStub("voice.mp3", "audio/mpeg"))
+
+    assert error.value.status_code == 415
 
 
 def test_migration_planner_finds_legacy_media_job_and_export(monkeypatch, tmp_path: Path):
@@ -582,27 +585,6 @@ def test_storage_roots_are_not_public_static_mounts():
     assert "/exports" not in mounted_paths
     assert "/storage" not in mounted_paths
     assert "/tmp" not in mounted_paths
-
-
-def test_container_entrypoint_prepares_all_production_worker_roots():
-    entrypoint = (Path(__file__).parents[1] / "docker-entrypoint.sh").read_text("utf-8")
-    for name in (
-        "AUTOMATIC_CLIPPER_TEMP_ROOT",
-        "MEDIA_VARIANT_TEMP_ROOT",
-        "TRANSCRIPTION_TEMP_ROOT",
-        "CLIPPING_EXPORT_TEMP_ROOT",
-    ):
-        assert name in entrypoint
-
-
-def test_container_entrypoint_runs_only_the_normal_editor_export_worker():
-    entrypoint = (Path(__file__).parents[1] / "docker-entrypoint.sh").read_text("utf-8")
-
-    assert "python -m server.production.migrate" in entrypoint
-    assert "ENABLE_EDITOR_EXPORT_HANDLER=true" in entrypoint
-    assert "PROCESSING_WORKER_REQUIRED_JOB_TYPES=editor_export" in entrypoint
-    assert "ENABLE_CLIPPING_EXPORT_HANDLER=false" in entrypoint
-    assert "ENABLE_VIRAL_CANDIDATE_ANALYSIS=false" in entrypoint
 
 
 def test_legacy_filename_export_download_is_closed():

@@ -16,10 +16,7 @@ import { UpdateProjectSettingsCommand } from "@/commands/project";
 import { DEFAULT_BACKGROUND_COLOR } from "@/background/color";
 import { DEFAULT_CANVAS_SIZE } from "@/canvas/sizes";
 import { DEFAULT_FPS } from "@/fps/defaults";
-import {
-	buildDefaultScene,
-	getProjectDurationFromScenes,
-} from "@/timeline/scenes";
+import { buildDefaultScene, getProjectDurationFromScenes } from "@/timeline/scenes";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import {
@@ -35,7 +32,6 @@ import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
 import type { MediaAsset } from "@/media/types";
 import type { CapinstaCaptionDocumentRecord } from "@/capinsta/types";
 import { upsertCapinstaCaptionDocument } from "@/capinsta/projectMetadata";
-import { persistSelectedClipState } from "@/services/clip-batches/local";
 
 export interface MigrationState {
 	isMigrating: boolean;
@@ -204,18 +200,15 @@ export class ProjectManager {
 
 		try {
 			const scenes = this.editor.scenes.getScenes();
-			const updatedProject = persistSelectedClipState({
-				project: {
-					...this.active,
-					scenes,
-					metadata: {
-						...this.active.metadata,
-						duration: getProjectDurationFromScenes({ scenes }),
-						updatedAt: new Date(),
-					},
-				},
+			const updatedProject = {
+				...this.active,
 				scenes,
-			});
+				metadata: {
+					...this.active.metadata,
+					duration: getProjectDurationFromScenes({ scenes }),
+					updatedAt: new Date(),
+				},
+			};
 
 			await storageService.saveProject({ project: updatedProject });
 			this.active = updatedProject;
@@ -225,11 +218,7 @@ export class ProjectManager {
 		}
 	}
 
-	async setCapinstaServerJobId({
-		jobId,
-	}: {
-		jobId: string | null;
-	}): Promise<void> {
+	async setCapinstaServerJobId({ jobId }: { jobId: string | null }): Promise<void> {
 		if (!this.active) return;
 		const updatedProject: TProject = {
 			...this.active,
@@ -607,8 +596,7 @@ export class ProjectManager {
 	}: {
 		records: CapinstaCaptionDocumentRecord[];
 	}): void {
-		if (!this.active || this.active.capinstaCaptionDocuments === records)
-			return;
+		if (!this.active || this.active.capinstaCaptionDocuments === records) return;
 
 		this.active = {
 			...this.active,
@@ -654,20 +642,14 @@ export class ProjectManager {
 			project.name.toLowerCase().includes(searchQuery.toLowerCase()),
 		);
 
-		const key = sortOption.replace(/-(?:asc|desc)$/u, "");
-		if (
-			key !== "createdAt" &&
-			key !== "updatedAt" &&
-			key !== "name" &&
-			key !== "duration"
-		)
-			return filteredProjects;
-		const typedKey: TProjectSortKey = key;
-		const order = sortOption.endsWith("-asc") ? "asc" : "desc";
+		const [key, order] = sortOption.split("-") as [
+			TProjectSortKey,
+			"asc" | "desc",
+		];
 
 		const sortedProjects = [...filteredProjects].sort((a, b) => {
-			const aValue = a[typedKey];
-			const bValue = b[typedKey];
+			const aValue = a[key];
+			const bValue = b[key];
 
 			if (order === "asc") {
 				if (aValue < bValue) return -1;

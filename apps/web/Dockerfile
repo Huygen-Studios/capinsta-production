@@ -5,22 +5,14 @@ FROM base AS builder
 WORKDIR /app
 
 ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
-ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
-ARG NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder
-ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=/api/capinsta
-ARG NEXT_PUBLIC_ENABLE_AI_CAPTIONS=true
+ARG MARBLE_WORKSPACE_KEY=build-placeholder
 ARG NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY=headless
-ARG NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF=true
-ARG NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA=true
 
 COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 
 COPY apps/web/package.json apps/web/package.json
-COPY packages/transcript-contract/ packages/transcript-contract/
-COPY rust/wasm/pkg/ rust/wasm/pkg/
 RUN bun install
 
 COPY apps/web/ apps/web/
@@ -28,27 +20,18 @@ COPY apps/web/ apps/web/
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
-ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-ENV NEXT_PUBLIC_CAPINSTA_API_BASE_URL=$NEXT_PUBLIC_CAPINSTA_API_BASE_URL
-ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS=$NEXT_PUBLIC_ENABLE_AI_CAPTIONS
+# Build-time env stubs to pass zod validation
+ENV DATABASE_URL="postgresql://opencut:opencut@localhost:5432/opencut"
+ENV BETTER_AUTH_SECRET="build-time-secret"
+ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
+ENV UPSTASH_REDIS_REST_TOKEN="example_token"
+ENV NEXT_PUBLIC_SITE_URL="http://localhost:3000"
 ENV NEXT_PUBLIC_MARBLE_API_URL=$NEXT_PUBLIC_MARBLE_API_URL
 ENV NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY=$NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY
-ENV NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF=$NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF
-ENV NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA=$NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA
+ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 
 WORKDIR /app/apps/web
-RUN DATABASE_URL=postgresql://build:build@localhost:5432/build \
-  BETTER_AUTH_SECRET=build-placeholder-not-used-at-runtime \
-  UPSTASH_REDIS_REST_URL=http://localhost:8079 \
-  UPSTASH_REDIS_REST_TOKEN=build-placeholder \
-  MARBLE_WORKSPACE_KEY=build-placeholder \
-  SUPABASE_SERVICE_ROLE_KEY=00000000000000000000 \
-  ADMIN_SECURITY_PEPPER=00000000000000000000000000000000 \
-  INTERNAL_ADMIN_API_SECRET=00000000000000000000000000000000 \
-  INTERNAL_MAINTENANCE_SECRET=00000000000000000000000000000000 \
-  ./node_modules/.bin/next build
+RUN ./node_modules/.bin/next build
 
 # Production image
 FROM base AS runner
@@ -56,7 +39,23 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+ENV UPSTASH_REDIS_REST_URL="http://localhost:8079"
+ENV UPSTASH_REDIS_REST_TOKEN="build-time-placeholder-token"
+ENV SUPABASE_SERVICE_ROLE_KEY="build-time-placeholder-service-role-key"
+ENV ADMIN_SECURITY_PEPPER="build-time-placeholder-admin-security-pepper"
+ENV INTERNAL_ADMIN_API_SECRET="build-time-placeholder-internal-admin-api-secret"
+ENV INTERNAL_MAINTENANCE_SECRET="build-time-placeholder-maintenance-secret"
 ENV ADMIN_ASSERTION_ISSUER="capinsta-web"
+ENV BACKEND_INTERNAL_URL="http://127.0.0.1:10000"
+ENV TRUSTED_PROXY_MODE="none"
+ENV NEXT_PUBLIC_SITE_URL="http://localhost:3000"
+ENV NEXT_PUBLIC_SUPABASE_URL="https://example.supabase.co"
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY="build-placeholder"
+ENV NEXT_PUBLIC_MARBLE_API_URL="https://api.marblecms.com"
+ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS="true"
+ENV NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY="headless"
+ENV MARBLE_WORKSPACE_KEY="build-placeholder"
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

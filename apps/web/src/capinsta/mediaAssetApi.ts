@@ -1,9 +1,9 @@
 import { authenticatedFetch } from "@/lib/supabase/authenticated-fetch";
 import { buildCapinstaApiUrl } from "./api-url";
-import { getCapinstaMediaUploadBaseUrl } from "./featureFlags";
+import { getCapinstaApiBaseUrl } from "./featureFlags";
 
 function endpoint(path: string): string {
-	return buildCapinstaApiUrl({ baseUrl: getCapinstaMediaUploadBaseUrl(), path });
+	return buildCapinstaApiUrl({ baseUrl: getCapinstaApiBaseUrl(), path });
 }
 
 const MEDIA_UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024;
@@ -88,10 +88,7 @@ export function messageForMediaFailure({
 		return "The media upload request is missing required fields.";
 	if (status === 429) return "Too many uploads. Please try again shortly.";
 	if (status === 503 || code === "backend_unreachable") {
-		return (
-			fallback ||
-			"The processing API is unavailable before the upload could begin."
-		);
+		return "The media service is temporarily unavailable.";
 	}
 	if (status >= 500) return "The media service could not save this file.";
 	return fallback || "Media upload failed.";
@@ -205,12 +202,7 @@ export async function uploadProjectMediaAsset({
 			size: file.size,
 			error,
 		});
-		if (signal?.aborted) throw error;
-		throw new MediaUploadError({
-			message: "The video-processing service is temporarily unavailable.",
-			status: 0,
-			code: "network_error",
-		});
+		throw error;
 	}
 	if (!response.ok) {
 		throw await readError({
@@ -265,24 +257,11 @@ async function uploadProjectMediaAssetInChunks({
 	initForm.append("mime_type", file.type || "application/octet-stream");
 	initForm.append("size_bytes", file.size.toString());
 	const initEndpoint = endpoint("/media/assets/chunked");
-	let initResponse: Response;
-	try {
-		initResponse = await authenticatedFetch(initEndpoint, {
-			method: "POST",
-			body: initForm,
-			signal,
-		});
-	} catch (error) {
-		if (error instanceof TypeError) {
-			throw new MediaUploadError({
-				message:
-					"The processing API is unavailable before the upload could begin. The media-upload service could not be reached from this site. An administrator must check the API health and CORS configuration.",
-				status: 503,
-				code: "media_service_unreachable",
-			});
-		}
-		throw error;
-	}
+	const initResponse = await authenticatedFetch(initEndpoint, {
+		method: "POST",
+		body: initForm,
+		signal,
+	});
 	if (!initResponse.ok) {
 		throw await readError({
 			response: initResponse,
@@ -315,28 +294,15 @@ async function uploadProjectMediaAssetInChunks({
 		const chunkEndpoint = endpoint(
 			`/media/assets/chunked/${encodeURIComponent(uploadId)}`,
 		);
-		let chunkResponse: Response;
-		try {
-			chunkResponse = await authenticatedFetch(chunkEndpoint, {
-				method: "PUT",
-				body: chunk,
-				headers: {
-					"Content-Type": "application/octet-stream",
-					"X-Upload-Offset": offset.toString(),
-				},
-				signal,
-			});
-		} catch (error) {
-			if (error instanceof TypeError) {
-				throw new MediaUploadError({
-					message:
-						"The media chunk upload was interrupted. Check your network connection and retry.",
-					status: 503,
-					code: "media_chunk_upload_interrupted",
-				});
-			}
-			throw error;
-		}
+		const chunkResponse = await authenticatedFetch(chunkEndpoint, {
+			method: "PUT",
+			body: chunk,
+			headers: {
+				"Content-Type": "application/octet-stream",
+				"X-Upload-Offset": offset.toString(),
+			},
+			signal,
+		});
 		if (!chunkResponse.ok) {
 			throw await readError({
 				response: chunkResponse,
@@ -356,23 +322,10 @@ async function uploadProjectMediaAssetInChunks({
 	const completeEndpoint = endpoint(
 		`/media/assets/chunked/${encodeURIComponent(uploadId)}/complete`,
 	);
-	let completeResponse: Response;
-	try {
-		completeResponse = await authenticatedFetch(completeEndpoint, {
-			method: "POST",
-			signal,
-		});
-	} catch (error) {
-		if (error instanceof TypeError) {
-			throw new MediaUploadError({
-				message:
-					"The processing API could not finalize the media upload. Please retry.",
-				status: 503,
-				code: "media_completion_failed",
-			});
-		}
-		throw error;
-	}
+	const completeResponse = await authenticatedFetch(completeEndpoint, {
+		method: "POST",
+		signal,
+	});
 	if (!completeResponse.ok) {
 		throw await readError({ response: completeResponse });
 	}

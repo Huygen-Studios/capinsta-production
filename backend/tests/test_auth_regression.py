@@ -55,20 +55,6 @@ def test_missing_header_is_401():
     assert error.value.status_code == 401
 
 
-def test_local_auth_bypass_cannot_enable_in_production(monkeypatch):
-    monkeypatch.setenv("NODE_ENV", "production")
-    monkeypatch.setenv("ENABLE_LOCAL_DEVELOPMENT_ACCESS", "true")
-    assert auth.local_development_access_enabled() is False
-    with pytest.raises(auth.MissingAuthorizationError):
-        auth.authenticate_request(request())
-
-
-def test_local_development_user_id_is_a_contract_valid_uuid():
-    local_user_id = uuid.UUID(auth.LOCAL_DEVELOPMENT_USER_ID)
-    assert local_user_id.version == 4
-    assert local_user_id.variant == uuid.RFC_4122
-
-
 def test_empty_bearer_is_401():
     with pytest.raises(auth.MissingAuthorizationError):
         auth.authenticate_request(request("Bearer "))
@@ -332,38 +318,6 @@ def test_v1_protected_routes_use_same_auth_boundary(monkeypatch):
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize(
-    "path",
-    (
-        "/api/clipping/workflows/00000000-0000-0000-0000-000000000001/advance",
-        "/api/v1/clipping/workflows/00000000-0000-0000-0000-000000000001/advance",
-        "/api/clipping/batches",
-        "/api/v1/clipping/batches",
-        "/api/clipping/exports/00000000-0000-0000-0000-000000000001",
-        "/api/v1/clipping/exports/00000000-0000-0000-0000-000000000001",
-    ),
-)
-def test_clipper_routes_receive_authenticated_user(monkeypatch, path):
-    authenticated = auth.AuthenticatedUser(id=str(uuid.uuid4()))
-    monkeypatch.setattr(main, "authenticate_request", lambda unused: authenticated)
-
-    async def allowed(*unused):
-        return None
-
-    async def call_next(unused):
-        assert auth.current_user() == authenticated
-        return JSONResponse({"ok": True})
-
-    monkeypatch.setattr(main, "require_active_account", allowed)
-    monkeypatch.setattr(main, "require_backend_capability", allowed)
-    monkeypatch.setattr(main, "enforce_api_rate_limit", allowed)
-    protected = Request(
-        {"type": "http", "method": "POST", "path": path, "headers": []}
-    )
-
-    assert asyncio.run(main.require_supabase_auth(protected, call_next)).status_code == 200
-
-
 def test_database_password_failure_has_safe_reason():
     class PasswordFailure(Exception):
         sqlstate = "28P01"
@@ -373,7 +327,7 @@ def test_database_password_failure_has_safe_reason():
     assert policy.control_plane_error_reason(error) == "database_authentication_failed"
 
 
-def test_public_mode_backend_allows_pending_authenticated_user(monkeypatch):
+def test_public_mode_backend_requires_approved_product_access(monkeypatch):
     user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
     calls = iter([
         ("pending", None),
@@ -397,10 +351,12 @@ def test_public_mode_backend_allows_pending_authenticated_user(monkeypatch):
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
     monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
-    asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
+    with pytest.raises(policy.ProductAccessDeniedError) as error:
+        asyncio.run(policy.require_backend_capability(user, "/api/media/assets"))
+    assert error.value.reason == "product_access_pending"
 
 
-def test_public_mode_backend_allows_exports_without_manual_permission(monkeypatch):
+def test_public_mode_backend_requires_exact_app_permission(monkeypatch):
     user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
     calls = iter([
         ("approved", None),
@@ -424,40 +380,9 @@ def test_public_mode_backend_allows_exports_without_manual_permission(monkeypatc
     monkeypatch.setattr(policy, "is_super_admin", super_admin)
     monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
 
-    asyncio.run(policy.require_backend_capability(user, "/api/export/jobs"))
-
-
-def test_public_mode_backend_honors_explicit_permission_deny(monkeypatch):
-    user = auth.AuthenticatedUser(id=str(uuid.uuid4()))
-    calls = iter([
-        ("approved", None),
-        ("public",),
-    ])
-
-    async def query_one(query, params=()):
-        return next(calls)
-
-    async def permissions(unused):
-        return {"clipper.access"}
-
-    async def denied(unused):
-        return {"clipper.access"}
-
-    async def super_admin(unused):
-        return False
-
-    async def direct_entitlements(unused):
-        return set(), set()
-
-    monkeypatch.setattr(policy, "_query_one", query_one)
-    monkeypatch.setattr(policy, "effective_app_permissions", permissions)
-    monkeypatch.setattr(policy, "denied_app_permissions", denied)
-    monkeypatch.setattr(policy, "is_super_admin", super_admin)
-    monkeypatch.setattr(policy, "direct_product_entitlements", direct_entitlements)
-
     with pytest.raises(policy.ProductAccessDeniedError) as error:
-        asyncio.run(policy.require_backend_capability(user, "/api/clipping/media/uploads"))
-    assert error.value.reason == "missing_permission:clipper.access"
+        asyncio.run(policy.require_backend_capability(user, "/api/export/jobs"))
+    assert error.value.reason == "missing_permission:exports.access"
 
 
 def test_public_mode_backend_allows_approved_member_with_permission(monkeypatch):

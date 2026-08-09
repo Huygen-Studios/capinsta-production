@@ -16,53 +16,6 @@ from .transcription_control import record_provider_failure, record_provider_succ
 logger = logging.getLogger(__name__)
 
 
-def _e2e_transcription_result(video_path: str, target_lang: str) -> dict | None:
-    """Deterministic provider substitute for the disposable browser E2E only."""
-    if not (
-        os.getenv("CAPINSTA_E2E_TRANSCRIPTION") == "true"
-        and os.getenv("ENABLE_LOCAL_DEVELOPMENT_ACCESS") == "true"
-        and os.getenv("NODE_ENV", "development") != "production"
-    ):
-        return None
-    duration = 1.5
-    try:
-        import wave
-
-        with wave.open(video_path, "rb") as audio:
-            duration = audio.getnframes() / max(1, audio.getframerate())
-    except (OSError, EOFError, wave.Error):
-        pass
-    end = max(0.1, min(1.5, duration))
-    segments = [{
-        "start": 0.0,
-        "end": end,
-        "text": "Deterministic clip caption",
-        "words": [{
-            "word": "Deterministic",
-            "start": 0.0,
-            "end": min(end, 0.75),
-            "confidence": 1.0,
-        }, {
-            "word": "clip caption",
-            "start": min(end, 0.75),
-            "end": end,
-            "confidence": 1.0,
-        }],
-    }]
-    return {
-        "status": "success",
-        "segments": segments,
-        "transcript": {
-            "languageMode": target_lang,
-            "provider": {"name": "gemini", "model": "e2e-deterministic"},
-            "segments": segments,
-            "metadata": {"e2eDeterministicProvider": True},
-        },
-        "srt": f"1\n00:00:00,000 --> 00:00:{end:06.3f}\nDeterministic clip caption\n",
-        "vtt": f"WEBVTT\n\n00:00:00.000 --> 00:00:{end:06.3f}\nDeterministic clip caption\n",
-    }
-
-
 def _utc_now_text() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -378,7 +331,7 @@ def run_pipeline_sync(
         _log_stage(job_id, "pipeline started", video_path=video_path, language_mode=target_lang)
         on_progress("extracting_audio", 1, "Pipeline started.")
         
-        result = _e2e_transcription_result(video_path, target_lang) or run_pipeline(
+        result = run_pipeline(
             video_path=video_path,
             user_target_lang=target_lang,
             caption_output=caption_output,

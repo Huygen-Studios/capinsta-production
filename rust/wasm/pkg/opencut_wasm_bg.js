@@ -19,25 +19,6 @@ export function activeCaptionState(options) {
 }
 
 /**
- * @param {number} source_start_ms
- * @param {number} source_end_ms
- * @param {string} mode
- * @param {number} delta_ms
- * @param {number} source_duration_ms
- * @param {number} maximum_duration_ms
- * @returns {any}
- */
-export function adjustLocalClipRange(source_start_ms, source_end_ms, mode, delta_ms, source_duration_ms, maximum_duration_ms) {
-    const ptr0 = passStringToWasm0(mode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.adjustLocalClipRange(source_start_ms, source_end_ms, ptr0, len0, delta_ms, source_duration_ms, maximum_duration_ms);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
  * @param {any} options
  * @returns {OffscreenCanvas}
  */
@@ -67,20 +48,6 @@ export function applyMaskFeather(options) {
  */
 export function canonicalizeCaptionDocument(options) {
     const ret = wasm.canonicalizeCaptionDocument(options);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * @param {number} canvas_width
- * @param {number} canvas_height
- * @param {number} character_count
- * @returns {any}
- */
-export function defaultLocalClipHeadingLayout(canvas_width, canvas_height, character_count) {
-    const ret = wasm.defaultLocalClipHeadingLayout(canvas_width, canvas_height, character_count);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -167,29 +134,6 @@ export function floorToFrame(arg0) {
 }
 
 /**
- * @param {number} milliseconds
- * @returns {string}
- */
-export function formatLocalClipTimecode(milliseconds) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        const ret = wasm.formatLocalClipTimecode(milliseconds);
-        var ptr1 = ret[0];
-        var len1 = ret[1];
-        if (ret[3]) {
-            ptr1 = 0; len1 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred2_0 = ptr1;
-        deferred2_1 = len1;
-        return getStringFromWasm0(ptr1, len1);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-    }
-}
-
-/**
  * @param {FormatTimecodeOptions} arg0
  * @returns {string | undefined}
  */
@@ -243,20 +187,6 @@ export function initCompositor(width, height) {
 }
 
 /**
- * @param {number} source_duration_ms
- * @param {number} count
- * @param {number} maximum_duration_ms
- * @returns {any}
- */
-export function initialLocalClipRanges(source_duration_ms, count, maximum_duration_ms) {
-    const ret = wasm.initialLocalClipRanges(source_duration_ms, count, maximum_duration_ms);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
  * @returns {Promise<void>}
  */
 export function initializeGpu() {
@@ -274,37 +204,12 @@ export function isFrameAligned(arg0) {
 }
 
 /**
- * @param {string} name
- * @returns {boolean}
- */
-export function isSafeLocalClipZipEntry(name) {
-    const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.isSafeLocalClipZipEntry(ptr0, len0);
-    return ret !== 0;
-}
-
-/**
  * @param {LastFrameTimeOptions} arg0
  * @returns {MediaTime | undefined}
  */
 export function lastFrameTime(arg0) {
     const ret = wasm.lastFrameTime(arg0);
     return ret;
-}
-
-/**
- * @param {number} clip_time_ms
- * @param {number} source_start_ms
- * @param {number} source_end_ms
- * @returns {number}
- */
-export function localClipToSourceTime(clip_time_ms, source_start_ms, source_end_ms) {
-    const ret = wasm.localClipToSourceTime(clip_time_ms, source_start_ms, source_end_ms);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return ret[0];
 }
 
 /**
@@ -389,20 +294,6 @@ export function mediaTimeToSeconds(arg0) {
 }
 
 /**
- * @param {string} value
- * @returns {number}
- */
-export function parseLocalClipTimecode(value) {
-    const ptr0 = passStringToWasm0(value, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.parseLocalClipTimecode(ptr0, len0);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return ret[0];
-}
-
-/**
  * @param {ParseTimecodeOptions} arg0
  * @returns {MediaTime | undefined}
  */
@@ -478,45 +369,12 @@ export function roundToFrame(arg0) {
 }
 
 /**
- * @param {string} title
- * @returns {string}
- */
-export function sanitizeLocalClipFilename(title) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        const ptr0 = passStringToWasm0(title, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.sanitizeLocalClipFilename(ptr0, len0);
-        deferred2_0 = ret[0];
-        deferred2_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-    }
-}
-
-/**
  * @param {SnappedSeekTimeOptions} arg0
  * @returns {MediaTime | undefined}
  */
 export function snappedSeekTime(arg0) {
     const ret = wasm.snappedSeekTime(arg0);
     return ret;
-}
-
-/**
- * @param {number} source_time_ms
- * @param {number} source_start_ms
- * @param {number} source_end_ms
- * @returns {number}
- */
-export function sourceToLocalClipTime(source_time_ms, source_start_ms, source_end_ms) {
-    const ret = wasm.sourceToLocalClipTime(source_time_ms, source_start_ms, source_end_ms);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return ret[0];
 }
 
 /**
@@ -2662,12 +2520,12 @@ export function __wbg_writeTexture_d42ce6ec94b2c6ca() { return handleError(funct
     arg0.writeTexture(arg1, getArrayU8FromWasm0(arg2, arg3), arg4, arg5);
 }, arguments); }
 export function __wbindgen_cast_0000000000000001(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2533, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 2531, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm_bindgen_3a360b6f32878bad___convert__closures_____invoke___wasm_bindgen_3a360b6f32878bad___JsValue__core_9b3796e30d99ddb7___result__Result_____wasm_bindgen_3a360b6f32878bad___JsError___true_);
     return ret;
 }
 export function __wbindgen_cast_0000000000000002(arg0, arg1) {
-    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 453, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 451, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
     const ret = makeMutClosure(arg0, arg1, wasm_bindgen_3a360b6f32878bad___convert__closures_____invoke___wasm_bindgen_3a360b6f32878bad___JsValue______true_);
     return ret;
 }

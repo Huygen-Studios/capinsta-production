@@ -252,7 +252,6 @@ async function resolveVideoNode({
 	const frame = await videoCache.getFrameAt({
 		mediaId: node.params.mediaId,
 		file: node.params.file,
-		url: node.params.url,
 		time: mediaTimeToSeconds({
 			time: roundMediaTime({ time: sourceTimeTicks }),
 		}),
@@ -563,7 +562,6 @@ async function resolveBackdropSource({
 		const frame = await videoCache.getFrameAt({
 			mediaId: node.params.mediaId,
 			file: node.params.file,
-			url: node.params.url,
 			time: mediaTimeToSeconds({
 				time: roundMediaTime({ time: sourceTimeTicks }),
 			}),

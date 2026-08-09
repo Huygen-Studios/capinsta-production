@@ -2,7 +2,6 @@ import {
 	Input,
 	ALL_FORMATS,
 	BlobSource,
-	UrlSource,
 	CanvasSink,
 	type WrappedCanvas,
 } from "mediabunny";
@@ -35,15 +34,13 @@ export class VideoCache {
 	async getFrameAt({
 		mediaId,
 		file,
-		url,
 		time,
 	}: {
 		mediaId: string;
 		file: File;
-		url?: string;
 		time: number;
 	}): Promise<WrappedCanvas | null> {
-		await this.ensureSink({ mediaId, file, url });
+		await this.ensureSink({ mediaId, file });
 
 		const sinkData = this.sinks.get(mediaId);
 		if (!sinkData) return null;
@@ -303,11 +300,9 @@ export class VideoCache {
 	private async ensureSink({
 		mediaId,
 		file,
-		url,
 	}: {
 		mediaId: string;
 		file: File;
-		url?: string;
 	}): Promise<void> {
 		if (this.sinks.has(mediaId)) return;
 
@@ -316,7 +311,7 @@ export class VideoCache {
 			return;
 		}
 
-		const initPromise = this.initializeSink({ mediaId, file, url });
+		const initPromise = this.initializeSink({ mediaId, file });
 		this.initPromises.set(mediaId, initPromise);
 
 		try {
@@ -328,20 +323,12 @@ export class VideoCache {
 	private async initializeSink({
 		mediaId,
 		file,
-		url,
 	}: {
 		mediaId: string;
 		file: File;
-		url?: string;
 	}): Promise<void> {
 		const input = new Input({
-			source:
-				file.size > 0
-					? new BlobSource(file)
-					: new UrlSource(url ?? "", {
-							requestInit: { cache: "no-store", credentials: "omit" },
-							maxCacheSize: 32 * 1024 * 1024,
-						}),
+			source: new BlobSource(file),
 			formats: ALL_FORMATS,
 		});
 
@@ -437,17 +424,7 @@ function sampleCanvasPixels({
 		});
 		if (!context) return null;
 
-		context.drawImage(
-			canvas,
-			0,
-			0,
-			width,
-			height,
-			0,
-			0,
-			sampleSize,
-			sampleSize,
-		);
+		context.drawImage(canvas, 0, 0, width, height, 0, 0, sampleSize, sampleSize);
 		const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
 		let red = 0;
 		let green = 0;

@@ -60,7 +60,6 @@ export function styleToExport({
 			fontWeight:
 				style.text.fontWeight === "normal" ? "normal" : "bold",
 			letterSpacing: style.text.letterSpacing,
-			wordSpacing: style.text.wordSpacing,
 			lineHeight: style.text.lineHeight,
 			"background.enabled": style.background.enabled,
 			"background.color": style.background.color,

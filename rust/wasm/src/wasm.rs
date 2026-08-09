@@ -7,8 +7,6 @@ mod effects;
 #[cfg(target_arch = "wasm32")]
 mod gpu;
 #[cfg(target_arch = "wasm32")]
-mod local_clipping;
-#[cfg(target_arch = "wasm32")]
 mod masks;
 #[cfg(target_arch = "wasm32")]
 mod paper_fold;
@@ -23,8 +21,6 @@ pub use compositor::*;
 pub use effects::*;
 #[cfg(target_arch = "wasm32")]
 pub use gpu::*;
-#[cfg(target_arch = "wasm32")]
-pub use local_clipping::*;
 #[cfg(target_arch = "wasm32")]
 pub use masks::*;
 #[cfg(target_arch = "wasm32")]

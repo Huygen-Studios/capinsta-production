@@ -38,10 +38,6 @@ import type {
 	NeutralCaptionWord,
 } from "../types";
 import {
-	getCaptionPresetChunkingConfig,
-	isCaptionStylePresetId,
-} from "../original/captionStylePresets";
-import {
 	applyPresetToCapinstaSelection,
 	applyStylePatchToCapinstaSelection,
 	getCommonStyleValue,
@@ -51,6 +47,7 @@ import {
 	type CapinstaBulkStyleUpdateResult,
 } from "../bulkStyleSync";
 import { rechunkNeutralCaptionDocumentWithConfig } from "../adapter";
+import { getCaptionPresetChunkingConfig } from "../original/captionStylePresets";
 import type { CaptionChunkingConfig } from "../original/types";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -260,14 +257,7 @@ export function CapinstaCaptionStylePanel(
 				const record = nextRecords.find((r) => r.document.id === docId);
 				if (!record) continue;
 
-				const defaultChunking = {
-					...getCaptionPresetChunkingConfig(
-						isCaptionStylePresetId(style.presetId)
-							? style.presetId
-							: "modern_minimalist_lockup",
-					),
-					...style.chunking,
-				};
+				const defaultChunking = getCaptionPresetChunkingConfig(style.presetId);
 				const currentChunking = {
 					...defaultChunking,
 					...(record.document.style?.chunking ?? {}),
@@ -298,14 +288,7 @@ export function CapinstaCaptionStylePanel(
 
 		if (!binding || !singleTrackId) return;
 
-		const defaultChunking = {
-			...getCaptionPresetChunkingConfig(
-				isCaptionStylePresetId(style.presetId)
-					? style.presetId
-					: "modern_minimalist_lockup",
-			),
-			...style.chunking,
-		};
+		const defaultChunking = getCaptionPresetChunkingConfig(style.presetId);
 		const currentChunking = {
 			...defaultChunking,
 			...(style.chunking ?? {}),
@@ -607,15 +590,6 @@ export function CapinstaCaptionStylePanel(
 					max={8}
 					step={0.1}
 					onChange={(letterSpacing) => updateStyle({ text: { letterSpacing } })}
-				/>
-				<CapinstaSliderControl
-					label="Word spacing"
-					value={commonValue("text.wordSpacing", style.text.wordSpacing)}
-					mixed={hasMixedValue("text.wordSpacing")}
-					min={0}
-					max={40}
-					step={0.5}
-					onChange={(wordSpacing) => updateStyle({ text: { wordSpacing } })}
 				/>
 				<CapinstaColorControl
 					label="Active word"

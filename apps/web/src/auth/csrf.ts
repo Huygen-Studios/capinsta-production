@@ -27,10 +27,6 @@ function allowedOriginsForRequest(
 	const origins = new Set<string>();
 	const trusted = getTrustedPublicOrigin(request, siteUrlEnv);
 	if (trusted) origins.add(trusted);
-	if (process.env.NODE_ENV !== "production") {
-		const configured = originFromUrl(siteUrlEnv ?? null);
-		if (configured) origins.add(configured);
-	}
 
 	try {
 		origins.add(new URL(request.url).origin);

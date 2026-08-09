@@ -458,16 +458,13 @@ def build_full_video_filter_graph(
 ) -> str:
     width, height = output_dimensions
     parts: list[str] = []
-    
-    if source_dimensions is not None:
-        if source_dimensions == output_dimensions:
-            parts.append(f"[{source_input}:v]null[base]")
-        else:
-            parts.append(
-                f"[{source_input}:v]scale={width}:{height}:"
-                "force_original_aspect_ratio=disable[base]"
-            )
-
+    if source_dimensions == output_dimensions:
+        parts.append(f"[{source_input}:v]null[base]")
+    else:
+        parts.append(
+            f"[{source_input}:v]scale={width}:{height}:"
+            "force_original_aspect_ratio=disable[base]"
+        )
     if overlay_dimensions == output_dimensions:
         parts.append(f"[{overlay_input}:v]format=rgba[ov]")
     else:
@@ -475,12 +472,7 @@ def build_full_video_filter_graph(
             f"[{overlay_input}:v]scale={width}:{height}:"
             "force_original_aspect_ratio=disable,format=rgba[ov]"
         )
-
-    if source_dimensions is not None:
-        parts.append("[base][ov]overlay=0:0:format=auto:eof_action=pass:shortest=0[out]")
-    else:
-        parts.append("[ov]null[out]")
-        
+    parts.append("[base][ov]overlay=0:0:format=auto:eof_action=pass:shortest=0[out]")
     return ";".join(parts)
 
 

@@ -1,2 +1,0 @@
-"""Durable automatic-clipper orchestration."""
-

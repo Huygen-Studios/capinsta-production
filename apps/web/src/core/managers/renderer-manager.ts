@@ -188,7 +188,6 @@ export class RendererManager {
 			includeAudio,
 			backgroundColor,
 			canvasSize: requestedCanvasSize,
-			localCaptionCarriers,
 		} = options;
 
 		try {
@@ -236,9 +235,7 @@ export class RendererManager {
 			// caption pixels. We still run tracks through buildCapinstaPreviewTracks
 			// so the capinsta carrier TextElements get hidden:true before scene
 			// building (defense in depth — they also suppress in renderTextToContext).
-			const allCapinstaRecords = localCaptionCarriers
-				? []
-				: (activeProject.capinstaCaptionDocuments ?? []);
+			const allCapinstaRecords = activeProject.capinstaCaptionDocuments ?? [];
 			const capinstaRecords = getVisibleCapinstaCaptionRecords({
 				records: allCapinstaRecords,
 				tracks: rawTracks,
@@ -487,94 +484,6 @@ export class RendererManager {
 						: activeProject.settings.background.type === "color"
 							? activeProject.settings.background.color
 							: "#101010";
-				const edlElements = rawTracks.main.elements
-					.filter((element) => element.type === "video")
-					.sort((left, right) => left.startTime - right.startTime);
-				let outputStartMs = 0;
-				const edlEntries = edlElements.map((element, order) => {
-					const playbackRate = element.retime?.rate ?? 1;
-					const outputDurationMs = Math.round(
-						(element.duration / TICKS_PER_SECOND) * 1000,
-					);
-					const sourceStartMs = Math.round(
-						(element.trimStart / TICKS_PER_SECOND) * 1000,
-					);
-					const sourceDurationMs = Math.round(outputDurationMs * playbackRate);
-					const entry = {
-						id: element.clippingEdlEntryId ?? `editor-entry-${order}`,
-						rangeId: element.clippingRangeId ?? `editor-range-${order}`,
-						order,
-						sourceMediaId: "source",
-						sourceStartMs,
-						sourceEndMs: sourceStartMs + sourceDurationMs,
-						sourceDurationMs,
-						outputStartMs,
-						outputEndMs: outputStartMs + outputDurationMs,
-						outputDurationMs,
-						playbackRate,
-						transitionIn: null,
-						transitionOut: null,
-						metadata: {},
-					};
-					outputStartMs = entry.outputEndMs;
-					return entry;
-				});
-				const compositionJson = JSON.stringify({
-					version: 1,
-					export: {
-						width: canvasSize.width,
-						height: canvasSize.height,
-						fps: fpsValue,
-						quality,
-						backgroundColor: headlessBackgroundColor,
-					},
-					media: {
-						sources: [
-							{
-								id: "source",
-								url: "/source.mp4",
-								hasAudio: hasTimelineVideo && Boolean(includeAudio),
-								accessMode: "localized",
-							},
-						],
-					},
-					timeline: {
-						edl: {
-							schemaVersion: 1,
-							clipProjectId: activeProject.metadata.id,
-							projectRevision: 1,
-							sourceMediaId: "source",
-							sourceDurationMs: Math.max(
-								0,
-								...edlEntries.map((entry) => entry.sourceEndMs),
-							),
-							outputDurationMs: Math.round(durationSeconds * 1000),
-							entries: edlEntries.length
-								? edlEntries
-								: [
-									{
-										id: "solid-entry-0",
-										rangeId: "solid-range-0",
-										order: 0,
-										sourceMediaId: "source",
-										sourceStartMs: 0,
-										sourceEndMs: Math.round(durationSeconds * 1000),
-										sourceDurationMs: Math.round(durationSeconds * 1000),
-										outputStartMs: 0,
-										outputEndMs: Math.round(durationSeconds * 1000),
-										outputDurationMs: Math.round(durationSeconds * 1000),
-										playbackRate: 1,
-										transitionIn: null,
-										transitionOut: null,
-										metadata: {},
-									},
-								],
-							warnings: [],
-							metadata: {},
-						},
-					},
-					...(capinstaDoc ? { captions: { document: capinstaDoc } } : {}),
-				});
 				const formData = createExportRequestFormData({
 					sourceJobId,
 					sourceMediaAssetId: sourceMediaAssetId || undefined,
@@ -595,7 +504,6 @@ export class RendererManager {
 					exportMode: headlessExportMode,
 					backgroundColor: headlessBackgroundColor,
 					durationSeconds,
-					compositionJson,
 				});
 
 				// 4. Send POST request to start export job
@@ -684,11 +592,6 @@ export class RendererManager {
 
 				while (!isComplete && !pollError) {
 					if (onCancel?.()) {
-						try {
-							await authenticatedFetch(statusUrl, { method: "DELETE" });
-						} catch {
-							// The durable worker also observes cancellation on the next poll.
-						}
 						return { success: false, cancelled: true };
 					}
 

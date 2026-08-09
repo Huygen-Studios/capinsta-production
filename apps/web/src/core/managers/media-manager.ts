@@ -116,9 +116,6 @@ export class MediaManager {
 			this.notify();
 		} catch (error) {
 			console.error("Failed to load media assets:", error);
-			toast.error("Source video could not be attached", {
-				description: "Return to Clipper and retry opening this project.",
-			});
 		} finally {
 			this.isLoading = false;
 			this.notify();

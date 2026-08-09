@@ -1,12 +1,3 @@
-# CapInsta web image only.
-#
-# Backend/API deployments must use:
-#   Base Directory: /
-#   Dockerfile Location: /backend/Dockerfile
-#
-# If a backend Coolify app builds this root Dockerfile, it will compile the
-# Next.js frontend and deploys can take 50+ minutes on the KVM2 host.
-
 # ---- Stage 1: Builder (Bun install + Node Next.js build) ----
 # Bun handles `bun install --frozen-lockfile` (reproducible, workspace-aware).
 # Node runs `next build`. Installing Node in this same stage avoids copying a
@@ -23,8 +14,6 @@ COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
-COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
-COPY packages/transcript-contract/ packages/transcript-contract/
 # The workspace depends on opencut-wasm via file:rust/wasm/pkg. Bun resolves
 # local packages during install, so the generated package must already exist in
 # each dependency stage (not only in the later source-copy layer).
@@ -43,13 +32,6 @@ ARG NEXT_PUBLIC_SITE_URL=http://localhost:3000
 ARG NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder
 ARG NEXT_PUBLIC_MARBLE_API_URL=https://api.marblecms.com
-ARG NEXT_PUBLIC_CAPINSTA_API_BASE_URL=/api/capinsta
-ARG NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF=true
-ARG NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA=true
-ARG NEXT_PUBLIC_CAPINSTA_DEBUG=false
-ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
-ARG NEXT_PUBLIC_POSTHOG_KEY
-ARG NEXT_PUBLIC_POSTHOG_HOST
 ARG MARBLE_WORKSPACE_KEY=build-placeholder
 # Caption generation is a core Capinsta feature. Keep it visible unless a
 # deployment explicitly opts out with --build-arg ...=false.
@@ -86,13 +68,6 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_MARBLE_API_URL=$NEXT_PUBLIC_MARBLE_API_URL
 ENV NEXT_PUBLIC_ENABLE_AI_CAPTIONS=$NEXT_PUBLIC_ENABLE_AI_CAPTIONS
 ENV NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY=$NEXT_PUBLIC_CAPINSTA_EXPORT_STRATEGY
-ENV NEXT_PUBLIC_CAPINSTA_API_BASE_URL=$NEXT_PUBLIC_CAPINSTA_API_BASE_URL
-ENV NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF=$NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF
-ENV NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA=$NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA
-ENV NEXT_PUBLIC_CAPINSTA_DEBUG=$NEXT_PUBLIC_CAPINSTA_DEBUG
-ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=$NEXT_PUBLIC_GA_MEASUREMENT_ID
-ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
-ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 ENV MARBLE_WORKSPACE_KEY=$MARBLE_WORKSPACE_KEY
 
 WORKDIR /app/apps/web
@@ -119,8 +94,6 @@ COPY package.json package.json
 COPY bun.lock bun.lock
 COPY turbo.json turbo.json
 COPY apps/web/package.json apps/web/package.json
-COPY apps/remotion-exporter/package.json apps/remotion-exporter/package.json
-COPY packages/transcript-contract/ packages/transcript-contract/
 COPY rust/wasm/pkg/ rust/wasm/pkg/
 
 RUN --mount=type=cache,id=capinsta-bun-cache,target=/root/.bun/install/cache \
@@ -159,7 +132,6 @@ COPY --from=runtime-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=runtime-deps --chown=nextjs:nodejs /app/apps/web/node_modules ./apps/web/node_modules
 # Preserve the target of Bun's local file-package link in the runtime image.
 COPY --from=runtime-deps --chown=nextjs:nodejs /app/rust/wasm/pkg ./rust/wasm/pkg
-COPY --from=runtime-deps --chown=nextjs:nodejs /app/packages/transcript-contract ./packages/transcript-contract
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/package.json ./apps/web/package.json
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next ./apps/web/.next
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public

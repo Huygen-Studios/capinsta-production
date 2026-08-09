@@ -91,7 +91,6 @@ interface CapinstaSourceStyleConfig {
 	paddingX?: number;
 	paddingY?: number;
 	letterSpacing?: number;
-	wordSpacing?: number;
 	lineHeight: number;
 	textTransform?: "none" | "uppercase";
 	textShadowEnabled?: boolean;
@@ -186,7 +185,6 @@ function sourcePresetPatch({
 			opacity: source.opacity ?? 1,
 			textTransform: source.textTransform ?? "none",
 			letterSpacing: source.letterSpacing ?? 0,
-			wordSpacing: source.wordSpacing ?? 0,
 			alignment: source.alignment ?? "center",
 		},
 		background: {
@@ -282,93 +280,6 @@ function sourcePresetPatch({
 		},
 		chunking,
 	};
-}
-
-function premiumLockupPreset({
-	id,
-	name,
-	heroColor,
-	fontFamily = "Montserrat",
-	bigFontFamily = fontFamily,
-	positionX = 50,
-	positionY = 50,
-	bigFontSizePx = 220,
-	backgroundColor,
-}: {
-	id: CapinstaCaptionPresetId;
-	name: string;
-	heroColor: string;
-	fontFamily?: string;
-	bigFontFamily?: string;
-	positionX?: number;
-	positionY?: number;
-	bigFontSizePx?: number;
-	backgroundColor?: string;
-}): CapinstaPresetDefinition {
-	return makePreset({
-		id,
-		name,
-		description: "Premium animated editorial typography lockup.",
-		patch: sourcePresetPatch({
-			source: {
-				fontFamily,
-				bigFontFamily,
-				smallFontFamily: fontFamily,
-				fontSize: 96,
-				fontWeight: 900,
-				textColor: "#FFFFFF",
-				activeWordColor: heroColor,
-				backgroundEnabled: Boolean(backgroundColor),
-				backgroundColor: backgroundColor ?? "#000000",
-				backgroundOpacity: backgroundColor ? 0.92 : 0,
-				backgroundFit: "wrap",
-				borderRadius: 30,
-				paddingX: 34,
-				paddingY: 18,
-				lineHeight: 0.94,
-				textTransform: "uppercase",
-				textShadowEnabled: true,
-				textShadowColor: heroColor,
-				textShadowOpacity: 0.2,
-				textShadowBlur: 14,
-				textShadowDistance: 0,
-				textStrokeEnabled: false,
-				activeWordScale: 1,
-				activeWordGlow: true,
-				activeWordBackgroundEnabled: false,
-				wordEffect: "reveal",
-				animationType: "none",
-				animationStrength: 0.35,
-				animationSpeed: 1.15,
-				animationSmoothness: 0.82,
-				entranceAnimation: "fade",
-				positionX,
-				positionY,
-				maxWidth: 90,
-				maxLines: 3,
-				bigFontSizePx,
-				smallFontSizePx: 92,
-				anchorSizeMultiplier: 1.6,
-				supportSizeMultiplier: 0.3,
-				layoutMode: "auto",
-				layoutAsymmetry: positionX === 50 ? 0.4 : 0.7,
-				layoutSafeMarginPercent: 8,
-				collisionPadding: 8,
-				showBuildWordBounds: false,
-				tightness: 0.72,
-				hardCutReveal: id === "monument",
-			},
-			chunking: originalChunking({
-				wordsPerCaption: 5,
-				targetWordsPerCaption: 5,
-				maxWordsPerCaption: 6,
-				minWordsPerCaption: 2,
-				maxCharsPerCaption: 42,
-				minCaptionDuration: 0.7,
-				maxCaptionDuration: 3.5,
-			}),
-		}),
-	});
 }
 
 export const CAPINSTA_CAPTION_PRESETS: CapinstaPresetDefinition[] = [
@@ -681,14 +592,6 @@ export const CAPINSTA_CAPTION_PRESETS: CapinstaPresetDefinition[] = [
 			}),
 		},
 	}),
-	premiumLockupPreset({ id: "skyline_italic", name: "Skyline Italic", heroColor: "#2898F8", bigFontFamily: "Tactic" }),
-	premiumLockupPreset({ id: "ember_focus", name: "Ember Focus", heroColor: "#F8A828", bigFontSizePx: 230 }),
-	premiumLockupPreset({ id: "citrus_signature", name: "Citrus Signature", heroColor: "#FFF4DF", bigFontFamily: "Poppins", backgroundColor: "#F86808" }),
-	premiumLockupPreset({ id: "volt_matrix", name: "Volt Matrix", heroColor: "#08F818", fontFamily: "Tactic", bigFontFamily: "Tactic" }),
-	premiumLockupPreset({ id: "ivory_signature", name: "Ivory Signature", heroColor: "#F7F3E8", bigFontFamily: "Poppins" }),
-	premiumLockupPreset({ id: "cobalt_script", name: "Cobalt Script", heroColor: "#0868F8", bigFontFamily: "Poppins" }),
-	premiumLockupPreset({ id: "mint_ink", name: "Mint Ink", heroColor: "#68F898", bigFontFamily: "Poppins" }),
-	premiumLockupPreset({ id: "monument", name: "Monument", heroColor: "#FFFFFF", positionX: 42, bigFontSizePx: 270 }),
 ];
 
 export const CAPINSTA_PRESET_IDS = CAPINSTA_CAPTION_PRESETS.map(

@@ -21,7 +21,6 @@ from jwt.exceptions import (
 
 logger = logging.getLogger(__name__)
 ALLOWED_JWT_ALGORITHMS = frozenset({"HS256", "RS256", "ES256"})
-LOCAL_DEVELOPMENT_USER_ID = "00000000-0000-4000-8000-000000000001"
 
 
 @dataclass(frozen=True)
@@ -81,19 +80,6 @@ _auth_health: dict[str, str] = {
 
 def _safe_supabase_hostname() -> str:
     return urlparse((os.getenv("SUPABASE_URL") or "").strip()).hostname or "unknown"
-
-
-def local_development_access_enabled() -> bool:
-    """Unsafe local-only switch. It never enables production authentication."""
-    return (
-        os.getenv("NODE_ENV", "development") != "production"
-        and os.getenv("ENABLE_LOCAL_DEVELOPMENT_ACCESS", "false").strip().lower()
-        in {"1", "true", "yes", "on"}
-    )
-
-
-def _is_loopback_request(request: Request) -> bool:
-    return request.client is not None and request.client.host in {"127.0.0.1", "::1"}
 
 
 def log_auth_reject(
@@ -246,11 +232,6 @@ def verify_access_token(token: str) -> AuthenticatedUser:
 def authenticate_request(request: Request) -> AuthenticatedUser:
     authorization = request.headers.get("authorization")
     if authorization is None:
-        if local_development_access_enabled() and _is_loopback_request(request):
-            return AuthenticatedUser(
-                id=LOCAL_DEVELOPMENT_USER_ID,
-                email="local-clipper@capinsta.invalid",
-            )
         raise MissingAuthorizationError()
     scheme, separator, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not separator:
@@ -266,9 +247,6 @@ def auth_health_status() -> dict[str, str]:
 
 
 def validate_auth_startup() -> dict[str, str]:
-    if local_development_access_enabled():
-        _auth_health.update(supabaseAuth="local_development", jwtMode="local_only")
-        return auth_health_status()
     url, legacy_secret, jwks = _supabase_config()
     try:
         jwk_set = jwks.get_jwk_set(refresh=True)

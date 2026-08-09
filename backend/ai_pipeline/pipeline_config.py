@@ -82,7 +82,6 @@ class VadConfig:
     pauseThresholdSeconds: float = 0.36
     silenceThresholdDb: float | None = None
     sileroEnabled: bool = True
-    sileroRequired: bool = False
     sileroSpeechThreshold: float = 0.50
     sileroMinSpeechDurationMs: int = 80
     sileroMinSilenceDurationMs: int = 180
@@ -293,7 +292,6 @@ def environment_pipeline_options() -> dict[str, Any]:
     if _env_value("SILENCE_THRESHOLD_DB") and _env_value("SILENCE_THRESHOLD_DB").strip().lower() != "adaptive":
         set_path("vad", "silenceThresholdDb", _env_num("SILENCE_THRESHOLD_DB"))
     set_path("vad", "sileroEnabled", _env_bool("ENABLE_SILERO_VAD", True))
-    set_path("vad", "sileroRequired", _env_bool("REQUIRE_SILERO_VAD", False))
     set_path("vad", "sileroSpeechThreshold", _env_num("SILERO_THRESHOLD"))
     set_path("vad", "sileroMinSpeechDurationMs", _env_num("SILERO_MIN_SPEECH_DURATION_MS"))
     set_path("vad", "sileroMinSilenceDurationMs", _env_num("SILERO_MIN_SILENCE_DURATION_MS"))
@@ -374,7 +372,6 @@ def resolve_pipeline_config(value: dict[str, Any] | None = None) -> CaptionPipel
             pauseThresholdSeconds=_num(vad.get("pauseThresholdSeconds"), VadConfig.pauseThresholdSeconds, 0.05, 3.0),
             silenceThresholdDb=None if vad.get("silenceThresholdDb") is None else _num(vad.get("silenceThresholdDb"), -35.0, -90.0, 0.0),
             sileroEnabled=_bool(vad.get("sileroEnabled"), VadConfig.sileroEnabled),
-            sileroRequired=_bool(vad.get("sileroRequired"), VadConfig.sileroRequired),
             sileroSpeechThreshold=_num(vad.get("sileroSpeechThreshold"), 0.50, 0.01, 0.99),
             sileroMinSpeechDurationMs=_int(vad.get("sileroMinSpeechDurationMs"), VadConfig.sileroMinSpeechDurationMs, 0, 2000),
             sileroMinSilenceDurationMs=_int(vad.get("sileroMinSilenceDurationMs"), VadConfig.sileroMinSilenceDurationMs, 0, 3000),

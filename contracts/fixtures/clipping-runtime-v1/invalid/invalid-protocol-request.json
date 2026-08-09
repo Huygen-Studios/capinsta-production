@@ -1,7 +1,0 @@
-{
-  "operation": "health",
-  "options": {},
-  "payload": {},
-  "protocolVersion": 9,
-  "requestId": "req_invalid_protocol"
-}

@@ -10,21 +10,10 @@ load_dotenv()
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
 if sys.platform == "win32":
-    local_clipper = (
-        os.getenv("NODE_ENV", "development") != "production"
-        and os.getenv("ENABLE_LOCAL_DEVELOPMENT_ACCESS", "false").lower()
-        in {"1", "true", "yes", "on"}
-    )
-    policy = (
-        asyncio.WindowsSelectorEventLoopPolicy()
-        if local_clipper
-        else asyncio.WindowsProactorEventLoopPolicy()
-    )
-    if not isinstance(asyncio.get_event_loop_policy(), type(policy)):
-        asyncio.set_event_loop_policy(policy)
-        sys.stdout.write(
-            f"INFO: Windows asyncio policy set to {'Selector' if local_clipper else 'Proactor'}\n"
-        )
+    current_policy = asyncio.get_event_loop_policy()
+    if not isinstance(current_policy, asyncio.WindowsProactorEventLoopPolicy):
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        sys.stdout.write("INFO: Windows asyncio policy set to Proactor for export subprocess support\n")
 
 ffmpeg_exe = os.getenv("FFMPEG_PATH")
 if ffmpeg_exe and os.path.exists(ffmpeg_exe):
@@ -42,8 +31,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.formparsers import MultiPartParser
-from starlette.requests import Request as StarletteRequest
 from contextlib import asynccontextmanager
 import shutil
 import uuid
@@ -51,23 +38,8 @@ import uuid
 # These imports will trigger ai_pipeline logic
 from .database import init_db
 from .project_cleanup import project_cleanup_loop, stop_cleanup_task
-from .api import (
-    admin,
-    automatic_clipper,
-    captions,
-    clipping_handoffs,
-    clipping_exports,
-    clipping_batches,
-    clipping_media,
-    clipping_projects,
-    export_jobs,
-    health,
-    jobs,
-    media_assets,
-    production,
-    projects,
-)
-from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, DB_PATH, MAX_FORM_BODY_BYTES, validate_storage_startup
+from .api import admin, captions, health, jobs, export_jobs, media_assets, projects
+from .settings import cleanup_old_runtime_files, ensure_runtime_dirs, env_list, frontend_dist_available, FRONTEND_DIST_DIR, EXPORT_DIR, CAPTION_FONT_DIR, DB_PATH, validate_storage_startup
 from .auth import (
     AuthBoundaryError,
     authenticate_request,
@@ -96,21 +68,6 @@ from .api_versioning import canonical_api_path
 from .request_limits import evaluate_request_body_limit
 
 logger = logging.getLogger(__name__)
-
-
-def _patch_multipart_part_size_limit() -> None:
-    """Allow large caption/composition form fields through FastAPI's parser."""
-    for func in (
-        MultiPartParser.__init__,
-        StarletteRequest.form,
-        StarletteRequest._get_form,
-    ):
-        defaults = getattr(func, "__kwdefaults__", None)
-        if isinstance(defaults, dict) and "max_part_size" in defaults:
-            defaults["max_part_size"] = MAX_FORM_BODY_BYTES
-
-
-_patch_multipart_part_size_limit()
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -216,17 +173,10 @@ def _log_startup_operational_summary() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    benchmark_mode = os.getenv("CAPINSTA_ENV", "").strip().lower() == "benchmark"
-    if benchmark_mode:
-        from .benchmark_environment import assert_safe_benchmark_environment
-
-        assert_safe_benchmark_environment()
     # Startup: Initialize Database
     _log_startup_operational_summary()
     ensure_runtime_dirs()
-    storage_findings = validate_storage_startup()
-    if any(finding.get("level") == "error" for finding in storage_findings):
-        raise RuntimeError("legacy caption storage is not writable")
+    validate_storage_startup()
     await init_db()
     try:
         validate_auth_startup()
@@ -238,19 +188,17 @@ async def lifespan(app: FastAPI):
         database_health["controlPlaneDatabase"],
     )
     await deleted_project_records_available()
-    recovered_exports = 0 if benchmark_mode else await export_jobs.recover_orphaned_export_jobs()
+    recovered_exports = await export_jobs.recover_orphaned_export_jobs()
     if recovered_exports:
         logger.warning("export_jobs_recovered_orphaned count=%s", recovered_exports)
-    removed = 0 if benchmark_mode else cleanup_old_runtime_files()
+    removed = cleanup_old_runtime_files()
     if removed:
         logger.info("runtime_cleanup removed_files=%s", removed)
-    cleanup_task = None if benchmark_mode else asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
-    storage_retention_task = None if benchmark_mode else asyncio.create_task(
+    cleanup_task = asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
+    storage_retention_task = asyncio.create_task(
         storage_retention_loop(), name="storage-retention-cleanup"
     )
-    mirror_task = None if benchmark_mode else asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
-    if benchmark_mode:
-        logger.info("benchmark_isolation enabled=true cleanup=false retention=false mirror=false")
+    mirror_task = asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
     
     # Check for crucial runtime dependencies and API keys.
     from ai_pipeline.transcriber import is_real_secret
@@ -315,7 +263,7 @@ async def lifespan(app: FastAPI):
             )
     except Exception as exc:
         logger.warning("timing_startup_check_failed error=%s", exc)
-        if os.getenv("REQUIRE_SILERO_VAD", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        if os.getenv("ENABLE_SILERO_VAD", "false").strip().lower() == "true":
             raise
     if frontend_dist_available():
         logger.info("frontend_static_enabled path=%s", FRONTEND_DIST_DIR)
@@ -327,9 +275,8 @@ async def lifespan(app: FastAPI):
     finally:
         await stop_cleanup_task(cleanup_task)
         await stop_storage_retention(storage_retention_task)
-        if mirror_task is not None:
-            await stop_operational_mirror()
-            mirror_task.cancel()
+        await stop_operational_mirror()
+        mirror_task.cancel()
         print("Shutting down the server...")
 
 
@@ -385,8 +332,6 @@ async def add_security_headers(request: Request, call_next):
 
 @app.middleware("http")
 async def enforce_request_body_limits(request: Request, call_next):
-    if request.method == "OPTIONS":
-        return await call_next(request)
     decision = evaluate_request_body_limit(request)
     if not decision.allowed:
         logger.warning(
@@ -410,38 +355,6 @@ async def enforce_request_body_limits(request: Request, call_next):
         )
     return await call_next(request)
 
-
-def _env_disabled(name: str) -> bool:
-    return (os.getenv(name) or "false").strip().lower() in {"1", "true", "yes", "on"}
-
-
-@app.middleware("http")
-async def enforce_private_beta_emergency_controls(request: Request, call_next):
-    path = canonical_api_path(request.url.path)
-    if request.method == "POST":
-        if _env_disabled("DISABLE_NEW_UPLOADS") and path.startswith("/api/clipping/media/uploads"):
-            return _error_response(
-                request,
-                503,
-                {"code": "uploads_disabled", "message": "New uploads are temporarily paused."},
-            )
-        if _env_disabled("DISABLE_CANDIDATE_ANALYSIS") and (
-            path.startswith("/api/clipping/workflows")
-            or path.endswith("/candidates/regenerate")
-        ):
-            return _error_response(
-                request,
-                503,
-                {"code": "candidate_analysis_disabled", "message": "Clip analysis is temporarily paused."},
-            )
-        if _env_disabled("DISABLE_CLIPPING_EXPORTS") and path.endswith("/exports"):
-            return _error_response(
-                request,
-                503,
-                {"code": "exports_disabled", "message": "New exports are temporarily paused."},
-            )
-    return await call_next(request)
-
 PROTECTED_API_PREFIXES = (
     "/api/jobs",
     "/api/v1/jobs",
@@ -453,28 +366,12 @@ PROTECTED_API_PREFIXES = (
     "/api/v1/media/assets",
     "/api/projects",
     "/api/v1/projects",
-    "/api/clipping/media",
-    "/api/v1/clipping/media",
-    "/api/clipping/workflows",
-    "/api/v1/clipping/workflows",
-    "/api/clipping/projects",
-    "/api/v1/clipping/projects",
-    "/api/clipping/handoffs",
-    "/api/v1/clipping/handoffs",
-    "/api/capinsta/media",
-    "/api/v1/capinsta/media",
-    "/api/clipping/runs",
-    "/api/v1/clipping/runs",
-    "/api/clipping/batches",
-    "/api/v1/clipping/batches",
-    "/api/clipping/exports",
-    "/api/v1/clipping/exports",
 )
 
 
 @app.middleware("http")
 async def require_supabase_auth(request: Request, call_next):
-    if request.method == "OPTIONS" or not request.url.path.startswith(PROTECTED_API_PREFIXES):
+    if not request.url.path.startswith(PROTECTED_API_PREFIXES):
         return await call_next(request)
     correlation_id = (
         request.headers.get("x-correlation-id") or str(uuid.uuid4())
@@ -597,25 +494,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all_origins else allow_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-    allow_headers=[
-        "apikey",
-        "authorization",
-        "content-type",
-        "idempotency-key",
-        "tus-resumable",
-        "upload-length",
-        "upload-metadata",
-        "upload-offset",
-        "x-idempotency-key",
-        "x-upload-offset",
-        "x-request-id",
-        "x-correlation-id",
-        "accept",
-        "origin",
-    ],
-    expose_headers=["location", "tus-resumable", "upload-offset", "x-correlation-id", "x-request-id"],
-    max_age=600,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Add API routers
@@ -625,30 +505,14 @@ app.include_router(export_jobs.router, prefix="/api")
 app.include_router(captions.router, prefix="/api")
 app.include_router(media_assets.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
-app.include_router(clipping_media.router, prefix="/api")
-app.include_router(clipping_projects.router, prefix="/api")
-app.include_router(automatic_clipper.router, prefix="/api")
-app.include_router(clipping_handoffs.router, prefix="/api")
-app.include_router(clipping_handoffs.media_router, prefix="/api")
-app.include_router(clipping_exports.router, prefix="/api")
-app.include_router(clipping_batches.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(admin.internal_router, prefix="/api")
-app.include_router(production.router, prefix="/api")
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(jobs.router, prefix="/api/v1")
 app.include_router(export_jobs.router, prefix="/api/v1")
 app.include_router(captions.router, prefix="/api/v1")
 app.include_router(media_assets.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
-app.include_router(clipping_media.router, prefix="/api/v1")
-app.include_router(clipping_projects.router, prefix="/api/v1")
-app.include_router(automatic_clipper.router, prefix="/api/v1")
-app.include_router(clipping_handoffs.router, prefix="/api/v1")
-app.include_router(clipping_handoffs.media_router, prefix="/api/v1")
-app.include_router(clipping_exports.router, prefix="/api/v1")
-app.include_router(clipping_batches.router, prefix="/api/v1")
-app.include_router(production.router, prefix="/api/v1")
 
 
 @app.get("/health", response_model=health.HealthResponse)
@@ -658,10 +522,7 @@ async def root_health_check():
 
 @app.get("/health/ready", response_model=health.ReadinessResponse)
 async def root_readiness_check():
-    payload = await health.readiness_payload()
-    if not payload.ready:
-        return JSONResponse(payload.model_dump(), status_code=503)
-    return payload
+    return health.readiness_payload()
 
 
 @app.get("/health/startup")

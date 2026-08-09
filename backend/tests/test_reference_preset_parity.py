@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 
 CURRENT_ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_ROOT = Path(r"G:\Huygen Studios\side projects\stable versions\Huygen-Caps-main-v4\capinsta-production-main")
@@ -73,7 +71,6 @@ def _field_mismatches(reference: Any, current: Any, path: str = "") -> list[dict
     return []
 
 
-@pytest.mark.skipif(not REFERENCE_ROOT.is_dir(), reason="local reference checkout unavailable")
 def test_current_resolved_presets_match_reference_field_by_field():
     reference = _resolve(REFERENCE_ROOT)
     current = _resolve(CURRENT_ROOT)

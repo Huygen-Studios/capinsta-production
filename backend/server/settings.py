@@ -24,32 +24,6 @@ def _path_env(name: str, default: Path) -> Path:
     return Path(value).expanduser() if value else default
 
 
-def _sqlite_path_env(name: str, default: Path) -> Path:
-    path = _path_env(name, default)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a+b"):
-            pass
-        probe = path.parent / ".capinsta-sqlite-write-check"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
-        return path
-    except OSError as exc:
-        if os.getenv("NODE_ENV") == "production":
-            raise RuntimeError(
-                f"{name} parent is not writable; check legacy caption storage volume"
-            ) from exc
-        fallback = DEFAULT_TEMP_DIR / "database.sqlite"
-        fallback.parent.mkdir(parents=True, exist_ok=True)
-        logger.warning(
-            "sqlite_db_path_not_writable configured=%s fallback=%s error=%s",
-            path,
-            fallback,
-            exc,
-        )
-        return fallback
-
-
 def _int_env(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
     if not raw:
@@ -65,7 +39,7 @@ UPLOAD_DIR = _path_env("UPLOAD_DIR", TEMP_DIR / "uploads")
 EXPORT_DIR = _path_env("EXPORT_DIR", TEMP_DIR / "exports")
 CACHE_DIR = _path_env("CACHE_DIR", TEMP_DIR / "cache")
 MEDIA_DIR = _path_env("MEDIA_DIR", TEMP_DIR / "media")
-DB_PATH = _sqlite_path_env("DB_PATH", TEMP_DIR / "database.sqlite")
+DB_PATH = _path_env("DB_PATH", TEMP_DIR / "database.sqlite")
 FRONTEND_DIST_DIR = _path_env("FRONTEND_DIST_DIR", ROOT_DIR / "frontend" / "out")
 _bundled_caption_font_dir = FRONTEND_DIST_DIR / "caption-fonts"
 _development_caption_font_dir = ROOT_DIR.parent / "apps" / "web" / "public" / "caption-fonts"

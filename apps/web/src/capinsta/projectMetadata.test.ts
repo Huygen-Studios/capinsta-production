@@ -35,24 +35,6 @@ describe("Capinsta project metadata", () => {
     expect(getCapinstaCaptionDocuments({ project: createProject() })).toEqual([])
   })
 
-  test("keeps optional clipping provenance JSON-serializable", () => {
-    const project: TProject = {
-      ...createProject(),
-      capinstaClippingProvenance: {
-        sourceApplication: "clipper",
-        sourceClipProjectId: "clip-project-001",
-        sourceClipProjectRevision: 3,
-        sourceTranscriptId: "transcript-001",
-        conversionSchemaVersion: 1,
-      },
-    }
-    const restored = JSON.parse(JSON.stringify(project)) as TProject
-
-    expect(restored.capinstaClippingProvenance).toEqual(
-      project.capinstaClippingProvenance,
-    )
-  })
-
   test("stores a Capinsta caption document on the project", () => {
     const document = capinstaTranscriptToCaptionDocument(
       sampleCapinstaTranscriptV1,

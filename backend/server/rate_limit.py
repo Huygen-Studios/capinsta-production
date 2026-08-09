@@ -25,9 +25,6 @@ ROUTE_RULES: tuple[tuple[str, str, RateLimitRule], ...] = (
     ("POST", "/api/media/assets", RateLimitRule("upload-start", 20, 15 * 60)),
     ("POST", "/api/jobs", RateLimitRule("caption-start", 10, 15 * 60)),
     ("POST", "/api/export/jobs", RateLimitRule("export-start", 10, 15 * 60)),
-    ("POST", "/api/clipping/projects", RateLimitRule("clipping-mutation", 30, 15 * 60)),
-    ("POST", "/api/clipping/handoffs", RateLimitRule("handoff-start", 20, 15 * 60)),
-    ("POST", "/api/clipping/media", RateLimitRule("signed-media", 60, 15 * 60)),
     ("GET", "/api/jobs", RateLimitRule("job-read", 240, 60)),
     ("GET", "/api/export/jobs", RateLimitRule("export-read", 240, 60)),
 )
@@ -49,8 +46,7 @@ def _hmac_key(value: str) -> str:
 
 def _client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
-    trusted_proxy = (os.getenv("TRUSTED_PROXY_MODE") or "none").strip().lower()
-    if forwarded and trusted_proxy in {"coolify", "cloudflare"}:
+    if forwarded:
         return forwarded.split(",", 1)[0].strip()
     return request.client.host if request.client else "unknown"
 
@@ -118,27 +114,5 @@ async def enforce_api_rate_limit(request: Request, user: AuthenticatedUser) -> N
         raise HTTPException(
             status_code=429,
             detail={"code": "rate_limited", "message": "Too many requests. Please try again later."},
-            headers={"Retry-After": str(retry_after)},
-        )
-
-
-async def enforce_whop_webhook_rate_limit(request: Request) -> None:
-    if not _configured():
-        if os.getenv("NODE_ENV") == "production":
-            raise HTTPException(status_code=503, detail="Webhook unavailable")
-        return
-    rule = RateLimitRule("whop-webhook", 120, 60)
-    try:
-        allowed, retry_after = await asyncio.to_thread(
-            _consume, rule, _hmac_key(f"ip:{_client_ip(request)}")
-        )
-    except Exception as exc:
-        if os.getenv("NODE_ENV") == "production":
-            raise HTTPException(status_code=503, detail="Webhook unavailable") from exc
-        return
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many webhook requests",
             headers={"Retry-After": str(retry_after)},
         )

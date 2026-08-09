@@ -123,7 +123,6 @@ export function normalizeCapinstaCaptionStyle(
 			opacity: clamp(merged.text.opacity, base.text.opacity, 0, 1),
 			textTransform: merged.text.textTransform === "uppercase" ? "uppercase" : "none",
 			letterSpacing: clamp(merged.text.letterSpacing, base.text.letterSpacing, -2, 8),
-			wordSpacing: clamp(merged.text.wordSpacing, base.text.wordSpacing, 0, 40),
 		},
 		background: {
 			enabled: bool(merged.background.enabled, base.background.enabled),

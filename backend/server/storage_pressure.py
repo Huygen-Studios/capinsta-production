@@ -9,7 +9,6 @@ from .settings import (
     DISK_REJECT_UPLOAD_FREE_BYTES,
     DISK_WARNING_FREE_BYTES,
     TEMP_DIR,
-    UPLOAD_DIR,
 )
 
 
@@ -40,12 +39,8 @@ def read_disk_pressure(root: Path = TEMP_DIR) -> DiskPressure:
 
 
 def require_disk_capacity(*, operation: str, required_bytes: int = 0) -> DiskPressure:
-    root = UPLOAD_DIR if operation == "upload" else TEMP_DIR
-    pressure = read_disk_pressure(root)
-    needed = max(0, required_bytes)
-    if operation == "upload":
-        needed *= 2
-    projected_free = pressure.free_bytes - needed
+    pressure = read_disk_pressure()
+    projected_free = pressure.free_bytes - max(0, required_bytes)
     threshold = (
         DISK_CRITICAL_FREE_BYTES
         if operation == "export"
@@ -58,7 +53,7 @@ def require_disk_capacity(*, operation: str, required_bytes: int = 0) -> DiskPre
                 "code": "insufficient_server_storage",
                 "operation": operation,
                 "freeBytes": pressure.free_bytes,
-                "requiredBytes": needed,
+                "requiredBytes": max(0, required_bytes),
                 "message": (
                     "Capinsta is temporarily low on server storage. "
                     "Please retry after older projects and exports are cleaned up."

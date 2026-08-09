@@ -1,0 +1,17 @@
+{
+  "passed": false,
+  "failureCount": 1,
+  "pauseSplitSeconds": 0.25,
+  "hardBoundaryGuardSeconds": 0.12,
+  "failures": [
+    {
+      "type": "pipeline_preflight_failed",
+      "message": "No configured STT provider API secret is available in the local environment.",
+      "missingSecrets": [
+        "GEMINI_API_KEY",
+        "OPENAI_API_KEY",
+        "SARVAM_API_KEY"
+      ]
+    }
+  ]
+}

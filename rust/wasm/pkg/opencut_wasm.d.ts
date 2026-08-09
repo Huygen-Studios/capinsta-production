@@ -100,15 +100,11 @@ export function TICKS_PER_SECOND(): number;
 
 export function activeCaptionState(options: any): any;
 
-export function adjustLocalClipRange(source_start_ms: number, source_end_ms: number, mode: string, delta_ms: number, source_duration_ms: number, maximum_duration_ms: number): any;
-
 export function applyEffectPasses(options: any): OffscreenCanvas;
 
 export function applyMaskFeather(options: any): OffscreenCanvas;
 
 export function canonicalizeCaptionDocument(options: any): any;
-
-export function defaultLocalClipHeadingLayout(canvas_width: number, canvas_height: number, character_count: number): any;
 
 export function editCaptionPageText(options: any): any;
 
@@ -120,8 +116,6 @@ export function exportCaptionVtt(options: any): string;
 
 export function floorToFrame(arg0: FloorToFrameOptions): MediaTime | undefined;
 
-export function formatLocalClipTimecode(milliseconds: number): string;
-
 export function formatTimecode(arg0: FormatTimecodeOptions): string | undefined;
 
 export function getCompositorCanvas(): HTMLCanvasElement;
@@ -132,17 +126,11 @@ export function guessTimecodeFormat(arg0: GuessTimecodeFormatOptions): TimeCodeF
 
 export function initCompositor(width: number, height: number): void;
 
-export function initialLocalClipRanges(source_duration_ms: number, count: number, maximum_duration_ms: number): any;
-
 export function initializeGpu(): Promise<void>;
 
 export function isFrameAligned(arg0: IsFrameAlignedOptions): boolean | undefined;
 
-export function isSafeLocalClipZipEntry(name: string): boolean;
-
 export function lastFrameTime(arg0: LastFrameTimeOptions): MediaTime | undefined;
-
-export function localClipToSourceTime(clip_time_ms: number, source_start_ms: number, source_end_ms: number): number;
 
 export function mediaTimeAdd(arg0: MediaTimeAddOptions): MediaTime;
 
@@ -162,8 +150,6 @@ export function mediaTimeToFrame(arg0: MediaTimeToFrameOptions): bigint | undefi
 
 export function mediaTimeToSeconds(arg0: MediaTimeToSecondsOptions): number;
 
-export function parseLocalClipTimecode(value: string): number;
-
 export function parseTimecode(arg0: ParseTimecodeOptions): MediaTime | undefined;
 
 export function rebuildCaptionPages(options: any): any;
@@ -178,11 +164,7 @@ export function resolvePaperFoldFrameState(value: any): any;
 
 export function roundToFrame(arg0: RoundToFrameOptions): MediaTime | undefined;
 
-export function sanitizeLocalClipFilename(title: string): string;
-
 export function snappedSeekTime(arg0: SnappedSeekTimeOptions): MediaTime | undefined;
-
-export function sourceToLocalClipTime(source_time_ms: number, source_start_ms: number, source_end_ms: number): number;
 
 export function uploadTexture(options: any): void;
 

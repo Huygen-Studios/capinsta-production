@@ -189,7 +189,6 @@ def test_project_deletion_path_traversal_is_rejected(tmp_path):
 
 def test_disk_pressure_rejects_upload_and_export(monkeypatch, tmp_path):
     monkeypatch.setattr(storage_pressure, "TEMP_DIR", tmp_path)
-    monkeypatch.setattr(storage_pressure, "UPLOAD_DIR", tmp_path)
     monkeypatch.setattr(
         storage_pressure.shutil,
         "disk_usage",

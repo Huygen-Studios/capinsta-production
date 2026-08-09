@@ -866,27 +866,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clip-domain"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "transcript-domain",
-]
-
-[[package]]
-name = "clipping-runtime"
-version = "0.1.0"
-dependencies = [
- "clip-domain",
- "project-bridge",
- "serde",
- "serde_json",
- "shorts-domain",
- "transcript-domain",
-]
-
-[[package]]
 name = "cocoa"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3851,11 +3830,10 @@ dependencies = [
 
 [[package]]
 name = "opencut-wasm"
-version = "0.2.12"
+version = "0.2.10"
 dependencies = [
  "bridge",
  "captions",
- "clip-domain",
  "compositor",
  "console_error_panic_hook",
  "effects",
@@ -4222,16 +4200,6 @@ checksum = "52717f9a02b6965224f95ca2a81e2e0c5c43baacd28ca057577988930b6c3d5b"
 dependencies = [
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "project-bridge"
-version = "0.1.0"
-dependencies = [
- "clip-domain",
- "serde",
- "serde_json",
- "transcript-domain",
 ]
 
 [[package]]
@@ -5134,16 +5102,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "shorts-domain"
-version = "0.1.0"
-dependencies = [
- "clip-domain",
- "serde",
- "serde_json",
- "transcript-domain",
-]
-
-[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5963,14 +5921,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "transcript-domain"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]

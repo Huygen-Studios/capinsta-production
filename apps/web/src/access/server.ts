@@ -1,7 +1,7 @@
 import "server-only";
 
 /* eslint-disable opencut/prefer-object-params -- Authorization guard call sites read better with permission/path pairs. */
-import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { unstable_cache as nextCache, revalidateTag } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
@@ -52,7 +52,6 @@ export type AccessContext = {
 	productAccessExpired: boolean;
 	productAccessExpiresAt: Date | null;
 	emailConfirmedAt: Date | null;
-	lastAuthenticatedAt: Date | null;
 	authProviderSnapshot: string | null;
 	permissions: Set<AppPermission>;
 	explicitGrantPermissions: Set<AppPermission>;
@@ -192,10 +191,9 @@ export const getCurrentAccessContext = cache(
 				productAccessExpired: false,
 				productAccessExpiresAt: null,
 				emailConfirmedAt: null,
-				lastAuthenticatedAt: new Date(),
 				authProviderSnapshot: "ui-test",
-				permissions: new Set(["app.access", "projects.access", "editor.access", "clipper.access", "exports.access", "render.access"]),
-				explicitGrantPermissions: new Set(["app.access", "projects.access", "editor.access", "clipper.access", "exports.access", "render.access"]),
+				permissions: new Set(["app.access", "projects.access", "editor.access", "exports.access", "render.access"]),
+				explicitGrantPermissions: new Set(["app.access", "projects.access", "editor.access", "exports.access", "render.access"]),
 				explicitRevocationPermissions: new Set(),
 				roleKeys: ["member"],
 				isAdmin: false,
@@ -209,36 +207,11 @@ export const getCurrentAccessContext = cache(
 		} = await supabase.auth.getUser();
 		if (!user) return null;
 
-		let [profile] = await db
+		const [profile] = await db
 			.select()
 			.from(profiles)
 			.where(eq(profiles.userId, user.id))
 			.limit(1);
-		if (!profile) {
-			[profile] = await db
-				.insert(profiles)
-				.values({
-					userId: user.id,
-					emailSnapshot: user.email ?? null,
-					emailConfirmedAt: user.email_confirmed_at
-						? new Date(user.email_confirmed_at)
-						: null,
-					lastSignInAt: user.last_sign_in_at
-						? new Date(user.last_sign_in_at)
-						: null,
-				})
-				.onConflictDoUpdate({
-					target: profiles.userId,
-					set: {
-						emailSnapshot: sql`COALESCE(${profiles.emailSnapshot}, EXCLUDED.email_snapshot)`,
-						lastSignInAt: user.last_sign_in_at
-							? new Date(user.last_sign_in_at)
-							: null,
-						updatedAt: new Date(),
-					},
-				})
-				.returning();
-		}
 		if (!profile) return null;
 
 		const [{ permissions, roleKeys }, sitePolicy, adminContext, directGrants, directRevocations] =
@@ -263,9 +236,6 @@ export const getCurrentAccessContext = cache(
 			productAccessExpired: Boolean(expiresAt && expiresAt <= new Date()),
 			productAccessExpiresAt: expiresAt,
 			emailConfirmedAt: profile.emailConfirmedAt,
-			lastAuthenticatedAt: user.last_sign_in_at
-				? new Date(user.last_sign_in_at)
-				: profile.lastSignInAt,
 			authProviderSnapshot: profile.authProviderSnapshot,
 			permissions,
 			explicitGrantPermissions: permissionsForProducts(directGrants),
@@ -291,17 +261,12 @@ export function isPendingPrivateBetaUser(context: AccessContext) {
 }
 
 export function appPermissionForPath(pathname: string): AppPermission {
-	if (pathname.startsWith("/clipper")) return "clipper.access";
 	if (pathname.startsWith("/editor")) return "editor.access";
 	if (pathname.startsWith("/render")) return "render.access";
 	if (pathname.startsWith("/api/capinsta/api/export")) return "exports.access";
 	if (pathname.startsWith("/api/capinsta/api/jobs")) return "editor.access";
 	if (pathname.startsWith("/api/capinsta/api/captions")) return "editor.access";
 	if (pathname.startsWith("/api/capinsta/api/media")) return "editor.access";
-	if (pathname.startsWith("/api/capinsta/api/capinsta/media"))
-		return "editor.access";
-	if (pathname.startsWith("/api/capinsta/api/clipping"))
-		return "clipper.access";
 	if (pathname.startsWith("/api/capinsta/api/projects")) return "projects.access";
 	if (pathname.startsWith("/projects")) return "projects.access";
 	return "app.access";

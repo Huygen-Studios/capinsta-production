@@ -47,7 +47,6 @@ from .timing import (
     alignment_provider_status,
     annotate_word_timing_sources,
     build_timing_report,
-    check_silero_readiness,
     detect_silence_gaps,
     normalize_timing_source,
 )
@@ -588,19 +587,13 @@ def run_pipeline(
     source_in_ms: int | None = None,
     source_out_ms: int | None = None,
     timeline_offset_ms: int | None = None,
-    pre_extracted_audio_path: str | None = None,
 ) -> Dict[str, Any]:
     """Run transcription, normalization, alignment, and subtitle export."""
     language_mode = normalize_language_mode(user_target_lang)
     output_language = normalize_caption_output(caption_output)
     pipeline_logger = PipelineLogger(os.path.basename(video_path))
     pipeline_logger.start_run()
-    owns_audio_path = pre_extracted_audio_path is None
-    audio_path = (
-        f"{os.path.splitext(video_path)[0]}_temp.wav"
-        if owns_audio_path
-        else str(pre_extracted_audio_path)
-    )
+    audio_path = f"{os.path.splitext(video_path)[0]}_temp.wav"
     chunks = []
     transcription_providers: set[str] = set()
     transcription_fallback_from: set[str] = set()
@@ -643,36 +636,19 @@ def run_pipeline(
             resolved=pipeline_config_with_sources.get("resolved"),
             sources=pipeline_option_sources,
         )
-        if pipeline_config.vad.sileroEnabled and pipeline_config.vad.sileroRequired:
-            silero_readiness = check_silero_readiness()
-            if not silero_readiness["sileroInferenceReady"]:
-                category = silero_readiness.get("failureCategory") or "silero_vad_unavailable"
-                _stage_log("strict_silero_preflight_failed", failure_category=category)
-                raise TranscriptValidationError(
-                    f"{category}: Silero VAD is required on the processing server, but Silero readiness check failed ({category})."
-                )
-        if owns_audio_path:
-            _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
-            emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")
-            extract_audio(
-                video_path,
-                audio_path,
-                sample_rate=16000,
-                channels=1,
-                codec="pcm_s16le",
-                start_ms=source_in_ms,
-                end_ms=source_out_ms,
-            )
-            _stage_log("audio extraction completed", audio_path=audio_path, language_mode=language_mode)
-        else:
-            if not os.path.isfile(audio_path):
-                raise FileNotFoundError("Trusted extracted transcription audio is unavailable.")
-            _stage_log(
-                "audio extraction reused",
-                audio_path=os.path.basename(audio_path),
-                language_mode=language_mode,
-            )
-            emit_progress("extracting_audio", 5, "Using prepared transcription audio.")
+        _stage_log("audio extraction started", video_path=video_path, language_mode=language_mode)
+        emit_progress("extracting_audio", 5, "Extracting audio from uploaded video.")
+        audio_options = pipeline_config.audio
+        extract_audio(
+            video_path,
+            audio_path,
+            sample_rate=16000,
+            channels=1,
+            codec="pcm_s16le",
+            start_ms=source_in_ms,
+            end_ms=source_out_ms,
+        )
+        _stage_log("audio extraction completed", audio_path=audio_path, language_mode=language_mode)
 
         emit_progress("normalizing", 10, "Estimating audio quality.")
         metrics = measure_audio_quality(audio_path)
@@ -1708,12 +1684,10 @@ def run_pipeline(
         pipeline_logger.end_run(error=str(e))
         return {"status": "error", "message": str(e), "languageMode": language_mode}
     finally:
-        if owns_audio_path and os.path.exists(audio_path):
+        if os.path.exists(audio_path):
             os.remove(audio_path)
 
         for c in chunks:
             if os.path.exists(c.audio_path):
                 os.remove(c.audio_path)
-        _stage_log(
-            "temp cleanup completed", media_name=os.path.basename(video_path)
-        )
+        _stage_log("temp cleanup completed", video_path=video_path)

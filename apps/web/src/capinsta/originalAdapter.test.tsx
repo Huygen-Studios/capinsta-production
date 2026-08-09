@@ -113,34 +113,6 @@ describe("original Capinsta renderer adapter", () => {
 		expect(original.supportSizeMultiplier).toBe(0.28);
 	});
 
-	test("renders configured spacing between caption word spans", () => {
-		const document = buildDocument();
-		const style = getCapinstaPresetStyle("word_highlight_box");
-		style.text.wordSpacing = 12;
-		const caption = toOriginalCaption({
-			document,
-			clip: {
-				...document.clips[0]!,
-				stylePresetId: "word_highlight_box",
-			},
-			style,
-		});
-		const originalStyle = toOriginalCaptionStyleConfig({ style });
-		const markup = renderToStaticMarkup(
-			<OriginalCaptionRenderer
-				captions={[caption]}
-				currentTime={0.2}
-				fps={30}
-				scale={1}
-				styleConfig={originalStyle}
-				canvasSize={{ width: 1080, height: 1920 }}
-			/>,
-		);
-
-		expect(originalStyle.wordSpacing).toBe(12);
-		expect(markup).toContain("margin-inline-end:calc(0.32em + 12px)");
-	});
-
 	test("Editorial Lockup renderer does not reveal the whole sentence at once", () => {
 		const document = buildDocument();
 		const style = getCapinstaPresetStyle("modern_minimalist_lockup");

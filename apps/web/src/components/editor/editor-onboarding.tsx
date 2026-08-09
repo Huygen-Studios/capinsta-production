@@ -97,14 +97,6 @@ export function EditorOnboardingProvider({
 				prevBtnText: "Back",
 				doneBtnText: "Start editing",
 				steps: availableSteps,
-				onCloseClick: () => {
-					markCompleted();
-					tour.destroy();
-				},
-				onDoneClick: () => {
-					markCompleted();
-					tour.destroy();
-				},
 				onDestroyed: () => {
 					driverRef.current = null;
 					if (source === "auto" || !hasCompletedOnboarding) {

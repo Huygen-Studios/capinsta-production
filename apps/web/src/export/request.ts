@@ -16,7 +16,6 @@ export function createExportRequestFormData({
 	exportMode,
 	backgroundColor,
 	durationSeconds,
-	compositionJson,
 }: {
 	sourceJobId?: string;
 	sourceMediaAssetId?: string;
@@ -32,7 +31,6 @@ export function createExportRequestFormData({
 	exportMode: ExportMode;
 	backgroundColor: string | null | undefined;
 	durationSeconds: number;
-	compositionJson?: string;
 }): FormData {
 	const formData = new FormData();
 	if (sourceJobId) formData.append("source_job_id", sourceJobId);
@@ -58,6 +56,5 @@ export function createExportRequestFormData({
 	formData.append("duration_override", durationSeconds.toString());
 	formData.append("duration_source", "frontend");
 	formData.append("render_mode", "headless");
-	if (compositionJson) formData.append("composition_json", compositionJson);
 	return formData;
 }

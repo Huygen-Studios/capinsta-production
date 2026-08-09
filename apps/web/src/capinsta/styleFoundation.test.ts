@@ -236,7 +236,7 @@ const ORIGINAL_PRESET_EXPECTATIONS: Record<
 };
 
 describe("Capinsta style foundation", () => {
-	test("registers the Capinsta caption presets", () => {
+	test("registers the six Capinsta caption presets", () => {
 		expect(CAPINSTA_CAPTION_PRESETS.map((preset) => preset.id)).toEqual([
 			"word_highlight_box",
 			"attention_punch",
@@ -244,19 +244,11 @@ describe("Capinsta style foundation", () => {
 			"kinetic_fade",
 			"mrbeast_style",
 			"modern_minimalist_lockup",
-			"skyline_italic",
-			"ember_focus",
-			"citrus_signature",
-			"volt_matrix",
-			"ivory_signature",
-			"cobalt_script",
-			"mint_ink",
-			"monument",
 		]);
 	});
 
-	test("original preset values match the extracted original registry", () => {
-		for (const preset of CAPINSTA_CAPTION_PRESETS.slice(0, 6)) {
+	test("six preset values match the extracted original Capinsta registry", () => {
+		for (const preset of CAPINSTA_CAPTION_PRESETS) {
 			const expected = ORIGINAL_PRESET_EXPECTATIONS[preset.id];
 
 			expect(preset.name).toBe(expected.name);
@@ -348,7 +340,6 @@ describe("Capinsta style foundation", () => {
 
 		expect(migrated.style?.version).toBe("capinsta.captionStyle.v1");
 		expect(migrated.style?.presetId).toBe("word_highlight_box");
-		expect(migrated.style?.text.wordSpacing).toBe(0);
 		expect(migrated.clips[0]?.style).toBeUndefined();
 	});
 
@@ -478,7 +469,6 @@ describe("Capinsta style foundation", () => {
 			...getCapinstaPresetStyle("word_highlight_box"),
 			text: {
 				letterSpacing: 4,
-				wordSpacing: 12,
 				opacity: 0.7,
 				maxLines: 1,
 			},
@@ -497,11 +487,9 @@ describe("Capinsta style foundation", () => {
 		const exportStyle = styleToExport({ style });
 
 		expect(preview.textStyle.letterSpacing).toBe("4px");
-		expect(preview.textStyle.wordSpacing).toBe("12px");
 		expect(preview.textStyle.WebkitLineClamp).toBe(1);
 		expect(preview.textStyle.WebkitTextStroke).toBe("7px #000000");
 		expect(exportStyle.textParams.letterSpacing).toBe(4);
-		expect(exportStyle.textParams.wordSpacing).toBe(12);
 		expect(exportStyle.textParams.opacity).toBe(0.6);
 		expect(exportStyle.textParams["transform.scaleX"]).toBe(1.3);
 		expect(exportStyle.textParams["transform.scaleY"]).toBeCloseTo(1.04);

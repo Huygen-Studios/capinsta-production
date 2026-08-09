@@ -14,11 +14,6 @@ export class CommandManager {
 	public isRippleEnabled = false;
 	private history: CommandHistoryEntry[] = [];
 	private redoStack: CommandHistoryEntry[] = [];
-	private scope = "normal";
-	private scopedHistory = new Map<
-		string,
-		{ history: CommandHistoryEntry[]; redoStack: CommandHistoryEntry[] }
-	>();
 	private reactors: Array<() => void> = [];
 
 	constructor(private editor: EditorCore) {}
@@ -106,18 +101,6 @@ export class CommandManager {
 	clear(): void {
 		this.history = [];
 		this.redoStack = [];
-	}
-
-	switchScope({ scope }: { scope: string }): void {
-		if (scope === this.scope) return;
-		this.scopedHistory.set(this.scope, {
-			history: this.history,
-			redoStack: this.redoStack,
-		});
-		const next = this.scopedHistory.get(scope);
-		this.history = next?.history ?? [];
-		this.redoStack = next?.redoStack ?? [];
-		this.scope = scope;
 	}
 
 	private getSelectionSnapshot(): EditorSelectionSnapshot {

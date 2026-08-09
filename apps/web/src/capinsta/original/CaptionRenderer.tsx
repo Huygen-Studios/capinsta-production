@@ -14,7 +14,6 @@ import {
   BUILD_BIG_FONT_SIZE_PX,
   BUILD_SMALL_FONT_SIZE_PX,
   backgroundRgba,
-  captionWordGap,
   directionalShadow,
   normalizeCaptionStyleConfig,
   normalizeModernMinimalistStyleConfig,
@@ -302,8 +301,7 @@ function renderMrBeastStyle(
           justifyContent: justifyFromAlignment(config.alignment),
           alignItems: "center",
           maxWidth: "100%",
-          columnGap: captionWordGap({ baseEm: 0.18, wordSpacing: config.wordSpacing }),
-          rowGap: "0.18em",
+          gap: "0.18em",
           textAlign: config.alignment,
           lineHeight: config.lineHeight,
           ...SAFE_CAPTION_TEXT_STYLE,
@@ -387,10 +385,7 @@ function renderAppleCinematic(
               key={`${activeCaption.id}-apple-${index}-${word.start}`}
               style={{
                 display: "inline-block",
-                marginInlineEnd:
-                  index < words.length - 1
-                    ? captionWordGap({ baseEm: 0.28, wordSpacing: config.wordSpacing })
-                    : 0,
+                marginRight: "0.28em",
                 opacity: Number(entrance.opacity ?? 1) * progress,
                 transform: combineTransforms(entrance.transform || "", `translateY(${(1 - progress) * yOffset}px)`),
                 filter: config.entranceAnimation === "flip" ? entrance.filter || "none" : `blur(${(1 - progress) * blur}px)`,
@@ -878,10 +873,7 @@ function buildEditorialLockupLayout(
     bottom: height - (height * safeMarginPercent) / 100,
   };
 
-  const collisionPadding = Math.max(
-    0,
-    ((config.collisionPadding ?? 8) + config.wordSpacing) * scale
-  );
+  const collisionPadding = Math.max(0, (config.collisionPadding ?? 8) * scale);
   const safeWidth = Math.max(1, bounds.right - bounds.left);
   const safeHeight = Math.max(1, bounds.bottom - bounds.top);
   const configuredBigFontSize = clamp(config.bigFontSizePx ?? BUILD_BIG_FONT_SIZE_PX, 80, 400) * scale;
@@ -1076,7 +1068,7 @@ function renderModernMinimalistLockup(
         ...positionStyle,
         height: `${layoutSafety.maxHeightPercent}%`,
       }}
-      data-caption-theme={activeCaption.theme}
+      data-caption-theme="modern_minimalist_lockup"
     >
       <div
         style={{
@@ -1204,10 +1196,7 @@ function renderKineticWords(
               key={`${activeCaption.id}-kf-${index}`}
               style={{
                 display: "inline-block",
-                marginInlineEnd:
-                  index < tokens.length - 1
-                    ? captionWordGap({ baseEm: 0.28, wordSpacing: config.wordSpacing })
-                    : 0,
+                marginRight: "0.28em",
                 fontSize,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontWeight: config.fontWeight,
@@ -1249,14 +1238,7 @@ function renderAttentionPunch(
   const activeIndex = words.findIndex((word) => currentTime >= word.start && currentTime < word.end);
   return (
     <div style={positionStyle}>
-      <div
-        className="flex max-w-full flex-wrap leading-tight"
-        style={{
-          justifyContent: justifyFromAlignment(config.alignment),
-          columnGap: captionWordGap({ baseEm: 0.28, wordSpacing: config.wordSpacing }),
-          ...SAFE_CAPTION_TEXT_STYLE,
-        }}
-      >
+      <div className="flex max-w-full flex-wrap gap-x-[0.28em] leading-tight" style={{ justifyContent: justifyFromAlignment(config.alignment), ...SAFE_CAPTION_TEXT_STYLE }}>
         {words.map((word, index) => {
           const active = index === activeIndex;
           const spoken = currentTime >= word.start;
@@ -1345,17 +1327,7 @@ export default function CaptionRenderer({
     return renderAppleCinematic(activeCaption, currentTime, fps, scale, styleConfig, canvasSize);
   }
 
-  if ([
-    "modern_minimalist_lockup",
-    "skyline_italic",
-    "ember_focus",
-    "citrus_signature",
-    "volt_matrix",
-    "ivory_signature",
-    "cobalt_script",
-    "mint_ink",
-    "monument",
-  ].includes(activeCaption.theme)) {
+  if (activeCaption.theme === "modern_minimalist_lockup") {
     return renderModernMinimalistLockup(activeCaption, currentTime, fps, scale, styleConfig, canvasSize);
   }
 
@@ -1406,7 +1378,6 @@ export default function CaptionRenderer({
   const fallbackFontWeight = useConfigSurface ? resolvedConfig.fontWeight : themeStyle.bold ? 700 : 400;
   const fallbackTextTransform = useConfigSurface ? resolvedConfig.textTransform : themeStyle.textTransform || "none";
   const fallbackLetterSpacing = useConfigSurface ? `${resolvedConfig.letterSpacing}px` : themeStyle.letterSpacing || "normal";
-  const fallbackWordSpacing = useConfigSurface ? `${resolvedConfig.wordSpacing}px` : "normal";
   const fallbackAlignment = useConfigSurface ? resolvedConfig.alignment : "center";
   const fallbackMaxLines = useConfigSurface && resolvedConfig.maxLines !== "auto" ? resolvedConfig.maxLines : fallbackLayout?.lineClamp;
 
@@ -1414,14 +1385,10 @@ export default function CaptionRenderer({
     return (
       <div className={useConfigSurface ? "pointer-events-none" : "absolute left-0 right-0 flex justify-center pointer-events-none px-4"} style={positionStyle}>
         <div
-          className="max-w-[85%] flex flex-wrap justify-center items-baseline"
+          className="max-w-[85%] flex flex-wrap justify-center gap-x-[0.3em] items-baseline"
           style={{
             ...fallbackSurfaceStyle,
             justifyContent: justifyFromAlignment(fallbackAlignment),
-            columnGap: captionWordGap({
-              baseEm: 0.3,
-              wordSpacing: resolvedConfig.wordSpacing,
-            }),
             maxHeight: fallbackMaxLines ? `${Math.ceil(fontSize * resolvedConfig.lineHeight * fallbackMaxLines)}px` : fallbackLayout ? "100%" : undefined,
             overflow: "hidden",
             ...SAFE_CAPTION_TEXT_STYLE,
@@ -1496,7 +1463,6 @@ export default function CaptionRenderer({
           textShadow,
           textTransform: fallbackTextTransform,
           letterSpacing: fallbackLetterSpacing,
-          wordSpacing: fallbackWordSpacing,
           ...(isOutlineBold ? { WebkitTextStroke: "2px #ffffff" } : {}),
           color: normalColor,
           textAlign: fallbackAlignment,

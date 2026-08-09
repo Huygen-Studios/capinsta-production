@@ -6,15 +6,7 @@ export type CapinstaCaptionPresetId =
 	| "apple_cinematic"
 	| "kinetic_fade"
 	| "mrbeast_style"
-	| "modern_minimalist_lockup"
-	| "skyline_italic"
-	| "ember_focus"
-	| "citrus_signature"
-	| "volt_matrix"
-	| "ivory_signature"
-	| "cobalt_script"
-	| "mint_ink"
-	| "monument";
+	| "modern_minimalist_lockup";
 
 export type CapinstaCaptionAlignment = "left" | "center" | "right";
 export type CapinstaCaptionMaxLines = "auto" | 1 | 2 | 3;
@@ -41,7 +33,6 @@ export interface CapinstaCaptionTextStyle {
 	opacity: number;
 	textTransform: "none" | "uppercase";
 	letterSpacing: number;
-	wordSpacing: number;
 }
 
 export interface CapinstaCaptionBackgroundStyle {

@@ -1,20 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const adjustLocalClipRange: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
-export const applyMaskFeather: (a: any) => [number, number, number];
-export const defaultLocalClipHeadingLayout: (a: number, b: number, c: number) => [number, number, number];
-export const formatLocalClipTimecode: (a: number) => [number, number, number, number];
-export const initialLocalClipRanges: (a: number, b: number, c: number) => [number, number, number];
-export const isSafeLocalClipZipEntry: (a: number, b: number) => number;
-export const localClipToSourceTime: (a: number, b: number, c: number) => [number, number, number];
-export const parseLocalClipTimecode: (a: number, b: number) => [number, number, number];
-export const sanitizeLocalClipFilename: (a: number, b: number) => [number, number];
-export const sourceToLocalClipTime: (a: number, b: number, c: number) => [number, number, number];
-export const getLastFrameProfile: () => any;
-export const resolvePaperFoldFrameState: (a: any) => [number, number, number];
-export const validatePaperFoldManifest: (a: any, b: number) => [number, number, number];
-export const initializeGpu: () => any;
 export const activeCaptionState: (a: any) => [number, number, number];
 export const applyEffectPasses: (a: any) => [number, number, number];
 export const canonicalizeCaptionDocument: (a: any) => [number, number, number];
@@ -24,12 +10,17 @@ export const exportCaptionSrt: (a: any) => [number, number, number, number];
 export const exportCaptionVtt: (a: any) => [number, number, number, number];
 export const rebuildCaptionPages: (a: any) => [number, number, number];
 export const validateCaptionDocument: (a: any) => [number, number, number];
+export const getLastFrameProfile: () => any;
+export const applyMaskFeather: (a: any) => [number, number, number];
 export const getCompositorCanvas: () => [number, number, number];
 export const initCompositor: (a: number, b: number) => [number, number];
 export const releaseTexture: (a: number, b: number) => [number, number];
 export const renderFrame: (a: any) => [number, number];
 export const resizeCompositor: (a: number, b: number) => [number, number];
+export const resolvePaperFoldFrameState: (a: any) => [number, number, number];
 export const uploadTexture: (a: any) => [number, number];
+export const validatePaperFoldManifest: (a: any, b: number) => [number, number, number];
+export const initializeGpu: () => any;
 export const TICKS_PER_SECOND: () => number;
 export const floorToFrame: (a: any) => any;
 export const isFrameAligned: (a: any) => number;

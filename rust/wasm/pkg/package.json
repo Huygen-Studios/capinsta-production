@@ -2,7 +2,7 @@
   "name": "opencut-wasm",
   "type": "module",
   "description": "Shared video editor logic compiled to WebAssembly",
-  "version": "0.2.12",
+  "version": "0.2.10",
   "license": "MIT",
   "repository": {
     "type": "git",

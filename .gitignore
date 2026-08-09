@@ -8,10 +8,6 @@ node_modules/
 .cursor/
 .cursorignore
 .vscode/
-.codex-tmp/
-gitleaks.json
-gitlog.txt
-
 
 # JavaScript/Next/Turbo build output
 .turbo/
@@ -44,10 +40,6 @@ backend/storage/temp/
 backend/storage/exports/
 backend/storage/uploads/
 storage/
-.local-data/
-.local-tools/
-apps/web/.next-local-clipper/
-apps/web/.next-shared-build/
 !apps/web/src/services/storage/
 !apps/web/src/services/storage/**
 
@@ -61,8 +53,6 @@ coverage/
 
 # Font source files (served copy lives in apps/web/public/caption-fonts/)
 fonts/
-!apps/web/src/fonts/
-!apps/web/src/fonts/**
 !apps/web/src/capinsta/fonts/
 
 # Local-only notes

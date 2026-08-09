@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
 	ResizablePanelGroup,
 	ResizablePanel,
@@ -37,12 +37,6 @@ import {
 	getBookmarkPreviewOverlaySource,
 } from "@/timeline/bookmarks/index";
 import { EditorAdRail, EditorTopAd } from "@/components/adsense/editor-ads";
-import {
-	ClipBatchInspector,
-	ClipBatchProvider,
-	ClipSourceOverview,
-	ClipTimelineContextBar,
-} from "./clip-batch-workspace";
 
 export default function Editor() {
 	const params = useParams<{ project_id: string }>();
@@ -52,9 +46,7 @@ export default function Editor() {
 		<MobileGate>
 			<EditorProvider projectId={projectId}>
 				<EditorOnboardingProvider>
-					<ClipBatchProvider>
-						<EditorProjectSession />
-					</ClipBatchProvider>
+					<EditorProjectSession />
 				</EditorOnboardingProvider>
 			</EditorProvider>
 		</MobileGate>
@@ -124,7 +116,6 @@ function DegradedRendererBanner() {
 
 function EditorLayout() {
 	usePasteMedia();
-	const isClippingMode = useSearchParams().get("mode") === "clipping";
 	const { panels, setPanel } = usePanelStore();
 	const activeScene = useEditor((editor) =>
 		editor.scenes.getActiveSceneOrNull(),
@@ -234,7 +225,7 @@ function EditorLayout() {
 						maxSize={40}
 						className="min-w-0"
 					>
-						{isClippingMode ? <ClipBatchInspector /> : <PropertiesPanel />}
+						<PropertiesPanel />
 					</ResizablePanel>
 				</ResizablePanelGroup>
 			</ResizablePanel>
@@ -247,13 +238,7 @@ function EditorLayout() {
 				maxSize={70}
 				className="min-h-0 px-1.5 pb-1.5 pt-1"
 			>
-				<div className="flex size-full min-h-0 flex-col">
-					{isClippingMode ? <ClipSourceOverview /> : null}
-					{isClippingMode ? <ClipTimelineContextBar /> : null}
-					<div className="min-h-0 flex-1">
-						<Timeline />
-					</div>
-				</div>
+				<Timeline />
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);

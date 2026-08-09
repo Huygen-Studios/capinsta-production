@@ -52,8 +52,7 @@ const selectTriggerVariants = cva(
 	{
 		variants: {
 			variant: {
-				default:
-					"bg-card shadow-[2px_2px_0_var(--shadow-strong)] hover:bg-muted",
+				default: "bg-card shadow-[2px_2px_0_var(--shadow-strong)] hover:bg-muted",
 				outline: "bg-card hover:bg-muted",
 			},
 			size: {
@@ -138,7 +137,7 @@ const SelectContent = React.forwardRef<
 		<SelectPrimitive.Content
 			ref={ref}
 			className={cn(
-				"z-300 max-h-(--radix-select-content-available-height) min-w-32 overflow-hidden rounded-sm border-2 border-border bg-popover p-1 text-popover-foreground shadow-[4px_4px_0_var(--shadow-strong)]",
+				"z-50 max-h-(--radix-select-content-available-height) min-w-32 overflow-hidden rounded-sm border-2 border-border bg-popover p-1 text-popover-foreground shadow-[4px_4px_0_var(--shadow-strong)]",
 				className,
 			)}
 			position={position}

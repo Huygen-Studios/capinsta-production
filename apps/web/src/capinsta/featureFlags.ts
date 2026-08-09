@@ -19,43 +19,7 @@ export function isCapinstaSampleImportEnabled(): boolean {
 
 export function getCapinstaApiBaseUrl(): string {
 	const configured = process.env.NEXT_PUBLIC_CAPINSTA_API_BASE_URL?.trim();
-	if (!configured) return "/api/capinsta";
-	if (process.env.NODE_ENV === "production") {
-		try {
-			const url = new URL(configured);
-			if (
-				["api", "localhost", "127.0.0.1", "0.0.0.0"].includes(
-					url.hostname.toLowerCase(),
-				)
-			) {
-				return "/api/capinsta";
-			}
-		} catch {
-			// Relative same-origin overrides are safe.
-		}
-	}
-	return configured;
-}
-
-export function getCapinstaMediaUploadBaseUrl(): string {
-	const configured =
-		process.env.NEXT_PUBLIC_CAPINSTA_MEDIA_UPLOAD_ORIGIN?.trim();
-	if (!configured) return getCapinstaApiBaseUrl();
-	if (process.env.NODE_ENV === "production") {
-		try {
-			const url = new URL(configured);
-			if (
-				["api", "localhost", "127.0.0.1", "0.0.0.0"].includes(
-					url.hostname.toLowerCase(),
-				)
-			) {
-				return getCapinstaApiBaseUrl();
-			}
-		} catch {
-			return getCapinstaApiBaseUrl();
-		}
-	}
-	return configured;
+	return configured || "/api/capinsta";
 }
 
 export function getCapinstaJobTimeoutMs(): number {
@@ -74,17 +38,6 @@ export function getCapinstaJobPollIntervalMs(): number {
 
 export function isCapinstaDebugEnabled(): boolean {
 	const value = process.env.NEXT_PUBLIC_CAPINSTA_DEBUG || "";
-	return truthyValues.has(value.toLowerCase());
-}
-
-export function isCapinstaProjectHandoffEnabled(): boolean {
-	const value = process.env.NEXT_PUBLIC_ENABLE_CAPINSTA_PROJECT_HANDOFF || "";
-	return truthyValues.has(value.toLowerCase());
-}
-
-export function isServerBackedEditorMediaEnabled(): boolean {
-	const value =
-		process.env.NEXT_PUBLIC_ENABLE_SERVER_BACKED_EDITOR_MEDIA || "";
 	return truthyValues.has(value.toLowerCase());
 }
 

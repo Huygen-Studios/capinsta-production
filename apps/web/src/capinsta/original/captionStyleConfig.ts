@@ -28,7 +28,6 @@ export const DEFAULT_WORD_HIGHLIGHT_BOX_CONFIG: CaptionStyleConfig = {
 	paddingX: 24,
 	paddingY: 14,
 	letterSpacing: 0,
-	wordSpacing: 0,
 	lineHeight: 1.12,
 	textTransform: "none",
 	textShadowEnabled: false,
@@ -217,18 +216,6 @@ export function resolveFontFamily(fontFamily: string) {
 	);
 }
 
-export function captionWordGap({
-	baseEm,
-	wordSpacing,
-}: {
-	baseEm: number;
-	wordSpacing: number;
-}): string {
-	return wordSpacing === 0
-		? `${baseEm}em`
-		: `calc(${baseEm}em + ${wordSpacing}px)`;
-}
-
 function safeEntranceAnimation(
 	value: unknown,
 ): CaptionStyleConfig["entranceAnimation"] {
@@ -362,7 +349,6 @@ export function normalizeCaptionStyleConfig(
 		paddingX: clamp(merged.paddingX, 6, 48, defaults.paddingX),
 		paddingY: clamp(merged.paddingY, 4, 32, defaults.paddingY),
 		letterSpacing: clamp(merged.letterSpacing, -2, 8, defaults.letterSpacing),
-		wordSpacing: clamp(merged.wordSpacing, 0, 40, defaults.wordSpacing),
 		lineHeight: clamp(merged.lineHeight, 0.9, 1.6, defaults.lineHeight),
 		textTransform: merged.textTransform === "uppercase" ? "uppercase" : "none",
 		textShadowEnabled: Boolean(merged.textShadowEnabled),

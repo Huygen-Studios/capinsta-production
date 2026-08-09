@@ -88,19 +88,10 @@ describe("canonical product access policy", () => {
 
 	test("page and direct API capabilities share the public/restriction/mode policy", () => {
 		for (const requestedCapability of PRODUCT_CAPABILITIES) {
-			expect(evaluateProductAccess(input({ requestedCapability })).allowed).toBe(
-				true,
-			);
+			expect(evaluateProductAccess(input({ requestedCapability })).allowed).toBe(true);
 			expect(evaluateProductAccess(input({ requestedCapability, user: { accountStatus: "banned" } })).allowed).toBe(false);
 			expect(evaluateProductAccess(input({ requestedCapability, launchMode: "coming_soon" })).allowed).toBe(false);
 			expect(evaluateProductAccess(input({ requestedCapability, launchMode: "maintenance", entitlement: { status: "approved", hasCapabilityGrant: true } })).allowed).toBe(false);
 		}
-	});
-
-	test("public mode allows clipper for active signed-in users", () => {
-		expect(evaluateProductAccess(input({
-			requestedCapability: "use_clipper",
-			entitlement: { status: "pending" },
-		})).reasonCode).toBe("allowed_public");
 	});
 });

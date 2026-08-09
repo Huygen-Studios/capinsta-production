@@ -5,7 +5,6 @@ import type {
 	TTimelineViewState,
 } from "@/project/types";
 import type { TScene } from "@/timeline";
-import type { ServerBackedMediaDescriptorV1 } from "@capinsta/transcript-contract";
 
 export interface StorageAdapter<T> {
 	get(key: string): Promise<T | null>;
@@ -35,17 +34,8 @@ export interface MediaAssetData {
 	thumbnailUrl?: string;
 	serverAssetId?: string;
 	serverDownloadUrl?: string;
-	serverBackedDescriptor?: ServerBackedMediaDescriptorV1;
 	syncStatus?: "local" | "uploading" | "synced" | "failed";
 	syncError?: string;
-}
-
-export interface ProjectHandoffImportRecordV1 {
-	schemaVersion: 1;
-	projectId: string;
-	handoffId: string;
-	conversionResultIdentity: string;
-	status: "importing" | "imported";
 }
 
 export interface LegacyBrowserStorageRecoveryResult {

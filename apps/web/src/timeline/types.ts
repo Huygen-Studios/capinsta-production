@@ -118,8 +118,6 @@ interface BaseTimelineElement {
 	sourceAssetId?: string;
 	capinstaDocumentId?: string;
 	capinstaClipId?: string;
-	clippingRangeId?: string;
-	clippingEdlEntryId?: string;
 }
 
 export interface VideoElement extends BaseTimelineElement {

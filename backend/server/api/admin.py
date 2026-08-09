@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import secrets
@@ -13,8 +14,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..admin_auth import require_backend_admin_permission
 from ..database import get_db
-from ..clipping_persistence.database import DurableDatabase
-from ..editor_exports import cancel_editor_exports, enqueue_editor_export
 from ..operational_mirror import (
     mirror_caption_job,
     mirror_export_job,
@@ -324,7 +323,7 @@ async def cancel_admin_export(
     existing = await _existing_result(db, request, "export.cancel", export_id)
     if existing is not None:
         return existing
-    row = await (await db.execute("SELECT status,user_id FROM export_jobs WHERE id = ?", (export_id,))).fetchone()
+    row = await (await db.execute("SELECT status FROM export_jobs WHERE id = ?", (export_id,))).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Export not found")
     if row["status"] not in {"queued", "running"}:
@@ -347,11 +346,6 @@ async def cancel_admin_export(
             export_runtime._jobs[export_id].stage = "cancelled"
             export_runtime._jobs[export_id].progress = -1
     await mirror_export_job(export_id)
-    await cancel_editor_exports(
-        database=DurableDatabase(),
-        export_job_ids=[export_id],
-        owner_user_id=str(row["user_id"]),
-    )
     result = {"ok": True, "status": "cancelled", "correlationId": admin.correlation_id}
     await _remember_result(db, request, "export.cancel", export_id, result)
     return result
@@ -436,12 +430,7 @@ async def retry_admin_export(
     )
     async with export_runtime._jobs_lock:
         export_runtime._jobs[new_id] = retry
-    await enqueue_editor_export(
-        database=DurableDatabase(),
-        export_job_id=new_id,
-        owner_user_id=str(row["user_id"]),
-        request=export_request,
-    )
+    asyncio.create_task(export_runtime._run_export_job(new_id, export_request))
     result = {"ok": True, "exportId": new_id, "correlationId": admin.correlation_id}
     await _remember_result(db, request, "export.retry", export_id, result)
     return result

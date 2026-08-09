@@ -30,7 +30,7 @@ import {
 	type ReactNode,
 } from "react";
 import { useContainerSize } from "@/hooks/use-container-size";
-import { roundMediaTime, type MediaTime } from "@/wasm";
+import type { MediaTime } from "@/wasm";
 import type { ElementDragView, DropTarget } from "@/timeline";
 import { TimelineTrackContent } from "./timeline-track";
 import { TimelinePlayhead } from "./timeline-playhead";
@@ -116,10 +116,7 @@ const TRACK_ICONS: Record<TimelineTrack["type"], ReactNode> = {
 	),
 };
 
-export function Timeline({
-	rangeLane,
-	rangeDuration,
-}: { rangeLane?: ReactNode; rangeDuration?: MediaTime } = {}) {
+export function Timeline() {
 	const snappingEnabled = useTimelineStore((s) => s.snappingEnabled);
 	const {
 		selectedElements,
@@ -170,12 +167,9 @@ export function Timeline({
 	}, []);
 
 	const timelineDuration = timeline.getTotalDuration() || 0;
-	const displayDuration = roundMediaTime({
-		time: Math.max(timelineDuration, rangeDuration ?? 0),
-	});
 	const containerWidth = tracksContainerWidth || FALLBACK_CONTAINER_WIDTH;
 	const minZoomLevel = getTimelineZoomMin({
-		duration: displayDuration,
+		duration: timelineDuration,
 		containerWidth,
 	});
 
@@ -310,12 +304,12 @@ export function Timeline({
 
 	const { dragView, handleElementMouseDown, handleElementClick } =
 		useElementInteraction({
-			zoomLevel,
-			tracksContainerRef,
-			tracksScrollRef,
-			snappingEnabled,
-			onSnapPointChange: handleSnapPointChange,
-		});
+		zoomLevel,
+		tracksContainerRef,
+		tracksScrollRef,
+		snappingEnabled,
+		onSnapPointChange: handleSnapPointChange,
+	});
 	const isElementDragging = dragView.kind === "dragging";
 
 	const {
@@ -392,7 +386,7 @@ export function Timeline({
 	});
 
 	const contentWidth = timelineTimeToPixels({
-		time: displayDuration,
+		time: timelineDuration,
 		zoomLevel,
 	});
 	const paddingPx = getTimelinePaddingPx({
@@ -493,7 +487,9 @@ export function Timeline({
 					className="relative isolate flex flex-1 flex-col overflow-hidden"
 					ref={tracksContainerRef}
 				>
-					<SelectionBox bounds={selectionBox?.bounds ?? null} />
+					<SelectionBox
+						bounds={selectionBox?.bounds ?? null}
+					/>
 					<DragLine
 						dropTarget={dropTarget}
 						tracks={tracks}
@@ -533,9 +529,6 @@ export function Timeline({
 								handleRulerTrackingMouseDown={handleRulerMouseDown}
 								handleRulerMouseDown={handlePlayheadRulerMouseDown}
 							/>
-							{rangeLane ? (
-								<div style={{ width: `${contentWidth}px` }}>{rangeLane}</div>
-							) : null}
 						</div>
 					</div>
 
@@ -819,8 +812,8 @@ function TimelineTrackRows({
 	const draggingElementIds = useMemo(
 		() =>
 			dragView.kind === "dragging"
-				? dragView.memberTimeOffsets
-				: (null as ReadonlyMap<string, MediaTime> | null),
+			? dragView.memberTimeOffsets
+			: (null as ReadonlyMap<string, MediaTime> | null),
 		[dragView],
 	);
 	const sortedTracks = useMemo(() => {

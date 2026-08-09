@@ -24,32 +24,11 @@ from ..worker_startup import check_pipeline_worker_import
 from ai_pipeline.transcriber import is_real_secret
 from .export_jobs import export_job_metrics
 from ..auth import auth_health_status
-from ..runtime_policy import (
-    _allow_without_control_plane,
-    _rest_control_plane_enabled,
-    control_plane_health,
-)
+from ..runtime_policy import control_plane_health
 from ..storage_pressure import read_disk_pressure
 from ..transcription_control import active_transcription_config, transcription_database_status
-from ..clipping_persistence.database import DurableDatabase
-from ..clipping_storage.config import MediaStorageConfig
-from ..clipping_storage.errors import StorageError
-from ..clipping_storage.repository import MediaStorageRepository
 
 router = APIRouter(prefix="/health", tags=["health"])
-API_CONTRACT_VERSION = 1
-API_CAPABILITIES = [
-    "captions",
-    "jobs",
-    "clipping-media-uploads",
-    "clipping-batches",
-    "clipping-workflows",
-    "clipping-projects",
-    "clipping-exports",
-    "server-backed-media",
-    "preview",
-    "handoff",
-]
 
 
 def _build_sha() -> str:
@@ -73,19 +52,7 @@ class ReadinessResponse(BaseModel):
     ready: bool = True
     apiPrefix: str = "/api"
     readinessRoute: str = "/health/ready"
-    apiContractVersion: int = API_CONTRACT_VERSION
-    capabilities: list[str] = Field(default_factory=lambda: API_CAPABILITIES.copy())
-    latestExpectedMigrationVersion: int = 28
     commit: str | None = None
-    dependencies: dict[str, str | bool] = Field(default_factory=dict)
-
-class LivenessResponse(BaseModel):
-    status: str = "ok"
-    service: str = "capinsta-backend"
-    version: str = "5.0.0"
-    live: bool = True
-    commit: str | None = None
-    timestamp: str
 
 class HealthResponse(BaseModel):
     status: str
@@ -106,37 +73,15 @@ class HealthResponse(BaseModel):
     transcription: dict[str, object] = Field(default_factory=dict)
 
 
-async def readiness_payload() -> ReadinessResponse:
-    """Bounded API readiness; optional providers are deliberately excluded."""
+def readiness_payload() -> ReadinessResponse:
+    """Lightweight process readiness for Coolify/proxy routing.
+
+    This intentionally avoids database, provider, storage-tree, Silero, and
+    stable-ts checks. Those belong to the diagnostic health routes; the reverse
+    proxy only needs to know that the ASGI process is accepting requests.
+    """
     commit = (os.getenv("COMMIT_SHA") or "").strip() or None
-    database = await control_plane_health()
-    schema = "not_required"
-    try:
-        storage = MediaStorageConfig.from_env()
-        if storage.storage_provider == "r2":
-            await MediaStorageRepository(DurableDatabase()).ensure_r2_schema()
-            schema = "ready"
-    except StorageError as error:
-        schema = error.category
-    db_ready = (
-        database["controlPlaneDatabase"] == "healthy"
-        or _allow_without_control_plane()
-        or _rest_control_plane_enabled()
-    )
-    ready = (
-        db_ready
-        and schema in {"not_required", "ready"}
-    )
-    return ReadinessResponse(
-        status="ok" if ready else "degraded",
-        version="5.0.0",
-        commit=commit,
-        ready=ready,
-        dependencies={
-            "database": database["controlPlaneDatabase"],
-            "mediaStorageSchema": schema,
-        },
-    )
+    return ReadinessResponse(version="5.0.0", commit=commit)
 
 
 def startup_diagnostics_payload() -> dict[str, object]:
@@ -461,19 +406,6 @@ async def export_health_payload_async() -> dict[str, object]:
     return payload
 
 
-@router.get("/live", response_model=LivenessResponse)
-async def liveness_check():
-    commit = (os.getenv("COMMIT_SHA") or "").strip() or None
-    return LivenessResponse(
-        status="ok",
-        service="capinsta-backend",
-        version="5.0.0",
-        live=True,
-        commit=commit,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
-
-
 @router.get("", response_model=HealthResponse)
 @router.get("/", response_model=HealthResponse)
 async def health_check():
@@ -483,12 +415,7 @@ async def health_check():
 
 @router.get("/ready", response_model=ReadinessResponse)
 async def readiness_check():
-    payload = await readiness_payload()
-    if not payload.ready:
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(payload.model_dump(), status_code=503)
-    return payload
+    return readiness_payload()
 
 
 @router.get("/startup")

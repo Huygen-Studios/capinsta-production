@@ -24,7 +24,6 @@ export const DEFAULT_CAPINSTA_CAPTION_STYLE: CapinstaCaptionStyleV1 = {
 		opacity: 1,
 		textTransform: "none",
 		letterSpacing: 0,
-		wordSpacing: 0,
 	},
 	background: {
 		enabled: true,

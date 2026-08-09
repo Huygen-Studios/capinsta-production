@@ -17,10 +17,12 @@ export function getPublicPresetOrder() {
 		const preset = CAPINSTA_CAPTION_PRESETS.find((candidate) => candidate.id === id);
 		return preset ? [preset] : [];
 	});
-	const featuredSet = new Set<string>(FEATURED_IDS);
+	const featuredSet = new Set(FEATURED_IDS);
 	return [
 		...featured,
-		...CAPINSTA_CAPTION_PRESETS.filter((preset) => !featuredSet.has(preset.id)),
+		...CAPINSTA_CAPTION_PRESETS.filter(
+			(preset) => !featuredSet.has(preset.id as (typeof FEATURED_IDS)[number]),
+		),
 	];
 }
 
