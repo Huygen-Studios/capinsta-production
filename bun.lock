@@ -32,6 +32,8 @@
       "dependencies": {
         "@capinsta/transcript-contract": "workspace:*",
         "@remotion/renderer": "4.0.507",
+        "react": "19.2.5",
+        "react-dom": "19.2.5",
         "remotion": "4.0.507",
         "zod": "4.4.3",
       },
@@ -43,8 +45,6 @@
         "@types/node": "24.2.1",
         "@types/react": "19.2.10",
         "@types/react-dom": "19.2.3",
-        "react": "19.2.5",
-        "react-dom": "19.2.5",
         "typescript": "6.0.2",
       },
     },
