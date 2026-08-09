@@ -1,0 +1,369 @@
+{
+  "schemaVersion": 1,
+  "phase": "isolated-remotion-hybrid-full-rate",
+  "status": "complete",
+  "startedAt": "2026-08-09T08:42:42.001Z",
+  "isolation": {
+    "capinstaEnv": "benchmark",
+    "benchmarkRoot": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix",
+    "productionDatabaseUsed": false,
+    "remoteStorageUsed": false,
+    "cleanupAndRetentionStarted": false
+  },
+  "host": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "node": "v24.14.0",
+    "cpuModel": "Intel(R) Core(TM) i5-10300H CPU @ 2.50GHz",
+    "logicalCpuCount": 8,
+    "totalMemoryBytes": 17002713088,
+    "freeMemoryBytesAtStart": 6366212096
+  },
+  "configuration": {
+    "resolution": "1080x1920",
+    "fps": 30,
+    "durationSeconds": 30,
+    "timelineFrames": 900,
+    "overlayMode": "full-rate",
+    "overlayTransport": "PNG sequence",
+    "overlayConcurrency": 4,
+    "finalCodec": "h264",
+    "finalPixelFormat": "yuv420p"
+  },
+  "fullFrameReference": {
+    "variant": "png-c1-veryfast-cache512-new",
+    "renderMediaSeconds": 99.4486551,
+    "totalSeconds": 101.4399153,
+    "source": "performance-phase2.json"
+  },
+  "alphaTransportTrial4Seconds": {
+    "png": {
+      "overlayRenderSeconds": 10.3471841,
+      "ffmpegSeconds": 2.6030921,
+      "totalSeconds": 13.7164597,
+      "bytes": 6586484
+    },
+    "prores4444": {
+      "overlayRenderSeconds": 21.7656911,
+      "ffmpegSeconds": 2.1635834,
+      "totalSeconds": 24.8020338,
+      "bytes": 8651315
+    }
+  },
+  "matrix": [
+    {
+      "case": "video-ordinary",
+      "fixture": "ordinary-captions",
+      "base": {
+        "type": "video"
+      },
+      "timelineFrames": 900,
+      "overlayStates": 900,
+      "output": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix\\video-ordinary.mp4",
+      "baseMode": "video",
+      "overlayTransport": "png",
+      "remotionInvoked": true,
+      "frames": 900,
+      "timings": {
+        "selectCompositionSeconds": 0.578984,
+        "overlayRenderSeconds": 29.8128759,
+        "ffmpegSeconds": 21.322116400000002,
+        "totalSeconds": 53.4859912
+      },
+      "overlayBytes": 49931968,
+      "overlayFileCount": 900,
+      "resources": {
+        "coverage": "process-tree",
+        "sampleCount": 43,
+        "peakWorkingSetBytes": 972886016,
+        "peakWorkingSetMiB": 927.81640625,
+        "peakHostCpuPercent": 62.9912523374019,
+        "averageHostCpuPercent": 1.7188338976841702
+      },
+      "verification": {
+        "codec": "h264",
+        "pixelFormat": "yuv420p",
+        "pixelFormatContractValid": true,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "frameCount": 900,
+        "durationSeconds": 30,
+        "audioCodec": "aac",
+        "videoBitrate": 4199923,
+        "audioBitrate": 23699,
+        "formatBitrate": 4232391,
+        "encoder": "Lavc62.11.100 libx264",
+        "bytes": 15871469
+      }
+    },
+    {
+      "case": "video-premium",
+      "fixture": "premium-captions",
+      "base": {
+        "type": "video"
+      },
+      "timelineFrames": 900,
+      "overlayStates": 900,
+      "output": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix\\video-premium.mp4",
+      "baseMode": "video",
+      "overlayTransport": "png",
+      "remotionInvoked": true,
+      "frames": 900,
+      "timings": {
+        "selectCompositionSeconds": 0.6740425999999934,
+        "overlayRenderSeconds": 36.810363499999994,
+        "ffmpegSeconds": 26.08594279999999,
+        "totalSeconds": 65.38889409999999
+      },
+      "overlayBytes": 56722035,
+      "overlayFileCount": 900,
+      "resources": {
+        "coverage": "process-tree",
+        "sampleCount": 49,
+        "peakWorkingSetBytes": 956473344,
+        "peakWorkingSetMiB": 912.1640625,
+        "peakHostCpuPercent": 63.90833585600956,
+        "averageHostCpuPercent": 1.7866542048888212
+      },
+      "verification": {
+        "codec": "h264",
+        "pixelFormat": "yuv420p",
+        "pixelFormatContractValid": true,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "frameCount": 900,
+        "durationSeconds": 30,
+        "audioCodec": "aac",
+        "videoBitrate": 5378665,
+        "audioBitrate": 23699,
+        "formatBitrate": 5411144,
+        "encoder": "Lavc62.11.100 libx264",
+        "bytes": 20291792
+      }
+    },
+    {
+      "case": "video-no-overlay",
+      "fixture": "source-only",
+      "base": {
+        "type": "video"
+      },
+      "timelineFrames": 900,
+      "overlayStates": 0,
+      "output": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix\\video-no-overlay.mp4",
+      "baseMode": "video",
+      "overlayTransport": "bypassed",
+      "remotionInvoked": false,
+      "frames": 900,
+      "timings": {
+        "selectCompositionSeconds": 0,
+        "overlayRenderSeconds": 0,
+        "ffmpegSeconds": 14.213618100000007,
+        "totalSeconds": 16.52710269999999
+      },
+      "overlayBytes": 0,
+      "overlayFileCount": 0,
+      "resources": {
+        "coverage": "process-tree",
+        "sampleCount": 7,
+        "peakWorkingSetBytes": 647434240,
+        "peakWorkingSetMiB": 617.44140625,
+        "peakHostCpuPercent": 94.598960198831,
+        "averageHostCpuPercent": 0.062311437415121275
+      },
+      "verification": {
+        "codec": "h264",
+        "pixelFormat": "yuv420p",
+        "pixelFormatContractValid": true,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "frameCount": 900,
+        "durationSeconds": 30,
+        "audioCodec": "aac",
+        "videoBitrate": 5240427,
+        "audioBitrate": 23699,
+        "formatBitrate": 5272872,
+        "encoder": "Lavc62.11.100 libx264",
+        "bytes": 19773270
+      }
+    },
+    {
+      "case": "solid-black-ordinary",
+      "fixture": "ordinary-captions",
+      "base": {
+        "type": "solidColor",
+        "color": "#000000"
+      },
+      "timelineFrames": 900,
+      "overlayStates": 900,
+      "output": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix\\solid-black-ordinary.mp4",
+      "baseMode": "solidColor",
+      "overlayTransport": "png",
+      "remotionInvoked": true,
+      "frames": 900,
+      "timings": {
+        "selectCompositionSeconds": 1.1777699999999895,
+        "overlayRenderSeconds": 38.1449399,
+        "ffmpegSeconds": 21.531837100000004,
+        "totalSeconds": 62.98950919999997
+      },
+      "overlayBytes": 49966237,
+      "overlayFileCount": 900,
+      "resources": {
+        "coverage": "process-tree",
+        "sampleCount": 43,
+        "peakWorkingSetBytes": 5015834624,
+        "peakWorkingSetMiB": 4783.47265625,
+        "peakHostCpuPercent": null,
+        "averageHostCpuPercent": 2362.202552976286
+      },
+      "verification": {
+        "codec": "h264",
+        "pixelFormat": "yuv420p",
+        "pixelFormatContractValid": true,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "frameCount": 900,
+        "durationSeconds": 30,
+        "audioCodec": "aac",
+        "videoBitrate": 243724,
+        "audioBitrate": 23699,
+        "formatBitrate": 276596,
+        "encoder": "Lavc62.11.100 libx264",
+        "bytes": 1037238
+      }
+    },
+    {
+      "case": "solid-custom-premium",
+      "fixture": "premium-captions",
+      "base": {
+        "type": "solidColor",
+        "color": "#D02090"
+      },
+      "timelineFrames": 900,
+      "overlayStates": 900,
+      "output": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix\\solid-custom-premium.mp4",
+      "baseMode": "solidColor",
+      "overlayTransport": "png",
+      "remotionInvoked": true,
+      "frames": 900,
+      "timings": {
+        "selectCompositionSeconds": 0.8544434999999939,
+        "overlayRenderSeconds": 39.58293330000001,
+        "ffmpegSeconds": 22.4346532,
+        "totalSeconds": 64.86154210000002
+      },
+      "overlayBytes": 56722035,
+      "overlayFileCount": 900,
+      "resources": {
+        "coverage": "process-tree",
+        "sampleCount": 33,
+        "peakWorkingSetBytes": 911441920,
+        "peakWorkingSetMiB": 869.21875,
+        "peakHostCpuPercent": 51.73267883491095,
+        "averageHostCpuPercent": 1.814271629623473
+      },
+      "verification": {
+        "codec": "h264",
+        "pixelFormat": "yuv420p",
+        "pixelFormatContractValid": true,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "frameCount": 900,
+        "durationSeconds": 30,
+        "audioCodec": "aac",
+        "videoBitrate": 101141,
+        "audioBitrate": 23699,
+        "formatBitrate": 134058,
+        "encoder": "Lavc62.11.100 libx264",
+        "bytes": 502718
+      }
+    },
+    {
+      "case": "solid-dark-no-overlay",
+      "fixture": "source-only",
+      "base": {
+        "type": "solidColor",
+        "color": "#18233A"
+      },
+      "timelineFrames": 900,
+      "overlayStates": 0,
+      "output": "F:\\CapInsta\\capinsta-production-editor\\apps\\remotion-exporter\\artifacts\\hybrid-matrix\\solid-dark-no-overlay.mp4",
+      "baseMode": "solidColor",
+      "overlayTransport": "bypassed",
+      "remotionInvoked": false,
+      "frames": 900,
+      "timings": {
+        "selectCompositionSeconds": 0,
+        "overlayRenderSeconds": 0,
+        "ffmpegSeconds": 7.4719455000000305,
+        "totalSeconds": 10.114815000000002
+      },
+      "overlayBytes": 0,
+      "overlayFileCount": 0,
+      "resources": {
+        "coverage": "process-tree",
+        "sampleCount": 5,
+        "peakWorkingSetBytes": 568037376,
+        "peakWorkingSetMiB": 541.72265625,
+        "peakHostCpuPercent": 78.82209819576235,
+        "averageHostCpuPercent": 0.06461127239616206
+      },
+      "verification": {
+        "codec": "h264",
+        "pixelFormat": "yuv420p",
+        "pixelFormatContractValid": true,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "frameCount": 900,
+        "durationSeconds": 30,
+        "audioCodec": "aac",
+        "videoBitrate": 17259,
+        "audioBitrate": 23699,
+        "formatBitrate": 50173,
+        "encoder": "Lavc62.11.100 libx264",
+        "bytes": 188150
+      }
+    }
+  ],
+  "sparseOverlayTrial": {
+    "scope": "audited word_highlight_box held states only",
+    "timelineFrames": 900,
+    "overlayStates": 720,
+    "stateReductionPercent": 20,
+    "video": {
+      "remotionSeconds": 25.3011415,
+      "ffmpegSeconds": 21.8544469,
+      "totalSeconds": 49.3218112,
+      "temporaryDiskBytes": 39906662,
+      "peakMemoryMiB": 923.609375,
+      "finalVsFullRatePsnrDb": 40.395552
+    },
+    "solidColor": {
+      "remotionSeconds": 30.4824728,
+      "ffmpegSeconds": 18.904905,
+      "totalSeconds": 52.8373964,
+      "temporaryDiskBytes": 39894833,
+      "peakMemoryMiB": 792.41796875,
+      "finalVsFullRatePsnrDb": 42.47427
+    },
+    "selection": "not selected; modest speedup and renderer-specific classification add risk"
+  },
+  "solidOrdinaryTelemetryRerun": {
+    "reason": "The original one-second Windows CIM sample was invalid; rerun used five-second sampling.",
+    "remotionSeconds": 37.973328,
+    "ffmpegSeconds": 19.3259031,
+    "totalSeconds": 59.9998837,
+    "temporaryDiskBytes": 49921875,
+    "peakMemoryMiB": 786.96875,
+    "frameCount": 900,
+    "durationSeconds": 30,
+    "verified": true
+  },
+  "completedAt": "2026-08-09T08:47:16.182Z"
+}

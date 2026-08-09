@@ -216,6 +216,11 @@ def _log_startup_operational_summary() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    benchmark_mode = os.getenv("CAPINSTA_ENV", "").strip().lower() == "benchmark"
+    if benchmark_mode:
+        from .benchmark_environment import assert_safe_benchmark_environment
+
+        assert_safe_benchmark_environment()
     # Startup: Initialize Database
     _log_startup_operational_summary()
     ensure_runtime_dirs()
@@ -233,17 +238,19 @@ async def lifespan(app: FastAPI):
         database_health["controlPlaneDatabase"],
     )
     await deleted_project_records_available()
-    recovered_exports = await export_jobs.recover_orphaned_export_jobs()
+    recovered_exports = 0 if benchmark_mode else await export_jobs.recover_orphaned_export_jobs()
     if recovered_exports:
         logger.warning("export_jobs_recovered_orphaned count=%s", recovered_exports)
-    removed = cleanup_old_runtime_files()
+    removed = 0 if benchmark_mode else cleanup_old_runtime_files()
     if removed:
         logger.info("runtime_cleanup removed_files=%s", removed)
-    cleanup_task = asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
-    storage_retention_task = asyncio.create_task(
+    cleanup_task = None if benchmark_mode else asyncio.create_task(project_cleanup_loop(), name="project-inactivity-cleanup")
+    storage_retention_task = None if benchmark_mode else asyncio.create_task(
         storage_retention_loop(), name="storage-retention-cleanup"
     )
-    mirror_task = asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
+    mirror_task = None if benchmark_mode else asyncio.create_task(operational_mirror_loop(), name="operational-mirror")
+    if benchmark_mode:
+        logger.info("benchmark_isolation enabled=true cleanup=false retention=false mirror=false")
     
     # Check for crucial runtime dependencies and API keys.
     from ai_pipeline.transcriber import is_real_secret
@@ -320,8 +327,9 @@ async def lifespan(app: FastAPI):
     finally:
         await stop_cleanup_task(cleanup_task)
         await stop_storage_retention(storage_retention_task)
-        await stop_operational_mirror()
-        mirror_task.cancel()
+        if mirror_task is not None:
+            await stop_operational_mirror()
+            mirror_task.cancel()
         print("Shutting down the server...")
 
 

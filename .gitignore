@@ -8,6 +8,10 @@ node_modules/
 .cursor/
 .cursorignore
 .vscode/
+.codex-tmp/
+gitleaks.json
+gitlog.txt
+
 
 # JavaScript/Next/Turbo build output
 .turbo/

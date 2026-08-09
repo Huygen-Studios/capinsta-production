@@ -16,8 +16,10 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +27,13 @@ from pathlib import Path
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+
+from server.benchmark_environment import configure_disposable_benchmark_environment
+
+if os.getenv("CAPINSTA_ENV", "").strip().lower() != "benchmark":
+    raise RuntimeError("BENCHMARK_ENV_UNSAFE: launch with CAPINSTA_ENV=benchmark")
+_BENCHMARK_ROOT = Path(tempfile.mkdtemp(prefix="capinsta-export-benchmark-"))
+configure_disposable_benchmark_environment(_BENCHMARK_ROOT)
 
 from server.headless_export import export_headless
 
@@ -252,4 +261,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    finally:
+        shutil.rmtree(_BENCHMARK_ROOT, ignore_errors=True)

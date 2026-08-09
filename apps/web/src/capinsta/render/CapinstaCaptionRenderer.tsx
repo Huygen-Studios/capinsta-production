@@ -11,7 +11,14 @@ import {
 	toOriginalCaption,
 	toOriginalCaptionStyleConfig,
 } from "../originalAdapter";
-import type { CapinstaRenderModel } from "./capinstaRenderModel";
+import type { Caption, CaptionStyleConfig } from "../original/types";
+import type { CapinstaCaptionStyleV1 } from "../styles/styleTypes";
+
+type CapinstaPresentationModel = {
+	captionStyle: CapinstaCaptionStyleV1;
+	styleConfig: CaptionStyleConfig;
+	originalCaption: Caption;
+};
 
 export type CapinstaRenderMode = "preview" | "export";
 
@@ -35,7 +42,7 @@ export const CapinstaCaptionRenderer = memo(function CapinstaCaptionRenderer({
 	fps,
 	viewport,
 }: {
-	renderModel?: CapinstaRenderModel;
+	renderModel?: CapinstaPresentationModel;
 	document?: NeutralCaptionDocument;
 	clip?: NeutralCaptionClip;
 	activeWordIds: string[];
