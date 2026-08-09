@@ -343,7 +343,26 @@ def _looks_like_browser_disconnect(exc: BaseException) -> bool:
             "browser has disconnected",
             "renderer process crashed",
             "page crashed",
+            "page.wait_for_function: timeout",
+            "page.goto: timeout",
         )
+    )
+
+
+def _checkpoint_renderer_refresh_required(
+    *,
+    page_available: bool,
+    capture_frame: int,
+    last_refresh_frame: int,
+    recycle_frames: int,
+) -> bool:
+    """Respect disabled recycling and refresh only missing or explicitly aged pages."""
+    if not page_available:
+        return True
+    return (
+        recycle_frames > 0
+        and capture_frame > last_refresh_frame
+        and capture_frame - last_refresh_frame >= recycle_frames
     )
 
 
@@ -666,13 +685,28 @@ async def _wait_for_renderer_ready_state(
     page_logs: list[str],
     redirect_chain: list[str] | None = None,
 ) -> dict[str, object]:
-    await page.wait_for_function(
-        """() => {
-            const state = window.__CAPINSTA_RENDER_STATE__;
-            return state && (state.status === 'ready' || state.status === 'error');
-        }""",
-        timeout=timeout_ms,
-    )
+    try:
+        await page.wait_for_function(
+            """() => {
+                const state = window.__CAPINSTA_RENDER_STATE__;
+                return state && (state.status === 'ready' || state.status === 'error');
+            }""",
+            timeout=timeout_ms,
+        )
+    except Exception as exc:
+        diagnostics = await _renderer_ready_diagnostics(
+            page=page,
+            export_job_id=export_job_id,
+            reason="render_state_never_ready",
+            page_logs=page_logs,
+            redirect_chain=redirect_chain,
+        )
+        raise ExportStageError(
+            "renderer_ready",
+            "Renderer never reached ready state before timeout. "
+            f"Diagnostics: {json.dumps(diagnostics, default=str)}",
+            exc,
+        ) from exc
     render_state = await page.evaluate("() => window.__CAPINSTA_RENDER_STATE__ || null")
     if isinstance(render_state, dict) and render_state.get("status") == "ready":
         return render_state
@@ -2071,6 +2105,7 @@ async def export_headless(
                     )
 
             required_captures = len(plan) if plan is not None else total_frames
+            last_renderer_refresh_frame = 0
             frame_paths = [
                 capture_root / f"frame_{index:06d}.png"
                 for index in range(required_captures)
@@ -2112,15 +2147,54 @@ async def export_headless(
                 )
 
             async def start_fresh_renderer(capture_frame: int) -> None:
-                await restart_playwright_and_browser()
-                await recreate_render_page(
-                    capture_frame / export_fps,
-                    ExportStageError(
-                        "frame_capture",
-                        f"Starting fresh renderer for capture frame {capture_frame}.",
-                    ),
-                    capture_frame,
-                )
+                nonlocal last_renderer_refresh_frame
+                attempts = max(1, browser_recovery_attempts + 1)
+                last_error: Exception | None = None
+                for attempt in range(attempts):
+                    try:
+                        await restart_playwright_and_browser()
+                        await recreate_render_page(
+                            capture_frame / export_fps,
+                            ExportStageError(
+                                "frame_capture",
+                                f"Starting fresh renderer for capture frame {capture_frame}.",
+                            ),
+                            capture_frame,
+                        )
+                        last_renderer_refresh_frame = capture_frame
+                        return
+                    except Exception as exc:
+                        last_error = exc
+                        await shutdown_renderer()
+                        logger.warning(
+                            "renderer_start_attempt_failed export_job_id=%s capture_frame=%s "
+                            "attempt=%s/%s recoverable=%s error=%s: %s",
+                            export_job_id,
+                            capture_frame,
+                            attempt + 1,
+                            attempts,
+                            _looks_like_browser_disconnect(exc),
+                            type(exc).__name__,
+                            exc,
+                        )
+                        if (
+                            attempt + 1 >= attempts
+                            or not _looks_like_browser_disconnect(exc)
+                        ):
+                            raise
+                if last_error is not None:
+                    raise last_error
+
+            async def ensure_checkpoint_renderer(
+                capture_frame: int, *, force: bool = False
+            ) -> None:
+                if force or _checkpoint_renderer_refresh_required(
+                    page_available=page is not None,
+                    capture_frame=capture_frame,
+                    last_refresh_frame=last_renderer_refresh_frame,
+                    recycle_frames=render_page_recycle_frames,
+                ):
+                    await start_fresh_renderer(capture_frame)
 
             async def capture_frame_to_disk(output_index: int, timeline_frame: int) -> None:
                 if page is None:
@@ -2139,9 +2213,10 @@ async def export_headless(
                 await write_png(output_index, await timed_capture_render_frame())
 
             try:
-                # The initial renderer validated the packaged route. Capture uses
-                # fresh Playwright/browser ownership per chunk from this point on.
-                await close_browser_safely()
+                # Reuse the renderer that already passed route, caption, font, and
+                # first-frame validation. Repeatedly relaunching Chromium for every
+                # checkpoint chunk made long videos depend on hundreds of remote
+                # render-page loads even when recycling was explicitly disabled.
 
                 if plan is not None:
                     sparse_chunk_size = max(
@@ -2149,80 +2224,81 @@ async def export_headless(
                         _int_env("EXPORT_SPARSE_CAPTURE_CHUNK_STATES", 100),
                     )
                     for chunk_start, chunk_end in _capture_chunks(len(plan), sparse_chunk_size):
-                        await start_fresh_renderer(plan[chunk_start].capture_frame)
-                        try:
-                            for index in range(chunk_start, chunk_end):
-                                segment = plan[index]
-                                last_error: Exception | None = None
-                                for attempt in range(capture_attempts):
-                                    attempt_started = time.perf_counter()
-                                    try:
-                                        if attempt > 0:
-                                            await start_fresh_renderer(segment.capture_frame)
-                                        await capture_frame_to_disk(index, segment.capture_frame)
-                                        await write_checkpoint(
-                                            completed=index + 1,
-                                            mode="sparse",
-                                            chunk_start=index,
-                                            chunk_end=index + 1,
+                        await ensure_checkpoint_renderer(
+                            plan[chunk_start].capture_frame
+                        )
+                        for index in range(chunk_start, chunk_end):
+                            segment = plan[index]
+                            last_error: Exception | None = None
+                            for attempt in range(capture_attempts):
+                                attempt_started = time.perf_counter()
+                                try:
+                                    if attempt > 0:
+                                        await ensure_checkpoint_renderer(
+                                            segment.capture_frame, force=True
                                         )
-                                        _log_export_event(
-                                            "capture_attempt_complete",
-                                            exportJobId=export_job_id,
-                                            mode="sparse",
-                                            captureIndex=index,
-                                            attempt=attempt + 1,
-                                            elapsedSeconds=round(
-                                                time.perf_counter() - attempt_started,
-                                                6,
-                                            ),
-                                            totalElapsedSeconds=round(
-                                                time.perf_counter() - render_started_at,
-                                                6,
-                                            ),
-                                        )
-                                        last_error = None
-                                        break
-                                    except Exception as exc:
-                                        last_error = exc
-                                        logger.exception(
-                                            "sparse_capture_attempt_failed export_job_id=%s index=%s "
-                                            "timeline_frame=%s attempt=%s/%s elapsed_seconds=%.6f",
-                                            export_job_id,
-                                            index,
-                                            segment.capture_frame,
-                                            attempt + 1,
-                                            capture_attempts,
+                                    await capture_frame_to_disk(index, segment.capture_frame)
+                                    await write_checkpoint(
+                                        completed=index + 1,
+                                        mode="sparse",
+                                        chunk_start=index,
+                                        chunk_end=index + 1,
+                                    )
+                                    _log_export_event(
+                                        "capture_attempt_complete",
+                                        exportJobId=export_job_id,
+                                        mode="sparse",
+                                        captureIndex=index,
+                                        attempt=attempt + 1,
+                                        elapsedSeconds=round(
                                             time.perf_counter() - attempt_started,
-                                        )
-                                        await shutdown_renderer()
-                                        await delete_range(index, index + 1)
-                                        if (
-                                            attempt + 1 >= capture_attempts
-                                            or not _looks_like_browser_disconnect(exc)
-                                        ):
-                                            break
-                                        await progress_callback(
-                                            "capturing",
-                                            _capture_progress(index, required_captures),
-                                            "Retrying caption capture chunk",
-                                        )
-                                if last_error is not None:
-                                    raise ExportStageError(
-                                        "frame_capture",
-                                        f"Caption capture failed for sparse state {index + 1}/"
-                                        f"{required_captures} after {capture_attempts} attempts. "
-                                        "Previously completed "
-                                        "captures were preserved, but the export could not continue.",
-                                        last_error,
-                                    ) from last_error
-                                await progress_callback(
-                                    "capturing",
-                                    _capture_progress(index + 1, required_captures),
-                                    f"Capturing captions: {index + 1}/{required_captures}",
-                                )
-                        finally:
-                            await shutdown_renderer()
+                                            6,
+                                        ),
+                                        totalElapsedSeconds=round(
+                                            time.perf_counter() - render_started_at,
+                                            6,
+                                        ),
+                                    )
+                                    last_error = None
+                                    break
+                                except Exception as exc:
+                                    last_error = exc
+                                    logger.exception(
+                                        "sparse_capture_attempt_failed export_job_id=%s index=%s "
+                                        "timeline_frame=%s attempt=%s/%s elapsed_seconds=%.6f",
+                                        export_job_id,
+                                        index,
+                                        segment.capture_frame,
+                                        attempt + 1,
+                                        capture_attempts,
+                                        time.perf_counter() - attempt_started,
+                                    )
+                                    await shutdown_renderer()
+                                    await delete_range(index, index + 1)
+                                    if (
+                                        attempt + 1 >= capture_attempts
+                                        or not _looks_like_browser_disconnect(exc)
+                                    ):
+                                        break
+                                    await progress_callback(
+                                        "capturing",
+                                        _capture_progress(index, required_captures),
+                                        "Retrying caption capture chunk",
+                                    )
+                            if last_error is not None:
+                                raise ExportStageError(
+                                    "frame_capture",
+                                    f"Caption capture failed for sparse state {index + 1}/"
+                                    f"{required_captures} after {capture_attempts} attempts. "
+                                    "Previously completed "
+                                    "captures were preserved, but the export could not continue.",
+                                    last_error,
+                                ) from last_error
+                            await progress_callback(
+                                "capturing",
+                                _capture_progress(index + 1, required_captures),
+                                f"Capturing captions: {index + 1}/{required_captures}",
+                            )
                     performance.sparse_capture_seconds += time.perf_counter() - capture_started
                 else:
                     for chunk_start, chunk_end in _capture_chunks(total_frames, chunk_size):
@@ -2231,7 +2307,9 @@ async def export_headless(
                             attempt_started = time.perf_counter()
                             await delete_range(chunk_start, chunk_end)
                             try:
-                                await start_fresh_renderer(chunk_start)
+                                await ensure_checkpoint_renderer(
+                                    chunk_start, force=attempt > 0
+                                )
                                 for frame_index in range(chunk_start, chunk_end):
                                     await capture_frame_to_disk(frame_index, frame_index)
                                 await write_checkpoint(
@@ -2269,6 +2347,7 @@ async def export_headless(
                                     capture_attempts,
                                     time.perf_counter() - attempt_started,
                                 )
+                                await shutdown_renderer()
                                 if (
                                     attempt + 1 >= capture_attempts
                                     or not _looks_like_browser_disconnect(exc)
@@ -2279,8 +2358,6 @@ async def export_headless(
                                     _capture_progress(chunk_start, total_frames),
                                     "Retrying caption capture chunk",
                                 )
-                            finally:
-                                await shutdown_renderer()
                         if chunk_error is not None:
                             await delete_range(chunk_start, chunk_end)
                             raise ExportStageError(

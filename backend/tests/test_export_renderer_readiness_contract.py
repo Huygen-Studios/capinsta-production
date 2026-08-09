@@ -5,7 +5,12 @@ import asyncio
 
 import pytest
 
-from server.headless_export import ExportStageError, _wait_for_renderer_ready_state
+from server.headless_export import (
+    ExportStageError,
+    _checkpoint_renderer_refresh_required,
+    _looks_like_browser_disconnect,
+    _wait_for_renderer_ready_state,
+)
 
 
 class FakeRenderPage:
@@ -30,6 +35,14 @@ class FakeRenderPage:
 
     async def title(self):
         return "Renderer"
+
+
+class TimedOutRenderPage(FakeRenderPage):
+    async def wait_for_function(self, predicate: str, timeout: int):
+        self.predicates.append(predicate)
+        raise TimeoutError(
+            f"Page.wait_for_function: Timeout {timeout}ms exceeded."
+        )
 
 
 def test_renderer_ready_wait_uses_structured_state_only():
@@ -82,3 +95,71 @@ def test_renderer_error_state_returns_structured_diagnostics():
     assert diagnostics["reason"] == "renderer_error_state"
     assert diagnostics["renderState"]["status"] == "error"
     assert diagnostics["screenshotPath"]
+
+
+def test_renderer_timeout_is_recoverable_and_has_structured_diagnostics():
+    page = TimedOutRenderPage(
+        {
+            "version": 1,
+            "status": "booting",
+            "error": None,
+            "diagnostics": {"firstLayoutComplete": False},
+        }
+    )
+
+    with pytest.raises(ExportStageError) as caught:
+        asyncio.run(
+            _wait_for_renderer_ready_state(
+                page=page,
+                timeout_ms=120000,
+                export_job_id="export-timeout",
+                page_logs=[],
+                redirect_chain=[],
+            )
+        )
+
+    assert caught.value.stage == "renderer_ready"
+    assert "render_state_never_ready" in str(caught.value)
+    assert _looks_like_browser_disconnect(caught.value) is True
+
+
+def test_checkpoint_renderer_reuses_page_when_recycling_is_disabled():
+    assert (
+        _checkpoint_renderer_refresh_required(
+            page_available=True,
+            capture_frame=93600,
+            last_refresh_frame=0,
+            recycle_frames=0,
+        )
+        is False
+    )
+    assert (
+        _checkpoint_renderer_refresh_required(
+            page_available=False,
+            capture_frame=93600,
+            last_refresh_frame=0,
+            recycle_frames=0,
+        )
+        is True
+    )
+
+
+def test_checkpoint_renderer_honors_explicit_recycle_interval():
+    assert (
+        _checkpoint_renderer_refresh_required(
+            page_available=True,
+            capture_frame=2999,
+            last_refresh_frame=0,
+            recycle_frames=3000,
+        )
+        is False
+    )
+    assert (
+        _checkpoint_renderer_refresh_required(
+            page_available=True,
+            capture_frame=3000,
+            last_refresh_frame=0,
+            recycle_frames=3000,
+        )
+        is True
+    )
