@@ -14,7 +14,7 @@ export function SystemStatusStrip() {
 		void load(); const interval = window.setInterval(() => void load(), 60_000);
 		return () => window.clearInterval(interval);
 	}, []);
-	useEffect(() => { const header = document.querySelector("header"); if (!header) return; const anchor = document.createElement("div"); header.after(anchor); setMount(anchor); return () => anchor.remove(); }, []);
+	useEffect(() => { const header = document.querySelector("header"); if (!header) return; const anchor = document.createElement("div"); anchor.className = "relative z-[60]"; header.after(anchor); setMount(anchor); return () => anchor.remove(); }, []);
 	if (!status || !mount) return null;
-	return createPortal(<aside role="status" className="relative z-30 h-10 overflow-x-auto border-b border-primary bg-[#151515] text-[#f5f5f5] [scrollbar-width:none] animate-in fade-in slide-in-from-top-1 duration-150"><div className="mx-auto flex h-full w-max min-w-full items-center gap-3 whitespace-nowrap px-4 text-sm"><CircleAlert className="size-4 shrink-0 text-primary" /><strong>{status.title}</strong>{status.items.map((item) => <span key={item} className="text-white/80">• {item}</span>)}</div></aside>, mount);
+	return createPortal(<aside role="status" className="relative z-[60] h-10 overflow-x-auto border-b border-primary bg-[#151515] text-[#f5f5f5] [scrollbar-width:none] animate-in fade-in slide-in-from-top-1 duration-150"><div className="mx-auto flex h-full w-max min-w-full items-center gap-3 whitespace-nowrap px-4 text-sm"><CircleAlert className="size-4 shrink-0 text-primary" /><strong>{status.title}</strong>{status.items.map((item) => <span key={item} className="text-white/80">• {item}</span>)}</div></aside>, mount);
 }
