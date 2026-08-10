@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { EditorCore } from "@/core";
 import { MigrationDialog } from "@/project/components/migration-dialog";
@@ -71,6 +71,8 @@ import { AccountMenu } from "@/components/auth/account-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoStatic } from "@/components/logo";
 import { storageService } from "@/services/storage/service";
+import { ProjectsOnboardingCard } from "@/components/onboarding/projects-onboarding-card";
+import { PostEditorRatingModal } from "@/components/feedback/post-editor-rating-modal";
 
 const formatProjectDuration = ({
 	duration,
@@ -128,6 +130,7 @@ export default function ProjectsPage() {
 
 	return (
 		<div className="projects-shell min-h-screen bg-background text-foreground">
+			<PostEditorRatingModal />
 			<MigrationDialog />
 			<StoragePersistenceDialog />
 			<ChangelogNotification />
@@ -1036,6 +1039,8 @@ function EmptyState() {
 	const router = useRouter();
 	const editor = useEditor();
 	const savedProjects = editor.project.getSavedProjects();
+	const [onboardingComplete, setOnboardingComplete] = useState(false);
+	const completeOnboarding = useCallback(() => setOnboardingComplete(true), []);
 
 	const handleCreateProject = async () => {
 		try {
@@ -1078,6 +1083,7 @@ function EmptyState() {
 		);
 	}
 
+	if (!onboardingComplete) return <ProjectsOnboardingCard onDone={completeOnboarding} />;
 	return (
 		<div className="mx-auto flex max-w-xl flex-col items-center justify-center gap-6 rounded-sm border-2 border-border bg-card px-8 py-16 text-center shadow-[5px_5px_0_var(--shadow-strong)]">
 			<div className="flex flex-col items-center gap-2">

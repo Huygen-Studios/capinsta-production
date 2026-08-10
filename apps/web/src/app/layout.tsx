@@ -13,6 +13,7 @@ import { RouteCookieConsent } from "@/components/route-cookie-consent";
 import { RenderRouteExclusions } from "@/components/render-route-exclusions";
 import { GoogleAnalyticsProvider } from "@/components/analytics/google-analytics-provider";
 import { PostHogProvider } from "@/components/analytics/posthog-provider";
+import { SystemStatusStrip } from "@/components/system/system-status-strip";
 
 const siteFont = Inter({
 	subsets: ["latin"],
@@ -49,6 +50,7 @@ export default function RootLayout({
 						    injecting purple overlay boxes into export screenshots. */}
 						<DevToolsLoader />
 						<RenderRouteExclusions>
+							<SystemStatusStrip />
 							<Toaster />
 							{webEnv.NODE_ENV === "production" ? (
 								<Script

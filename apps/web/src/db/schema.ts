@@ -935,6 +935,10 @@ export const supportCases = pgTable(
 		feature: text("feature"),
 		browser: text("browser"),
 		appVersion: text("app_version"),
+		severity: text("severity"),
+		pageUrl: text("page_url"),
+		os: text("os"),
+		viewport: text("viewport"),
 		projectId: text("project_id"),
 		captionJobId: text("caption_job_id"),
 		exportJobId: text("export_job_id"),
@@ -960,6 +964,34 @@ export const supportCases = pgTable(
 		index("support_cases_user_idx").on(table.userId, table.createdAt),
 	],
 );
+
+export const systemNotifications = pgTable("system_notifications", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	title: text("title").notNull(),
+	items: jsonb("items").$type<string[]>().default([]).notNull(),
+	severity: text("severity").default("warning").notNull(),
+	enabled: boolean("enabled").default(true).notNull(),
+	startsAt: timestamp("starts_at", { withTimezone: true }),
+	endsAt: timestamp("ends_at", { withTimezone: true }),
+	createdBy: uuid("created_by"),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const userOnboarding = pgTable("user_onboarding", {
+	userId: uuid("user_id").primaryKey(),
+	source: text("source"), sourceOther: text("source_other"), useCase: text("use_case"),
+	useCaseOther: text("use_case_other"), experienceLevel: text("experience_level"),
+	mainGoal: text("main_goal"), mainGoalOther: text("main_goal_other"),
+	completedAt: timestamp("completed_at", { withTimezone: true }),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const userRatings = pgTable("user_ratings", {
+	id: uuid("id").defaultRandom().primaryKey(),
+	userId: uuid("user_id").notNull(), rating: integer("rating").notNull(),
+	comment: text("comment"), context: text("context").default("post_editor_session").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [index("user_ratings_user_created_idx").on(table.userId, table.createdAt)]);
 
 export const supportCaseEvents = pgTable(
 	"support_case_events",

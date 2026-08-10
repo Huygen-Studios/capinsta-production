@@ -14,6 +14,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { SystemStatusManager } from "@/components/admin/system-status-manager";
 
 type Check = {
 	name: string;
@@ -185,6 +186,7 @@ export default async function SystemPage() {
 				Checked {new Date().toLocaleString()} · Deployment{" "}
 				{process.env.COMMIT_SHA?.slice(0, 12) ?? "commit unavailable"}
 			</p>
+			<div className="mt-8"><SystemStatusManager /></div>
 		</>
 	);
 }
