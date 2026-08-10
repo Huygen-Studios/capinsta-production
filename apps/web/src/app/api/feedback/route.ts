@@ -13,6 +13,8 @@ const submitSchema = z.object({
 	message: z
 		.string()
 		.max(MAX_FEEDBACK_CHARACTERS, "Feedback cannot exceed 2,000 characters."),
+	category: z.enum(["export_problem", "caption_preset_issue", "ui_ux", "performance", "feature_request", "billing", "mobile_issue", "bug", "general_question"]).default("general_question"),
+	viewport: z.string().max(100).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -56,7 +58,10 @@ export async function POST(request: NextRequest) {
 			email: user?.email ?? null,
 			page: request.headers.get("referer")?.slice(0, 1000) ?? null,
 			browser: request.headers.get("user-agent")?.slice(0, 1000) ?? null,
-			appVersion: process.env.COMMIT_SHA?.slice(0, 64) ?? null,
+		appVersion: process.env.COMMIT_SHA?.slice(0, 64) ?? null,
+		category: result.data.category,
+		viewport: result.data.viewport ?? null,
+		os: request.headers.get("user-agent")?.match(/Windows|Mac OS|Android|iPhone|Linux/)?.[0] ?? null,
 		});
 		return NextResponse.json({ entry }, { status: 201 });
 	} catch (error) {

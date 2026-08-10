@@ -31,6 +31,7 @@ const MAX_HISTORY = 20;
 
 interface FeedbackFormValues {
 	message: string;
+	category: string;
 }
 
 function readHistory(): FeedbackEntry[] {
@@ -81,7 +82,7 @@ function useFeedback() {
 			const res = await fetch("/api/feedback", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(values),
+			body: JSON.stringify({ ...values, viewport: `${window.innerWidth}x${window.innerHeight}` }),
 			});
 
 			if (!res.ok) {
@@ -138,7 +139,7 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 	const [submitAttempted, setSubmitAttempted] = useState(false);
 
 	const form = useForm<FeedbackFormValues>({
-		defaultValues: { message: "" },
+		defaultValues: { message: "", category: "general_question" },
 	});
 
 	const message = useWatch({ control: form.control, name: "message" }) ?? "";
@@ -197,6 +198,9 @@ function FeedbackPopoverContent({ onClose }: { onClose: () => void }) {
 					className="flex flex-col"
 					noValidate
 				>
+					<FormField control={form.control} name="category" render={({ field }) => (
+						<FormItem className="px-3 pt-3"><FormControl><select {...field} aria-label="Feedback category" className="h-9 w-full rounded-sm border bg-background px-2 text-sm"><option value="export_problem">Export problem</option><option value="caption_preset_issue">Caption / preset issue</option><option value="ui_ux">UI / UX</option><option value="performance">Performance</option><option value="feature_request">Feature request</option><option value="billing">Billing</option><option value="mobile_issue">Mobile issue</option><option value="bug">Bug</option><option value="general_question">General question</option></select></FormControl></FormItem>
+					)} />
 					<FormField
 						control={form.control}
 						name="message"

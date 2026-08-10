@@ -1,0 +1,7 @@
+import { NextRequest, NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
+import { requireAdminPermission } from "@/admin/auth";
+import { requireCsrfProtection } from "@/auth/csrf";
+import { db, systemNotifications } from "@/db";
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) { const csrf = requireCsrfProtection(request); if (csrf) return csrf; try { await requireAdminPermission("system.manage_limits"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); } const { id } = await params; const patch = await request.json().catch(() => null); if (!patch || typeof patch !== "object") return NextResponse.json({ error: "Invalid notification" }, { status: 400 }); const [updated] = await db.update(systemNotifications).set({ ...(patch as Record<string, unknown>), updatedAt: new Date() }).where(eq(systemNotifications.id, id)).returning(); return updated ? NextResponse.json(updated) : NextResponse.json({ error: "Not found" }, { status: 404 }); }
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) { const csrf = requireCsrfProtection(request); if (csrf) return csrf; try { await requireAdminPermission("system.manage_limits"); } catch { return NextResponse.json({ error: "Forbidden" }, { status: 403 }); } const { id } = await params; await db.delete(systemNotifications).where(eq(systemNotifications.id, id)); return new NextResponse(null, { status: 204 }); }

@@ -13,4 +13,8 @@ export interface SubmitFeedbackInput {
 	page?: string | null;
 	browser?: string | null;
 	appVersion?: string | null;
+	category?: string;
+	severity?: string | null;
+	viewport?: string | null;
+	os?: string | null;
 }

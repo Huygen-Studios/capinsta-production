@@ -10,6 +10,10 @@ export async function submitFeedback({
 	page,
 	browser,
 	appVersion,
+	category = "general",
+	severity,
+	viewport,
+	os,
 }: SubmitFeedbackInput): Promise<FeedbackEntry> {
 	const validation = validateFeedbackMessage(message);
 	if (!validation.ok) {
@@ -23,12 +27,16 @@ export async function submitFeedback({
 		userId: userId || null,
 		emailSnapshot: email || null,
 		message,
-		category: "general",
+		category,
 		status: "new",
 		priority: "normal",
 		page: page || null,
 		browser: browser || null,
 		appVersion: appVersion || null,
+		severity: severity || null,
+		viewport: viewport || null,
+		pageUrl: page || null,
+		os: os || null,
 		createdAt: now,
 		updatedAt: now,
 	});
