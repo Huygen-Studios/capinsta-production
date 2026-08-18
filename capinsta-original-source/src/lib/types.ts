@@ -38,6 +38,9 @@ export type CaptionTheme =
   | "comic_pop"
   | "elegant_serif"
   | "gradient_wave"
+  | "modern_minimalist_lockup"
+  | "dynamic_punch"
+  | "viral_word_highlight"
   | "outline_bold"
   | "shadow_3d"
   | "highlight_box";
@@ -48,7 +51,8 @@ export type CaptionStylePresetId =
   | "attention_punch"
   | "mrbeast_style"
   | "apple_cinematic"
-  | "modern_minimalist_lockup";
+  | "modern_minimalist_lockup"
+  | "dynamic_punch";
 
 export type CaptionTimingSource = "provider" | "whisperx" | "stable_ts" | "vad_adjusted" | "manual" | "estimated";
 

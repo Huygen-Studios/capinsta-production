@@ -31,6 +31,7 @@ export type CaptionTheme =
   | "mrbeast_style"
   | "apple_cinematic"
   | "modern_minimalist_lockup"
+  | "dynamic_punch"
   | "viral_word_highlight"
   | "minimal"
   | "viral_shorts"
@@ -55,7 +56,8 @@ export type CaptionStylePresetId =
   | "attention_punch"
   | "mrbeast_style"
   | "apple_cinematic"
-  | "modern_minimalist_lockup";
+  | "modern_minimalist_lockup"
+  | "dynamic_punch";
 
 export type CaptionTimingSource =
   | "provider"
@@ -583,6 +585,22 @@ export const CAPTION_THEMES: Record<CaptionTheme, CaptionStyle> = {
     outlineColor: "#000000",
     position: "center",
     textTransform: "uppercase",
+    letterSpacing: "0",
+    borderRadius: "0",
+    padding: "4px 10px",
+    shadow: "none",
+    animation: "pop",
+  },
+  dynamic_punch: {
+    fontSize: 76,
+    fontFamily: "Montserrat, 'Montserrat Black', 'Montserrat ExtraBold', 'Arial Black', sans-serif",
+    color: "#ffffff",
+    backgroundColor: "transparent",
+    bold: true,
+    outline: true,
+    outlineColor: "#000000",
+    position: "center",
+    textTransform: "none",
     letterSpacing: "0",
     borderRadius: "0",
     padding: "4px 10px",

@@ -6,7 +6,8 @@ export type CapinstaCaptionPresetId =
 	| "apple_cinematic"
 	| "kinetic_fade"
 	| "mrbeast_style"
-	| "modern_minimalist_lockup";
+	| "modern_minimalist_lockup"
+	| "dynamic_punch";
 
 export type CapinstaCaptionAlignment = "left" | "center" | "right";
 export type CapinstaCaptionMaxLines = "auto" | 1 | 2 | 3;
@@ -31,7 +32,7 @@ export interface CapinstaCaptionTextStyle {
 	maxLines: CapinstaCaptionMaxLines;
 	color: string;
 	opacity: number;
-	textTransform: "none" | "uppercase";
+	textTransform: "none" | "original" | "uppercase" | "lowercase";
 	letterSpacing: number;
 }
 

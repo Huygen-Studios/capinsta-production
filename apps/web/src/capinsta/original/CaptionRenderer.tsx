@@ -341,6 +341,153 @@ function renderMrBeastStyle(
       </div>
     </div>
   );
+function dynamicPunchSpringPop(elapsedMs: number, wordDurationSeconds: number): { scale: number; opacity: number } {
+  if (elapsedMs < 0) return { scale: 0.5, opacity: 0 };
+
+  const wordDurationMs = wordDurationSeconds * 1000;
+  const defaultAnimMs = 120;
+  const animMs = Math.max(30, Math.min(defaultAnimMs, wordDurationMs * 0.65));
+
+  if (elapsedMs >= animMs) {
+    return { scale: 1.0, opacity: 1 };
+  }
+
+  const t = elapsedMs / animMs;
+  const peakT = 0.48;
+
+  if (t <= peakT) {
+    const phaseT = t / peakT;
+    const easeProgress = 1 - Math.pow(1 - phaseT, 2);
+    const scale = 0.50 + (1.15 - 0.50) * easeProgress;
+    const opacity = Math.min(1, phaseT * 2.5);
+    return { scale, opacity };
+  } else {
+    const phaseT = (t - peakT) / (1 - peakT);
+    const easeProgress = 1 - Math.pow(1 - phaseT, 2);
+    const scale = 1.15 - (1.15 - 1.00) * easeProgress;
+    return { scale, opacity: 1 };
+  }
+}
+
+function classifyDynamicPunchWord(word: string, index: number, captionId: string, config: CaptionStyleConfig) {
+  if (!config.smartHighlightEnabled) return config.textColor || "#FFFFFF";
+  const clean = word.toLowerCase().replace(/[^a-z0-9$%:.]/g, "");
+
+  // 1. Numeric / Time / Currency -> Neon Yellow (#FFFF00)
+  if (/^[₹$€£]?\d+([:.,]\d+)*%?$/i.test(clean) || /\d/.test(clean)) {
+    return config.emphasisYellowColor || "#FFFF00";
+  }
+
+  // 2. Action / Positive emphasis -> Lime Green (#39FF14)
+  const actionWords = new Set(["win", "winning", "go", "run", "fast", "grow", "yes", "free", "best", "boost", "build", "create", "action", "do"]);
+  if (actionWords.has(clean)) {
+    return config.emphasisGreenColor || "#39FF14";
+  }
+
+  // 3. High information / Attention words -> Cyan (#00FFFF)
+  const cyanWords = new Set(["secret", "magic", "insane", "crazy", "huge", "phone", "morning", "night", "check", "wakes", "time", "money", "world", "never", "always", "stop"]);
+  if (cyanWords.has(clean)) {
+    return config.activeWordColor || "#00FFFF";
+  }
+
+  // 4. Deterministic rhythmic emphasis for other content words (~32% probability)
+  const hash = stableHash(`dp-color-${captionId}-${word}-${index}`);
+  const isFunctionWord = new Set(["a", "an", "the", "in", "on", "at", "to", "for", "of", "and", "or", "but", "is", "it", "he", "she", "my", "his", "her"]).has(clean);
+
+  if (!isFunctionWord && hash % 100 < 32) {
+    const colorChoice = hash % 3;
+    if (colorChoice === 0) return config.activeWordColor || "#00FFFF";
+    if (colorChoice === 1) return config.emphasisYellowColor || "#FFFF00";
+    return config.emphasisGreenColor || "#39FF14";
+  }
+
+  return config.textColor || "#FFFFFF";
+}
+
+function renderDynamicPunchStyle(
+  activeCaption: Caption,
+  currentTime: number,
+  fps: number,
+  scale: number,
+  styleConfig?: Partial<CaptionStyleConfig> | null,
+  canvasSize?: CaptionCanvasSize
+) {
+  const config = normalizeCaptionStyleConfig(styleConfig);
+  const words = buildTimedWords(activeCaption);
+  const layout = resolveSafeCaptionLayout(config, { canvas: canvasSize, previewScale: scale, words });
+  const fontSize = layout.fontSize;
+  const positionStyle = buildConfigPositionStyle(config, layout);
+
+  const strokeWidth = config.textStrokeEnabled !== false
+    ? Math.max(1, fontSize * 0.10)
+    : 0;
+
+  const shadowOffset = Math.max(2, Math.round(fontSize * 0.045));
+  const shadow = config.textShadowEnabled !== false
+    ? `${shadowOffset}px ${shadowOffset}px 0px ${config.textShadowColor || "#000000"}`
+    : undefined;
+
+  const captionDuration = Math.max(0.08, activeCaption.end - activeCaption.start);
+
+  return (
+    <div style={positionStyle} data-caption-theme="dynamic_punch">
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: justifyFromAlignment(config.alignment),
+          alignItems: "center",
+          maxWidth: "100%",
+          gap: "0.22em",
+          textAlign: config.alignment,
+          lineHeight: config.lineHeight || 0.95,
+          ...SAFE_CAPTION_TEXT_STYLE,
+        }}
+      >
+        {words.map((word, index) => {
+          const elapsedMs = Math.max(0, (currentTime - activeCaption.start) * 1000);
+          const { scale: animScale, opacity } = dynamicPunchSpringPop(elapsedMs, captionDuration);
+          const color = classifyDynamicPunchWord(word.word, index, activeCaption.id, config);
+
+          const isEmphasized = color !== (config.textColor || "#FFFFFF");
+          const tiltHash = stableHash(`dp-tilt-${activeCaption.id}-${word.word}-${index}`);
+          const tilt = (config.randomTiltEnabled !== false && isEmphasized && (tiltHash % 100 < 35))
+            ? ((tiltHash % 61) / 10 - 3)
+            : 0;
+
+          const textTransform = config.textTransform === "uppercase"
+            ? "uppercase"
+            : config.textTransform === "lowercase"
+            ? "lowercase"
+            : "none";
+
+          return (
+            <span
+              key={`${activeCaption.id}-dp-${index}-${word.start}`}
+              style={{
+                display: "inline-block",
+                fontFamily: resolveFontFamily(config.fontFamily || "Montserrat"),
+                fontSize,
+                fontWeight: config.fontWeight || 900,
+                letterSpacing: `${config.letterSpacing || 0}px`,
+                color,
+                textTransform,
+                WebkitTextStroke: strokeWidth ? `${strokeWidth}px ${config.textStrokeColor || "#000000"}` : undefined,
+                paintOrder: strokeWidth ? "stroke fill" : undefined,
+                textShadow: shadow,
+                opacity,
+                transform: `rotate(${tilt}deg) scale(${animScale * (config.scale || 1)})`,
+                transformOrigin: "center center",
+                ...SAFE_CAPTION_TEXT_STYLE,
+              }}
+            >
+              {word.word}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function renderAppleCinematic(
@@ -1321,6 +1468,10 @@ export default function CaptionRenderer({
 
   if (activeCaption.theme === "mrbeast_style") {
     return renderMrBeastStyle(activeCaption, currentTime, fps, scale, styleConfig, canvasSize);
+  }
+
+  if (activeCaption.theme === "dynamic_punch") {
+    return renderDynamicPunchStyle(activeCaption, currentTime, fps, scale, styleConfig, canvasSize);
   }
 
   if (activeCaption.theme === "apple_cinematic") {

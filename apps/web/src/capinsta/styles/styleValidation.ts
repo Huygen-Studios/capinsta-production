@@ -121,7 +121,14 @@ export function normalizeCapinstaCaptionStyle(
 			maxLines: option(merged.text.maxLines, base.text.maxLines, MAX_LINES),
 			color: colorValue(merged.text.color, base.text.color),
 			opacity: clamp(merged.text.opacity, base.text.opacity, 0, 1),
-			textTransform: merged.text.textTransform === "uppercase" ? "uppercase" : "none",
+			textTransform:
+				merged.text.textTransform === "uppercase"
+					? "uppercase"
+					: merged.text.textTransform === "lowercase"
+						? "lowercase"
+						: merged.text.textTransform === "original"
+							? "original"
+							: "none",
 			letterSpacing: clamp(merged.text.letterSpacing, base.text.letterSpacing, -2, 8),
 		},
 		background: {

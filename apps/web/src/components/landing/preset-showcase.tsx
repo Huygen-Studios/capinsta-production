@@ -10,6 +10,7 @@ const FEATURED_IDS = [
 	"kinetic_fade",
 	"mrbeast_style",
 	"modern_minimalist_lockup",
+	"dynamic_punch",
 ] as const;
 
 export function getPublicPresetOrder() {

@@ -185,18 +185,17 @@ describe("Capinsta export render helpers", () => {
 		const document = updateCaptionClipText(
 			baseDocument,
 			clipId,
-			"Make the clean cut",
+			"Build your edit",
 		);
 		const renderData = getCapinstaTextRenderDataForElement({
 			records: [recordForDocument(document)],
-			element: elementForClip({ document, content: "Make the clean cut" }),
+			element: elementForClip({ document, content: "Build your edit" }),
 		});
 
 		expect(renderData?.words.map((word) => word.text)).toEqual([
-			"Make",
-			"the",
-			"clean",
-			"cut",
+			"Build",
+			"your",
+			"edit",
 		]);
 		expect(renderData?.timingNeedsReview).toBe(false);
 	});
@@ -357,6 +356,7 @@ describe("Capinsta export render helpers", () => {
 			["kinetic_fade", "kinetic_fade"],
 			["mrbeast_style", "mrbeast_style"],
 			["modern_minimalist_lockup", "modern_minimalist_lockup"],
+			["dynamic_punch", "dynamic_punch"],
 		]);
 
 		for (const preset of CAPINSTA_CAPTION_PRESETS) {

@@ -54,6 +54,7 @@ def sparse_compatibility_reason(theme: str, style_config: dict[str, Any] | None)
         "kinetic_fade",
         "attention_punch",
         "modern_minimalist_lockup",
+        "dynamic_punch",
         "minimal",
         "outline_bold",
     }

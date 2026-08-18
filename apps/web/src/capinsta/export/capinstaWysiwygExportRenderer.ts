@@ -240,7 +240,8 @@ function drawInlinePresetCaption({
 		| "kinetic_fade"
 		| "attention_punch"
 		| "mrbeast_style"
-		| "apple_cinematic";
+		| "apple_cinematic"
+		| "dynamic_punch";
 }): CapinstaWysiwygExportResult {
 	const model = createCapinstaRenderModelFromExportData({
 		renderData,
@@ -762,6 +763,16 @@ export function renderCapinstaWysiwygExportCaption({
 			timeSeconds: resolvedTimeSeconds,
 			canvasSize,
 			strategy: "mrbeast_style",
+		});
+	}
+	if (presetId === "dynamic_punch") {
+		return drawInlinePresetCaption({
+			ctx,
+			renderData,
+			activeWordIds,
+			timeSeconds: resolvedTimeSeconds,
+			canvasSize,
+			strategy: "dynamic_punch",
 		});
 	}
 	if (presetId === "apple_cinematic") {

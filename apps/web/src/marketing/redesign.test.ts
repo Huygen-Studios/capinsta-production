@@ -17,15 +17,16 @@ describe("ScrubbableNumberField modifiers", () => {
 });
 
 describe("public preset registry", () => {
-	test("shows the six approved presets first without duplicating registry data", () => {
+	test("shows the approved presets first without duplicating registry data", () => {
 		const ordered = getPublicPresetOrder();
-		expect(ordered.map(({ id }) => id).slice(0, 6)).toEqual([
+		expect(ordered.map(({ id }) => id).slice(0, 7)).toEqual([
 			"word_highlight_box",
 			"attention_punch",
 			"apple_cinematic",
 			"kinetic_fade",
 			"mrbeast_style",
 			"modern_minimalist_lockup",
+			"dynamic_punch",
 		]);
 		expect(new Set(ordered.map(({ id }) => id))).toEqual(
 			new Set(CAPINSTA_CAPTION_PRESETS.map(({ id }) => id)),

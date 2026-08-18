@@ -343,10 +343,17 @@ function buildCaptionFromWordGroup(
   const start = roundWordTime(Math.max(0, normalizedWords[0]?.start ?? 0));
   const lastWordEnd = roundWordTime(Math.max(start + MIN_SYNTHETIC_WORD_DURATION, normalizedWords[normalizedWords.length - 1]?.end ?? start));
   const maxHold = Math.max(0, options.maxHoldAfterWord ?? DEFAULT_CAPTION_CHUNKING_CONFIG.maxHoldAfterWord);
-  const holdWindow = Number.isFinite(nextWordStart)
-    ? Math.max(0, (nextWordStart as number) - CAPTION_OVERLAP_EPSILON - lastWordEnd)
-    : maxHold;
-  const end = roundWordTime(Math.max(start + MIN_SYNTHETIC_WORD_DURATION, lastWordEnd + Math.min(maxHold, holdWindow)));
+  let end: number;
+  if (options.maxHoldAfterWord === 0 || theme === "dynamic_punch") {
+    end = Number.isFinite(nextWordStart)
+      ? roundWordTime(Math.max(lastWordEnd, (nextWordStart as number) - CAPTION_OVERLAP_EPSILON))
+      : roundWordTime(lastWordEnd + 0.12);
+  } else {
+    const holdWindow = Number.isFinite(nextWordStart)
+      ? Math.max(0, (nextWordStart as number) - CAPTION_OVERLAP_EPSILON - lastWordEnd)
+      : maxHold;
+    end = roundWordTime(Math.max(start + MIN_SYNTHETIC_WORD_DURATION, lastWordEnd + Math.min(maxHold, holdWindow)));
+  }
 
   return {
     id: generateCaptionId(),
@@ -478,9 +485,12 @@ export function buildCaptionPages(
     const splitForPunctuation = /[.,!?;:]$/.test(lastWordText);
     const splitForOverflow = candidateText.length > maxChars;
     const firstWordText = getWordDisplayText(current[0]).trim();
-    const targetForCurrentPhrase = /^[₹$€£]?\d/.test(firstWordText)
-      ? Math.max(targetWords, 3)
-      : targetWords;
+    const targetForCurrentPhrase =
+      targetWords === 1
+        ? 1
+        : /^[₹$€£]?\d/.test(firstWordText)
+        ? Math.max(targetWords, 2)
+        : targetWords;
     const splitForTargetLength = current.length >= targetForCurrentPhrase;
 
     const shouldSplit =
@@ -508,6 +518,25 @@ export function segmentsToCaptions(
   theme: string = "word_highlight_box",
   options: CaptionChunkingConfig = DEFAULT_CAPTION_CHUNKING_CONFIG
 ): Caption[] {
+  const resolvedOptions = (options === DEFAULT_CAPTION_CHUNKING_CONFIG && theme === "dynamic_punch")
+    ? {
+        ...DEFAULT_CAPTION_CHUNKING_CONFIG,
+        targetWordsPerCaption: 1,
+        maxWordsPerCaption: 2,
+        minWordsPerCaption: 1,
+        maxCharsPerCaption: 20,
+        minCaptionDuration: 0.08,
+        maxCaptionDuration: 1.5,
+        pauseSplitThreshold: 0.3,
+        mergeSmallGapThreshold: 0.04,
+        targetReadingSpeedCps: 24,
+        wordTimingSensitivity: 1,
+        minWordDuration: 0.06,
+        maxHoldAfterWord: 0,
+        avoidSingleWordCaptions: false,
+        balanceLineLength: false,
+      }
+    : options;
   const captions: Caption[] = [];
   let timedWordBuffer: AlignedWord[] = [];
 
@@ -516,12 +545,12 @@ export function segmentsToCaptions(
 
     const groups = buildCaptionPages(
       [...timedWordBuffer].sort((a, b) => a.start - b.start),
-      options
+      resolvedOptions
     );
 
     groups.forEach((group, index) => {
       if (group.length === 0) return;
-      captions.push(buildCaptionFromWordGroup(group, groups[index + 1]?.[0]?.start, lang, theme, options));
+      captions.push(buildCaptionFromWordGroup(group, groups[index + 1]?.[0]?.start, lang, theme, resolvedOptions));
     });
 
     timedWordBuffer = [];
