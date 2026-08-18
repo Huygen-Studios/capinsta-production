@@ -350,7 +350,12 @@ export function normalizeCaptionStyleConfig(
 		paddingY: clamp(merged.paddingY, 4, 32, defaults.paddingY),
 		letterSpacing: clamp(merged.letterSpacing, -2, 8, defaults.letterSpacing),
 		lineHeight: clamp(merged.lineHeight, 0.9, 1.6, defaults.lineHeight),
-		textTransform: merged.textTransform === "uppercase" ? "uppercase" : "none",
+		textTransform:
+			merged.textTransform === "uppercase"
+				? "uppercase"
+				: merged.textTransform === "lowercase"
+					? "lowercase"
+					: "none",
 		textShadowEnabled: Boolean(merged.textShadowEnabled),
 		textStrokeEnabled: Boolean(merged.textStrokeEnabled),
 		textStrokeColor: safeColor(
