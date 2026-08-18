@@ -341,6 +341,8 @@ function renderMrBeastStyle(
       </div>
     </div>
   );
+}
+
 function dynamicPunchSpringPop(elapsedMs: number, wordDurationSeconds: number): { scale: number; opacity: number } {
   if (elapsedMs < 0) return { scale: 0.5, opacity: 0 };
 
