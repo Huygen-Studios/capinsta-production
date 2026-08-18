@@ -119,6 +119,7 @@ export function styleToPreview({
 						? "lowercase"
 						: "none",
 			letterSpacing: `${style.text.letterSpacing}px`,
+			wordSpacing: `${style.text.wordSpacing ?? 0}px`,
 			textShadow: style.shadow.enabled
 				? shadow(style.shadow)
 				: undefined,

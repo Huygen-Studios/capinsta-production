@@ -110,6 +110,7 @@ export interface CaptionStyle {
   position?: "bottom" | "top" | "center";
   textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
   letterSpacing?: string;
+  wordSpacing?: string;
   borderRadius?: string;
   padding?: string;
   backdropBlur?: number;
@@ -450,6 +451,7 @@ export interface CaptionStyleConfig {
   paddingX: number;
   paddingY: number;
   letterSpacing: number;
+  wordSpacing: number;
   lineHeight: number;
   textTransform: "none" | "uppercase" | "lowercase";
   textShadowEnabled: boolean;

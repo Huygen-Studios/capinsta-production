@@ -28,6 +28,7 @@ export const DEFAULT_WORD_HIGHLIGHT_BOX_CONFIG: CaptionStyleConfig = {
 	paddingX: 24,
 	paddingY: 14,
 	letterSpacing: 0,
+	wordSpacing: 0,
 	lineHeight: 1.12,
 	textTransform: "none",
 	textShadowEnabled: false,
@@ -109,7 +110,8 @@ export const MODERN_MINIMALIST_BASE_CONFIG: CaptionStyleConfig = {
 	backgroundOpacity: 0,
 	backgroundShadow: false,
 	backgroundBorderEnabled: false,
-	lineHeight: 0.95,
+	letterSpacing: 0,
+	wordSpacing: 0,
 	textTransform: "none",
 	textShadowEnabled: false,
 	textStrokeEnabled: false,
@@ -349,6 +351,7 @@ export function normalizeCaptionStyleConfig(
 		paddingX: clamp(merged.paddingX, 6, 48, defaults.paddingX),
 		paddingY: clamp(merged.paddingY, 4, 32, defaults.paddingY),
 		letterSpacing: clamp(merged.letterSpacing, -2, 8, defaults.letterSpacing),
+		wordSpacing: clamp(merged.wordSpacing, -10, 48, defaults.wordSpacing),
 		lineHeight: clamp(merged.lineHeight, 0.9, 1.6, defaults.lineHeight),
 		textTransform:
 			merged.textTransform === "uppercase"

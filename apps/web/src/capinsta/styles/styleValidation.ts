@@ -130,6 +130,7 @@ export function normalizeCapinstaCaptionStyle(
 							? "original"
 							: "none",
 			letterSpacing: clamp(merged.text.letterSpacing, base.text.letterSpacing, -2, 8),
+			wordSpacing: clamp(merged.text.wordSpacing, base.text.wordSpacing ?? 0, -10, 48),
 		},
 		background: {
 			enabled: bool(merged.background.enabled, base.background.enabled),

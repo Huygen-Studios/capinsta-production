@@ -205,11 +205,12 @@ export default function WordHighlightBoxCaption({
               data-active-word={isActive ? "true" : "false"}
               style={{
                 display: "inline-block",
-                marginInlineEnd: index < words.length - 1 ? "0.32em" : 0,
+                marginInlineEnd: index < words.length - 1 ? `calc(0.32em + ${config.wordSpacing || 0}px)` : 0,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontSize,
                   fontWeight: config.fontWeight,
                   letterSpacing: `${config.letterSpacing}px`,
+                  wordSpacing: `${config.wordSpacing || 0}px`,
                   lineHeight: config.lineHeight,
                   textTransform: config.textTransform,
                   color: hasActiveBackground

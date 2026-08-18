@@ -149,11 +149,12 @@ export default function ViralWordHighlightCaption({
               key={`${caption.id}-${index}-${word.start}`}
               style={{
                 display: "inline-block",
-                marginInlineEnd: index < words.length - 1 ? "0.35em" : 0,
+                marginInlineEnd: index < words.length - 1 ? `calc(0.35em + ${config.wordSpacing || 0}px)` : 0,
                 fontFamily: resolveFontFamily(config.fontFamily),
                 fontSize,
                 fontWeight: config.fontWeight,
-                letterSpacing: 0,
+                letterSpacing: `${config.letterSpacing || 0}px`,
+                wordSpacing: `${config.wordSpacing || 0}px`,
                 textTransform: "uppercase",
                 color: isActive ? "#22f4b8" : isVisible ? "#ffffff" : "transparent",
                 opacity: (() => {

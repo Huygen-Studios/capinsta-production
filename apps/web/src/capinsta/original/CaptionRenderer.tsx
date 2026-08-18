@@ -149,6 +149,13 @@ function easeOutExpo(t: number) {
   return safe === 1 ? 1 : 1 - Math.pow(2, -10 * safe);
 }
 
+function easeInOutCubic(t: number) {
+  const safe = clamp(t, 0, 1);
+  return safe < 0.5
+    ? 4 * safe * safe * safe
+    : 1 - Math.pow(-2 * safe + 2, 3) / 2;
+}
+
 function stableHash(value: string) {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -184,17 +191,19 @@ function wordMotionTransform(ageFrames: number, config: CaptionStyleConfig, isAn
   const lift = (config.animationType === "bounce" ? -4 : -2.5) * config.animationStrength;
 
   if (ageFrames <= peakFrame) {
+    const p = easeInOutCubic(ageFrames / peakFrame);
     const startScale = interpolate(config.animationStrength, 0, 1.4, 1, 0.98);
-    const scale = interpolate(ageFrames, 0, peakFrame, startScale, maxScale);
-    const y = interpolate(ageFrames, 0, peakFrame, 5 * config.animationStrength, lift);
-    return combineTransforms(`translateY(${y}px) scale(${scale})`, asymmetricScaleTransform(config, ageFrames / peakFrame));
+    const scale = startScale + (maxScale - startScale) * p;
+    const y = (5 * config.animationStrength) + (lift - 5 * config.animationStrength) * p;
+    return combineTransforms(`translateY(${y.toFixed(3)}px) scale(${scale.toFixed(3)})`, asymmetricScaleTransform(config, p));
   }
 
   if (ageFrames <= settleFrame) {
+    const p = easeInOutCubic((ageFrames - peakFrame) / Math.max(0.001, settleFrame - peakFrame));
     const settle = config.animationType === "bounce" && ageFrames < settleFrame - 2 ? 0.98 : 1;
-    const scale = interpolate(ageFrames, peakFrame, settleFrame, maxScale, settle);
-    const y = interpolate(ageFrames, peakFrame, settleFrame, lift, 0);
-    return combineTransforms(`translateY(${y}px) scale(${scale})`, asymmetricScaleTransform(config, 1 - (ageFrames - peakFrame) / Math.max(0.001, settleFrame - peakFrame)));
+    const scale = maxScale + (settle - maxScale) * p;
+    const y = lift * (1 - p);
+    return combineTransforms(`translateY(${y.toFixed(3)}px) scale(${scale.toFixed(3)})`, asymmetricScaleTransform(config, 1 - p));
   }
 
   return "translateY(0) scale(1)";
@@ -208,16 +217,17 @@ function wordEntranceStyle(wordStart: number, currentTime: number, fps: number, 
 
   const ageFrames = Math.max(0, (currentTime - wordStart) * fps);
   const duration = Math.max(2, Math.round(8 / Math.max(0.4, config.animationSpeed)));
-  const progress = easeOutExpo(ageFrames / duration);
+  const rawProgress = Math.max(0, Math.min(1, ageFrames / duration));
+  const progress = easeInOutCubic(rawProgress);
 
   if (config.entranceAnimation === "fade") {
     return { opacity: progress, transform: "translateY(0) scale(1)", filter: "none" };
   }
   if (config.entranceAnimation === "pop") {
-    const scale = progress < 0.72
-      ? interpolate(progress, 0, 0.72, 0.85, 1.05)
-      : interpolate(progress, 0.72, 1, 1.05, 1);
-    return { opacity: progress, transform: combineTransforms(`translateY(0) scale(${scale})`, asymmetricScaleTransform(config, progress)), filter: "none" };
+    const scale = rawProgress < 0.62
+      ? 0.82 + (1.10 - 0.82) * easeInOutCubic(rawProgress / 0.62)
+      : 1.10 - (1.10 - 1.00) * easeInOutCubic((rawProgress - 0.62) / 0.38);
+    return { opacity: progress, transform: combineTransforms(`translateY(0) scale(${scale.toFixed(4)})`, asymmetricScaleTransform(config, rawProgress)), filter: "none" };
   }
   if (config.entranceAnimation === "slide") {
     return { opacity: progress, transform: `translateY(${(1 - progress) * 16}px) scale(1)`, filter: "none" };
@@ -225,7 +235,7 @@ function wordEntranceStyle(wordStart: number, currentTime: number, fps: number, 
   if (config.entranceAnimation === "flip") {
     return {
       opacity: progress,
-      transform: `perspective(360px) rotateX(${(1 - progress) * -72}deg) scale(${interpolate(progress, 0, 1, 0.96, 1)})`,
+      transform: `perspective(360px) rotateX(${(1 - progress) * -72}deg) scale(${0.96 + progress * 0.04})`,
       filter: "none",
     };
   }
@@ -270,9 +280,18 @@ function mrBeastPopScale(ageFrames: number, config: CaptionStyleConfig) {
   if (ageFrames < 0) return 0;
   const peak = Math.max(1.02, config.activeWordScale);
   const undershoot = Math.max(0.9, 1 - config.animationStrength * 0.035);
-  if (ageFrames <= 1) return interpolate(ageFrames, 0, 1, 0, peak);
-  if (ageFrames <= 3) return interpolate(ageFrames, 1, 3, peak, undershoot);
-  if (ageFrames <= 5) return interpolate(ageFrames, 3, 5, undershoot, 1);
+  if (ageFrames <= 1.5) {
+    const p = easeInOutCubic(ageFrames / 1.5);
+    return peak * p;
+  }
+  if (ageFrames <= 3.5) {
+    const p = easeInOutCubic((ageFrames - 1.5) / 2);
+    return peak + (undershoot - peak) * p;
+  }
+  if (ageFrames <= 5.5) {
+    const p = easeInOutCubic((ageFrames - 3.5) / 2);
+    return undershoot + (1 - undershoot) * p;
+  }
   return 1;
 }
 
@@ -358,15 +377,13 @@ function dynamicPunchSpringPop(elapsedMs: number, wordDurationSeconds: number): 
   const peakT = 0.48;
 
   if (t <= peakT) {
-    const phaseT = t / peakT;
-    const easeProgress = 1 - Math.pow(1 - phaseT, 2);
-    const scale = 0.50 + (1.15 - 0.50) * easeProgress;
+    const phaseT = easeInOutCubic(t / peakT);
+    const scale = 0.50 + (1.18 - 0.50) * phaseT;
     const opacity = Math.min(1, phaseT * 2.5);
     return { scale, opacity };
   } else {
-    const phaseT = (t - peakT) / (1 - peakT);
-    const easeProgress = 1 - Math.pow(1 - phaseT, 2);
-    const scale = 1.15 - (1.15 - 1.00) * easeProgress;
+    const phaseT = easeInOutCubic((t - peakT) / (1 - peakT));
+    const scale = 1.18 - (1.18 - 1.00) * phaseT;
     return { scale, opacity: 1 };
   }
 }

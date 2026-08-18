@@ -1,6 +1,13 @@
 import type { CSSProperties } from "react";
 import type { CapinstaCaptionStyleV1 } from "../styles/styleTypes";
 
+export function easeInOutCubic(t: number): number {
+	const clamped = Math.max(0, Math.min(1, t));
+	return clamped < 0.5
+		? 4 * clamped * clamped * clamped
+		: 1 - Math.pow(-2 * clamped + 2, 3) / 2;
+}
+
 function interpolate({
 	input,
 	inMin,
@@ -15,7 +22,7 @@ function interpolate({
 	outMax: number;
 }) {
 	const t = Math.max(0, Math.min(1, (input - inMin) / (inMax - inMin)));
-	return outMin + (outMax - outMin) * t;
+	return outMin + (outMax - outMin) * easeInOutCubic(t);
 }
 
 export function getCapinstaEntranceStyle({
@@ -49,25 +56,14 @@ export function getCapinstaEntranceStyle({
 		};
 	}
 	if (transition === "pop") {
+		const normP = Math.max(0, Math.min(1, progress));
 		const boxScale =
-			progress < 0.72
-				? interpolate({
-						input: progress,
-						inMin: 0,
-						inMax: 0.72,
-						outMin: 0.85,
-						outMax: 1.05,
-					})
-				: interpolate({
-						input: progress,
-						inMin: 0.72,
-						inMax: 1,
-						outMin: 1.05,
-						outMax: 1,
-					});
+			normP < 0.62
+				? 0.82 + (1.10 - 0.82) * easeInOutCubic(normP / 0.62)
+				: 1.10 - (1.10 - 1.00) * easeInOutCubic((normP - 0.62) / 0.38);
 		return {
-			opacity: progress,
-			transform: `scale(${boxScale})`,
+			opacity: normP,
+			transform: `scale(${boxScale.toFixed(4)})`,
 		};
 	}
 	if (style?.reveal.blur && transition === "fade") {
