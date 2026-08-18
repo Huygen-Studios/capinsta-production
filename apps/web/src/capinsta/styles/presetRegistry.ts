@@ -92,7 +92,7 @@ interface CapinstaSourceStyleConfig {
 	paddingY?: number;
 	letterSpacing?: number;
 	lineHeight: number;
-	textTransform?: "none" | "uppercase";
+	textTransform?: "none" | "uppercase" | "lowercase";
 	textShadowEnabled?: boolean;
 	textShadowColor?: string;
 	textShadowOpacity?: number;

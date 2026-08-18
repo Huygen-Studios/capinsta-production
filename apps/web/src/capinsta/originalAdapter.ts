@@ -49,7 +49,12 @@ export function toOriginalCaptionStyleConfig({
 		paddingY: style.background.paddingY,
 		letterSpacing: style.text.letterSpacing,
 		lineHeight: style.text.lineHeight,
-		textTransform: style.text.textTransform,
+		textTransform:
+			style.text.textTransform === "uppercase"
+				? "uppercase"
+				: style.text.textTransform === "lowercase"
+					? "lowercase"
+					: "none",
 		textShadowEnabled: style.shadow.enabled,
 		textStrokeEnabled: style.outline.width > 0,
 		textStrokeColor: style.outline.color,

@@ -112,7 +112,12 @@ export function styleToPreview({
 			fontWeight: style.text.fontWeight,
 			fontSize: `${effectiveFontSize}px`,
 			lineHeight: style.text.lineHeight,
-			textTransform: style.text.textTransform,
+			textTransform:
+				style.text.textTransform === "uppercase"
+					? "uppercase"
+					: style.text.textTransform === "lowercase"
+						? "lowercase"
+						: "none",
 			letterSpacing: `${style.text.letterSpacing}px`,
 			textShadow: style.shadow.enabled
 				? shadow(style.shadow)
