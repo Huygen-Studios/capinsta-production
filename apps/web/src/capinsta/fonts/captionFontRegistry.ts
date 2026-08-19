@@ -225,11 +225,13 @@ export function resolveCapinstaFont(
 }
 
 export function normalizeCapinstaFontWeight(
-	weight: number | "normal" | "bold",
+	weight: number | "normal" | "bold" | string,
 ): number {
 	if (weight === "normal") return 400;
 	if (weight === "bold") return 700;
-	return Math.max(100, Math.min(900, Math.round(weight / 100) * 100));
+	const num = typeof weight === "number" ? weight : Number(weight);
+	if (!isNaN(num) && num > 0) return Math.max(100, Math.min(900, Math.round(num / 100) * 100));
+	return 400;
 }
 
 export function resolveCapinstaFontFace({

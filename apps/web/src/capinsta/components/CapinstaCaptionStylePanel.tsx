@@ -466,22 +466,30 @@ export function CapinstaCaptionStylePanel(
 				<label className="grid gap-1 text-xs">
 					<span className="text-muted-foreground">Weight</span>
 					<select
-						value={commonValue("text.fontWeight", style.text.fontWeight)}
-						onChange={(event) =>
+						value={String(commonValue("text.fontWeight", style.text.fontWeight))}
+						onChange={(event) => {
+							const val = event.currentTarget.value;
+							const num = Number(val);
 							updateStyle({
 								text: {
-									fontWeight:
-										event.currentTarget.value === "normal" ? "normal" : "bold",
+									fontWeight: !isNaN(num) ? num : val === "bold" ? "bold" : "normal",
 								},
-							})
-						}
+							});
+						}}
 						className="bg-background rounded-sm border px-2 py-1"
 					>
 						{hasMixedValue("text.fontWeight") ? (
 							<option value="">Mixed</option>
 						) : null}
-						<option value="normal">Normal</option>
-						<option value="bold">Bold</option>
+						<option value="100">Thin (100)</option>
+						<option value="200">Extra Light (200)</option>
+						<option value="300">Light (300)</option>
+						<option value="normal">Normal / Regular (400)</option>
+						<option value="500">Medium (500)</option>
+						<option value="600">SemiBold (600)</option>
+						<option value="bold">Bold (700)</option>
+						<option value="800">ExtraBold (800)</option>
+						<option value="900">Black (900)</option>
 					</select>
 				</label>
 				<label className="grid gap-1 text-xs">
