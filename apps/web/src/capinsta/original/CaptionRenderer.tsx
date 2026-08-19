@@ -94,7 +94,8 @@ function buildConfigTextShadow(config: CaptionStyleConfig) {
     config.textShadowOpacity,
     config.textShadowDistance,
     config.textShadowBlur,
-    config.textShadowAngle
+    config.textShadowAngle,
+    config.textShadowIntensity || 1
   );
   return shadow || undefined;
 }

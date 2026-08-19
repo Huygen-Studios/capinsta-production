@@ -100,6 +100,7 @@ interface CapinstaSourceStyleConfig {
 	textShadowBlur?: number;
 	textShadowDistance?: number;
 	textShadowAngle?: number;
+	textShadowIntensity?: number;
 	textStrokeEnabled?: boolean;
 	textStrokeColor?: string;
 	textStrokeWidth?: number;
@@ -219,6 +220,7 @@ function sourcePresetPatch({
 			blur: source.textShadowBlur ?? 8,
 			distance: source.textShadowDistance ?? 4,
 			angle: source.textShadowAngle ?? 45,
+			intensity: source.textShadowIntensity ?? 1,
 		},
 		activeWord: {
 			color: source.activeWordColor,
@@ -618,8 +620,9 @@ export const CAPINSTA_CAPTION_PRESETS: CapinstaPresetDefinition[] = [
 					textShadowColor: "#000000",
 					textShadowOpacity: 1,
 					textShadowBlur: 0,
-					textShadowDistance: 4,
+					textShadowDistance: 6,
 					textShadowAngle: 45,
+					textShadowIntensity: 2,
 					textStrokeEnabled: true,
 					textStrokeColor: "#000000",
 					textStrokeWidth: 8,

@@ -645,6 +645,7 @@ function drawWordHighlightBoxCaption({
 				config.textShadowDistance,
 				config.textShadowBlur,
 				config.textShadowAngle,
+				config.textShadowIntensity || 1,
 			)
 		: "";
 	ctx.shadowColor = "transparent";
@@ -668,13 +669,18 @@ function drawWordHighlightBoxCaption({
 			const fillStyle = active ? config.activeWordColor : config.textColor;
 
 			if (shadow) {
-				const parts = /(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(.+)/.exec(shadow);
-				if (parts) {
-					ctx.shadowOffsetX = Number(parts[1]);
-					ctx.shadowOffsetY = Number(parts[2]);
-					ctx.shadowBlur = Number(parts[3]);
-					ctx.shadowColor = parts[4] ?? "transparent";
+				const shadowPasses = shadow.split(/\s*,\s*/).filter(Boolean);
+				for (const passStr of shadowPasses) {
+					const parts = /(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px\s+(.+)/.exec(passStr);
+					if (parts) {
+						ctx.shadowOffsetX = Number(parts[1]);
+						ctx.shadowOffsetY = Number(parts[2]);
+						ctx.shadowBlur = Number(parts[3]);
+						ctx.shadowColor = parts[4] ?? "transparent";
+						ctx.fillText(text, x, y);
+					}
 				}
+				ctx.shadowColor = "transparent";
 			}
 			drawTextWithOptionalStroke({
 				ctx,

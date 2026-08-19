@@ -65,6 +65,7 @@ export function toOriginalCaptionStyleConfig({
 		textShadowBlur: style.shadow.blur,
 		textShadowDistance: style.shadow.distance,
 		textShadowAngle: style.shadow.angle,
+		textShadowIntensity: style.shadow.intensity ?? 1,
 		activeWordScale: style.activeWord.scale,
 		activeWordGlow: style.activeWord.glow,
 		activeWordBackgroundEnabled: style.activeWord.backgroundEnabled,

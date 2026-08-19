@@ -160,8 +160,9 @@ export function normalizeCapinstaCaptionStyle(
 			color: colorValue(merged.shadow.color, base.shadow.color),
 			opacity: clamp(merged.shadow.opacity, base.shadow.opacity, 0, 1),
 			blur: clamp(merged.shadow.blur, base.shadow.blur, 0, 80),
-			distance: clamp(merged.shadow.distance, base.shadow.distance, 0, 80),
+			distance: clamp(merged.shadow.distance, base.shadow.distance, 0, 120),
 			angle: clamp(merged.shadow.angle, base.shadow.angle, 0, 360),
+			intensity: clamp(merged.shadow.intensity, base.shadow.intensity ?? 1, 1, 5),
 		},
 		activeWord: {
 			color: colorValue(merged.activeWord.color, base.activeWord.color),

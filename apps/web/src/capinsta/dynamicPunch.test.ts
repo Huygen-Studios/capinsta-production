@@ -27,7 +27,8 @@ describe("Dynamic Punch Caption Preset", () => {
 		expect(style.outline.color).toBe("#000000");
 		expect(style.shadow.enabled).toBe(true);
 		expect(style.shadow.blur).toBe(0);
-		expect(style.shadow.distance).toBe(4);
+		expect(style.shadow.distance).toBe(6);
+		expect(style.shadow.intensity).toBe(2);
 		expect(style.shadow.color).toBe("#000000");
 
 		// Center positioning

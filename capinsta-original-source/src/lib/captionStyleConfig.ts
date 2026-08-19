@@ -87,6 +87,7 @@ export const DEFAULT_WORD_HIGHLIGHT_BOX_CONFIG: CaptionStyleConfig = {
   textShadowBlur: 8,
   textShadowDistance: 4,
   textShadowAngle: 45,
+  textShadowIntensity: 1,
   activeWordScale: 1.06,
   activeWordGlow: false,
   activeWordBackgroundEnabled: false,
@@ -287,13 +288,28 @@ export function directionalShadow(
   opacity: number,
   distance: number,
   blur: number,
-  angle: number
+  angle: number,
+  intensity: number = 1
 ) {
   if (opacity <= 0 || (distance <= 0 && blur <= 0)) return "";
   const radians = (angle * Math.PI) / 180;
-  const x = Math.cos(radians) * distance;
-  const y = Math.sin(radians) * distance;
-  return `${x.toFixed(1)}px ${y.toFixed(1)}px ${Math.max(0, blur)}px ${colorToRgba(color, opacity)}`;
+  const steps = Math.max(1, Math.min(10, Math.round(intensity)));
+  const rgba = colorToRgba(color, opacity);
+
+  if (steps === 1) {
+    const x = Math.cos(radians) * distance;
+    const y = Math.sin(radians) * distance;
+    return `${x.toFixed(1)}px ${y.toFixed(1)}px ${Math.max(0, blur)}px ${rgba}`;
+  }
+
+  const parts: string[] = [];
+  for (let i = 1; i <= steps; i++) {
+    const stepDistance = (distance * i) / steps;
+    const x = Math.cos(radians) * stepDistance;
+    const y = Math.sin(radians) * stepDistance;
+    parts.push(`${x.toFixed(1)}px ${y.toFixed(1)}px ${Math.max(0, blur)}px ${rgba}`);
+  }
+  return parts.join(", ");
 }
 
 export function normalizeCaptionStyleConfig(
@@ -340,8 +356,9 @@ export function normalizeCaptionStyleConfig(
     textShadowColor: safeColor(merged.textShadowColor, defaults.textShadowColor),
     textShadowOpacity: clamp(merged.textShadowOpacity, 0, 1, defaults.textShadowOpacity),
     textShadowBlur: clamp(merged.textShadowBlur, 0, 24, defaults.textShadowBlur),
-    textShadowDistance: clamp(merged.textShadowDistance, 0, 24, defaults.textShadowDistance),
+    textShadowDistance: clamp(merged.textShadowDistance, 0, 120, defaults.textShadowDistance),
     textShadowAngle: clamp(merged.textShadowAngle, 0, 360, defaults.textShadowAngle),
+    textShadowIntensity: clamp(merged.textShadowIntensity, 1, 5, defaults.textShadowIntensity || 1),
     activeWordScale: clamp(merged.activeWordScale, 1, 1.16, defaults.activeWordScale),
     activeWordGlow: Boolean(merged.activeWordGlow),
     activeWordBackgroundEnabled: Boolean(merged.activeWordBackgroundEnabled),

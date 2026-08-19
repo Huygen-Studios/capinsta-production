@@ -790,6 +790,15 @@ export function CapinstaCaptionStylePanel(
 					onChange={(opacity) => updateStyle({ shadow: { opacity } })}
 				/>
 				<CapinstaSliderControl
+					label="Shadow intensity"
+					value={commonValue("shadow.intensity", style.shadow.intensity ?? 1)}
+					mixed={hasMixedValue("shadow.intensity")}
+					min={1}
+					max={5}
+					step={1}
+					onChange={(intensity) => updateStyle({ shadow: { intensity } })}
+				/>
+				<CapinstaSliderControl
 					label="Shadow blur"
 					value={commonValue("shadow.blur", style.shadow.blur)}
 					mixed={hasMixedValue("shadow.blur")}
@@ -802,7 +811,7 @@ export function CapinstaCaptionStylePanel(
 					value={commonValue("shadow.distance", style.shadow.distance)}
 					mixed={hasMixedValue("shadow.distance")}
 					min={0}
-					max={36}
+					max={120}
 					onChange={(distance) => updateStyle({ shadow: { distance } })}
 				/>
 				<CapinstaSliderControl

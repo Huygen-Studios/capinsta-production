@@ -463,6 +463,7 @@ export interface CaptionStyleConfig {
   textShadowBlur: number;
   textShadowDistance: number;
   textShadowAngle: number;
+  textShadowIntensity: number;
   activeWordScale: number;
   activeWordGlow: boolean;
   activeWordBackgroundEnabled: boolean;
