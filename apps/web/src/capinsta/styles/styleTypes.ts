@@ -69,7 +69,7 @@ export interface CapinstaCaptionShadowStyle {
 	blur: number;
 	distance: number;
 	angle: number;
-	intensity: number;
+	intensity?: number;
 }
 
 export interface CapinstaCaptionActiveWordStyle {

@@ -56,6 +56,7 @@ export const DEFAULT_CAPINSTA_CAPTION_STYLE: CapinstaCaptionStyleV1 = {
 		blur: 8,
 		distance: 4,
 		angle: 45,
+		intensity: 1,
 	},
 	activeWord: {
 		color: "#FFD43B",
