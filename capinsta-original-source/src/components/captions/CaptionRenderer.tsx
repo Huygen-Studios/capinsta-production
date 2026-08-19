@@ -419,9 +419,14 @@ function renderDynamicPunchStyle(
     ? Math.max(1, fontSize * 0.10)
     : 0;
 
-  const shadowOffset = Math.max(2, Math.round(fontSize * 0.045));
   const shadow = config.textShadowEnabled !== false
-    ? `${shadowOffset}px ${shadowOffset}px 0px ${config.textShadowColor || "#000000"}`
+    ? buildConfigTextShadow({
+        ...config,
+        textShadowDistance: Math.max(
+          config.textShadowDistance || 4,
+          (config.textShadowDistance || 4) + (strokeWidth ? strokeWidth * 0.4 : 0)
+        ),
+      })
     : undefined;
 
   const captionDuration = Math.max(0.08, activeCaption.end - activeCaption.start);

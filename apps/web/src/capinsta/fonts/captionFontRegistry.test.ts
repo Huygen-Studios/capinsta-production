@@ -54,12 +54,21 @@ describe("Capinsta caption font registry", () => {
 	test("every registered bundled face exists in public caption-fonts", () => {
 		for (const definition of CAPINSTA_FONT_REGISTRY) {
 			for (const fontFace of definition.faces) {
-				const filePath = path.join(
+				const candidatePath1 = path.join(
+					process.cwd(),
+					"apps",
+					"web",
+					"public",
+					"caption-fonts",
+					...fontFace.file.split("/"),
+				);
+				const candidatePath2 = path.join(
 					process.cwd(),
 					"public",
 					"caption-fonts",
 					...fontFace.file.split("/"),
 				);
+				const filePath = existsSync(candidatePath1) ? candidatePath1 : candidatePath2;
 				expect(existsSync(filePath)).toBe(true);
 				expect(statSync(filePath).size).toBeGreaterThan(0);
 				expect([".ttf", ".otf", ".woff", ".woff2"]).toContain(
