@@ -11,7 +11,20 @@ import {
 import { FONT_SIZE_SCALE_REFERENCE } from "./typography";
 
 export type TextAlign = "left" | "center" | "right";
-export type TextFontWeight = "normal" | "bold";
+export type TextFontWeight =
+	| "normal"
+	| "bold"
+	| "100"
+	| "200"
+	| "300"
+	| "400"
+	| "500"
+	| "600"
+	| "700"
+	| "800"
+	| "900"
+	| number
+	| string;
 export type TextFontStyle = "normal" | "italic";
 export type TextDecoration = "none" | "underline" | "line-through";
 
@@ -80,7 +93,7 @@ export function resolveTextLayout({
 }): ResolvedTextLayout {
 	const scaledFontSize =
 		text.fontSize * (canvasHeight / FONT_SIZE_SCALE_REFERENCE);
-	const fontWeight = text.fontWeight === "bold" ? "bold" : "normal";
+	const fontWeight = text.fontWeight || "normal";
 	const fontStyle = text.fontStyle === "italic" ? "italic" : "normal";
 	const letterSpacing = text.letterSpacing ?? DEFAULTS.text.letterSpacing;
 	const lineHeightPx =

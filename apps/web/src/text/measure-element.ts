@@ -281,7 +281,10 @@ function readFontWeight({
 	value: unknown;
 	fallback: TextFontWeight;
 }): TextFontWeight {
-	return value === "bold" || value === "normal" ? value : fallback;
+	if (typeof value === "string" || typeof value === "number") {
+		return String(value) as TextFontWeight;
+	}
+	return fallback;
 }
 
 function readFontStyle({

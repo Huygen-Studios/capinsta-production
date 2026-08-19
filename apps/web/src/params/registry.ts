@@ -221,8 +221,15 @@ const textElementParams: ElementParamDefinition[] = [
 		default: "normal",
 		keyframable: false,
 		options: [
-			{ value: "normal", label: "Normal" },
-			{ value: "bold", label: "Bold" },
+			{ value: "100", label: "Thin (100)" },
+			{ value: "200", label: "Extra Light (200)" },
+			{ value: "300", label: "Light (300)" },
+			{ value: "normal", label: "Normal (400)" },
+			{ value: "500", label: "Medium (500)" },
+			{ value: "600", label: "SemiBold (600)" },
+			{ value: "bold", label: "Bold (700)" },
+			{ value: "800", label: "ExtraBold (800)" },
+			{ value: "900", label: "Black (900)" },
 		],
 	},
 	{
